@@ -1,17 +1,22 @@
 import Dexie, { type Table } from "dexie";
 import { create } from "zustand";
 import type { ApiConfig, ApiCredential } from "./api";
+import type { Conversation, Message, WorldCharacterProfile } from "./chatTypes";
 export interface World {
   id: string;
   name: string;
   description: string;
+  rules?: string;
+  background?: string;
   createdAt: number;
 }
 export interface Character {
   id: string;
-  worldId: string;
+  /** Legacy association retained for rollback; new links use worldProfiles. */
+  worldId?: string;
   name: string;
   persona: string;
+  speakingStyle?: string;
   avatar?: string;
   /** Absent means use the enabled default API configuration. */
   apiConfigId?: string;
@@ -47,6 +52,9 @@ export interface Asset {
   createdAt: number;
 }
 class PhoneDB extends Dexie {
+  conversations!: Table<Conversation>;
+  messages!: Table<Message>;
+  worldProfiles!: Table<WorldCharacterProfile>;
   apiConfigs!: Table<ApiConfig>;
   apiCredentials!: Table<ApiCredential>;
   worlds!: Table<World>;
@@ -70,6 +78,26 @@ class PhoneDB extends Dexie {
       apiConfigs: "id,provider",
       apiCredentials: "configId",
     });
+    this.version(3)
+      .stores({
+        conversations: "id,&scopeKey,characterId,worldId,updatedAt",
+        messages: "id,conversationId,[conversationId+createdAt]",
+        worldProfiles: "id,&[worldId+characterId],worldId,characterId",
+      })
+      .upgrade(async (tx) => {
+        const characters = await tx.table("characters").toArray();
+        for (const c of characters)
+          if (c.worldId && (await tx.table("worlds").get(c.worldId))) {
+            await tx
+              .table("worldProfiles")
+              .put({
+                id: crypto.randomUUID(),
+                worldId: c.worldId,
+                characterId: c.id,
+                setting: "",
+              });
+          }
+      });
   }
 }
 export const db = new PhoneDB();
@@ -122,6 +150,7 @@ interface State {
   worldId: string;
   worlds: World[];
   characters: Character[];
+  worldProfiles: WorldCharacterProfile[];
   pages: DesktopPage[];
   items: DesktopItem[];
   theme: Theme;
@@ -141,6 +170,7 @@ export const usePhone = create<State>((set, get) => ({
   worldId: "",
   worlds: [],
   characters: [],
+  worldProfiles: [],
   pages: [],
   items: [],
   theme: defaultTheme,
@@ -168,19 +198,20 @@ export const usePhone = create<State>((set, get) => ({
     }
   },
   reload: async () => {
-    const [worlds, characters, pages, items, theme, assets] = await Promise.all(
-      [
+    const [worlds, characters, pages, items, theme, assets, worldProfiles] =
+      await Promise.all([
         db.worlds.toArray(),
         db.characters.toArray(),
         db.pages.orderBy("order").toArray(),
         db.items.toArray(),
         db.themes.get("global"),
         db.assets.toArray(),
-      ],
-    );
+        db.worldProfiles.toArray(),
+      ]);
     set({
       worlds,
       characters,
+      worldProfiles,
       pages,
       items,
       theme: theme || defaultTheme,

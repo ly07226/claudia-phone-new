@@ -1,3 +1,6 @@
+import { Chat } from "./Chat";
+import { CharacterManager } from "./CharacterManager";
+import { deleteWorld } from "./chatService";
 import { ApiSettings } from "./ApiSettings";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -37,7 +40,6 @@ import {
   moveItem,
   type DesktopItem,
   type World,
-  type Character,
 } from "./store";
 import "./style.css";
 const icons = [
@@ -266,11 +268,11 @@ function App() {
                   </div>
                   <div className="card">
                     <h3>
-                      Claudia Phone <small>第二阶段 · 2.1</small>
+                      Claudia Phone <small>第二阶段 · 2.2</small>
                     </h3>
                     <p>
-                      所有数据仅保存在当前浏览器。可配置和测试 AI
-                      API，正式聊天尚未实现。
+                      所有数据仅保存在当前浏览器。日常与世界聊天相互隔离，API
+                      凭据仅存本地。
                     </p>
                   </div>
                   <button
@@ -325,6 +327,10 @@ function App() {
                     恢复默认桌面布局与主题
                   </button>
                 </>
+              ) : s.activeApp === "聊天" ? (
+                <Chat />
+              ) : s.activeApp === "世界聊天" ? (
+                <Chat worldId={s.worldId} />
               ) : s.activeApp === "AI / API 设置" ? (
                 <ApiSettings />
               ) : s.activeApp === "主题编辑器" ? (
@@ -475,7 +481,7 @@ function App() {
               ) : s.activeApp === "世界管理" ? (
                 <Worlds />
               ) : s.activeApp === "角色管理" ? (
-                <Characters fileChange={fileChange} />
+                <CharacterManager fileChange={fileChange} />
               ) : (
                 <div className="placeholder">
                   <div className="placeholder-icon">
@@ -801,6 +807,8 @@ function Worlds() {
                 id: form.id || crypto.randomUUID(),
                 name: form.name!.trim(),
                 description: form.description || "",
+                rules: form.rules || "",
+                background: form.background || "",
                 createdAt: form.createdAt || Date.now(),
               }),
             ).then((ok) => {
@@ -831,6 +839,24 @@ function Worlds() {
               }
             />
           </label>
+          <label>
+            世界规则
+            <textarea
+              aria-label="世界规则"
+              maxLength={4000}
+              value={form.rules || ""}
+              onChange={(e) => setForm({ ...form, rules: e.target.value })}
+            />
+          </label>
+          <label>
+            世界背景与补充
+            <textarea
+              aria-label="世界背景"
+              maxLength={6000}
+              value={form.background || ""}
+              onChange={(e) => setForm({ ...form, background: e.target.value })}
+            />
+          </label>
           <div className="actions">
             <button type="button" onClick={() => setForm(null)}>
               取消
@@ -845,7 +871,7 @@ function Worlds() {
         <div className="empty">
           <Globe2 size={42} />
           <h3>从一个世界开始</h3>
-          <p>创建世界后，即可在其中添加专属角色。</p>
+          <p>创建世界后可关联基础角色；没有世界也可以日常聊天。</p>
         </div>
       )}
       {s.worlds.map((w) => (
@@ -859,7 +885,7 @@ function Worlds() {
           </p>
           <small>
             {new Date(w.createdAt).toLocaleDateString("zh-CN")} ·{" "}
-            {s.characters.filter((c) => c.worldId === w.id).length} 位角色
+            {s.worldProfiles.filter((p) => p.worldId === w.id).length} 位角色
           </small>
           <div className="actions">
             <button
@@ -874,20 +900,15 @@ function Worlds() {
               className="danger"
               aria-label={`删除世界${w.name}`}
               onClick={() => {
-                if (confirm(`删除「${w.name}」及其中全部角色？`))
-                  void safeWrite(() =>
-                    db.transaction(
-                      "rw",
-                      [db.worlds, db.characters],
-                      async () => {
-                        await db.characters
-                          .where("worldId")
-                          .equals(w.id)
-                          .delete();
-                        await db.worlds.delete(w.id);
-                      },
-                    ),
-                  );
+                if (
+                  confirm(
+                    `删除世界「${w.name}」及其世界聊天记录和关联？基础角色与日常聊天将保留。`,
+                  ) &&
+                  confirm(
+                    "再次确认删除该世界及其全部世界会话？此操作不可撤销。",
+                  )
+                )
+                  void safeWrite(() => deleteWorld(w.id));
               }}
             >
               删除
@@ -895,182 +916,6 @@ function Worlds() {
           </div>
         </div>
       ))}
-    </>
-  );
-}
-function Characters({
-  fileChange,
-}: {
-  fileChange: (
-    file: File | undefined,
-    type: "avatar",
-    done: (id: string) => Promise<unknown>,
-  ) => Promise<void>;
-}) {
-  const s = usePhone();
-  const selected = s.worlds.some((w) => w.id === s.worldId)
-    ? s.worldId
-    : s.worlds[0]?.id || "";
-  const [form, setForm] = useState<Partial<Character> | null>(null);
-  return (
-    <>
-      <div className="page-title">
-        <span className="eyebrow">PEOPLE IN YOUR UNIVERSE</span>
-        <h2>角色管理</h2>
-        <p>相遇，从一段人设开始。</p>
-      </div>
-      {!selected ? (
-        <div className="empty">
-          <Users size={42} />
-          <h3>先为角色创建一个世界</h3>
-          <p>角色始终属于一个世界，彼此的数据独立。</p>
-          <button
-            className="primary"
-            onClick={() => s.set({ activeApp: "世界管理" })}
-          >
-            去创建世界
-          </button>
-        </div>
-      ) : (
-        <>
-          <label className="world-select">
-            当前世界
-            <select
-              aria-label="当前世界"
-              value={selected}
-              onChange={(e) => {
-                s.set({ worldId: e.target.value });
-                setForm(null);
-              }}
-            >
-              {s.worlds.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="primary"
-            onClick={() =>
-              setForm({ worldId: selected, name: "", persona: "" })
-            }
-          >
-            <Plus size={17} />
-            创建角色
-          </button>
-          {form && (
-            <form
-              className="card form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (form.worldId !== selected) return;
-                void safeWrite(async () => {
-                  if (!(await db.worlds.get(selected)))
-                    throw Error("世界不存在");
-                  await db.characters.put({
-                    id: form.id || crypto.randomUUID(),
-                    worldId: selected,
-                    name: form.name!.trim(),
-                    persona: form.persona || "",
-                    avatar: form.avatar,
-                    apiConfigId: form.apiConfigId,
-                  });
-                }).then((ok) => {
-                  if (ok) setForm(null);
-                });
-              }}
-            >
-              <h3>{form.id ? "编辑角色" : "新角色"}</h3>
-              <label>
-                姓名
-                <input
-                  aria-label="角色姓名"
-                  required
-                  pattern=".*\S.*"
-                  maxLength={80}
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                />
-              </label>
-              <label>
-                人设
-                <textarea
-                  aria-label="角色人设"
-                  maxLength={20000}
-                  value={form.persona}
-                  onChange={(e) =>
-                    setForm({ ...form, persona: e.target.value })
-                  }
-                />
-              </label>
-              <label className="upload avatar-upload">
-                {form.avatar ? (
-                  <img
-                    src={s.assets.find((a) => a.id === form.avatar)?.data}
-                    alt="角色头像预览"
-                  />
-                ) : (
-                  <Users />
-                )}{" "}
-                上传头像
-                <input
-                  aria-label="上传头像"
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) =>
-                    void fileChange(e.target.files?.[0], "avatar", async (id) =>
-                      setForm({ ...form, avatar: id }),
-                    )
-                  }
-                />
-              </label>
-              <div className="actions">
-                <button type="button" onClick={() => setForm(null)}>
-                  取消
-                </button>
-                <button type="submit" className="primary">
-                  保存角色
-                </button>
-              </div>
-            </form>
-          )}
-          {s.characters
-            .filter((c) => c.worldId === selected)
-            .map((c) => (
-              <div className="card" key={c.id}>
-                <div className="card-heading">
-                  {c.avatar ? (
-                    <img
-                      className="avatar"
-                      alt={`${c.name}头像`}
-                      src={s.assets.find((a) => a.id === c.avatar)?.data}
-                    />
-                  ) : (
-                    <Users size={27} />
-                  )}
-                  <h3>{c.name}</h3>
-                </div>
-                <p className="preserve">{c.persona || "尚未填写人设"}</p>
-                <div className="actions">
-                  <button onClick={() => setForm(c)}>编辑角色</button>
-                  <button
-                    className="danger"
-                    onClick={() => {
-                      if (confirm(`删除角色「${c.name}」？`))
-                        void safeWrite(() => db.characters.delete(c.id));
-                    }}
-                  >
-                    删除角色
-                  </button>
-                </div>
-              </div>
-            ))}
-          {!form && !s.characters.some((c) => c.worldId === selected) && (
-            <p className="empty">这个世界还没有角色，创建第一位吧。</p>
-          )}
-        </>
-      )}
     </>
   );
 }

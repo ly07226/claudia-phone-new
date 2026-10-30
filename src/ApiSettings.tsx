@@ -126,9 +126,9 @@ export function ApiSettings() {
   return (
     <div className="api-settings">
       <div className="page-title">
-        <span className="eyebrow">AI CONNECTIONS · 2.1</span>
+        <span className="eyebrow">AI CONNECTIONS · 2.2</span>
         <h2>AI / API 设置</h2>
-        <p>管理多个连接，为未来的角色聊天做准备。</p>
+        <p>管理日常与世界聊天使用的多个 API 连接。</p>
       </div>
       <div className="card">
         <h3>仅保存在此浏览器</h3>
@@ -137,7 +137,10 @@ export function ApiSettings() {
           是客户端本地凭据，并非服务器秘密。同源脚本、浏览器扩展或能访问设备的人可能读取它；请使用限额、可撤销的专用
           Key。测试会将 Key 发送到你填写的 HTTPS 服务，请只使用信任的地址。
         </p>
-        <p>测试可能产生少量费用。不绕过 CORS，正式聊天尚未开放。</p>
+        <p>
+          测试和聊天可能产生 API 费用。不绕过
+          CORS；请使用支持浏览器直连的可信服务。
+        </p>
       </div>
       {error && (
         <p className="api-error" role="alert">
@@ -368,7 +371,7 @@ export function ApiSettings() {
           </label>
           <p className="hint">
             Temperature 与 Max Tokens
-            为未来聊天参数。当前测试固定极短输出，不保证所有模型支持；模型列表自动获取接口已预留。
+            为正式聊天参数。当前测试固定极短输出，不保证所有模型支持；模型列表自动获取接口已预留。
           </p>
           <div className="actions">
             <button
@@ -519,7 +522,7 @@ export function ApiSettings() {
           </div>
         ))}
       <p className="hint">
-        未来角色可指定配置
+        角色可指定配置
         ID；未指定时使用已启用的默认配置。停用的指定配置不会被静默调用，需先调整选择。
       </p>
     </div>
