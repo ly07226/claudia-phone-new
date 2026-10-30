@@ -106,7 +106,7 @@ export function ChatMessage({
             </div>
             <p>{m.content}</p>
           </div>
-          {m.role === "assistant" && (
+          {m.role === "assistant" && variants.length > 1 && (
             <div className="message-versions" aria-label="回复版本">
               <button
                 aria-label="上一个回复版本"

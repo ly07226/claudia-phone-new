@@ -989,3 +989,52 @@ test("编辑器固定打开时版本，生成完成后不能把旧草稿误写�
   expect(state.rows[1].content).toBe("NEW_API_VERSION");
   expect(state.variants.some((v) => v.content === "OLD_DRAFT")).toBe(false);
 });
+
+test("单版本无切换器及占位，重新生成成功显示新版本，失败保持原显示", async ({ page }) => {
+  const { daily } = await seed(page);
+  await responses(page);
+  await page.evaluate(async (id) => {
+    const { sendMessage } = await import("/src/chatService.ts");
+    await sendMessage(id, "UI_SINGLE_VERSION");
+  }, daily.id);
+  await page.reload();
+  await page.getByRole("button", { name: "聊天", exact: true }).click();
+  await page.getByRole("button", { name: /消息角色.*开始/ }).click();
+  const ai = page.locator(".chat-assistant");
+  const switcher = ai.getByLabel("回复版本", { exact: true });
+  await expect(ai).toContainText("REPLY_1");
+  await expect(switcher).toHaveCount(0);
+  expect(await ai.evaluate(el => {
+    const surface = el.querySelector(".chat-bubble-surface")!;
+    return Math.abs(el.getBoundingClientRect().height - surface.getBoundingClientRect().height);
+  })).toBeLessThanOrEqual(1);
+  let fail = true;
+  await page.unroute("https://messages.example.test/**");
+  await page.route("https://messages.example.test/**", r => fail
+    ? r.fulfill({ status: 401, json: { error: { message: "Unauthorized" } } })
+    : r.fulfill({ json: { choices: [{ message: { content: "NEW_VERSION" } }] } }));
+  async function regenerate() {
+    await ai.getByRole("button", { name: "AI 消息操作" }).click();
+    await page.getByRole("button", { name: "重新生成", exact: true }).click();
+  }
+  await regenerate();
+  await expect(page.getByRole("alert")).toContainText("认证失败");
+  await expect(ai).toContainText("REPLY_1");
+  await expect(switcher).toHaveCount(0);
+  fail = false;
+  await regenerate();
+  await expect(ai).toContainText("NEW_VERSION");
+  await expect(switcher).toContainText("2 / 2");
+  await expect(switcher.getByRole("button", { name: "上一个回复版本" })).toBeEnabled();
+  await expect(switcher.getByRole("button", { name: "下一个回复版本" })).toBeDisabled();
+  fail = true;
+  await regenerate();
+  await expect(page.getByRole("alert")).toContainText("认证失败");
+  await expect(ai).toContainText("NEW_VERSION");
+  await expect(switcher).toContainText("2 / 2");
+  await page.reload();
+  await page.getByRole("button", { name: "聊天", exact: true }).click();
+  await page.getByRole("button", { name: /消息角色.*开始/ }).click();
+  await expect(ai).toContainText("NEW_VERSION");
+  await expect(switcher).toContainText("2 / 2");
+});
