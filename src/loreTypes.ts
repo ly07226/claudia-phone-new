@@ -1,3 +1,11 @@
+export const lorePositions = [
+  "before-profile",
+  "after-profile",
+  "before-conversation",
+  "after-conversation",
+  "at-depth",
+] as const;
+export type LorePosition = (typeof lorePositions)[number];
 export interface Lorebook {
   id: string;
   name: string;
@@ -24,7 +32,12 @@ export interface LoreEntry {
   selective: boolean;
   selectiveLogic: 0 | 1 | 2 | 3;
   priority: number;
-  insertionPosition: "before-profile" | "after-profile";
+  insertionPosition: LorePosition;
+  insertionDepth?: number;
+  role?: "system" | "user" | "assistant";
+  regex?: boolean;
+  useProbability?: boolean;
+  probability?: number;
   scanDepth: number | null;
   caseSensitive: boolean;
   createdAt: number;
@@ -75,9 +88,27 @@ export const newEntry = (lorebookId: string): LoreEntry => ({
   selectiveLogic: 0,
   priority: 100,
   insertionPosition: "after-profile",
+  insertionDepth: 0,
+  role: "system",
+  regex: false,
+  useProbability: false,
+  probability: 100,
   scanDepth: null,
   caseSensitive: false,
   createdAt: Date.now(),
   updatedAt: Date.now(),
   compatibilityIssues: [],
 });
+
+/** Missing v4 extension fields retain 2.3 behavior, without writing a migration. */
+export function normalizeEntry(e: LoreEntry): LoreEntry {
+  return {
+    ...e,
+    insertionDepth: e.insertionDepth ?? 0,
+    role: e.role ?? "system",
+    regex: e.regex ?? false,
+    useProbability: e.useProbability ?? false,
+    probability: e.probability ?? 100,
+    compatibilityIssues: e.compatibilityIssues ?? [],
+  };
+}

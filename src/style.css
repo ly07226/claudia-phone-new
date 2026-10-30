@@ -1091,3 +1091,37 @@ textarea {
   font-size: 12px;
   text-decoration: none;
 }
+.lore-import-control {
+  position: relative;
+  width: 100%;
+}
+.lore-import-button {
+  width: 100%;
+  min-height: 48px !important;
+}
+.lore-app .lore-file-input {
+  position: absolute;
+  width: 1px !important;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  pointer-events: none;
+}
+.lore-content-editor {
+  min-height: 240px;
+  line-height: 1.65;
+}
+.lore-entry-details summary h3 {
+  display: inline;
+}
+.lore-entry-details summary span {
+  display: block;
+  font-size: 11px;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.lore-entry-details .preserve {
+  max-height: 300px;
+  overflow: auto;
+}

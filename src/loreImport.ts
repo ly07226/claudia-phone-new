@@ -1,5 +1,8 @@
+import { regexError } from "./loreRegex";
 import { db } from "./store";
 import {
+  lorePositions,
+  normalizeEntry,
   loreLimits,
   newBook,
   newEntry,
@@ -35,7 +38,8 @@ export function validateLore(book: Lorebook, entries: LoreEntry[]) {
   if (entries.length > loreLimits.entries)
     throw Error("单本世界书最多 3000 条。");
   let total = 0;
-  for (const e of entries) {
+  for (const raw of entries) {
+    const e = normalizeEntry(raw);
     if (
       typeof e.content !== "string" ||
       e.content.length > loreLimits.contentChars ||
@@ -48,10 +52,21 @@ export function validateLore(book: Lorebook, entries: LoreEntry[]) {
     if (
       !integer(e.priority, -100000, 100000) ||
       !integer(e.selectiveLogic, 0, 3) ||
-      !["before-profile", "after-profile"].includes(e.insertionPosition) ||
+      !lorePositions.includes(e.insertionPosition) ||
+      !integer(e.insertionDepth, 0, 30) ||
+      !["system", "user", "assistant"].includes(e.role!) ||
+      !Number.isFinite(e.probability) ||
+      e.probability! < 0 ||
+      e.probability! > 100 ||
       (e.scanDepth !== null && !integer(e.scanDepth, 1, 30))
     )
       throw Error("条目高级参数不合法。");
+    if (
+      e.regex &&
+      regexError([...e.primaryKeys, ...e.secondaryKeys], e.caseSensitive) &&
+      !e.compatibilityIssues.length
+    )
+      throw Error("条目正则无效，请检查表达式与 flags。");
     total += e.content.length;
     if (total > loreLimits.totalChars)
       throw Error("世界书内容总量最多 200 万字符。");
@@ -125,6 +140,10 @@ export function parseLorebook(
   const entries: LoreEntry[] = [];
   let invalid = 0;
   const supported = new Set([
+    "regex",
+    "useRegex",
+    "role",
+    "insertionDepth",
     "uid",
     "key",
     "keys",
@@ -168,6 +187,11 @@ export function parseLorebook(
           priority: (r.priority ?? 100) as number,
           insertionPosition: (r.insertionPosition ??
             "after-profile") as LoreEntry["insertionPosition"],
+          insertionDepth: (r.insertionDepth ?? 0) as number,
+          role: (r.role ?? "system") as LoreEntry["role"],
+          regex: r.regex === true,
+          useProbability: r.useProbability === true,
+          probability: (r.probability ?? 100) as number,
           scanDepth: (r.scanDepth ?? null) as number | null,
           caseSensitive: r.caseSensitive === true,
           compatibilityIssues: Array.isArray(r.compatibilityIssues)
@@ -208,38 +232,50 @@ export function parseLorebook(
           e.insertionPosition = "after-profile";
         else if (r.position === 0 || r.position === "before_char")
           e.insertionPosition = "before-profile";
+        else if (r.position === 4 || r.position === "at_depth")
+          e.insertionPosition = "at-depth";
         else
           e.compatibilityIssues.push(
-            "插入位置不是基础前置/后置位置，暂不执行。",
+            "外部 Position 无法一一对应当前注入位置，已暂停。",
           );
         if (r.scanDepth !== undefined && r.scanDepth !== null)
           e.scanDepth = r.scanDepth as number;
+        if (e.insertionPosition === "at-depth")
+          e.insertionDepth = (r.depth ?? r.insertionDepth ?? 0) as number;
+        e.role =
+          r.role === undefined
+            ? "system"
+            : r.role === 0 || r.role === "system"
+              ? "system"
+              : r.role === 1 || r.role === "user"
+                ? "user"
+                : r.role === 2 || r.role === "assistant"
+                  ? "assistant"
+                  : "system";
         if (
-          r.depth !== undefined &&
-          r.position !== undefined &&
-          r.position !== 0 &&
-          r.position !== 1 &&
-          r.position !== "before_char" &&
-          r.position !== "after_char"
+          r.role !== undefined &&
+          ![0, 1, 2, "system", "user", "assistant"].includes(
+            r.role as string | number,
+          )
         )
-          e.compatibilityIssues.push(
-            "depth 是外部提示插入深度，不等同扫描消息数，暂不执行。",
-          );
-        if (
-          r.useProbability !== false &&
-          r.probability !== undefined &&
-          r.probability !== 100
-        )
-          e.compatibilityIssues.push("概率触发暂不支持。");
+          e.compatibilityIssues.push("外部 Role 不受支持，已暂停。");
+        e.useProbability =
+          r.useProbability === true ||
+          (r.useProbability === undefined && r.probability !== undefined);
+        e.probability = (r.probability ?? 100) as number;
+        const wrapped = (k: string) => /^\/.*\/[a-z]*$/i.test(k);
+        const explicitRegex = r.regex === true || r.useRegex === true;
+        e.regex =
+          explicitRegex || [...e.primaryKeys, ...e.secondaryKeys].some(wrapped);
+        if (e.regex && !explicitRegex) {
+          const escape = (k: string) =>
+            wrapped(k) ? k : k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          e.primaryKeys = e.primaryKeys.map(escape);
+          e.secondaryKeys = e.secondaryKeys.map(escape);
+        }
         for (const k of Object.keys(r))
           if (!supported.has(k))
             e.compatibilityIssues.push(`未识别字段：${k.slice(0, 80)}`);
-        if (
-          [...e.primaryKeys, ...e.secondaryKeys].some((k) =>
-            /^\/.*\/[a-z]*$/i.test(k),
-          )
-        )
-          e.compatibilityIssues.push("正则关键词暂不支持。");
         if (!integer(e.selectiveLogic, 0, 3)) {
           e.compatibilityIssues.push("未知 selectiveLogic，暂不执行。");
           e.selectiveLogic = 0;
@@ -259,6 +295,11 @@ export function parseLorebook(
           "selectiveLogic",
           "priority",
           "insertionPosition",
+          "insertionDepth",
+          "role",
+          "regex",
+          "useProbability",
+          "probability",
           "scanDepth",
           "caseSensitive",
           "createdAt",
@@ -278,6 +319,11 @@ export function parseLorebook(
           e.rawMetadata = { ...e.rawMetadata, unrecognizedNativeFields: extra };
         }
       }
+      if (
+        e.regex &&
+        regexError([...e.primaryKeys, ...e.secondaryKeys], e.caseSensitive)
+      )
+        e.compatibilityIssues.push("正则表达式无效，已暂停，请在编辑器修正。");
       validateLore(book, [e]);
       entries.push(e);
       if (e.compatibilityIssues.length)
@@ -369,7 +415,8 @@ export function exportLorebook(book: Lorebook, entries: LoreEntry[]) {
         charBudget: book.charBudget,
         rawMetadata: book.rawMetadata,
       },
-      entries: [...entries]
+      entries: entries
+        .map(normalizeEntry)
         .sort(
           (a, b) =>
             b.priority - a.priority ||

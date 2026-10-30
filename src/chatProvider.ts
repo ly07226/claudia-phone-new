@@ -5,6 +5,37 @@ import {
   browserTransport,
 } from "./api";
 import type { ContextMessage } from "./chatTypes";
+/** Gemini has one systemInstruction. In-history system entries degrade to labelled user context at the same slot. */
+export function geminiMessages(messages: ContextMessage[]) {
+  const contents: { role: "user" | "model"; parts: { text: string }[] }[] = [];
+  for (const m of messages.slice(1)) {
+    const role = m.role === "assistant" ? "model" : "user";
+    const text =
+      m.role === "system" ? `[系统设定资料]\n${m.content}` : m.content;
+    const last = contents.at(-1);
+    if (last?.role === role) last.parts.push({ text });
+    else contents.push({ role, parts: [{ text }] });
+  }
+  // Avoid a leading model turn or trailing assistant prefill on restrictive Gemini endpoints.
+  if (contents[0]?.role === "model")
+    contents[0] = {
+      role: "user",
+      parts: [{ text: "[角色参考资料]" }, ...contents[0].parts],
+    };
+  if (contents.at(-1)?.role === "model") {
+    const last = contents.pop()!;
+    const text = last.parts.map((p) => p.text).join("\n");
+    const tail = contents.at(-1);
+    if (tail?.role === "user")
+      tail.parts.push({ text: `[角色参考资料]\n${text}` });
+    else
+      contents.push({
+        role: "user",
+        parts: [{ text: `[角色参考资料]\n${text}` }],
+      });
+  }
+  return contents;
+}
 /** Direct browser transport: no public arbitrary-URL server proxy is exposed. */
 export async function requestReply(
   c: ApiConfig,
@@ -12,6 +43,7 @@ export async function requestReply(
   messages: ContextMessage[],
   signal: AbortSignal,
   transport: ApiTransport = browserTransport,
+  allowRoleFallback = true,
 ): Promise<string> {
   const error = validateConfig(c, key);
   if (error) throw Error(error);
@@ -32,12 +64,7 @@ export async function requestReply(
   const body = gemini
     ? {
         systemInstruction: { parts: [{ text: messages[0].content }] },
-        contents: messages
-          .slice(1)
-          .map((m) => ({
-            role: m.role === "assistant" ? "model" : "user",
-            parts: [{ text: m.content }],
-          })),
+        contents: geminiMessages(messages),
         generationConfig: {
           temperature: c.temperature,
           maxOutputTokens: c.maxTokens,
@@ -81,6 +108,29 @@ export async function requestReply(
     data = await response.json();
   } catch {
     throw Error("服务响应不是有效 JSON，请检查接口地址。");
+  }
+  const roleError =
+    String(data?.error?.code || "") +
+    " " +
+    String(data?.error?.param || "") +
+    " " +
+    String(data?.error?.message || "");
+  if (
+    !gemini &&
+    allowRoleFallback &&
+    [400, 422].includes(response.status) &&
+    /unsupported[_ ]role|invalid[_ ]role|messages\[.*\]\.role|role.{0,60}(unsupported|not supported|not allowed)|does not support.{0,40}(system|assistant|user)/i.test(
+      roleError,
+    )
+  ) {
+    const fallback: ContextMessage[] = messages.map((m) => ({
+      role: "user",
+      content:
+        m.role === "user"
+          ? m.content
+          : `[${m.role === "system" ? "系统资料" : "角色历史或设定"}]\n${m.content}`,
+    }));
+    return requestReply(c, key, fallback, signal, transport, false);
   }
   if (!response.ok || data?.error)
     throw Error(

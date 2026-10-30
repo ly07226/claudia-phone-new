@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { evaluateRegex, regexError } from "./loreRegex";
+import { useEffect, useState, useRef } from "react";
 import { db, usePhone } from "./store";
 import {
+  normalizeEntry,
   newBook,
   newEntry,
   loreLimits,
@@ -15,12 +17,18 @@ import {
   validateLore,
 } from "./loreImport";
 const keyText = (keys: string[]) => keys.join("\n");
-const keyLines = (s: string) =>
+const keyLines = (s: string, regex = false) =>
   s
-    .split(/\n|,|，/)
+    .split(regex ? /\n/ : /\n|,|，/)
     .map((x) => x.trim())
     .filter(Boolean);
 export function Lorebooks() {
+  const fileInput = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<HTMLFormElement>(null);
+  const primaryInput = useRef<HTMLTextAreaElement>(null);
+  const secondaryInput = useRef<HTMLTextAreaElement>(null);
+  const [regexSample, setRegexSample] = useState("");
+  const [regexTest, setRegexTest] = useState("");
   const worlds = usePhone((s) => s.worlds);
   const [books, setBooks] = useState<Lorebook[]>([]);
   const [selected, setSelected] = useState<Lorebook | null>(null);
@@ -40,12 +48,14 @@ export function Lorebooks() {
       const b = await db.lorebooks.get(id);
       setSelected(b || null);
       setEntries(
-        (await db.loreEntries.where("lorebookId").equals(id).toArray()).sort(
-          (a, b) =>
-            b.priority - a.priority ||
-            a.createdAt - b.createdAt ||
-            a.id.localeCompare(b.id),
-        ),
+        (await db.loreEntries.where("lorebookId").equals(id).toArray())
+          .map(normalizeEntry)
+          .sort(
+            (a, b) =>
+              b.priority - a.priority ||
+              a.createdAt - b.createdAt ||
+              a.id.localeCompare(b.id),
+          ),
       );
     }
   };
@@ -80,6 +90,12 @@ export function Lorebooks() {
   useEffect(() => {
     setExportUrl("");
   }, [selected?.id]);
+  useEffect(() => {
+    setRegexTest("");
+    setRegexSample("");
+    if (entryForm)
+      editorRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+  }, [entryForm?.id]);
   const filtered = entries.filter((e) =>
     `${e.title} ${e.primaryKeys.join(" ")}`
       .toLowerCase()
@@ -88,7 +104,7 @@ export function Lorebooks() {
   return (
     <div className="lore-app">
       <div className="page-title">
-        <span className="eyebrow">LOREBOOK · 2.3</span>
+        <span className="eyebrow">LOREBOOK · 2.3.1</span>
         <h2>世界书 / Lorebook</h2>
         <p>
           只注入激活条目的内容，规则可增强遵循概率，但不能保证模型始终遵守。
@@ -110,9 +126,21 @@ export function Lorebooks() {
         >
           新建世界书
         </button>
-        <label className="primary upload">
-          导入世界书
+        <div className="lore-import-control">
+          <button
+            type="button"
+            className="primary lore-import-button"
+            disabled={busy}
+            onClick={() => fileInput.current?.click()}
+          >
+            从 JSON 导入世界书
+          </button>
+          <p className="hint">
+            选择“文件”中的 .json，预览后确认导入，不会覆盖已有世界书。
+          </p>
           <input
+            ref={fileInput}
+            className="lore-file-input"
             aria-label="导入世界书"
             type="file"
             accept=".json,application/json"
@@ -130,7 +158,7 @@ export function Lorebooks() {
               });
             }}
           />
-        </label>
+        </div>
       </div>
       {preview && (
         <section className="card lore-preview">
@@ -270,7 +298,7 @@ export function Lorebooks() {
           <details>
             <summary>高级设置</summary>
             <label>
-              默认扫描消息数
+              默认关键词扫描深度
               <input
                 aria-label="世界书扫描深度"
                 type="number"
@@ -455,6 +483,7 @@ export function Lorebooks() {
           </button>
           {entryForm && (
             <form
+              ref={editorRef}
               className="card form"
               onSubmit={(e) => {
                 e.preventDefault();
@@ -503,22 +532,103 @@ export function Lorebooks() {
                 关键词（逗号或换行分隔）
                 <textarea
                   aria-label="条目关键词"
+                  ref={primaryInput}
                   key={`primary-${entryForm.id}`}
                   defaultValue={keyText(entryForm.primaryKeys)}
                   onChange={(e) =>
                     setEntryForm({
                       ...entryForm,
-                      primaryKeys: keyLines(e.target.value),
+                      primaryKeys: keyLines(e.target.value, entryForm.regex),
                     })
                   }
                 />
               </label>
+              <label className="lore-check">
+                <input
+                  aria-label="使用正则"
+                  type="checkbox"
+                  checked={entryForm.regex ?? false}
+                  onChange={(e) => {
+                    setRegexTest("");
+                    setEntryForm({
+                      ...entryForm,
+                      regex: e.target.checked,
+                      primaryKeys: keyLines(
+                        primaryInput.current?.value ??
+                          keyText(entryForm.primaryKeys),
+                        e.target.checked,
+                      ),
+                      secondaryKeys: keyLines(
+                        secondaryInput.current?.value ??
+                          keyText(entryForm.secondaryKeys),
+                        e.target.checked,
+                      ),
+                    });
+                  }}
+                />
+                Regex / 使用正则
+              </label>
+              {entryForm.regex && (
+                <div>
+                  <p className="hint">
+                    正则每行一条（不拆逗号），支持裸表达式或
+                    /pattern/flags。普通模式支持逗号及换行。
+                  </p>
+                  {regexError(
+                    [...entryForm.primaryKeys, ...entryForm.secondaryKeys],
+                    entryForm.caseSensitive,
+                  ) && (
+                    <p role="alert" className="api-error">
+                      正则无效：请检查表达式或 flags。
+                    </p>
+                  )}
+                  <label>
+                    正则测试文本
+                    <textarea
+                      aria-label="正则测试文本"
+                      value={regexSample}
+                      onChange={(e) => setRegexSample(e.target.value)}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const issue = regexError(
+                        [...entryForm.primaryKeys, ...entryForm.secondaryKeys],
+                        entryForm.caseSensitive,
+                      );
+                      if (issue) {
+                        setRegexTest(issue);
+                        return;
+                      }
+                      setRegexTest("测试中…");
+                      const result = await evaluateRegex([
+                        {
+                          id: "test",
+                          text: regexSample,
+                          primary: entryForm.primaryKeys,
+                          secondary: entryForm.secondaryKeys,
+                          caseSensitive: entryForm.caseSensitive,
+                        },
+                      ]);
+                      setRegexTest(
+                        result.test?.error ||
+                          `主关键词命中：${result.test.primary.some(Boolean) ? "是" : "否"}；辅助命中：${result.test.secondary.filter(Boolean).length}`,
+                      );
+                    }}
+                  >
+                    测试正则
+                  </button>
+                  <p role="status">{regexTest}</p>
+                </div>
+              )}
               <label>
                 内容
                 <textarea
                   aria-label="条目内容"
                   required
                   maxLength={20000}
+                  className="lore-content-editor"
                   value={entryForm.content}
                   onChange={(e) =>
                     setEntryForm({ ...entryForm, content: e.target.value })
@@ -567,18 +677,129 @@ export function Lorebooks() {
                   }
                 />
               </label>
+              <label>
+                插入位置
+                <select
+                  aria-label="条目插入位置"
+                  value={entryForm.insertionPosition}
+                  onChange={(e) =>
+                    setEntryForm({
+                      ...entryForm,
+                      insertionPosition: e.target
+                        .value as LoreEntry["insertionPosition"],
+                    })
+                  }
+                >
+                  <option value="before-profile">
+                    Before Character / 角色基础资料前
+                  </option>
+                  <option value="after-profile">
+                    After Character / 角色基础资料后
+                  </option>
+                  <option value="before-conversation">
+                    Before Conversation / 聊天记录前
+                  </option>
+                  <option value="after-conversation">
+                    After Conversation / 聊天记录后
+                  </option>
+                  <option value="at-depth">At Depth / 按深度插入</option>
+                </select>
+              </label>
+              {entryForm.insertionPosition === "at-depth" && (
+                <label>
+                  注入深度 Depth
+                  <input
+                    aria-label="注入深度 Depth"
+                    type="number"
+                    min={0}
+                    max={30}
+                    value={entryForm.insertionDepth ?? 0}
+                    onChange={(e) =>
+                      setEntryForm({
+                        ...entryForm,
+                        insertionDepth: e.target.valueAsNumber,
+                      })
+                    }
+                  />
+                  <span className="hint">
+                    0 = 聊天末尾；1 =
+                    最后一条历史消息之前。超出历史长度时插入记录前。
+                  </span>
+                </label>
+              )}
+              <label>
+                Role / 消息角色
+                <select
+                  aria-label="条目消息角色"
+                  value={entryForm.role ?? "system"}
+                  onChange={(e) =>
+                    setEntryForm({
+                      ...entryForm,
+                      role: e.target.value as LoreEntry["role"],
+                    })
+                  }
+                >
+                  <option value="system">System</option>
+                  <option value="user">User</option>
+                  <option value="assistant">Assistant</option>
+                </select>
+              </label>
+              <p className="hint">
+                OpenAI
+                协议保留所选角色；若服务明确拒绝角色，最多重试一次并转为带标识的
+                User 参考资料。Gemini 的历史内 System 会按原位置转为带标识的
+                User 资料，并合并连续同角色；首尾 Assistant 必要时降级为 User
+                参考资料。
+              </p>
+              <label className="lore-check">
+                <input
+                  aria-label="启用触发概率"
+                  type="checkbox"
+                  checked={entryForm.useProbability ?? false}
+                  onChange={(e) =>
+                    setEntryForm({
+                      ...entryForm,
+                      useProbability: e.target.checked,
+                    })
+                  }
+                />
+                启用 Probability / 触发概率
+              </label>
+              {entryForm.useProbability && (
+                <label>
+                  触发概率 0–100
+                  <input
+                    aria-label="触发概率"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="any"
+                    value={entryForm.probability ?? 100}
+                    onChange={(e) =>
+                      setEntryForm({
+                        ...entryForm,
+                        probability: e.target.valueAsNumber,
+                      })
+                    }
+                  />
+                </label>
+              )}
               <details>
                 <summary>高级设置</summary>
                 <label>
                   辅助关键词
                   <textarea
                     aria-label="辅助关键词"
+                    ref={secondaryInput}
                     key={`secondary-${entryForm.id}`}
                     defaultValue={keyText(entryForm.secondaryKeys)}
                     onChange={(e) =>
                       setEntryForm({
                         ...entryForm,
-                        secondaryKeys: keyLines(e.target.value),
+                        secondaryKeys: keyLines(
+                          e.target.value,
+                          entryForm.regex,
+                        ),
                       })
                     }
                   />
@@ -629,24 +850,7 @@ export function Lorebooks() {
                   区分大小写
                 </label>
                 <label>
-                  插入位置
-                  <select
-                    aria-label="条目插入位置"
-                    value={entryForm.insertionPosition}
-                    onChange={(e) =>
-                      setEntryForm({
-                        ...entryForm,
-                        insertionPosition: e.target
-                          .value as LoreEntry["insertionPosition"],
-                      })
-                    }
-                  >
-                    <option value="before-profile">基础系统资料之前</option>
-                    <option value="after-profile">基础系统资料之后</option>
-                  </select>
-                </label>
-                <label>
-                  扫描消息数（留空继承）
+                  关键词扫描深度（留空继承）
                   <input
                     aria-label="条目扫描深度"
                     type="number"
@@ -712,7 +916,25 @@ export function Lorebooks() {
           </label>
           {filtered.slice(page * 30, (page + 1) * 30).map((e) => (
             <div className="card" key={e.id}>
-              <h3>{e.title || "未命名条目"}</h3>
+              <details className="lore-entry-details">
+                <summary>
+                  <h3>{e.title || "未命名条目"}</h3>
+                  <span>
+                    {e.enabled ? "已启用" : "已停用"} ·{" "}
+                    {e.constant ? "Constant / 常驻" : "关键词触发"} ·{" "}
+                    {e.primaryKeys.slice(0, 3).join("、") || "无关键词"}
+                  </span>
+                </summary>
+                <p className="preserve">{e.content}</p>
+                <p>
+                  Regex：{e.regex ? "开" : "关"} · Role：{e.role ?? "system"} ·
+                  Position：{e.insertionPosition} · 注入深度：
+                  {e.insertionDepth ?? 0} · 关键词扫描深度：
+                  {e.scanDepth ?? "继承"} · 概率：
+                  {e.useProbability ? `${e.probability}%` : "关闭"} · Order：
+                  {e.priority}
+                </p>
+              </details>
               <p>
                 {e.content.slice(0, 180)}
                 {e.content.length > 180 ? "…" : ""}
@@ -739,6 +961,40 @@ export function Lorebooks() {
                   }
                 >
                   {e.enabled ? "停用条目" : "启用条目"}
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    void action(async () => {
+                      await db.transaction(
+                        "rw",
+                        [db.lorebooks, db.loreEntries],
+                        async () => {
+                          const b = await db.lorebooks.get(e.lorebookId);
+                          if (!b) throw Error("世界书已不存在。");
+                          const copy = {
+                            ...normalizeEntry(e),
+                            id: crypto.randomUUID(),
+                            title: `${e.title || "未命名条目"}（副本）`.slice(
+                              0,
+                              200,
+                            ),
+                            createdAt: Date.now(),
+                            updatedAt: Date.now(),
+                          };
+                          const rows = await db.loreEntries
+                            .where("lorebookId")
+                            .equals(b.id)
+                            .toArray();
+                          validateLore(b, [...rows, copy]);
+                          await db.loreEntries.add(copy);
+                        },
+                      );
+                      await reload(selected.id);
+                    })
+                  }
+                >
+                  复制条目
                 </button>
                 <button
                   className="danger"
