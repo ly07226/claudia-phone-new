@@ -171,6 +171,8 @@ test("World 正确角色与回退名称头像，会话说明只在菜单展示",
   await page.evaluate(async () => {
     const { usePhone } = await import("/src/store.ts");
     await usePhone.getState().reload();
+    const { useSpaces } = await import("/src/spaces.ts");
+    await useSpaces.getState().enterSpace("world:ui-w2");
     usePhone.getState().set({ activeApp: "世界聊天", worldId: "ui-w2" });
   });
   await page.getByRole("button", { name: /另一个世界角色.*开始/ }).click();

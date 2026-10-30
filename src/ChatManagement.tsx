@@ -1,3 +1,4 @@
+import { useSpaces } from "./spaces";
 import { useEffect, useRef, useState } from "react";
 import { MessageSheet } from "./MessageUI";
 import { resolveApi } from "./chatService";
@@ -142,6 +143,12 @@ export function ChatManagement({
         </div>
       ) : (
         <>
+          <button
+            className="message-action"
+            onClick={() => void useSpaces.getState().exitSpace()}
+          >
+            返回空间列表
+          </button>
           <button className="message-action" onClick={() => setSection("info")}>
             会话信息
           </button>

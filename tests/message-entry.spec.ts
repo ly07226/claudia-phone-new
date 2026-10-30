@@ -70,6 +70,8 @@ async function open(page: Page, world = false) {
   if (world)
     await page.evaluate(async () => {
       const { usePhone } = await import("/src/store.ts");
+      const { useSpaces } = await import("/src/spaces.ts");
+      await useSpaces.getState().enterSpace("world:entry-world");
       usePhone
         .getState()
         .set({ activeApp: "世界聊天", worldId: "entry-world" });

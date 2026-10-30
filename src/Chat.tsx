@@ -97,7 +97,11 @@ export function Chat({ worldId }: { worldId?: string }) {
       .catch(() => setError("无法读取 API 配置。"));
     return () => {
       mounted.current = false;
+      ++taskSequence.current;
       pending.current?.abort();
+      if (pending.current && activeConversation.current)
+        cancelGeneration(activeConversation.current);
+      activeConversation.current = null;
     };
   }, []);
   useLayoutEffect(() => {

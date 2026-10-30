@@ -1,3 +1,4 @@
+import { useSpaces } from "./spaces";
 import { useEffect, useState } from "react";
 import { db, safeWrite, usePhone, type Character } from "./store";
 import { deleteCharacter } from "./chatService";
@@ -14,9 +15,7 @@ export function CharacterManager({
 }) {
   const s = usePhone();
   const [selected, setSelected] = useState(
-    s.worlds.some((w) => w.id === s.worldId)
-      ? s.worldId
-      : s.worlds[0]?.id || "",
+    s.worlds.some((w) => w.id === s.worldId) ? s.worldId : "",
   );
   const [form, setForm] = useState<Partial<Character> | null>(null);
   const [profile, setProfile] = useState<WorldCharacterProfile | null>(null);
@@ -112,7 +111,15 @@ export function CharacterManager({
           </button>
           <button
             className="primary"
-            onClick={() => s.set({ worldId: selected, activeApp: "世界聊天" })}
+            onClick={() =>
+              void useSpaces
+                .getState()
+                .enterSpace(`world:${selected}`)
+                .then(() => {
+                  if (useSpaces.getState().space?.worldId === selected)
+                    s.set({ worldId: selected, activeApp: "世界聊天" });
+                })
+            }
           >
             进入世界聊天
           </button>
