@@ -1,3 +1,4 @@
+import { apiBase, fetchModels } from "./apiModels";
 import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Plus } from "lucide-react";
 import { db, usePhone } from "./store";
@@ -5,11 +6,14 @@ import {
   providers,
   testConnection,
   validateConfig,
+  type ModelOption,
   type ApiConfig,
   type TestResult,
 } from "./api";
 
 const labels: Record<TestResult["status"], string> = {
+  timeout: "请求超时",
+  cancelled: "请求已取消",
   testing: "测试中",
   success: "连接成功",
   validation: "请检查配置",
@@ -28,6 +32,14 @@ export function ApiSettings() {
   const [visible, setVisible] = useState(false);
   const [saving, setSaving] = useState(false);
   const [results, setResults] = useState<Record<string, TestResult>>({});
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [search, setSearch] = useState("");
+  const [modelResult, setModelResult] = useState<TestResult | null>(null);
+  const [draftResult, setDraftResult] = useState<TestResult | null>(null);
+  const [modelBusy, setModelBusy] = useState(false);
+  const [draftBusy, setDraftBusy] = useState(false);
+  const modelRequest = useRef<AbortController | null>(null);
+  const draftRequest = useRef<AbortController | null>(null);
   const [error, setError] = useState("");
   const running = useRef(new Map<string, AbortController>());
   const mounted = useRef(true);
@@ -46,6 +58,91 @@ export function ApiSettings() {
       running.current.clear();
     };
   }, []);
+  useEffect(() => {
+    modelRequest.current?.abort();
+    modelRequest.current = null;
+    setModels([]);
+    setSearch("");
+    setModelResult(null);
+    setModelBusy(false);
+  }, [form?.id, form?.baseUrl, form?.provider, form?.protocol, key]);
+  useEffect(() => {
+    draftRequest.current?.abort();
+    draftRequest.current = null;
+    setDraftResult(null);
+    setDraftBusy(false);
+  }, [
+    form?.id,
+    form?.baseUrl,
+    form?.provider,
+    form?.protocol,
+    form?.model,
+    form?.temperature,
+    form?.maxTokens,
+    key,
+  ]);
+  useEffect(
+    () => () => {
+      modelRequest.current?.abort();
+      draftRequest.current?.abort();
+    },
+    [],
+  );
+  async function loadModels() {
+    if (!form || modelRequest.current) return;
+    const controller = new AbortController();
+    modelRequest.current = controller;
+    setModelBusy(true);
+    setModelResult(null);
+    setModels([]);
+    try {
+      const result = await fetchModels(form, key, controller.signal);
+      if (
+        mounted.current &&
+        !controller.signal.aborted &&
+        modelRequest.current === controller
+      ) {
+        setModels(result.models);
+        setModelResult(result.result);
+      }
+    } finally {
+      if (mounted.current && modelRequest.current === controller) {
+        modelRequest.current = null;
+        setModelBusy(false);
+      }
+    }
+  }
+  async function testDraft() {
+    if (!form || draftRequest.current) return;
+    const controller = new AbortController();
+    draftRequest.current = controller;
+    setDraftBusy(true);
+    setDraftResult(null);
+    try {
+      const result = await testConnection(
+        {
+          ...form,
+          name: form.name.trim() || "未保存的连接",
+          baseUrl: apiBase(form.baseUrl),
+          enabled: true,
+          isDefault: false,
+        },
+        key.trim(),
+        controller.signal,
+      );
+      if (
+        mounted.current &&
+        !controller.signal.aborted &&
+        draftRequest.current === controller
+      )
+        setDraftResult(result);
+    } finally {
+      if (mounted.current && draftRequest.current === controller) {
+        draftRequest.current = null;
+        setDraftBusy(false);
+      }
+    }
+  }
   function fresh() {
     setVisible(false);
     setKey("");
@@ -105,7 +202,7 @@ export function ApiSettings() {
     try {
       const credential = await db.apiCredentials.get(c.id);
       const result = await testConnection(
-        c,
+        { ...c, baseUrl: apiBase(c.baseUrl) },
         credential?.apiKey || "",
         controller.signal,
       );
@@ -187,7 +284,7 @@ export function ApiSettings() {
                 {
                   ...form,
                   name: form.name.trim(),
-                  baseUrl: form.baseUrl.trim().replace(/\/+$/, ""),
+                  baseUrl: apiBase(form.baseUrl),
                   model: form.model.trim(),
                 },
                 key.trim(),
@@ -301,6 +398,77 @@ export function ApiSettings() {
               </button>
             </span>
           </label>
+          <div className="api-model-tools">
+            <button
+              className="primary"
+              type="button"
+              disabled={modelBusy || saving}
+              onClick={() => void loadModels()}
+            >
+              {modelBusy ? "获取中…" : "获取模型"}
+            </button>
+            <p className="hint">
+              使用当前表单的地址与 Key，无需先保存；也可始终手动填写 Model。
+            </p>
+            {modelBusy && <p role="status">正在获取模型列表…</p>}
+            {modelResult && (
+              <div className="api-model-result api-result" role="status">
+                <strong>
+                  {modelResult.status === "success"
+                    ? "模型列表已获取"
+                    : labels[modelResult.status]}
+                </strong>
+                <p>{modelResult.message}</p>
+              </div>
+            )}
+            {models.length > 0 && (
+              <>
+                <label>
+                  搜索模型
+                  <input
+                    aria-label="搜索模型"
+                    type="search"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </label>
+                <label>
+                  选择模型
+                  <select
+                    aria-label="选择模型"
+                    value={
+                      models.some((m) => m.id === form.model) ? form.model : ""
+                    }
+                    onChange={(e) => {
+                      if (e.target.value)
+                        setForm({ ...form, model: e.target.value });
+                    }}
+                  >
+                    <option value="">请选择，或在下方手动填写</option>
+                    {models
+                      .filter((m) =>
+                        `${m.id} ${m.name || ""}`
+                          .toLowerCase()
+                          .includes(search.toLowerCase()),
+                      )
+                      .slice(0, 200)
+                      .map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.id}
+                          {m.name ? ` · ${m.name}` : ""}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <p className="hint">
+                  搜索结果最多显示 200
+                  项；搜索可缩小范围。列表可见不代表账户一定有调用权限。
+                </p>
+              </>
+            )}
+          </div>
           <label>
             Model
             <input
@@ -314,6 +482,26 @@ export function ApiSettings() {
               onChange={(e) => setForm({ ...form, model: e.target.value })}
             />
           </label>
+          <div className="api-draft-tools">
+            <button
+              className="primary"
+              type="button"
+              disabled={draftBusy || saving}
+              onClick={() => void testDraft()}
+            >
+              {draftBusy ? "测试当前表单中…" : "测试连接（当前表单）"}
+            </button>
+            <p className="hint">
+              真实发送当前 Model 的极短请求，可能计费；不会保存或覆盖配置。
+            </p>
+            {draftBusy && <p role="status">测试中：正在请求所选模型…</p>}
+            {draftResult && (
+              <div className="api-draft-result api-result" role="status">
+                <strong>{labels[draftResult.status]}</strong>
+                <p>{draftResult.message}</p>
+              </div>
+            )}
+          </div>
           <label>
             Temperature
             <input
@@ -371,7 +559,7 @@ export function ApiSettings() {
           </label>
           <p className="hint">
             Temperature 与 Max Tokens
-            为正式聊天参数。当前测试固定极短输出，不保证所有模型支持；模型列表自动获取接口已预留。
+            为正式聊天参数。当前测试固定极短输出，不保证所有模型支持。获取列表失败时仍可手动填写并测试。
           </p>
           <div className="actions">
             <button

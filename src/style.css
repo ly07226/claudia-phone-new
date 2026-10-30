@@ -1004,3 +1004,30 @@ textarea {
     max-height: min(45dvh, 320px);
   }
 }
+.api-model-tools,
+.api-draft-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid #82958030;
+}
+.api-settings .api-model-tools label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.api-settings .api-model-tools select {
+  width: 100%;
+  max-width: 100%;
+}
+.api-draft-tools > .primary,
+.api-model-tools > .primary {
+  min-height: 44px;
+  width: 100%;
+  white-space: normal;
+}
+.api-settings .api-test {
+  min-height: 44px;
+  width: 100%;
+}

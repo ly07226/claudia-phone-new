@@ -1,3 +1,4 @@
+import { httpFailure, networkFailure } from "./apiDiagnostics";
 /** Metadata deliberately excludes credentials. Unknown provider IDs remain extensible. */
 export interface ApiConfig {
   id: string;
@@ -22,6 +23,8 @@ export interface ModelOption {
   name?: string;
 }
 export type TestStatus =
+  | "timeout"
+  | "cancelled"
   | "testing"
   | "success"
   | "validation"
@@ -181,48 +184,10 @@ export async function testConnection(
     });
     // Never surface provider response text: it can echo submitted credentials.
     const data = await response.json().catch(() => null);
-    const marker = JSON.stringify(
-      data?.error?.code || data?.error?.status || "",
-    ).toLowerCase();
-    if (
-      response.status === 401 ||
-      response.status === 403 ||
-      marker.includes("api_key")
-    )
-      return {
-        status: "authentication",
-        message: "认证失败：请检查 Key、访问权限和 Provider。",
-      };
-    if (response.status === 404)
-      return {
-        status:
-          marker.includes("model") || c.provider === "gemini"
-            ? "model"
-            : "base-url",
-        message:
-          marker.includes("model") || c.provider === "gemini"
-            ? "模型不存在/不可用：请检查 Model；也请核对 Base URL 版本。"
-            : "Base URL 错误或接口不存在，请核对地址及协议；也可能是模型不可用。",
-      };
-    if (!response.ok) {
-      if (marker.includes("model"))
-        return {
-          status: "model",
-          message: "模型不存在/不可用，或当前 Key 没有模型权限。",
-        };
-      return {
-        status: "other",
-        message:
-          response.status === 429
-            ? "请求限流或额度不足，请稍后重试并检查账户额度。"
-            : `请求未成功（HTTP ${response.status}），请检查 Provider、模型、账户及请求协议。`,
-      };
-    }
-    if (data?.error)
-      return {
-        status: "other",
-        message: "服务返回错误，请检查账户和模型配置。",
-      };
+    if (controller.signal.aborted)
+      return networkFailure(true, !!signal?.aborted);
+    const failure = httpFailure(response.status, data);
+    if (failure) return failure;
     const valid =
       c.provider === "gemini" ||
       (c.provider === "custom" && c.protocol === "gemini")
@@ -235,12 +200,7 @@ export async function testConnection(
           message: "响应格式不符合所选协议，请检查 Base URL 和 Provider。",
         };
   } catch {
-    return {
-      status: "network",
-      message: controller.signal.aborted
-        ? "网络错误：请求已取消或超过 20 秒。"
-        : "网络错误：可能是网络、CORS、TLS 或重定向限制。浏览器无法可靠区分；请核对服务是否允许浏览器直连，后续可使用安全后端代理。",
-    };
+    return networkFailure(controller.signal.aborted, !!signal?.aborted);
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener("abort", cancel);
