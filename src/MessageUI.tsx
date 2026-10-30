@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   MoreHorizontal,
@@ -13,6 +13,7 @@ import type {
   ConversationSnapshot,
   MessageRevision,
 } from "./chatTypes";
+import { splitAssistantBubbles } from "./splitAssistantBubbles";
 import { useMessagePress } from "./useMessagePress";
 import { db } from "./store";
 import {
@@ -71,6 +72,11 @@ export function ChatMessage({
   characterAvatar?: string;
 }) {
   const handlers = useMessagePress(onMenu);
+  const fragments = useMemo(
+    () =>
+      m.role === "assistant" ? splitAssistantBubbles(m.content) : [m.content],
+    [m.role, m.content],
+  );
   const index = Math.max(
     0,
     variants.findIndex((v) => v.id === m.activeVariantId),
@@ -86,26 +92,32 @@ export function ChatMessage({
           data-message-id={m.id}
           {...handlers}
         >
-          <div className="chat-bubble-surface">
-            <div className="message-top">
-              <small>
-                {m.role === "user"
-                  ? "你"
-                  : m.role === "assistant"
-                    ? "角色"
-                    : "系统"}
-                {m.userEdited ? " · 用户已编辑" : ""}
-              </small>
-              <button
-                type="button"
-                aria-label={m.role === "user" ? "用户消息操作" : "AI 消息操作"}
-                onClick={onMenu}
-              >
-                <MoreHorizontal size={17} />
-              </button>
+          {fragments.map((fragment, fragmentIndex) => (
+            <div className="chat-bubble-surface" key={fragmentIndex}>
+              {fragmentIndex === 0 && (
+                <div className="message-top">
+                  <small>
+                    {m.role === "user"
+                      ? "你"
+                      : m.role === "assistant"
+                        ? "角色"
+                        : "系统"}
+                    {m.userEdited ? " · 用户已编辑" : ""}
+                  </small>
+                  <button
+                    type="button"
+                    aria-label={
+                      m.role === "user" ? "用户消息操作" : "AI 消息操作"
+                    }
+                    onClick={onMenu}
+                  >
+                    <MoreHorizontal size={17} />
+                  </button>
+                </div>
+              )}
+              <p>{fragment}</p>
             </div>
-            <p>{m.content}</p>
-          </div>
+          ))}
           {m.role === "assistant" && variants.length > 1 && (
             <div className="message-versions" aria-label="回复版本">
               <button

@@ -1826,3 +1826,7 @@ textarea {
   pointer-events: none;
   z-index: 3;
 }
+/* Consecutive display bubbles belong to the same original Message group. */
+.chat-immersive .chat-assistant > .chat-bubble-surface + .chat-bubble-surface {
+  margin-top: 6px;
+}
