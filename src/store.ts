@@ -1,5 +1,6 @@
 import Dexie, { type Table } from "dexie";
 import { create } from "zustand";
+import type { ApiConfig, ApiCredential } from "./api";
 export interface World {
   id: string;
   name: string;
@@ -12,6 +13,8 @@ export interface Character {
   name: string;
   persona: string;
   avatar?: string;
+  /** Absent means use the enabled default API configuration. */
+  apiConfigId?: string;
 }
 export interface DesktopPage {
   id: string;
@@ -44,6 +47,8 @@ export interface Asset {
   createdAt: number;
 }
 class PhoneDB extends Dexie {
+  apiConfigs!: Table<ApiConfig>;
+  apiCredentials!: Table<ApiCredential>;
   worlds!: Table<World>;
   characters!: Table<Character>;
   pages!: Table<DesktopPage>;
@@ -59,6 +64,11 @@ class PhoneDB extends Dexie {
       items: "id,pageId,position",
       themes: "id,worldId",
       assets: "id,type",
+    });
+    // Additive migration: all version 1 stores and records are retained.
+    this.version(2).stores({
+      apiConfigs: "id,provider",
+      apiCredentials: "configId",
     });
   }
 }

@@ -1,3 +1,4 @@
+import { ApiSettings } from "./ApiSettings";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -265,10 +266,21 @@ function App() {
                   </div>
                   <div className="card">
                     <h3>
-                      Claudia Phone <small>第一阶段 · v1.0</small>
+                      Claudia Phone <small>第二阶段 · 2.1</small>
                     </h3>
-                    <p>所有数据仅保存在当前浏览器。本阶段尚未接入 AI 服务。</p>
+                    <p>
+                      所有数据仅保存在当前浏览器。可配置和测试 AI
+                      API，正式聊天尚未实现。
+                    </p>
                   </div>
+                  <button
+                    className="list-row"
+                    onClick={() => s.set({ activeApp: "AI / API 设置" })}
+                  >
+                    <Settings />
+                    AI / API 设置
+                    <ArrowRight size={17} />
+                  </button>
                   <button
                     className="list-row"
                     onClick={() => s.set({ activeApp: "主题编辑器" })}
@@ -313,6 +325,8 @@ function App() {
                     恢复默认桌面布局与主题
                   </button>
                 </>
+              ) : s.activeApp === "AI / API 设置" ? (
+                <ApiSettings />
               ) : s.activeApp === "主题编辑器" ? (
                 <>
                   <div className="page-title">
@@ -960,6 +974,7 @@ function Characters({
                     name: form.name!.trim(),
                     persona: form.persona || "",
                     avatar: form.avatar,
+                    apiConfigId: form.apiConfigId,
                   });
                 }).then((ok) => {
                   if (ok) setForm(null);
