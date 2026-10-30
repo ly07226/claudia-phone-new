@@ -56,6 +56,27 @@ function MessageAvatar({
     </span>
   );
 }
+/** Boundary newlines separate display bubbles; retain their text without line boxes. */
+function AssistantBubbleText({ content }: { content: string }) {
+  const leading = content.match(/^(?:[^\S\r\n]*[\r\n])+/)?.[0] || "";
+  const rest = content.slice(leading.length);
+  const trailing = rest.match(/(?:[\r\n][^\S\r\n]*)+$/)?.[0] || "";
+  return (
+    <>
+      {leading && (
+        <span className="chat-bubble-boundary-space" aria-hidden="true">
+          {leading}
+        </span>
+      )}
+      {rest.slice(0, rest.length - trailing.length)}
+      {trailing && (
+        <span className="chat-bubble-boundary-space" aria-hidden="true">
+          {trailing}
+        </span>
+      )}
+    </>
+  );
+}
 export function ChatMessage({
   message: m,
   variants,
@@ -115,7 +136,13 @@ export function ChatMessage({
                   </button>
                 </div>
               )}
-              <p>{fragment}</p>
+              <p>
+                {m.role === "assistant" ? (
+                  <AssistantBubbleText content={fragment} />
+                ) : (
+                  fragment
+                )}
+              </p>
             </div>
           ))}
           {m.role === "assistant" && variants.length > 1 && (

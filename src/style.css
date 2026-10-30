@@ -1597,9 +1597,12 @@ textarea {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin: 10px 0;
+  margin: 0;
   min-width: 0;
   width: 100%;
+}
+.chat-immersive .chat-message-row + .chat-message-row {
+  margin-top: 16px;
 }
 .chat-message-row-user {
   justify-content: flex-end;
@@ -1670,7 +1673,7 @@ textarea {
   word-break: break-word;
 }
 .chat-immersive .message-versions {
-  margin-top: 2px;
+  margin-top: 0;
   justify-content: flex-start;
   font-size: 10px;
   padding-left: 3px;
@@ -1826,7 +1829,20 @@ textarea {
   pointer-events: none;
   z-index: 3;
 }
-/* Consecutive display bubbles belong to the same original Message group. */
-.chat-immersive .chat-assistant > .chat-bubble-surface + .chat-bubble-surface {
-  margin-top: 6px;
+/* One spacing owner: no collapsing child margins or repeated Message spacing. */
+.chat-immersive .chat-assistant {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.chat-immersive .chat-assistant > .chat-bubble-surface {
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+}
+/* Raw boundary newlines remain in the DOM/Message, but add no extra line boxes. */
+.chat-immersive .chat-bubble-boundary-space {
+  display: none;
 }
