@@ -46,9 +46,15 @@ test("iPhone 点击明确导入按钮触发文件选择器并预览确认", asyn
     }),
   ).toBe(0);
   await page.getByRole("button", { name: "确认导入" }).click();
+  await page
+    .getByRole("button", { name: "展开世界书 mobile-world", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "外部完整条目", exact: true }),
   ).toBeVisible();
+  await page
+    .getByRole("button", { name: "展开条目 外部完整条目", exact: true })
+    .click();
   await page.getByRole("button", { name: "编辑条目", exact: true }).click();
   await expect(page.getByLabel("条目插入位置")).toHaveValue("at-depth");
   await expect(page.getByLabel("注入深度 Depth")).toHaveValue("2");
@@ -63,6 +69,9 @@ test("完整编辑器保存、折叠摘要、复制、非法正则提示和普�
   await page.getByRole("button", { name: "新建世界书", exact: true }).click();
   await page.getByLabel("世界书名称", { exact: true }).fill("参数测试");
   await page.getByRole("button", { name: "保存世界书" }).click();
+  await page
+    .getByRole("button", { name: "展开世界书 参数测试", exact: true })
+    .click();
   await page.getByRole("button", { name: "新增条目" }).click();
   await page.getByLabel("条目名称", { exact: true }).fill("参数条目");
   await page.getByLabel("条目内容", { exact: true }).fill("RP content");
@@ -92,9 +101,12 @@ test("完整编辑器保存、折叠摘要、复制、非法正则提示和普�
   await expect(
     page.getByRole("heading", { name: "编辑条目", exact: true }),
   ).toHaveCount(0);
-  await expect(page.locator(".lore-entry-details summary")).toContainText(
+  await expect(page.locator(".lore-entry-card .lore-fold-title")).toContainText(
     "参数条目",
   );
+  await page
+    .getByRole("button", { name: "展开条目 参数条目", exact: true })
+    .click();
   await page.getByRole("button", { name: "复制条目" }).click();
   await expect(
     page.getByRole("heading", { name: "参数条目（副本）", exact: true }),

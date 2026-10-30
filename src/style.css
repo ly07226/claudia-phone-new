@@ -1125,3 +1125,246 @@ textarea {
   max-height: 300px;
   overflow: auto;
 }
+/* 2.3.2: scoped library presentation; engine and persisted schemas are unchanged. */
+.lore-toolbar {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 8px;
+  align-items: start;
+  margin: 18px 0 12px;
+}
+.lore-toolbar > .primary,
+.lore-toolbar .lore-import-button {
+  width: 100%;
+  min-height: 44px !important;
+  padding: 10px 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  gap: 4px;
+}
+.lore-toolbar .lore-import-control {
+  min-width: 0;
+}
+.lore-toolbar .lore-import-control > .hint {
+  display: none;
+}
+.lore-library-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.lore-book-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #fff9;
+  background: #ffffff80;
+  border-radius: 12px;
+  padding: 0 12px;
+}
+.lore-app .lore-book-search input {
+  background: none;
+  border: 0;
+  padding: 12px 0;
+  font-size: 16px;
+  outline-offset: 0;
+}
+.lore-filter {
+  display: flex;
+  background: #dbe3d580;
+  border: 1px solid #fff6;
+  padding: 3px;
+  border-radius: 11px;
+  gap: 3px;
+}
+.lore-filter button {
+  flex: 1;
+  min-height: 38px;
+  font-size: 11px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.lore-filter button[aria-pressed="true"] {
+  background: #fffaf0;
+  box-shadow: 0 2px 6px #34483e0a;
+}
+.lore-book-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lore-book-card {
+  border: 1px solid #ffffffb3;
+  background: #f9faf2b8;
+  border-radius: 20px;
+  overflow: hidden;
+}
+.lore-fold-header {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 4px 10px 4px 15px;
+  cursor: pointer;
+}
+.lore-fold-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  padding: 12px 0;
+  flex: 1;
+  min-width: 0;
+  background: none;
+}
+.lore-fold-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.lore-fold-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.lore-fold-description {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  color: #738071;
+  line-height: 1.7;
+}
+.lore-fold-meta {
+  font-size: 10px;
+  opacity: 0.65;
+  line-height: 1.5;
+}
+.lore-fold-toggle > svg {
+  order: 2;
+  flex-shrink: 0;
+  transition: transform 0.16s ease;
+  color: #7b8978;
+}
+.lore-fold-toggle > svg.is-open {
+  transform: rotate(180deg);
+}
+.lore-app .lore-switch {
+  padding: 9px 7px;
+  min-width: 58px;
+  min-height: 48px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.lore-switch-track {
+  display: block;
+  width: 40px;
+  height: 25px;
+  border-radius: 20px;
+  background: #c5cbc1;
+  box-shadow: inset 0 1px 3px #00000009;
+  transition: background 0.15s;
+}
+.lore-switch-track > span {
+  display: block;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: #fffef7;
+  box-shadow: 0 1px 3px #0002;
+  margin: 2px;
+  transition: transform 0.15s;
+}
+.lore-switch.is-on .lore-switch-track {
+  background: #638762;
+}
+.lore-switch.is-on .lore-switch-track > span {
+  transform: translateX(15px);
+}
+.lore-book-body {
+  border-top: 1px solid #87937c20;
+  padding: 0 13px 14px;
+}
+.lore-book-management {
+  font-size: 12px;
+  padding: 12px 0 5px;
+}
+.lore-book-management > p:first-child {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+.lore-book-management .api-actions {
+  gap: 8px 13px;
+  font-size: 11px;
+}
+.lore-book-body > .primary {
+  font-size: 11px;
+  padding: 10px 13px;
+}
+.lore-entry-card {
+  margin: 10px 0;
+  border: 1px solid #dfe6d7;
+  border-radius: 15px;
+  background: #fffdf6b3;
+  overflow: hidden;
+}
+.lore-entry-card .lore-fold-header {
+  padding-left: 12px;
+  padding-right: 4px;
+}
+.lore-entry-card .lore-fold-title {
+  font-size: 12px;
+}
+.lore-entry-card .lore-fold-description {
+  font-size: 10px;
+}
+.lore-entry-body {
+  padding: 0 12px 10px;
+  border-top: 1px solid #82958020;
+}
+.lore-entry-body > .preserve {
+  max-height: 260px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.8;
+  padding-top: 10px;
+  overflow-wrap: anywhere;
+}
+.lore-book-pagination {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  margin: 15px 0;
+}
+.lore-book-pagination button {
+  padding: 7px;
+}
+.lore-app button:disabled {
+  opacity: 0.5;
+}
+.lore-book-body .card.form {
+  padding: 14px;
+}
+.lore-app .page-title {
+  margin-bottom: 16px;
+}
+.lore-fold-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.phone.lore-open {
+  overflow: clip;
+}

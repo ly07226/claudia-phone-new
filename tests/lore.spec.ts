@@ -15,6 +15,9 @@ test("手机原生世界书与条目 CRUD、启停、关键词编辑、导出", 
   await expect(
     page.getByRole("heading", { name: "我的规则", exact: true }),
   ).toBeVisible();
+  await page
+    .getByRole("button", { name: "展开世界书 我的规则", exact: true })
+    .click();
   await page.getByRole("button", { name: "新增条目", exact: true }).click();
   await page.getByLabel("条目名称", { exact: true }).fill("基础约束");
   await page
@@ -31,19 +34,28 @@ test("手机原生世界书与条目 CRUD、启停、关键词编辑、导出", 
   await expect(
     page.getByRole("heading", { name: "基础约束", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "停用条目", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "启用条目", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "启用条目", exact: true }).click();
+  const entrySwitch = page.getByRole("switch", {
+    name: "条目「基础约束」启用",
+    exact: true,
+  });
+  await entrySwitch.click();
+  await expect(entrySwitch).toHaveAttribute("aria-checked", "false");
+  await entrySwitch.click();
+  await expect(entrySwitch).toHaveAttribute("aria-checked", "true");
+  await page
+    .getByRole("button", { name: "展开条目 基础约束", exact: true })
+    .click();
   await page.getByRole("button", { name: "编辑条目", exact: true }).click();
   await page.getByLabel("条目内容", { exact: true }).fill("edited-content");
   await page.getByRole("button", { name: "保存条目", exact: true }).click();
-  await page.getByRole("button", { name: "停用世界书", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "启用世界书", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "启用世界书", exact: true }).click();
+  const bookSwitch = page.getByRole("switch", {
+    name: "世界书「我的规则」启用",
+    exact: true,
+  });
+  await bookSwitch.click();
+  await expect(bookSwitch).toHaveAttribute("aria-checked", "false");
+  await bookSwitch.click();
+  await expect(bookSwitch).toHaveAttribute("aria-checked", "true");
   await page.getByRole("button", { name: "导出为 Claudia Phone JSON" }).click();
   await expect(
     page.getByRole("link", { name: "下载 JSON 文件" }),
@@ -53,10 +65,15 @@ test("手机原生世界书与条目 CRUD、启停、关键词编辑、导出", 
   await page
     .getByRole("button", { name: "世界书 / Lorebook", exact: true })
     .click();
-  await page.getByRole("button", { name: "查看条目", exact: true }).click();
+  await page
+    .getByRole("button", { name: "展开世界书 我的规则", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "基础约束", exact: true }),
   ).toBeVisible();
+  await page
+    .getByRole("button", { name: "展开条目 基础约束", exact: true })
+    .click();
   page.on("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "删除条目", exact: true }).click();
   await expect(
@@ -240,6 +257,9 @@ test("ST 适配、未知字段、预览确认、失败保护与 Native 往返", 
     }),
   ).toBe(0);
   await page.getByRole("button", { name: "确认导入" }).click();
+  await page
+    .getByRole("button", { name: "展开世界书 外部资料", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "外部资料", exact: true }),
   ).toBeVisible();
