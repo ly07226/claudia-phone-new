@@ -1031,3 +1031,63 @@ textarea {
   min-height: 44px;
   width: 100%;
 }
+.lore-app input:not([type="checkbox"]),
+.lore-app select,
+.lore-app textarea {
+  font-size: 16px;
+  width: 100%;
+  min-width: 0;
+}
+.lore-check {
+  display: flex !important;
+  justify-content: flex-start !important;
+  align-items: center;
+  gap: 10px;
+}
+.lore-check input {
+  width: auto !important;
+  accent-color: #4e6856;
+}
+.lore-app fieldset {
+  border: 1px solid #82958040;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.lore-app details {
+  border-top: 1px solid #82958040;
+  padding-top: 12px;
+}
+.lore-app details label {
+  margin-top: 15px;
+}
+.lore-app summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font-size: 13px;
+}
+.lore-app button,
+.lore-app .upload {
+  min-height: 44px;
+}
+.lore-search {
+  display: block;
+  font-size: 12px;
+  margin: 20px 0;
+}
+.lore-search input {
+  margin-top: 10px;
+}
+.lore-app .card {
+  overflow-wrap: anywhere;
+}
+.lore-app .api-actions {
+  align-items: center;
+}
+.lore-app a {
+  font-size: 12px;
+  text-decoration: none;
+}

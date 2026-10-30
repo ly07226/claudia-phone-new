@@ -1,3 +1,4 @@
+import type { Lorebook, LoreEntry } from "./loreTypes";
 import Dexie, { type Table } from "dexie";
 import { create } from "zustand";
 import type { ApiConfig, ApiCredential } from "./api";
@@ -52,6 +53,8 @@ export interface Asset {
   createdAt: number;
 }
 class PhoneDB extends Dexie {
+  lorebooks!: Table<Lorebook>;
+  loreEntries!: Table<LoreEntry>;
   conversations!: Table<Conversation>;
   messages!: Table<Message>;
   worldProfiles!: Table<WorldCharacterProfile>;
@@ -88,16 +91,19 @@ class PhoneDB extends Dexie {
         const characters = await tx.table("characters").toArray();
         for (const c of characters)
           if (c.worldId && (await tx.table("worlds").get(c.worldId))) {
-            await tx
-              .table("worldProfiles")
-              .put({
-                id: crypto.randomUUID(),
-                worldId: c.worldId,
-                characterId: c.id,
-                setting: "",
-              });
+            await tx.table("worldProfiles").put({
+              id: crypto.randomUUID(),
+              worldId: c.worldId,
+              characterId: c.id,
+              setting: "",
+            });
           }
       });
+    // Additive v4: no legacy records are rewritten.
+    this.version(4).stores({
+      lorebooks: "id,updatedAt",
+      loreEntries: "id,lorebookId",
+    });
   }
 }
 export const db = new PhoneDB();

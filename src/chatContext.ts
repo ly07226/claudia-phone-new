@@ -1,3 +1,4 @@
+import { loreForConversation } from "./loreEngine";
 import { db } from "./store";
 import type { ContextMessage, Conversation, Message } from "./chatTypes";
 export const contextLimits = {
@@ -45,6 +46,13 @@ export async function buildContext(
     history.unshift(m);
   }
   while (history[0]?.role === "assistant") history.shift();
+  const lore = await loreForConversation(
+    conversation,
+    history,
+    Math.max(0, contextLimits.systemChars - system.length - 4),
+  );
+  // Only content is injected; editor titles, comments and metadata never enter the prompt.
+  system = [lore.before, system, lore.after].filter(Boolean).join("\n\n");
   return [
     { role: "system", content: system },
     ...history.map((m) => ({

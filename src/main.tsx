@@ -1,3 +1,4 @@
+import { Lorebooks } from "./Lorebooks";
 import { Chat } from "./Chat";
 import { CharacterManager } from "./CharacterManager";
 import { deleteWorld } from "./chatService";
@@ -268,13 +269,21 @@ function App() {
                   </div>
                   <div className="card">
                     <h3>
-                      Claudia Phone <small>第二阶段 · 2.2</small>
+                      Claudia Phone <small>第二阶段 · 2.3</small>
                     </h3>
                     <p>
                       所有数据仅保存在当前浏览器。日常与世界聊天相互隔离，API
                       凭据仅存本地。
                     </p>
                   </div>
+                  <button
+                    className="list-row"
+                    onClick={() => s.set({ activeApp: "世界书 / Lorebook" })}
+                  >
+                    <BookOpen />
+                    世界书 / Lorebook
+                    <ArrowRight size={17} />
+                  </button>
                   <button
                     className="list-row"
                     onClick={() => s.set({ activeApp: "AI / API 设置" })}
@@ -331,6 +340,8 @@ function App() {
                 <Chat />
               ) : s.activeApp === "世界聊天" ? (
                 <Chat worldId={s.worldId} />
+              ) : s.activeApp === "世界书 / Lorebook" ? (
+                <Lorebooks />
               ) : s.activeApp === "AI / API 设置" ? (
                 <ApiSettings />
               ) : s.activeApp === "主题编辑器" ? (

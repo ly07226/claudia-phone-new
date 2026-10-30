@@ -492,7 +492,9 @@ test("并发发送受保护，取消与删除会话不产生孤立回复", async
   expect(result.orphan).toBe(0);
   expect(result.conversation).toBeUndefined();
 });
-test("2.1 回退兼容表声明可打开 v3，聊天与旧数据保持不变", async ({ page }) => {
+test("2.1 回退兼容表声明可打开当前 v4，聊天与旧数据保持不变", async ({
+  page,
+}) => {
   const conversations = await seed(page);
   const result = await page.evaluate(async ({ daily }) => {
     const { db } = await import("/src/store.ts");
@@ -509,26 +511,25 @@ test("2.1 回退兼容表声明可打开 v3，聊天与旧数据保持不变", a
     const DexieBase = Object.getPrototypeOf(db.constructor);
     db.close();
     const compatibility = new DexieBase("claudia-phone");
-    compatibility
-      .version(1)
-      .stores({
-        worlds: "id,createdAt",
-        characters: "id,worldId",
-        pages: "id,order",
-        items: "id,pageId,position",
-        themes: "id,worldId",
-        assets: "id,type",
-      });
+    compatibility.version(1).stores({
+      worlds: "id,createdAt",
+      characters: "id,worldId",
+      pages: "id,order",
+      items: "id,pageId,position",
+      themes: "id,worldId",
+      assets: "id,type",
+    });
     compatibility
       .version(2)
       .stores({ apiConfigs: "id,provider", apiCredentials: "configId" });
+    compatibility.version(3).stores({
+      conversations: "id,&scopeKey,characterId,worldId,updatedAt",
+      messages: "id,conversationId,[conversationId+createdAt]",
+      worldProfiles: "id,&[worldId+characterId],worldId,characterId",
+    });
     compatibility
-      .version(3)
-      .stores({
-        conversations: "id,&scopeKey,characterId,worldId,updatedAt",
-        messages: "id,conversationId,[conversationId+createdAt]",
-        worldProfiles: "id,&[worldId+characterId],worldId,characterId",
-      });
+      .version(4)
+      .stores({ lorebooks: "id,updatedAt", loreEntries: "id,lorebookId" });
     await compatibility.open();
     const after: any = {};
     for (const name of names)
