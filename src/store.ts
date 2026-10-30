@@ -2,7 +2,14 @@ import type { Lorebook, LoreEntry } from "./loreTypes";
 import Dexie, { type Table } from "dexie";
 import { create } from "zustand";
 import type { ApiConfig, ApiCredential } from "./api";
-import type { Conversation, Message, WorldCharacterProfile } from "./chatTypes";
+import type {
+  Conversation,
+  Message,
+  WorldCharacterProfile,
+  MessageVariant,
+  MessageRevision,
+  ConversationSnapshot,
+} from "./chatTypes";
 export interface World {
   id: string;
   name: string;
@@ -53,6 +60,9 @@ export interface Asset {
   createdAt: number;
 }
 class PhoneDB extends Dexie {
+  messageVariants!: Table<MessageVariant>;
+  messageRevisions!: Table<MessageRevision>;
+  conversationSnapshots!: Table<ConversationSnapshot>;
   lorebooks!: Table<Lorebook>;
   loreEntries!: Table<LoreEntry>;
   conversations!: Table<Conversation>;
@@ -104,6 +114,30 @@ class PhoneDB extends Dexie {
       lorebooks: "id,updatedAt",
       loreEntries: "id,lorebookId",
     });
+    this.version(5)
+      .stores({
+        messageVariants: "id,messageId,conversationId",
+        messageRevisions: "id,messageId,conversationId,variantId",
+        conversationSnapshots: "id,conversationId,createdAt",
+      })
+      .upgrade(async (tx) => {
+        const messages = await tx.table("messages").toArray();
+        for (const m of messages)
+          if (m.role === "assistant" && !m.activeVariantId) {
+            const id = crypto.randomUUID();
+            await tx
+              .table("messageVariants")
+              .add({
+                id,
+                conversationId: m.conversationId,
+                messageId: m.id,
+                content: m.content,
+                source: "legacy",
+                createdAt: m.createdAt,
+              });
+            await tx.table("messages").update(m.id, { activeVariantId: id });
+          }
+      });
   }
 }
 export const db = new PhoneDB();

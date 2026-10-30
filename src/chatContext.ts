@@ -1,3 +1,4 @@
+import { activeMessages } from "./messagePath";
 import { loreForConversation, injectLore } from "./loreEngine";
 import { db } from "./store";
 import type { ContextMessage, Conversation, Message } from "./chatTypes";
@@ -10,6 +11,7 @@ export const contextLimits = {
 /** Extension boundary for future explicit memories/summaries; no other conversation is queried. */
 export async function buildContext(
   conversation: Conversation,
+  beforeMessageId?: string,
 ): Promise<ContextMessage[]> {
   const c = await db.characters.get(conversation.characterId);
   if (!c) throw Error("角色已不存在。");
@@ -30,12 +32,9 @@ export async function buildContext(
   // Reject excessive profile input rather than silently omitting critical world rules.
   if (system.length > contextLimits.systemChars)
     throw Error("角色与世界设定合计过长，请缩短到约 24000 字符以内。");
-  const rows = await db.messages
-    .where("[conversationId+createdAt]")
-    .between([conversation.id, -Infinity], [conversation.id, Infinity])
-    .reverse()
-    .limit(contextLimits.historyMessages)
-    .toArray();
+  const rows = (await activeMessages(conversation.id, beforeMessageId))
+    .slice(-contextLimits.historyMessages)
+    .reverse();
   const history: Message[] = [];
   let chars = 0;
   for (const m of rows) {

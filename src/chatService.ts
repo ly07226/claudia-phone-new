@@ -1,3 +1,12 @@
+import { activeMessages } from "./messagePath";
+import {
+  registerGeneration,
+  cancelGeneration,
+  messageTables,
+  snapshotPath,
+  ensureVariant,
+  addGeneratedVariant,
+} from "./messageOperations";
 import { db } from "./store";
 import type { Conversation } from "./chatTypes";
 import { buildContext, contextLimits } from "./chatContext";
@@ -65,6 +74,28 @@ export async function sendMessage(
 ) {
   if (!retry && (!text.trim() || text.length > contextLimits.userChars))
     throw Error("请输入 1–8000 字符。");
+  return generate(id, { text, retry, onSaved }, signal);
+}
+export async function regenerateMessage(
+  id: string,
+  messageId: string,
+  signal?: AbortSignal,
+  allowArchive = false,
+) {
+  return generate(id, { messageId, allowArchive }, signal);
+}
+interface GenerateOptions {
+  text?: string;
+  retry?: boolean;
+  onSaved?: () => Promise<void>;
+  messageId?: string;
+  allowArchive?: boolean;
+}
+async function generate(
+  id: string,
+  options: GenerateOptions,
+  signal?: AbortSignal,
+) {
   const now = Date.now();
   while (recentRequests.length && recentRequests[0] < now - 60000)
     recentRequests.shift();
@@ -78,65 +109,100 @@ export async function sendMessage(
   if (signal?.aborted) abort();
   const timeout = setTimeout(abort, 60000);
   let acquired = false;
+  let release = () => {};
   try {
     const c = await db.transaction(
       "rw",
-      [db.conversations, db.messages],
+      [db.conversations, db.messages, db.messageVariants],
       async () => {
         const c = await db.conversations.get(id);
         if (!c) throw Error("会话已删除。");
         if (c.sendingUntil && c.sendingUntil > Date.now())
           throw Error("此会话正在回复中，请稍候。");
-        const last = await db.messages
-          .where("[conversationId+createdAt]")
-          .between([id, -Infinity], [id, Infinity])
-          .last();
-        if (retry && last?.role !== "user")
-          throw Error("没有可重试的用户消息。");
-        const now = Math.max(Date.now(), (last?.createdAt || 0) + 1);
-        if (!retry)
-          await db.messages.add({
-            id: crypto.randomUUID(),
-            conversationId: id,
-            role: "user",
-            content: text.trim(),
-            createdAt: now,
-          });
+        const rows = await activeMessages(id);
+        const last = rows.at(-1);
+        if (options.messageId) {
+          const index = rows.findIndex(
+            (m) => m.id === options.messageId && m.role === "assistant",
+          );
+          if (index < 0) throw Error("目标 AI 回复不在当前有效路径。");
+          if (index < rows.length - 1 && !options.allowArchive)
+            throw Error("重新生成历史回复前请确认归档后续剧情。");
+        } else {
+          if (options.retry && last?.role !== "user")
+            throw Error("没有可重试的用户消息。");
+          if (!options.retry)
+            await db.messages.add({
+              id: crypto.randomUUID(),
+              conversationId: id,
+              role: "user",
+              content: options.text!.trim(),
+              createdAt: Math.max(Date.now(), (last?.createdAt || 0) + 1),
+            });
+        }
         await db.conversations.update(id, {
           sendingToken: token,
           sendingUntil: Date.now() + 90000,
-          updatedAt: now,
+          updatedAt: Date.now(),
         });
         return c;
       },
     );
     acquired = true;
-    await onSaved?.();
+    release = registerGeneration(id, abort, token);
+    await options.onSaved?.();
     const { config, key } = await resolveApi(c);
-    const context = await buildContext(c);
-    if (controller.signal.aborted) throw Error("请求已取消，用户消息已保留。");
+    const context = await buildContext(c, options.messageId);
+    if (
+      controller.signal.aborted ||
+      (await db.conversations.get(id))?.sendingToken !== token
+    )
+      throw Error("请求已取消，原消息和版本已保留。");
     const reply = await requestReply(config, key, context, controller.signal);
-    if (controller.signal.aborted) throw Error("请求已取消，用户消息已保留。");
-    await db.transaction("rw", [db.conversations, db.messages], async () => {
+    if (controller.signal.aborted)
+      throw Error("请求已取消，原消息和版本已保留。");
+    await db.transaction("rw", messageTables(), async () => {
       const current = await db.conversations.get(id);
-      if (!current || current.sendingToken !== token) return;
-      const last = await db.messages
-        .where("[conversationId+createdAt]")
-        .between([id, -Infinity], [id, Infinity])
-        .last();
-      const now = Math.max(Date.now(), (last?.createdAt || 0) + 1);
-      await db.messages.add({
-        id: crypto.randomUUID(),
-        conversationId: id,
-        role: "assistant",
-        content: reply,
-        createdAt: now,
-      });
-      await db.conversations.update(id, { updatedAt: now });
+      if (
+        !current ||
+        current.sendingToken !== token ||
+        controller.signal.aborted
+      )
+        return;
+      const rows = await activeMessages(id);
+      if (options.messageId) {
+        const index = rows.findIndex(
+          (m) => m.id === options.messageId && m.role === "assistant",
+        );
+        if (index < 0) return;
+        const m = rows[index];
+        if (index < rows.length - 1) {
+          if (!options.allowArchive)
+            throw Error("后续剧情已变化，请重新确认。");
+          await snapshotPath(id, "regenerate");
+          for (const later of rows.slice(index + 1))
+            await db.messages.update(later.id, { archived: true });
+        }
+        await ensureVariant(m);
+        await addGeneratedVariant(m, reply);
+      } else {
+        const last = rows.at(-1);
+        const m = {
+          id: crypto.randomUUID(),
+          conversationId: id,
+          role: "assistant" as const,
+          content: reply,
+          createdAt: Math.max(Date.now(), (last?.createdAt || 0) + 1),
+        };
+        await db.messages.add(m);
+        await addGeneratedVariant(m, reply);
+      }
+      await db.conversations.update(id, { updatedAt: Date.now() });
     });
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener("abort", abort);
+    release();
     if (acquired)
       await db.transaction("rw", db.conversations, async () => {
         const c = await db.conversations.get(id);
@@ -148,23 +214,29 @@ export async function sendMessage(
       });
   }
 }
+async function purgeRecords(id: string) {
+  cancelGeneration(id);
+  await db.messages.where("conversationId").equals(id).delete();
+  await db.messageVariants.where("conversationId").equals(id).delete();
+  await db.messageRevisions.where("conversationId").equals(id).delete();
+  await db.conversationSnapshots.where("conversationId").equals(id).delete();
+}
 export async function deleteConversation(id: string) {
-  await db.transaction("rw", [db.conversations, db.messages], async () => {
-    await db.messages.where("conversationId").equals(id).delete();
+  await db.transaction("rw", messageTables(), async () => {
+    await purgeRecords(id);
     await db.conversations.delete(id);
   });
 }
 export async function deleteWorld(id: string) {
   await db.transaction(
     "rw",
-    [db.worlds, db.worldProfiles, db.conversations, db.messages],
+    [db.worlds, db.worldProfiles, ...messageTables()],
     async () => {
       const conversations = await db.conversations
         .where("worldId")
         .equals(id)
         .toArray();
-      for (const c of conversations)
-        await db.messages.where("conversationId").equals(c.id).delete();
+      for (const c of conversations) await purgeRecords(c.id);
       await db.conversations.where("worldId").equals(id).delete();
       await db.worldProfiles.where("worldId").equals(id).delete();
       await db.worlds.delete(id);
@@ -174,14 +246,13 @@ export async function deleteWorld(id: string) {
 export async function deleteCharacter(id: string) {
   await db.transaction(
     "rw",
-    [db.characters, db.worldProfiles, db.conversations, db.messages],
+    [db.characters, db.worldProfiles, ...messageTables()],
     async () => {
       const conversations = await db.conversations
         .where("characterId")
         .equals(id)
         .toArray();
-      for (const c of conversations)
-        await db.messages.where("conversationId").equals(c.id).delete();
+      for (const c of conversations) await purgeRecords(c.id);
       await db.conversations.where("characterId").equals(id).delete();
       await db.worldProfiles.where("characterId").equals(id).delete();
       await db.characters.delete(id);

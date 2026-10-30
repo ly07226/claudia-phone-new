@@ -492,7 +492,7 @@ test("并发发送受保护，取消与删除会话不产生孤立回复", async
   expect(result.orphan).toBe(0);
   expect(result.conversation).toBeUndefined();
 });
-test("2.1 回退兼容表声明可打开当前 v4，聊天与旧数据保持不变", async ({
+test("2.1 回退兼容表声明可打开当前 v5，聊天与旧数据保持不变", async ({
   page,
 }) => {
   const conversations = await seed(page);
@@ -530,6 +530,13 @@ test("2.1 回退兼容表声明可打开当前 v4，聊天与旧数据保持不�
     compatibility
       .version(4)
       .stores({ lorebooks: "id,updatedAt", loreEntries: "id,lorebookId" });
+    compatibility
+      .version(5)
+      .stores({
+        messageVariants: "id,messageId,conversationId",
+        messageRevisions: "id,messageId,conversationId,variantId",
+        conversationSnapshots: "id,conversationId,createdAt",
+      });
     await compatibility.open();
     const after: any = {};
     for (const name of names)

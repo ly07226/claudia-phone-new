@@ -16,6 +16,9 @@ export interface Message {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
   createdAt: number;
+  activeVariantId?: string;
+  archived?: boolean;
+  userEdited?: boolean;
   regeneratedFrom?: string;
   editedFrom?: string;
 }
@@ -28,4 +31,29 @@ export interface WorldCharacterProfile {
 export interface ContextMessage {
   role: "system" | "user" | "assistant";
   content: string;
+}
+export interface MessageVariant {
+  id: string;
+  conversationId: string;
+  messageId: string;
+  content: string;
+  source: "legacy" | "generated";
+  userEdited?: boolean;
+  createdAt: number;
+}
+export interface MessageRevision {
+  id: string;
+  conversationId: string;
+  messageId: string;
+  variantId?: string;
+  content: string;
+  createdAt: number;
+}
+export interface ConversationSnapshot {
+  id: string;
+  conversationId: string;
+  reason: "edit" | "switch" | "withdraw" | "delete" | "regenerate" | "restore";
+  createdAt: number;
+  messages: Message[];
+  variants: MessageVariant[];
 }
