@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { MoreHorizontal, ChevronLeft, ChevronRight, X } from "lucide-react";
+import {
+  MoreHorizontal,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  UserRound,
+} from "lucide-react";
 import type {
   Message,
   MessageVariant,
@@ -16,16 +22,53 @@ import {
   restoreRevision,
   selectVariant,
 } from "./messageOperations";
+function MessageAvatar({
+  src,
+  name,
+  user = false,
+}: {
+  src?: string;
+  name: string;
+  user?: boolean;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  return (
+    <span
+      className={`chat-avatar ${user ? "chat-avatar-user" : "chat-avatar-character"}`}
+      role="img"
+      aria-label={`${name}头像`}
+    >
+      {src && !failed ? (
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+        />
+      ) : user ? (
+        <UserRound size={19} />
+      ) : (
+        <span>{name.slice(0, 1) || "角"}</span>
+      )}
+    </span>
+  );
+}
 export function ChatMessage({
   message: m,
   variants,
   onMenu,
   onVersion,
+  characterName = "角色",
+  characterAvatar,
 }: {
   message: Message;
   variants: MessageVariant[];
   onMenu: () => void;
   onVersion: (variant: MessageVariant) => void;
+  characterName?: string;
+  characterAvatar?: string;
 }) {
   const handlers = useMessagePress(onMenu);
   const index = Math.max(
@@ -33,46 +76,60 @@ export function ChatMessage({
     variants.findIndex((v) => v.id === m.activeVariantId),
   );
   return (
-    <div
-      className={`chat-bubble chat-${m.role}`}
-      data-message-id={m.id}
-      {...handlers}
-    >
-      <div className="message-top">
-        <small>
-          {m.role === "user" ? "你" : m.role === "assistant" ? "角色" : "系统"}
-          {m.userEdited ? " · 用户已编辑" : ""}
-        </small>
-        <button
-          type="button"
-          aria-label={m.role === "user" ? "用户消息操作" : "AI 消息操作"}
-          onClick={onMenu}
-        >
-          <MoreHorizontal size={17} />
-        </button>
-      </div>
-      <p>{m.content}</p>
-      {m.role === "assistant" && (
-        <div className="message-versions" aria-label="回复版本">
-          <button
-            aria-label="上一个回复版本"
-            disabled={index === 0}
-            onClick={() => onVersion(variants[index - 1])}
-          >
-            <ChevronLeft size={17} />
-          </button>
-          <span>
-            {index + 1} / {variants.length || 1}
-          </span>
-          <button
-            aria-label="下一个回复版本"
-            disabled={index >= variants.length - 1}
-            onClick={() => onVersion(variants[index + 1])}
-          >
-            <ChevronRight size={17} />
-          </button>
-        </div>
+    <div className={`chat-message-row chat-message-row-${m.role}`}>
+      {m.role !== "user" && (
+        <MessageAvatar src={characterAvatar} name={characterName} />
       )}
+      <div className="chat-message-stack">
+        <div
+          className={`chat-bubble chat-${m.role}`}
+          data-message-id={m.id}
+          {...handlers}
+        >
+          <div className="chat-bubble-surface">
+            <div className="message-top">
+              <small>
+                {m.role === "user"
+                  ? "你"
+                  : m.role === "assistant"
+                    ? "角色"
+                    : "系统"}
+                {m.userEdited ? " · 用户已编辑" : ""}
+              </small>
+              <button
+                type="button"
+                aria-label={m.role === "user" ? "用户消息操作" : "AI 消息操作"}
+                onClick={onMenu}
+              >
+                <MoreHorizontal size={17} />
+              </button>
+            </div>
+            <p>{m.content}</p>
+          </div>
+          {m.role === "assistant" && (
+            <div className="message-versions" aria-label="回复版本">
+              <button
+                aria-label="上一个回复版本"
+                disabled={index === 0}
+                onClick={() => onVersion(variants[index - 1])}
+              >
+                <ChevronLeft size={17} />
+              </button>
+              <span>
+                {index + 1} / {variants.length || 1}
+              </span>
+              <button
+                aria-label="下一个回复版本"
+                disabled={index >= variants.length - 1}
+                onClick={() => onVersion(variants[index + 1])}
+              >
+                <ChevronRight size={17} />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+      {m.role === "user" && <MessageAvatar name="你" user />}
     </div>
   );
 }

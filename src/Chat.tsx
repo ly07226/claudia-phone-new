@@ -1,3 +1,7 @@
+import { ChevronLeft, MoreHorizontal, Send, Square } from "lucide-react";
+import { ChatManagement } from "./ChatManagement";
+import { chatDisplayName } from "./chatPresentation";
+import { useChatViewport } from "./useChatViewport";
 import { activeMessages } from "./messagePath";
 import {
   cancelGeneration,
@@ -5,7 +9,7 @@ import {
   selectVariant,
 } from "./messageOperations";
 import { ChatMessage, MessageTools, SnapshotTools } from "./MessageUI";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { db, usePhone } from "./store";
 import type { Conversation, Message, MessageVariant } from "./chatTypes";
 import type { ApiConfig } from "./api";
@@ -32,6 +36,12 @@ export function Chat({ worldId }: { worldId?: string }) {
     MessageVariant | undefined
   >();
   const [showSnapshots, setShowSnapshots] = useState(false);
+  const [management, setManagement] = useState(false);
+  const activeConversation = useRef<string | null>(null);
+  const historyRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const followBottom = useRef(true);
+  const preserveTop = useRef<number | null>(null);
   const [feedback, setFeedback] = useState("");
   const taskSequence = useRef(0);
   const scrollRequested = useRef(false);
@@ -39,6 +49,15 @@ export function Chat({ worldId }: { worldId?: string }) {
   const bottom = useRef<HTMLDivElement>(null);
   const mounted = useRef(true);
   const world = worldId ? s.worlds.find((w) => w.id === worldId) : undefined;
+  const character = s.characters.find(
+    (c) => c.id === conversation?.characterId,
+  );
+  const displayName = chatDisplayName(character);
+  const avatarSrc = s.assets.find((a) => a.id === character?.avatar)?.data;
+  useChatViewport(!!conversation, text, inputRef, () => {
+    if (followBottom.current && historyRef.current)
+      historyRef.current.scrollTop = historyRef.current.scrollHeight;
+  });
   const characters = worldId
     ? s.characters.filter((c) =>
         s.worldProfiles.some(
@@ -61,8 +80,11 @@ export function Chat({ worldId }: { worldId?: string }) {
         (a, b) =>
           a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
       );
-    if (mounted.current) {
-      if (scroll) scrollRequested.current = true;
+    if (mounted.current && activeConversation.current === id) {
+      if (scroll && followBottom.current) {
+        scrollRequested.current = true;
+        preserveTop.current = null;
+      } else preserveTop.current = historyRef.current?.scrollTop ?? null;
       setMessages(rows);
       setVariants(groups);
     }
@@ -78,47 +100,42 @@ export function Chat({ worldId }: { worldId?: string }) {
       pending.current?.abort();
     };
   }, []);
-  useEffect(() => {
-    const phone = document.querySelector<HTMLElement>(".phone");
-    const viewport = window.visualViewport;
-    const update = () =>
-      phone?.style.setProperty(
-        "--chat-height",
-        `${viewport?.height || window.innerHeight}px`,
-      );
-    if (phone) {
-      phone.scrollTop = 0;
-      phone.scrollLeft = 0;
-    }
-    phone?.classList.add("chat-open");
-    update();
-    viewport?.addEventListener("resize", update);
-    return () => {
-      phone?.classList.remove("chat-open");
-      phone?.style.removeProperty("--chat-height");
-      viewport?.removeEventListener("resize", update);
-    };
-  }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const history = historyRef.current;
+    if (!history) return;
     if (scrollRequested.current) {
-      bottom.current?.scrollIntoView({ block: "end", behavior: "auto" });
+      history.scrollTop = history.scrollHeight;
       scrollRequested.current = false;
+    } else if (preserveTop.current !== null) {
+      history.scrollTop = preserveTop.current;
+      preserveTop.current = null;
     }
   }, [messages, busy]);
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = setTimeout(() => setFeedback(""), 4000);
+    return () => clearTimeout(timer);
+  }, [feedback]);
   async function open(id: string) {
+    const navigation = ++taskSequence.current;
     setError("");
     setMessages([]);
     try {
       const c = await getConversation(id, worldId);
+      if (navigation !== taskSequence.current) return;
+      activeConversation.current = c.id;
+      followBottom.current = true;
       setConversation(c);
       await refresh(c.id, true);
       try {
         await resolveApi(c);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "无法读取 API。");
+        if (navigation === taskSequence.current)
+          setError(e instanceof Error ? e.message : "无法读取 API。");
       }
     } catch {
-      setError("无法打开会话，请检查本地存储与角色关联。");
+      if (navigation === taskSequence.current)
+        setError("无法打开会话，请检查本地存储与角色关联。");
     }
   }
   async function runGeneration(
@@ -129,6 +146,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   ) {
     if (!conversation || (busy && !force)) return;
     const id = conversation.id;
+    if (!retry && !target) followBottom.current = true;
     const sequence = ++taskSequence.current;
     const previous = pending.current;
     setBusy(true);
@@ -190,20 +208,37 @@ export function Chat({ worldId }: { worldId?: string }) {
       setError(e instanceof Error ? e.message : "版本切换失败。");
     }
   }
+  function leaveConversation() {
+    taskSequence.current++;
+    activeConversation.current = null;
+    pending.current?.abort();
+    pending.current = null;
+    setBusy(false);
+    setConversation(null);
+    setMessages([]);
+    setText("");
+    setError("");
+    setFeedback("");
+    setManagement(false);
+    setMenuId(null);
+    setShowSnapshots(false);
+  }
   return (
-    <div className="chat-app">
-      <div className="chat-space">
-        <strong>
-          {worldId
-            ? `世界聊天 · ${world?.name || "世界不存在"}`
-            : "日常聊天 · 独立空间"}
-        </strong>
-        <p>
-          {worldId
-            ? "只使用本世界设定和本会话历史。"
-            : "不读取任何世界设定或世界聊天记录。"}
-        </p>
-      </div>
+    <div className={`chat-app ${conversation ? "chat-immersive" : ""}`}>
+      {!conversation && (
+        <div className="chat-space">
+          <strong>
+            {worldId
+              ? `世界聊天 · ${world?.name || "世界不存在"}`
+              : "日常聊天 · 独立空间"}
+          </strong>
+          <p>
+            {worldId
+              ? "只使用本世界设定和本会话历史。"
+              : "不读取任何世界设定或世界聊天记录。"}
+          </p>
+        </div>
+      )}
       {!conversation ? (
         <>
           <h2>选择角色</h2>
@@ -235,102 +270,32 @@ export function Chat({ worldId }: { worldId?: string }) {
         </>
       ) : (
         <>
-          <div className="chat-heading">
-            <button
-              disabled={busy}
-              onClick={() => {
-                setConversation(null);
-                setMessages([]);
-                setText("");
-                setError("");
-              }}
-            >
-              返回角色列表
+          <nav className="chat-nav" aria-label="当前会话导航">
+            <button aria-label="返回角色列表" onClick={leaveConversation}>
+              <ChevronLeft size={24} />
             </button>
-            <strong>
-              {
-                s.characters.find((c) => c.id === conversation.characterId)
-                  ?.name
-              }
-            </strong>
-            <button
-              className="danger"
-              disabled={busy}
-              onClick={async () => {
-                if (
-                  !confirm(
-                    "仅删除当前会话及其全部消息？角色、世界与其他聊天空间不受影响。",
-                  )
-                )
-                  return;
-                try {
-                  await deleteConversation(conversation.id);
-                  setConversation(null);
-                  setMessages([]);
-                } catch {
-                  setError("删除失败，请检查本地存储。");
-                }
-              }}
+            <span
+              className="chat-nav-title"
+              role="heading"
+              aria-level={1}
+              title={displayName}
             >
-              删除会话
+              {displayName}
+            </span>
+            <button aria-label="会话管理" onClick={() => setManagement(true)}>
+              <MoreHorizontal size={23} />
             </button>
-          </div>
-          <button
-            className="text-button message-snapshots-button"
-            onClick={() => setShowSnapshots(true)}
+          </nav>
+          <div
+            ref={historyRef}
+            className="chat-history"
+            aria-label="当前会话消息"
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              followBottom.current =
+                el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+            }}
           >
-            历史快照 / 分支恢复
-          </button>
-          {feedback && (
-            <p role="status" className="hint">
-              {feedback}
-            </p>
-          )}
-          <label className="world-select">
-            本会话 API
-            <select
-              aria-label="本会话 API"
-              disabled={busy}
-              value={conversation.apiConfigId || ""}
-              onChange={async (e) => {
-                try {
-                  const next = {
-                    ...conversation,
-                    apiConfigId: e.target.value || undefined,
-                  };
-                  await db.conversations.update(conversation.id, {
-                    apiConfigId: next.apiConfigId,
-                  });
-                  setConversation(next);
-                  setError("");
-                  try {
-                    await resolveApi(next);
-                  } catch (err) {
-                    setError(
-                      err instanceof Error ? err.message : "API 不可用。",
-                    );
-                  }
-                } catch {
-                  setError("会话设置保存失败。");
-                }
-              }}
-            >
-              <option value="">跟随角色 / 全局默认</option>
-              {conversation.apiConfigId &&
-                !configs.some((c) => c.id === conversation.apiConfigId) && (
-                  <option value={conversation.apiConfigId}>
-                    已删除的配置（请选择其他）
-                  </option>
-                )}
-              {configs.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                  {!c.enabled ? "（已停用）" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="chat-history" aria-label="当前会话消息">
             {!messages.length && (
               <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
             )}
@@ -339,6 +304,8 @@ export function Chat({ worldId }: { worldId?: string }) {
                 key={m.id}
                 message={m}
                 variants={variants[m.id] || []}
+                characterName={displayName}
+                characterAvatar={avatarSrc}
                 onMenu={() => {
                   setPreviewVariant(undefined);
                   setMenuId(m.id);
@@ -349,51 +316,63 @@ export function Chat({ worldId }: { worldId?: string }) {
             {busy && <p role="status">正在回复…</p>}
             <div ref={bottom} />
           </div>
-          {error && (
-            <div className="chat-error" role="alert">
-              {error}
-              <button onClick={() => s.set({ activeApp: "AI / API 设置" })}>
-                打开 AI / API 设置
+          <div className="chat-footer">
+            {feedback && (
+              <p role="status" className="chat-feedback">
+                {feedback}
+              </p>
+            )}
+            {error && (
+              <div className="chat-error" role="alert">
+                <button
+                  className="chat-error-dismiss"
+                  aria-label="关闭聊天错误"
+                  onClick={() => setError("")}
+                >
+                  ×
+                </button>
+                {error}
+                <button onClick={() => s.set({ activeApp: "AI / API 设置" })}>
+                  打开 AI / API 设置
+                </button>
+              </div>
+            )}
+            <form
+              className="chat-compose"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void send();
+              }}
+            >
+              <textarea
+                ref={inputRef}
+                rows={1}
+                aria-label="聊天消息"
+                placeholder="说点什么…"
+                maxLength={8000}
+                value={text}
+                disabled={busy}
+                onChange={(e) => setText(e.target.value)}
+              />
+              <button
+                className={`primary chat-send ${busy ? "is-cancel" : ""}`}
+                type={busy ? "button" : "submit"}
+                aria-label={busy ? "取消请求" : "发送"}
+                disabled={!busy && !text.trim()}
+                onClick={busy ? () => pending.current?.abort() : undefined}
+              >
+                {busy ? <Square size={18} /> : <Send size={20} />}
               </button>
-            </div>
-          )}
-          <form
-            className="chat-compose"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void send();
-            }}
-          >
-            <textarea
-              aria-label="聊天消息"
-              placeholder="说点什么…"
-              maxLength={8000}
-              value={text}
-              disabled={busy}
-              onChange={(e) => setText(e.target.value)}
-            />
-            <button
-              className="primary"
-              type="submit"
-              disabled={busy || !text.trim()}
-            >
-              发送
-            </button>
-          </form>
-          {busy ? (
-            <button
-              className="text-button"
-              onClick={() => pending.current?.abort()}
-            >
-              取消请求
-            </button>
-          ) : (
-            messages.at(-1)?.role === "user" && (
-              <button className="text-button" onClick={() => void send(true)}>
+            </form>
+            {!busy && messages.at(-1)?.role === "user" && (
+              <button
+                className="text-button chat-retry"
+                onClick={() => void send(true)}
+              >
                 重试最后一条消息
               </button>
-            )
-          )}
+            )}
+          </div>
           {menuId && (
             <MessageTools
               key={`${menuId}-${previewVariant?.id || "active"}`}
@@ -418,10 +397,42 @@ export function Chat({ worldId }: { worldId?: string }) {
               onRefresh={() => refresh(conversation.id)}
             />
           )}
-          <p className="hint">
-            本地保存完整记录；发送最近最多 30 条 / 24000 字符。可能产生 API
-            费用。
-          </p>
+          {management && (
+            <ChatManagement
+              conversation={conversation}
+              name={displayName}
+              worldName={
+                s.worlds.find((w) => w.id === conversation.worldId)?.name
+              }
+              configs={configs}
+              busy={busy}
+              onClose={() => setManagement(false)}
+              onSettings={() => s.set({ activeApp: "AI / API 设置" })}
+              onSnapshots={() => {
+                setManagement(false);
+                setShowSnapshots(true);
+              }}
+              onDelete={async () => {
+                const id = conversation.id;
+                await deleteConversation(id);
+                if (activeConversation.current === id) leaveConversation();
+              }}
+              onApi={async (id) => {
+                const next = { ...conversation, apiConfigId: id || undefined };
+                await db.conversations.update(conversation.id, {
+                  apiConfigId: next.apiConfigId,
+                });
+                if (activeConversation.current === next.id)
+                  setConversation(next);
+                try {
+                  await resolveApi(next);
+                  if (activeConversation.current === next.id) setError("");
+                } catch (e) {
+                  throw Error(e instanceof Error ? e.message : "API 不可用。");
+                }
+              }}
+            />
+          )}
         </>
       )}
       {error && !conversation && <p role="alert">{error}</p>}

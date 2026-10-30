@@ -635,6 +635,7 @@ test("iPhone 长按、移动取消、Escape/空白关闭、编辑/复制/删除/
   );
   await page.getByRole("button", { name: "删除", exact: true }).click();
   await expect(page.locator(".chat-assistant")).toHaveCount(0);
+  await page.getByRole("button", { name: "会话管理", exact: true }).click();
   await page.getByRole("button", { name: "历史快照 / 分支恢复" }).click();
   await page.getByRole("button", { name: "恢复此快照" }).first().click();
   await expect(page.locator(".chat-assistant")).toContainText("UI_AI_EDIT");

@@ -1526,3 +1526,303 @@ textarea {
 .phone.chat-open {
   overflow: clip;
 }
+/* 2.3.4: conversation-only shell; desktop and other apps keep their original layout. */
+.phone.chat-conversation > .status,
+.phone.chat-conversation > .app-panel > header {
+  display: none;
+}
+.phone.chat-conversation > .app-panel {
+  height: 100%;
+  min-height: 0;
+  animation: none;
+}
+.phone.chat-conversation > .app-panel > .app-scroll {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+.chat-app.chat-immersive {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+.chat-nav {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  min-height: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  border-bottom: 1px solid #ffffff70;
+  background: #edf2e5bf;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.chat-nav button {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+}
+.chat-nav-title {
+  min-width: 0;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 500;
+}
+.chat-immersive .chat-history {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 12px 12px 6px;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.chat-message-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0;
+  min-width: 0;
+  width: 100%;
+}
+.chat-message-row-user {
+  justify-content: flex-end;
+}
+.chat-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  background: #e5ebdf;
+  border: 1px solid #ffffffa0;
+  color: #647e67;
+  font-size: 15px;
+}
+.chat-avatar-user {
+  background: #d2dfca;
+}
+.chat-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.chat-message-stack {
+  min-width: 0;
+  max-width: calc(100% - 42px);
+  flex: 0 1 auto;
+}
+.chat-immersive .chat-bubble {
+  margin: 0;
+  padding: 0;
+  max-width: 100%;
+  background: transparent;
+  border-radius: 0;
+  min-width: 0;
+}
+.chat-bubble-surface {
+  background: #fffdf1d9;
+  border: 1px solid #ffffffa0;
+  border-radius: 4px 16px 16px 16px;
+  padding: 5px 11px 9px;
+  overflow-wrap: anywhere;
+}
+.chat-user .chat-bubble-surface {
+  background: #d4e1cde8;
+  border-radius: 16px 4px 16px 16px;
+  border-color: #dbe8d3;
+}
+.chat-bubble-surface .message-top {
+  min-height: 24px;
+  gap: 8px;
+}
+.chat-bubble-surface .message-top button {
+  min-height: 28px;
+  min-width: 30px;
+}
+.chat-bubble-surface .message-top small {
+  font-size: 9px;
+}
+.chat-bubble-surface p {
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.chat-immersive .message-versions {
+  margin-top: 2px;
+  justify-content: flex-start;
+  font-size: 10px;
+  padding-left: 3px;
+}
+.chat-immersive .message-versions button {
+  min-width: 32px;
+  min-height: 30px;
+}
+.chat-footer {
+  flex-shrink: 0;
+  min-height: 0;
+  background: #edf2e6eb;
+  border-top: 1px solid #fff8;
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+}
+.chat-immersive .chat-compose {
+  position: static;
+  margin: 0;
+  padding: 8px 10px 0;
+  gap: 8px;
+  background: transparent;
+  align-items: flex-end;
+}
+.chat-immersive .chat-compose textarea {
+  height: 40px;
+  min-height: 40px;
+  max-height: 120px;
+  line-height: 22px;
+  font-size: 16px;
+  padding: 8px 11px;
+  border: 1px solid #ffffffb3;
+  background: #fffdf4de;
+  border-radius: 16px;
+  resize: none;
+  display: block;
+  overscroll-behavior: contain;
+  overflow-x: hidden;
+}
+.chat-immersive .chat-send {
+  min-width: 40px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+}
+.chat-send.is-cancel {
+  background: #9b7565;
+}
+.chat-retry {
+  font-size: 10px;
+  padding: 6px 12px 0;
+}
+.chat-feedback {
+  font-size: 11px;
+  margin: 6px 12px 0;
+  color: #5d785f;
+}
+.chat-immersive .chat-error {
+  margin: 6px 10px 0;
+  padding: 8px 32px 8px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  max-height: 100px;
+  overflow: auto;
+  position: relative;
+}
+.chat-error .chat-error-dismiss {
+  position: absolute;
+  right: 3px;
+  top: 1px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  text-decoration: none;
+  font-size: 20px;
+}
+.conversation-info {
+  font-size: 13px;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+.conversation-info h4 {
+  font-size: 16px;
+  margin: 14px 0 8px;
+}
+.conversation-api .world-select {
+  flex-direction: column;
+  align-items: stretch;
+  margin-top: 16px;
+}
+.conversation-api select {
+  width: 100%;
+  max-width: 100%;
+  font-size: 16px;
+}
+.conversation-api {
+  font-size: 13px;
+  line-height: 1.7;
+}
+.phone.chat-keyboard .chat-footer {
+  padding-bottom: 8px;
+}
+@media (max-width: 760px), (hover: none) and (pointer: coarse) {
+  .stage.chat-stage {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: var(--chat-top, 0px);
+    width: 100%;
+    min-height: 0;
+    height: 100vh;
+    height: var(--chat-height, 100svh);
+    height: var(--chat-height, 100dvh);
+    padding: 0;
+    align-items: stretch;
+    gap: 0;
+  }
+  .stage.chat-stage > .brand,
+  .stage.chat-stage > .side-note {
+    display: none;
+  }
+  .stage.chat-stage > .phone.chat-conversation {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    min-height: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+.chat-immersive .chat-bubble {
+  touch-action: pan-y pinch-zoom;
+}
+.chat-footer {
+  position: relative;
+}
+.chat-feedback {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: #4e6856ed;
+  color: #fffdf3;
+  box-shadow: 0 3px 12px #34483e1a;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}
