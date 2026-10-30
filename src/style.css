@@ -1594,9 +1594,14 @@ textarea {
   scrollbar-width: thin;
 }
 .chat-message-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  --chat-avatar-size: 34px;
+  --chat-column-gap: 8px;
+  display: grid;
+  grid-template-columns: var(--chat-avatar-size) minmax(0, 1fr) var(
+      --chat-avatar-size
+    );
+  align-items: start;
+  column-gap: var(--chat-column-gap);
   margin: 0;
   min-width: 0;
   width: 100%;
@@ -1604,17 +1609,23 @@ textarea {
 .chat-immersive .chat-message-row + .chat-message-row {
   margin-top: 16px;
 }
-.chat-message-row-user {
+.chat-message-row > .chat-avatar {
+  grid-column: 1;
+  grid-row: 1;
+}
+.chat-message-row-user > .chat-avatar {
+  grid-column: 3;
+}
+.chat-message-row-user > .chat-message-stack {
   justify-content: flex-end;
 }
 .chat-avatar {
-  width: 34px;
-  height: 34px;
+  width: var(--chat-avatar-size, 34px);
+  height: var(--chat-avatar-size, 34px);
   border-radius: 50%;
   overflow: hidden;
   display: grid;
   place-items: center;
-  flex: 0 0 34px;
   background: #e5ebdf;
   border: 1px solid #ffffffa0;
   color: #647e67;
@@ -1629,13 +1640,18 @@ textarea {
   object-fit: cover;
 }
 .chat-message-stack {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: flex-start;
   min-width: 0;
-  max-width: calc(100% - 42px);
-  flex: 0 1 auto;
+  width: 100%;
+  max-width: 100%;
 }
 .chat-immersive .chat-bubble {
   margin: 0;
   padding: 0;
+  width: fit-content;
   max-width: 100%;
   background: transparent;
   border-radius: 0;
@@ -1673,6 +1689,7 @@ textarea {
   word-break: break-word;
 }
 .chat-immersive .message-versions {
+  max-width: 100%;
   margin-top: 0;
   justify-content: flex-start;
   font-size: 10px;
@@ -1877,4 +1894,9 @@ textarea {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+}
+/* A keyboard-only action on a short user bubble must also stay left of its avatar. */
+.chat-message-row-user .message-access {
+  left: auto;
+  right: 0;
 }
