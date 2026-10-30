@@ -159,6 +159,15 @@ test("消息组末条与版本不被输入框遮挡，任意气泡仍打开整�
     expect(layout.last).toBeLessThan(layout.top);
   }
   const bubble = group.locator(".chat-bubble-surface").last();
+  await bubble.scrollIntoViewIfNeeded();
+  // Resizing and scrolling intentionally cancel long presses. Start after the
+  // visualViewport RAF updates and queued scroll events have settled.
+  await page.evaluate(async () => {
+    for (let i = 0; i < 3; i++)
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+  });
   await bubble.dispatchEvent("pointerdown", {
     pointerId: 1,
     pointerType: "touch",

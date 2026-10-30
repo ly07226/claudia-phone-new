@@ -349,9 +349,13 @@ test("浏览历史时回复不强制滚底，多版本切换保持位置，菜�
     });
   }, state.daily.id);
   await daily(page, state.name);
-  await expect.poll(() => page.getByLabel("当前会话消息").evaluate(
-    (el) => el.scrollHeight - el.clientHeight - el.scrollTop,
-  )).toBeLessThanOrEqual(1);
+  await expect
+    .poll(() =>
+      page
+        .getByLabel("当前会话消息")
+        .evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop),
+    )
+    .toBeLessThanOrEqual(1);
   const beforeSwitch = await page
     .getByLabel("当前会话消息")
     .evaluate((el) => el.scrollTop);
@@ -405,7 +409,7 @@ test("消息编辑面板缩小视口仍可保存取消，生成中返回不会�
   await page
     .locator(".chat-assistant")
     .getByRole("button", { name: /消息操作/ })
-    .click();
+    .press("Enter");
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 330 });
   await page.getByLabel("编辑消息内容").fill("长文本\n".repeat(80));

@@ -196,14 +196,14 @@ test("长按任意片段操作整条消息，复制、编辑、删除保留完�
   await page
     .locator(".chat-assistant")
     .getByRole("button", { name: "AI 消息操作" })
-    .click();
+    .press("Enter");
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await expect(page.getByLabel("编辑消息内容")).toHaveValue(edited);
   await page.getByRole("button", { name: "取消", exact: true }).click();
   await page
     .locator(".chat-assistant")
     .getByRole("button", { name: "AI 消息操作" })
-    .click();
+    .press("Enter");
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "删除", exact: true }).click();
   await expect(page.locator(".chat-assistant")).toHaveCount(0);

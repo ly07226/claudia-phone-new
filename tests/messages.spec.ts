@@ -585,15 +585,15 @@ test("iPhone 长按、移动取消、Escape/空白关闭、编辑/复制/删除/
     clientY: box.y + 60,
   });
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await bubble.getByRole("button", { name: /消息操作/ }).click();
+  await bubble.getByRole("button", { name: /消息操作/ }).press("Enter");
   await page.locator(".message-backdrop").click({ position: { x: 4, y: 4 } });
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await bubble.getByRole("button", { name: /消息操作/ }).click();
+  await bubble.getByRole("button", { name: /消息操作/ }).press("Enter");
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await expect(page.getByLabel("编辑消息内容")).toHaveValue("UI_USER");
   await page.getByRole("button", { name: "取消", exact: true }).click();
   await expect(bubble).toContainText("UI_USER");
-  await bubble.getByRole("button", { name: /消息操作/ }).click();
+  await bubble.getByRole("button", { name: /消息操作/ }).press("Enter");
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await page.getByLabel("编辑消息内容").fill("UI_EDITED");
   page.on("dialog", (d) => d.accept());
@@ -605,13 +605,16 @@ test("iPhone 长按、移动取消、Escape/空白关闭、编辑/复制/删除/
   await page
     .locator(".chat-assistant")
     .getByRole("button", { name: /消息操作/ })
-    .click();
+    .press("Enter");
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await page.getByLabel("编辑消息内容").fill("");
   await expect(page.getByRole("button", { name: "仅保存修改" })).toBeDisabled();
   await page.getByLabel("编辑消息内容").fill("UI_AI_EDIT");
   await page.getByRole("button", { name: "仅保存修改" }).click();
-  await expect(page.locator(".chat-assistant")).toContainText("用户已编辑");
+  await expect(page.locator(".chat-assistant .message-access")).toHaveAttribute(
+    "aria-description",
+    /用户已编辑/,
+  );
   await page.evaluate(() =>
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -625,7 +628,7 @@ test("iPhone 长按、移动取消、Escape/空白关闭、编辑/复制/删除/
   await page
     .locator(".chat-assistant")
     .getByRole("button", { name: /消息操作/ })
-    .click();
+    .press("Enter");
   await page.getByRole("button", { name: "复制", exact: true }).click();
   await expect(page.getByRole("dialog").getByRole("status")).toContainText(
     "已复制",
@@ -763,7 +766,7 @@ test("请求进行中撤回并恢复输入框，编辑最新用户消息后保�
   await page
     .locator(".chat-user")
     .getByRole("button", { name: /消息操作/ })
-    .click();
+    .press("Enter");
   page.on("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "撤回", exact: true }).click();
   await expect(page.locator(".chat-bubble")).toHaveCount(0);
@@ -779,7 +782,7 @@ test("请求进行中撤回并恢复输入框，编辑最新用户消息后保�
   await page
     .locator(".chat-user")
     .getByRole("button", { name: /消息操作/ })
-    .click();
+    .press("Enter");
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await page.getByLabel("编辑消息内容").fill("EDIT_AND_GENERATE");
   await page.getByRole("button", { name: "保存并重新回复" }).click();
@@ -954,7 +957,7 @@ test("编辑器固定打开时版本，生成完成后不能把旧草稿误写�
   await page
     .locator(".chat-assistant")
     .getByRole("button", { name: /消息操作/ })
-    .click();
+    .press("Enter");
   const request = page.waitForRequest(
     "https://messages.example.test/v1/chat/completions",
   );
@@ -963,7 +966,7 @@ test("编辑器固定打开时版本，生成完成后不能把旧草稿误写�
   await page
     .locator(".chat-assistant")
     .getByRole("button", { name: /消息操作/ })
-    .click();
+    .press("Enter");
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await expect(page.getByLabel("编辑消息内容")).toHaveValue("REPLY_1");
   await page.getByLabel("编辑消息内容").fill("OLD_DRAFT");
@@ -990,7 +993,9 @@ test("编辑器固定打开时版本，生成完成后不能把旧草稿误写�
   expect(state.variants.some((v) => v.content === "OLD_DRAFT")).toBe(false);
 });
 
-test("单版本无切换器及占位，重新生成成功显示新版本，失败保持原显示", async ({ page }) => {
+test("单版本无切换器及占位，重新生成成功显示新版本，失败保持原显示", async ({
+  page,
+}) => {
   const { daily } = await seed(page);
   await responses(page);
   await page.evaluate(async (id) => {
@@ -1004,17 +1009,26 @@ test("单版本无切换器及占位，重新生成成功显示新版本，失�
   const switcher = ai.getByLabel("回复版本", { exact: true });
   await expect(ai).toContainText("REPLY_1");
   await expect(switcher).toHaveCount(0);
-  expect(await ai.evaluate(el => {
-    const surface = el.querySelector(".chat-bubble-surface")!;
-    return Math.abs(el.getBoundingClientRect().height - surface.getBoundingClientRect().height);
-  })).toBeLessThanOrEqual(1);
+  expect(
+    await ai.evaluate((el) => {
+      const surface = el.querySelector(".chat-bubble-surface")!;
+      return Math.abs(
+        el.getBoundingClientRect().height -
+          surface.getBoundingClientRect().height,
+      );
+    }),
+  ).toBeLessThanOrEqual(1);
   let fail = true;
   await page.unroute("https://messages.example.test/**");
-  await page.route("https://messages.example.test/**", r => fail
-    ? r.fulfill({ status: 401, json: { error: { message: "Unauthorized" } } })
-    : r.fulfill({ json: { choices: [{ message: { content: "NEW_VERSION" } }] } }));
+  await page.route("https://messages.example.test/**", (r) =>
+    fail
+      ? r.fulfill({ status: 401, json: { error: { message: "Unauthorized" } } })
+      : r.fulfill({
+          json: { choices: [{ message: { content: "NEW_VERSION" } }] },
+        }),
+  );
   async function regenerate() {
-    await ai.getByRole("button", { name: "AI 消息操作" }).click();
+    await ai.getByRole("button", { name: "AI 消息操作" }).press("Enter");
     await page.getByRole("button", { name: "重新生成", exact: true }).click();
   }
   await regenerate();
@@ -1025,8 +1039,12 @@ test("单版本无切换器及占位，重新生成成功显示新版本，失�
   await regenerate();
   await expect(ai).toContainText("NEW_VERSION");
   await expect(switcher).toContainText("2 / 2");
-  await expect(switcher.getByRole("button", { name: "上一个回复版本" })).toBeEnabled();
-  await expect(switcher.getByRole("button", { name: "下一个回复版本" })).toBeDisabled();
+  await expect(
+    switcher.getByRole("button", { name: "上一个回复版本" }),
+  ).toBeEnabled();
+  await expect(
+    switcher.getByRole("button", { name: "下一个回复版本" }),
+  ).toBeDisabled();
   fail = true;
   await regenerate();
   await expect(page.getByRole("alert")).toContainText("认证失败");

@@ -1,12 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  MoreHorizontal,
-  ChevronLeft,
-  ChevronRight,
-  X,
-  UserRound,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, X, UserRound } from "lucide-react";
 import type {
   Message,
   MessageVariant,
@@ -113,29 +107,22 @@ export function ChatMessage({
           data-message-id={m.id}
           {...handlers}
         >
+          <button
+            type="button"
+            className="message-access"
+            aria-label={m.role === "user" ? "用户消息操作" : "AI 消息操作"}
+            aria-haspopup="dialog"
+            aria-description={
+              m.userEdited
+                ? "用户已编辑。打开完整消息的操作菜单。"
+                : "打开完整消息的操作菜单。"
+            }
+            onClick={onMenu}
+          >
+            消息操作
+          </button>
           {fragments.map((fragment, fragmentIndex) => (
             <div className="chat-bubble-surface" key={fragmentIndex}>
-              {fragmentIndex === 0 && (
-                <div className="message-top">
-                  <small>
-                    {m.role === "user"
-                      ? "你"
-                      : m.role === "assistant"
-                        ? "角色"
-                        : "系统"}
-                    {m.userEdited ? " · 用户已编辑" : ""}
-                  </small>
-                  <button
-                    type="button"
-                    aria-label={
-                      m.role === "user" ? "用户消息操作" : "AI 消息操作"
-                    }
-                    onClick={onMenu}
-                  >
-                    <MoreHorizontal size={17} />
-                  </button>
-                </div>
-              )}
               <p>
                 {m.role === "assistant" ? (
                   <AssistantBubbleText content={fragment} />
