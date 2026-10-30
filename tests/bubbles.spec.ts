@@ -47,12 +47,13 @@ test("纯函数：自然句、换行、动作与混合语言分段且逐字保�
   expect(results[13].pieces).toEqual([cases[13]]);
 });
 
-async function openLegacy(page: Page) {
+async function openLegacy(page: Page, supplied?: string) {
   await page.goto("/");
   await expect(
     page.getByRole("button", { name: "聊天", exact: true }),
   ).toBeVisible();
   const original =
+    supplied ??
     "（他抬头，轻轻笑了。）“你好。”\n\n今天过得怎么样？\n我会在这里陪你。";
   const ids = await page.evaluate(async (content) => {
     const { db } = await import("/src/store.ts");
@@ -215,4 +216,70 @@ test("长按任意片段操作整条消息，复制、编辑、删除保留完�
       );
     }, edited),
   ).toBe(true);
+});
+
+test("2.3.4.3 短句直接分泡、连续标点闭合引号、动作及空白保真", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const examples = [
+    [
+      "我今天其实也没干什么特别的事，大部分时间都在这里陪你聊天，顺便数着头顶的月亮消磨时间。日子过得挺清闲的。",
+      [
+        "我今天其实也没干什么特别的事，大部分时间都在这里陪你聊天，顺便数着头顶的月亮消磨时间。",
+        "日子过得挺清闲的。",
+      ],
+    ],
+    ["你好。今天好吗？", ["你好。", "今天好吗？"]],
+    [
+      "这个句子虽然很长，而且有许多逗号，但应该继续保持完整，不能仅仅因为逗号或者字符数量增加就被随意拆成几个小片段。",
+      [
+        "这个句子虽然很长，而且有许多逗号，但应该继续保持完整，不能仅仅因为逗号或者字符数量增加就被随意拆成几个小片段。",
+      ],
+    ],
+    ["真的？！好的！！再见。。。", ["真的？！", "好的！！", "再见。。。"]],
+    [
+      "他说：“今天好吗？！”然后问候你。",
+      ["他说：“今天好吗？！”", "然后问候你。"],
+    ],
+    ["“先走吧。”“明天见！”", ["“先走吧。”", "“明天见！”"]],
+    [
+      "（他抬起头，笑了笑。）“我在这里。”",
+      ["（他抬起头，笑了笑。）“我在这里。”"],
+    ],
+    ["*他轻声笑了笑。*“别担心！”", ["*他轻声笑了笑。*“别担心！”"]],
+    [
+      "\n\n你好。\n\r\n\n今天好吗？\n\n",
+      ["\n\n你好。\n\r\n\n", "今天好吗？\n\n"],
+    ],
+    ["你好。\n！！！\n我在这里。", ["你好。\n！！！\n", "我在这里。"]],
+    ["！？你好。再见！", ["！？你好。", "再见！"]],
+    ["```text\n你好。再见。\n```", ["```text\n你好。再见。\n```"]],
+    ["未闭合的（动作。然后。", ["未闭合的（动作。然后。"]],
+  ] as const;
+  const output = await page.evaluate(
+    async (texts) => {
+      const { splitAssistantBubbles } =
+        await import("/src/splitAssistantBubbles.ts");
+      return texts.map((t) => splitAssistantBubbles(t));
+    },
+    examples.map((e) => e[0]),
+  );
+  examples.forEach(([input, expected], i) => {
+    expect(output[i]).toEqual(expected);
+    expect(output[i].join("")).toBe(input);
+    expect(output[i].every((p) => /[\p{L}\p{N}\p{S}]/u.test(p))).toBe(true);
+  });
+});
+
+test("2.3.4.3 真机案例在 AI 显示两个气泡，用户仍为单气泡", async ({ page }) => {
+  const sample =
+    "我今天其实也没干什么特别的事，大部分时间都在这里陪你聊天，顺便数着头顶的月亮消磨时间。日子过得挺清闲的。";
+  await openLegacy(page, sample);
+  const ai = page.locator(".chat-assistant");
+  await expect(ai.locator(".chat-bubble-surface")).toHaveCount(2);
+  expect((await ai.locator("p").allTextContents()).join("")).toBe(sample);
+  await expect(page.locator(".chat-user .chat-bubble-surface")).toHaveCount(1);
+  await expect(ai.getByRole("button", { name: "AI 消息操作" })).toHaveCount(1);
+  await expect(ai.getByLabel("回复版本", { exact: true })).toHaveCount(0);
 });

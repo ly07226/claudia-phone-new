@@ -93,12 +93,27 @@ export function splitAssistantBubbles(content: string): string[] {
       group = "";
     }
     group += part;
-    if (paragraph && group.trim()) {
+    // Ordinary sentences are bubbles in their own right, even below 80 chars.
+    // Only action-related fragments retain the conservative packing budget.
+    if ((paragraph || (!longAction && !action(group))) && group.trim()) {
       result.push(group);
       group = "";
     }
   }
   if (group.trim()) result.push(group);
   else if (group && result.length) result[result.length - 1] += group;
-  return result;
+  // Stray punctuation/blank lines must not create their own display bubble.
+  const bubbles: string[] = [];
+  let prefix = "";
+  for (const piece of result) {
+    if (!/[\p{L}\p{N}\p{S}]/u.test(piece)) {
+      if (bubbles.length) bubbles[bubbles.length - 1] += piece;
+      else prefix += piece;
+    } else {
+      bubbles.push(prefix + piece);
+      prefix = "";
+    }
+  }
+  // An entirely punctuation-only reply has no visible bubble; Message stays intact.
+  return bubbles;
 }
