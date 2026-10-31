@@ -1,5 +1,9 @@
 @import "tailwindcss";
 :root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
   color: #34483e;
@@ -89,6 +93,7 @@ button {
   font-weight: 600;
 }
 .phone {
+  --status-height: 57px;
   position: relative;
   isolation: isolate;
   width: 390px;
@@ -127,7 +132,7 @@ button {
     0 0 0 195px #eff4e115;
 }
 .status {
-  height: 57px;
+  height: var(--status-height);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -153,7 +158,7 @@ button {
   align-items: center;
 }
 .desktop {
-  height: calc(100% - 57px);
+  height: calc(100% - var(--status-height));
   display: flex;
   flex-direction: column;
   padding: 0 25px 26px;
@@ -344,7 +349,7 @@ button {
   opacity: 0.6;
 }
 .app-panel {
-  height: calc(100% - 57px);
+  height: calc(100% - var(--status-height));
   background: #f3f5ecad;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -737,29 +742,30 @@ textarea {
     width: 100%;
     max-width: 440px;
     height: 100dvh;
-    min-height: 640px;
+    min-height: 0;
+    --status-height: calc(49px + var(--safe-top));
     border-radius: 0;
     box-shadow: none;
   }
   .status {
-    padding-top: env(safe-area-inset-top);
-    height: calc(49px + env(safe-area-inset-top));
+    padding-top: var(--safe-top);
+    height: var(--status-height);
   }
   .island {
     display: none;
   }
   .desktop {
-    height: calc(100% - 49px - env(safe-area-inset-top));
-    padding-bottom: calc(23px + env(safe-area-inset-bottom));
+    height: calc(100% - var(--status-height));
+    padding-bottom: calc(23px + var(--safe-bottom));
   }
   .app-panel {
-    height: calc(100% - 49px - env(safe-area-inset-top));
+    height: calc(100% - var(--status-height));
   }
   .app-scroll {
-    padding-bottom: calc(35px + env(safe-area-inset-bottom));
+    padding-bottom: calc(35px + var(--safe-bottom));
   }
   .home-indicator {
-    bottom: calc(7px + env(safe-area-inset-bottom) / 3);
+    bottom: calc(7px + var(--safe-bottom) / 3);
   }
   .clock {
     padding-top: 22px;
@@ -1417,7 +1423,7 @@ textarea {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: 12px 12px max(12px, env(safe-area-inset-bottom));
+  padding: 12px 12px max(12px, var(--safe-bottom));
   overscroll-behavior: contain;
 }
 .message-sheet {
@@ -1548,9 +1554,9 @@ textarea {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding-top: env(safe-area-inset-top, 0px);
-  padding-left: env(safe-area-inset-left, 0px);
-  padding-right: env(safe-area-inset-right, 0px);
+  padding-top: var(--safe-top);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
 }
 .chat-nav {
   display: grid;
@@ -1704,7 +1710,7 @@ textarea {
   min-height: 0;
   background: #edf2e6eb;
   border-top: 1px solid #fff8;
-  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  padding-bottom: max(8px, var(--safe-bottom));
 }
 .chat-immersive .chat-compose {
   position: static;
@@ -1907,9 +1913,9 @@ textarea {
   min-height: 100dvh;
   background:
     radial-gradient(ellipse at top left, #dce9d4, transparent 65%), #f4f5eb;
-  padding: max(28px, env(safe-area-inset-top))
-    max(18px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom))
-    max(18px, env(safe-area-inset-left));
+  padding: max(28px, var(--safe-top))
+    max(18px, var(--safe-right)) max(32px, var(--safe-bottom))
+    max(18px, var(--safe-left));
 }
 .space-select-shell {
   max-width: 720px;
@@ -2123,9 +2129,9 @@ textarea {
 
 /* Space landing only: the same background and existing world pages are retained. */
 .space-landing {
-  height: calc(100vh - max(28px, env(safe-area-inset-top)) - max(32px, env(safe-area-inset-bottom)));
-  height: calc(100svh - max(28px, env(safe-area-inset-top)) - max(32px, env(safe-area-inset-bottom)));
-  height: calc(100dvh - max(28px, env(safe-area-inset-top)) - max(32px, env(safe-area-inset-bottom)));
+  height: calc(100vh - max(28px, var(--safe-top)) - max(32px, var(--safe-bottom)));
+  height: calc(100svh - max(28px, var(--safe-top)) - max(32px, var(--safe-bottom)));
+  height: calc(100dvh - max(28px, var(--safe-top)) - max(32px, var(--safe-bottom)));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
@@ -2166,3 +2172,20 @@ textarea {
 .script-more-popup { position: absolute; right: 0; top: 100%; min-width: 132px; background: #fffdf4; border: 1px solid #dce6d6; border-radius: 16px; box-shadow: 0 8px 24px #34483e20; padding: 6px; max-height: 50dvh; overflow-y: auto; }
 .script-more-popup button { display: block; width: 100%; min-height: 44px; text-align: left; padding: 8px 12px; }
 .script-compact > .script-archives { grid-column: 1 / -1; margin: 0; width: 100%; }
+
+/* The document canvas follows only the visible screen; it never owns content insets. */
+html { min-height: 100%; }
+body, #root { min-height: 100%; }
+html[data-ios="true"] { background: var(--page-background, #f4f5eb); background-position: center; background-size: cover; }
+.stage[data-ios] { display: block; padding: 0; background: transparent; }
+.stage[data-ios]:not(.chat-stage) { min-height: 100vh; min-height: 100svh; min-height: 100dvh; }
+.stage[data-ios] > .brand, .stage[data-ios] > .side-note { display: none; }
+.stage[data-ios] > .phone { --status-height: calc(44px + var(--safe-top)); border-radius: 0; box-shadow: none; }
+.stage[data-ios] > .phone:not(.chat-conversation) { width: 100%; max-width: none; height: 100vh; height: 100svh; height: 100dvh; min-height: 0; }
+.stage[data-ios] .status { padding: var(--safe-top) max(16px, var(--safe-right)) 0 max(16px, var(--safe-left)); justify-content: flex-start; }
+.stage[data-ios] .status .space-return { max-width: 100%; background: #ffffff40; }
+.stage[data-ios] .desktop { padding-left: max(20px, var(--safe-left)); padding-right: max(20px, var(--safe-right)); padding-bottom: calc(16px + var(--safe-bottom)); }
+.stage[data-ios] .app-scroll { padding-left: max(23px, var(--safe-left)); padding-right: max(23px, var(--safe-right)); padding-bottom: calc(24px + var(--safe-bottom)); }
+.stage[data-ios] .app-panel > header { padding-left: max(20px, var(--safe-left)); padding-right: max(20px, var(--safe-right)); }
+/* A conversation hides the outer bars and owns its own single set of insets. */
+.stage[data-ios] .phone.chat-conversation > .app-panel > .app-scroll { padding: 0; }

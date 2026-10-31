@@ -1,3 +1,4 @@
+import { useDisplayEnvironment } from "./presentation";
 import { Lorebooks } from "./Lorebooks";
 import { Chat } from "./Chat";
 import { CharacterManager } from "./CharacterManager";
@@ -59,6 +60,7 @@ const icons = [
   Users,
 ];
 function App() {
+  const environment = useDisplayEnvironment();
   const s = usePhone();
   const space = useSpaces((state) => state.space);
   const [now, setNow] = useState(new Date());
@@ -85,6 +87,7 @@ function App() {
       gesture.current = undefined;
     };
   }, []);
+  const wallpaperSurface = !s.activeApp || s.activeApp === "主题编辑器";
   const asset = (id?: string) => s.assets.find((a) => a.id === id)?.data;
   async function fileChange(
     file: File | undefined,
@@ -201,7 +204,7 @@ function App() {
     );
   }
   return (
-    <div className="stage">
+    <div className="stage" data-ios={environment.ios || undefined} data-standalone={environment.standalone || undefined}>
       <aside className="brand">
         <span className="brand-mark">c.</span>
         <h1>
@@ -224,8 +227,8 @@ function App() {
               s.theme.font === "serif"
                 ? 'Georgia, "Songti SC", serif'
                 : undefined,
-            backgroundColor: s.theme.color,
-            backgroundImage: asset(s.theme.wallpaper)
+            backgroundColor: wallpaperSurface ? s.theme.color : "#f3f5ec",
+            backgroundImage: wallpaperSurface && asset(s.theme.wallpaper)
               ? `url(${asset(s.theme.wallpaper)})`
               : undefined,
           } as React.CSSProperties
@@ -233,15 +236,15 @@ function App() {
       >
         <div
           className="wallpaper-art"
-          style={{ display: s.theme.wallpaper ? "none" : undefined }}
+          style={{ display: !wallpaperSurface || asset(s.theme.wallpaper) ? "none" : undefined }}
         />
-        <div className="status">
-          <span>
+        <div className="status" aria-label={environment.ios ? "空间导航" : "模拟手机状态栏"}>
+          {!environment.ios && <span className="simulated-time">
             {now.toLocaleTimeString("en-GB", {
               hour: "2-digit",
               minute: "2-digit",
             })}
-          </span>
+          </span>}
           <button
             className="space-return"
             aria-label="返回空间列表"
@@ -255,11 +258,11 @@ function App() {
               · {space?.type === "world" ? "剧本列表" : "空间列表"}
             </span>
           </button>
-          <span className="status-icons">
+          {!environment.ios && <span className="status-icons">
             <Signal size={14} />
             <Wifi size={15} />
             <BatteryFull size={20} />
-          </span>
+          </span>}
         </div>
         {!s.ready ? (
           <div className="loading">正在整理你的小小世界…</div>
@@ -785,7 +788,7 @@ function App() {
                 );
               })}
             </div>
-            <div className="home-indicator" />
+            {!environment.ios && <div className="home-indicator" />}
           </section>
         )}
         {s.error && (
@@ -820,7 +823,14 @@ createRoot(document.getElementById("root")!).render(
 if ("serviceWorker" in navigator && import.meta.env.PROD)
   window.addEventListener("load", () => {
     navigator.serviceWorker
-      .register("/sw.js")
+      .register("/sw.js", {updateViaCache:"none"})
+      .then((registration) => {
+        // Update on foreground entry without reloading forms or interrupting chat.
+        const update = () => { if (!document.hidden) void registration.update().catch(() => {}); };
+        update();
+        document.addEventListener("visibilitychange",update);
+        window.addEventListener("pageshow",update);
+      })
       .catch(() =>
         usePhone
           .getState()
