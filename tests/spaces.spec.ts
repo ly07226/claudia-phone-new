@@ -1,9 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 test.use({ storageState: { cookies: [], origins: [] } });
 async function openScripts(page: Page) {
-  await expect(page.getByRole("heading", { name: "选择空间", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^(选择空间|剧本世界)$/ })).toBeVisible();
   const entry = page.getByRole("button", { name: "剧本", exact: true });
   if (await entry.count()) await entry.click();
+  await expect(page.getByRole("heading", {name:"剧本世界",exact:true})).toBeVisible();
 }
 async function selector(page: Page) {
   await page.goto("/");
@@ -118,36 +119,24 @@ async function leaveChat(page: Page) {
   await page.getByRole("button", { name: "返回空间列表", exact: true }).click();
   await openScripts(page);
   await expect(
-    page.getByRole("heading", { name: "选择空间", exact: true }),
+    page.getByRole("heading", { name: "剧本世界", exact: true }),
   ).toBeVisible();
 }
 
-test("永久日常入口、零世界不空白、手机桌面与退出，导航持久化仅存空间", async ({
-  page,
-}) => {
+test("永久日常入口、零世界不空白、手机桌面与退出，导航持久化仅存空间", async ({page}) => {
   await selector(page);
-  await openScripts(page);
   await expect(page.getByTestId("daily-space")).toBeVisible();
-  await expect(
-    page.getByTestId("daily-space").getByRole("button", { name: /删除/ }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByText("还没有剧本世界。", { exact: false }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "进入日常手机", exact: true }).click();
+  await page.getByRole("button",{name:"进入日常手机",exact:true}).click();
   await expect(page.locator(".desktop")).toBeVisible();
-  await expect(page.locator(".chat-app")).toHaveCount(0);
-  await checkSpace(page, "daily");
-  await page.reload();
-  await expect(page.locator(".desktop")).toBeVisible();
-  await checkSpace(page, "daily");
-  await page.getByRole("button", { name: "返回空间列表", exact: true }).click();
-  await openScripts(page);
+  await checkSpace(page,"daily");
+  await page.reload(); await expect(page.locator(".desktop")).toBeVisible();
+  await checkSpace(page,"daily");
+  await page.getByRole("button",{name:"返回空间列表",exact:true}).click();
   await expect(page.getByTestId("daily-space")).toBeVisible();
-  const nav = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("claudia.navigation.v1")!),
-  );
-  expect(nav).toEqual({ version: 1, route: { screen: "spaces" } });
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem("claudia.navigation.v1")!))).toEqual({version:1,route:{screen:"spaces"}});
+  await openScripts(page);
+  await expect(page.getByTestId("daily-space")).toHaveCount(0);
+  await expect(page.getByText("还没有剧本世界。",{exact:true})).toBeVisible();
 });
 
 test("世界进度按实际聊天判断，进入/退出/刷新/后退不重置、不串身份", async ({
@@ -181,27 +170,27 @@ test("世界进度按实际聊天判断，进入/退出/刷新/后退不重置�
   await expect(page.getByLabel("当前会话消息")).not.toContainText("DAILY_ONLY");
   await leaveChat(page);
   await page
-    .getByRole("button", { name: "开始游戏 · 自定义乙", exact: true })
+    .getByRole("button", { name: "开始新游戏 · 自定义乙", exact: true })
     .click();
   await expect(page.locator(".desktop")).toBeVisible();
   await checkSpace(page, "world:space-b");
   await page.goBack();
   await expect(
-    page.getByRole("heading", { name: "选择空间", exact: true }),
+    page.getByRole("heading", { name: "剧本世界", exact: true }),
   ).toBeVisible();
   await page.goBack();
   await expect(page.locator(".desktop")).toBeVisible();
   await checkSpace(page, "world:space:a/一");
   await page.goForward();
   await expect(
-    page.getByRole("heading", { name: "选择空间", exact: true }),
+    page.getByRole("heading", { name: "剧本世界", exact: true }),
   ).toBeVisible();
   await page.goForward();
   await expect(page.locator(".desktop")).toBeVisible();
   await checkSpace(page, "world:space-b");
   await page.goBack();
   await expect(
-    page.getByRole("heading", { name: "选择空间", exact: true }),
+    page.getByRole("heading", { name: "剧本世界", exact: true }),
   ).toBeVisible();
   await page.goBack();
   await page.reload();
@@ -212,6 +201,7 @@ test("世界进度按实际聊天判断，进入/退出/刷新/后退不重置�
     "WORLD_A_ONLY_REPLY",
   );
   await leaveChat(page);
+  await page.getByRole("button", {name:"返回空间首页",exact:true}).click();
   await page.getByRole("button", { name: "进入日常手机", exact: true }).click();
   await chat(page);
   await expect(page.getByLabel("当前会话消息")).toContainText(
@@ -238,20 +228,15 @@ test("复用世界 CRUD，重命名保持稳定ID，删除活动世界安全回�
 }) => {
   await selector(page);
   await openScripts(page);
-  await page
-    .getByRole("button", { name: "创建 / 管理剧本", exact: true })
-    .click();
-  await page.getByRole("button", { name: "创建世界", exact: true }).click();
+  await page.getByRole("button", { name: "创建剧本", exact: true }).click();
   await page.getByLabel("世界名称", { exact: true }).fill("我的新剧本");
   await page.getByLabel("世界描述", { exact: true }).fill("自定义简介");
   await page.getByRole("button", { name: "保存世界", exact: true }).click();
-  await page.getByRole("button", { name: "返回空间列表", exact: true }).click();
-  await openScripts(page);
   await expect(
     page.getByRole("heading", { name: "我的新剧本", exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "开始游戏 · 我的新剧本", exact: true })
+    .getByRole("button", { name: "开始新游戏 · 我的新剧本", exact: true })
     .click();
   await expect(page.locator(".desktop")).toBeVisible();
   const id = await page.evaluate(
@@ -341,7 +326,7 @@ test("生成中切换空间取消旧请求，迟到响应不写入新空间，�
   await request;
   await leaveChat(page);
   await page
-    .getByRole("button", { name: "开始游戏 · 自定义乙", exact: true })
+    .getByRole("button", { name: "开始新游戏 · 自定义乙", exact: true })
     .click();
   await chat(page);
   await expect(page.getByLabel("当前会话消息")).not.toContainText(
@@ -410,7 +395,7 @@ test("导航保存失败仍可进入空间，原世界聊天和API凭据不变",
   ).toEqual({ messages: 2, key: "synthetic-space-key" });
   await page.getByRole("button", { name: "返回空间列表", exact: true }).click();
   await openScripts(page);
-  await expect(page.getByTestId("daily-space")).toBeVisible();
+  await expect(page.getByTestId("daily-space")).toHaveCount(0);
 });
 
 test("历史写入失败不产生身份/URL错位，快速切换只激活最后一个目的地", async ({
@@ -428,7 +413,7 @@ test("历史写入失败不产生身份/URL错位，快速切换只激活最后�
     .getByRole("button", { name: "继续游戏 · 自定义甲", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "选择空间", exact: true }),
+    page.getByRole("heading", { name: "剧本世界", exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("未切换空间");
   expect(
@@ -436,7 +421,7 @@ test("历史写入失败不产生身份/URL错位，快速切换只激活最后�
       async () => (await import("/src/spaces.ts")).useSpaces.getState().space,
     ),
   ).toBeNull();
-  expect(new URL(page.url()).hash).toBe("#spaces");
+  expect(new URL(page.url()).hash).toBe("#worlds");
   await page.evaluate(async () => {
     history.pushState = (window as any).__pushState;
     const { useSpaces } = await import("/src/spaces.ts");
@@ -456,6 +441,7 @@ test("日常角色管理默认基础角色不自动关联首世界，世界入�
 }) => {
   await selector(page);
   await seed(page);
+  await page.getByRole("button", {name:"返回空间首页",exact:true}).click();
   await page.getByRole("button", { name: "进入日常手机", exact: true }).click();
   await page.getByRole("button", { name: "角色管理", exact: true }).click();
   await expect(page.getByLabel("当前世界", { exact: true })).toHaveValue("");
@@ -482,4 +468,61 @@ test("日常角色管理默认基础角色不自动关联首世界，世界入�
   await expect(page.getByLabel("当前世界", { exact: true })).toHaveValue(
     "space:a/一",
   );
+});
+
+for (const standalone of [false, true]) test(`三级路由、刷新/后退及真实存档入口保留全部数据：standalone=${standalone}`, async ({ page }) => {
+  if (standalone) await page.addInitScript(() => {
+    const original = window.matchMedia.bind(window);
+    window.matchMedia = query => {
+      const result = original(query);
+      if (query.includes("display-mode: standalone")) Object.defineProperty(result, "matches", {value:true});
+      return result;
+    };
+  });
+  await selector(page);
+  const { a } = await seed(page);
+  await page.evaluate(async id => {
+    const { db } = await import("/src/store.ts");
+    await db.conversationSnapshots.put({id:"navigation-snapshot",conversationId:id,reason:"edit",createdAt:1,
+      messages:await db.messages.where("conversationId").equals(id).toArray(),
+      variants:await db.messageVariants.where("conversationId").equals(id).toArray()});
+  }, a.id);
+  const capture = () => page.evaluate(async () => {
+    const {db} = await import("/src/store.ts");
+    return db.transaction("r",db.tables,async()=>Object.fromEntries(await Promise.all(db.tables.map(async table=>[table.name,await table.toArray()]))));
+  });
+  const before = await capture();
+  expect(new URL(page.url()).hash).toBe("#worlds");
+  await expect(page.getByTestId("daily-space")).toHaveCount(0);
+  await expect(page.locator(".space-mascot")).toHaveCount(0);
+  await expect(page.getByRole("heading",{name:"选择空间",exact:true})).toHaveCount(0);
+  const card = page.getByTestId("world-space-space:a/一");
+  await expect(card.getByRole("button",{name:"继续游戏 · 自定义甲",exact:true})).toBeVisible();
+  const newGame = card.getByRole("button",{name:"开始新游戏（暂不可用）",exact:true});
+  await expect(newGame).toBeDisabled();
+  await newGame.evaluate((el:HTMLButtonElement)=>el.click());
+  expect(await capture()).toEqual(before);
+  await card.getByRole("button",{name:"存档管理 · 自定义甲",exact:true}).click();
+  await expect(card.getByRole("region",{name:"存档管理"})).toContainText("2 条消息 · 1 个历史快照");
+  await expect(card.getByRole("region",{name:"存档管理"})).toContainText("不提供独立存档槽");
+  await page.reload();
+  await expect(page.getByRole("heading",{name:"剧本世界",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"开始新游戏 · 自定义乙",exact:true}).click();
+  await expect(page.locator(".desktop")).toBeVisible(); await checkSpace(page,"world:space-b");
+  await page.getByRole("button",{name:"返回空间列表",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"剧本世界",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"继续游戏 · 自定义甲",exact:true}).click();
+  await expect(page.locator(".desktop")).toBeVisible(); await checkSpace(page,"world:space:a/一");
+  await page.reload(); await expect(page.locator(".desktop")).toBeVisible(); await checkSpace(page,"world:space:a/一");
+  await page.getByRole("button",{name:"返回空间列表",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"剧本世界",exact:true})).toBeVisible();
+  await page.goBack(); await expect(page.locator(".desktop")).toBeVisible(); await checkSpace(page,"world:space:a/一");
+  await page.goForward(); await expect(page.getByRole("heading",{name:"剧本世界",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"返回空间首页",exact:true}).click();
+  await expect(page.locator(".space-mascot img")).toBeVisible();
+  await page.getByRole("button",{name:"进入日常手机",exact:true}).click();
+  await expect(page.locator(".desktop")).toBeVisible(); await checkSpace(page,"daily");
+  await page.getByRole("button",{name:"返回空间列表",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"选择空间",exact:true})).toBeVisible();
+  expect(await capture()).toEqual(before);
 });

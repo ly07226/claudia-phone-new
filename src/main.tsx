@@ -252,7 +252,7 @@ function App() {
               {space?.type === "world"
                 ? s.worlds.find((w) => w.id === space.worldId)?.name
                 : "日常手机"}{" "}
-              · 空间列表
+              · {space?.type === "world" ? "剧本列表" : "空间列表"}
             </span>
           </button>
           <span className="status-icons">

@@ -31,7 +31,7 @@ test("定稿空间首页使用透明原图，双入口等宽且不同视口无�
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:"artifacts/space-landing-final.png"});
   await page.getByRole("button", {name:"剧本",exact:true}).click();
-  await expect(page.getByRole("button", {name:"创建 / 管理剧本",exact:true})).toBeVisible();
+  await expect(page.getByRole("button", {name:"创建剧本",exact:true})).toBeVisible();
   await page.getByRole("button", {name:"返回空间首页",exact:true}).click();
   await expect(image).toBeVisible();
   await page.getByRole("button", {name:"进入日常手机",exact:true}).click();
@@ -59,7 +59,7 @@ test("吉祥物404或错误HTML响应不显示破图和alt，导航仍可用", a
     await page.unroute("**/*apple-leopard*.png*");
   }
   await page.getByRole("button", {name:"剧本",exact:true}).click();
-  await expect(page.getByRole("button", {name:"创建 / 管理剧本",exact:true})).toBeVisible();
+  await expect(page.getByRole("button", {name:"创建剧本",exact:true})).toBeVisible();
   await page.getByRole("button", {name:"返回空间首页",exact:true}).click();
   await page.getByRole("button", {name:"进入日常手机",exact:true}).click();
   await expect(page.locator(".desktop")).toBeVisible();

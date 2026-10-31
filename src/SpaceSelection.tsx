@@ -6,9 +6,6 @@ import { liveQuery } from "dexie";
 import {
   ArrowRight,
   ChevronLeft,
-  Globe2,
-  Plus,
-  Smartphone,
   Sun,
   Orbit,
 } from "lucide-react";
@@ -64,65 +61,15 @@ export function SpaceRoot({ phone }: { phone: ReactNode }) {
             {s.error}
           </p>
         )}
-        {nav.route.screen === "worlds" ? (
-          <>
-            <button className="space-back" onClick={() => void nav.exitSpace()}>
-              <ChevronLeft size={18} />
-              返回空间列表
-            </button>
-            <Worlds
-              onCharacters={(id) => {
-                void nav.enterSpace(`world:${id}`).then(() => {
-                  if (useSpaces.getState().space?.worldId === id)
-                    usePhone.getState().set({ activeApp: "角色管理" });
-                });
-              }}
-            />
-          </>
-        ) : (
-          <SpaceSelection />
-        )}
+        {nav.route.screen === "worlds" ? <ScriptSpaces /> : <SpaceSelection />}
       </div>
     </main>
   );
 }
 function SpaceSelection() {
-  const s = usePhone();
   const nav = useSpaces();
-  const [scripts, setScripts] = useState(false);
   const [mascotState, setMascotState] = useState<"loading" | "ready" | "failed">("loading");
-  const [progress, setProgress] = useState<Set<string> | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    const sub = liveQuery(async () => {
-      if (!s.worlds.length) return new Set<string>();
-      const rows = await db.conversations
-        .where("worldId")
-        .anyOf(s.worlds.map((w) => w.id))
-        .toArray();
-      const found = await Promise.all(
-        rows
-          .filter((c) => c.mode === "world")
-          .map(async (c) =>
-            (await db.messages.where("conversationId").equals(c.id).count())
-              ? c.worldId
-              : undefined,
-          ),
-      );
-      return new Set(found.filter((id): id is string => !!id));
-    }).subscribe({
-      next: (value) => {
-        setProgress(value);
-        setError("");
-      },
-      error: () => {
-        setProgress(null);
-        setError("聊天进度暂不可读取，进入空间不会覆盖已有记录。");
-      },
-    });
-    return () => sub.unsubscribe();
-  }, [s.worlds]);
-  if (!scripts) return (
+  return (
     <section className="space-landing" aria-label="空间入口">
       <header className="space-heading">
         <span className="eyebrow">CLAUDIA PHONE</span>
@@ -149,98 +96,99 @@ function SpaceSelection() {
           onClick={() => void nav.enterSpace("daily")}>
           <Sun aria-hidden="true" size={21} /><span>日常</span><ArrowRight aria-hidden="true" size={18} />
         </button>
-        <button aria-label="剧本" onClick={() => setScripts(true)}>
+        <button aria-label="剧本" onClick={() => void nav.manageWorlds()}>
           <Orbit aria-hidden="true" size={22} /><span>剧本</span><ArrowRight aria-hidden="true" size={18} />
         </button>
       </nav>
     </section>
   );
-  return (
-    <>
-      <button className="space-back" onClick={() => setScripts(false)}>
-        <ChevronLeft size={18} />返回空间首页
-      </button>
-      <header className="space-heading">
-        <span className="eyebrow">CLAUDIA PHONE</span>
-        <h1>选择空间</h1>
-        <p>日常与故事，各有归处。</p>
-      </header>
-      <article className="space-card space-daily" data-testid="daily-space">
-        <Smartphone size={28} />
-        <span className="space-badge">永久空间</span>
-        <h2>日常手机</h2>
-        <p>独立于所有剧本的日常空间。</p>
-        <button
-          className="primary"
-          onClick={() => void nav.enterSpace("daily")}
-        >
-          进入日常手机
-          <ArrowRight size={17} />
-        </button>
-      </article>
-      <div className="space-world-heading">
-        <h2>剧本世界</h2>
-        <button onClick={() => void nav.manageWorlds()}>
-          <Plus size={16} />
-          创建 / 管理剧本
-        </button>
-      </div>
-      {error && (
-        <p className="space-notice" role="alert">
-          {error}
-        </p>
-      )}
-      {!s.worlds.length && (
-        <div className="space-empty">
-          <Globe2 size={30} />
-          <p>还没有剧本世界。你可以先进入日常手机，也可以创建自己的剧本。</p>
-          <button onClick={() => void nav.manageWorlds()}>创建剧本</button>
+}
+
+function ScriptSpaces() {
+  const s = usePhone();
+  const nav = useSpaces();
+  const [archiveWorld, setArchiveWorld] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Set<string> | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const sub = liveQuery(async () => {
+      if (!s.worlds.length) return new Set<string>();
+      const rows = await db.conversations
+        .where("worldId")
+        .anyOf(s.worlds.map((w) => w.id))
+        .toArray();
+      const found = await Promise.all(
+        rows
+          .filter((c) => c.mode === "world")
+          .map(async (c) =>
+            ((await db.messages.where("conversationId").equals(c.id).count()) ||
+             (await db.conversationSnapshots.where("conversationId").equals(c.id).count()))
+              ? c.worldId
+              : undefined,
+          ),
+      );
+      return new Set(found.filter((id): id is string => !!id));
+    }).subscribe({
+      next: (value) => {
+        setProgress(value);
+        setError("");
+      },
+      error: () => {
+        setProgress(null);
+        setError("聊天进度暂不可读取，进入空间不会覆盖已有记录。");
+      },
+    });
+    return () => sub.unsubscribe();
+  }, [s.worlds]);
+
+  return <>
+    <button className="space-back" onClick={() => void nav.exitSpace()}>
+      <ChevronLeft size={18} />返回空间首页
+    </button>
+    {error && <p className="space-notice" role="alert">{error}</p>}
+    <Worlds spaceList onCharacters={(id) => {
+      void nav.enterSpace(`world:${id}`).then(() => {
+        if (useSpaces.getState().space?.worldId === id)
+          usePhone.getState().set({ activeApp: "角色管理" });
+      });
+    }} renderSpaceActions={(w) => {
+      const hasProgress = progress?.has(w.id);
+      const action = progress ? hasProgress ? "继续游戏" : "开始新游戏" : "进入世界";
+      return <>
+        <span className="space-badge">{progress ? hasProgress ? "已有聊天进度" : "尚无聊天进度" : "进度暂不可读取"}</span>
+        <div className="actions">
+          <button className="primary" aria-label={`${action} · ${w.name}`}
+            onClick={() => void nav.enterSpace(`world:${w.id}`)}>{action}<ArrowRight size={16}/></button>
+          {hasProgress && <button disabled title="独立新存档尚未实现，不能覆盖现有进度">开始新游戏（暂不可用）</button>}
+          <button aria-label={`存档管理 · ${w.name}`} onClick={() => setArchiveWorld(archiveWorld === w.id ? null : w.id)}>存档管理</button>
         </div>
-      )}
-      <div className="space-world-grid">
-        {s.worlds.map((w) => {
-          const hasProgress = progress?.has(w.id);
-          const action = progress
-            ? hasProgress
-              ? "继续游戏"
-              : "开始游戏"
-            : "进入世界";
-          return (
-            <article
-              className="space-card"
-              key={w.id}
-              data-testid={`world-space-${w.id}`}
-            >
-              <Globe2 size={24} />
-              <h3>{w.name}</h3>
-              <p className="space-description">
-                {w.description || "故事背景，由你书写。"}
-              </p>
-              <span className="space-badge">
-                {progress
-                  ? hasProgress
-                    ? "已有聊天进度"
-                    : "尚无聊天进度"
-                  : error
-                    ? "进度暂不可读取"
-                    : "正在读取聊天进度…"}
-              </span>
-              <button
-                className={hasProgress ? "primary" : "space-start"}
-                aria-label={`${action} · ${w.name}`}
-                onClick={() => void nav.enterSpace(`world:${w.id}`)}
-              >
-                {action}
-                <ArrowRight size={16} />
-              </button>
-            </article>
-          );
-        })}
-      </div>
-      <p className="space-scope-note">
-        聊天沿用日常 /
-        世界隔离。当前桌面、壁纸、图标和主题仍共用；其他应用尚未实现空间独立数据。
-      </p>
-    </>
-  );
+        {archiveWorld === w.id && <ArchiveOverview worldId={w.id} onClose={() => setArchiveWorld(null)} />}
+      </>;
+    }} />
+    <p className="space-scope-note">“开始新游戏”仅用于尚无进度的剧本，直接进入已有世界空间，不创建独立会话或存档槽；已有进度请继续游戏。桌面、壁纸及主题仍共用。</p>
+  </>;
+}
+function ArchiveOverview({worldId, onClose}: {worldId: string; onClose: () => void}) {
+  const s = usePhone();
+  const [rows, setRows] = useState<{id:string;characterId:string;messages:number;snapshots:number}[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const sub = liveQuery(async () => {
+      const conversations = (await db.conversations.where("worldId").equals(worldId).toArray()).filter(c=>c.mode === "world");
+      return Promise.all(conversations.map(async c => ({id:c.id,characterId:c.characterId,
+        messages:await db.messages.where("conversationId").equals(c.id).count(),
+        snapshots:await db.conversationSnapshots.where("conversationId").equals(c.id).count()})));
+    }).subscribe({next: setRows,error:()=>setError("无法读取存档信息，请稍后重试；现有记录未改变。")});
+    return () => sub.unsubscribe();
+  }, [worldId]);
+  return <section className="script-archives" aria-label="存档管理">
+    <h4>现有会话与历史快照</h4>
+    <p>这里展示已有数据，不提供独立存档槽或重置进度。恢复已有快照：进入聊天 → 选择角色 → 会话管理 → 历史快照 / 分支恢复。</p>
+    {error ? <p role="alert">{error}</p> : rows ? rows.length ? rows.map(r=><p key={r.id}>{s.characters.find(c=>c.id===r.characterId)?.name || "未命名角色"}：{r.messages} 条消息 · {r.snapshots} 个历史快照</p>) : <p>暂无会话或快照。</p> : <p role="status">正在读取存档信息…</p>}
+    <div className="actions"><button onClick={() => {
+      void useSpaces.getState().enterSpace(`world:${worldId}`).then(() => {
+        if(useSpaces.getState().space?.worldId===worldId) usePhone.getState().set({activeApp:"聊天"});
+      });
+    }}>进入该剧本聊天</button><button onClick={onClose}>关闭存档信息</button></div>
+  </section>;
 }

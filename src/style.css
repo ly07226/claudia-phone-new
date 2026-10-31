@@ -2137,3 +2137,7 @@ textarea {
 .space-entry-actions button { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 60px; min-width: 0; border-radius: 999px; border: 1px solid #ffffffb3; background: #fffdf299; color: #526750; box-shadow: 0 5px 16px #536d4b0c, inset 0 1px 0 #ffffffb3; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); font-size: 17px; white-space: nowrap; }
 .space-entry-actions button:focus-visible { outline: 2px solid #617b5c; outline-offset: 4px; }
 @media (max-height: 450px) { .space-entry-actions button { min-height: 44px; } .space-landing .space-heading { padding-top: 0; } }
+
+.script-archives { padding: 14px; margin-top: 12px; background: #f4f5ebaa; border-radius: 16px; min-width: 0; }
+.script-archives p { overflow-wrap: anywhere; }
+.space-card .actions { flex-wrap: wrap; }

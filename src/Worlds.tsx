@@ -1,17 +1,17 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Plus, Globe2 } from "lucide-react";
 import { db, safeWrite, usePhone, type World } from "./store";
 import { deleteWorld } from "./chatService";
 export function Worlds({
-  onCharacters,
-}: { onCharacters?: (id: string) => void } = {}) {
+  onCharacters, spaceList = false, renderSpaceActions,
+}: { onCharacters?: (id: string) => void; spaceList?: boolean; renderSpaceActions?: (world: World) => ReactNode } = {}) {
   const s = usePhone();
   const [form, setForm] = useState<Partial<World> | null>(null);
   return (
     <>
       <div className="page-title">
         <span className="eyebrow">WHERE STORIES BEGIN</span>
-        <h2>世界管理</h2>
+        {spaceList ? <h1>剧本世界</h1> : <h2>世界管理</h2>}
         <p>每个世界，都有自己的故事。</p>
       </div>
       <button
@@ -19,7 +19,7 @@ export function Worlds({
         onClick={() => setForm({ name: "", description: "" })}
       >
         <Plus size={17} />
-        创建世界
+        {spaceList ? "创建剧本" : "创建世界"}
       </button>
       {form && (
         <form
@@ -94,23 +94,24 @@ export function Worlds({
       {!s.worlds.length && !form && (
         <div className="empty">
           <Globe2 size={42} />
-          <h3>从一个世界开始</h3>
-          <p>创建世界后可关联基础角色；没有世界也可以日常聊天。</p>
+          <h3>{spaceList ? "还没有剧本世界。" : "从一个世界开始"}</h3>
+          <p>{spaceList ? "创建剧本后可关联现有角色，进入该世界手机。" : "创建世界后可关联基础角色；没有世界也可以日常聊天。"}</p>
         </div>
       )}
       {s.worlds.map((w) => (
-        <div className="card" key={w.id}>
+        <div className={spaceList ? "card space-card" : "card"} key={w.id} data-testid={spaceList ? `world-space-${w.id}` : undefined}>
           <div className="card-heading">
             <Globe2 size={22} />
             <h3>{w.name}</h3>
           </div>
-          <p className="preserve">
+          <p className={spaceList ? "space-description" : "preserve"}>
             {w.description || "这里的故事，等你来写。"}
           </p>
           <small>
             {new Date(w.createdAt).toLocaleDateString("zh-CN")} ·{" "}
             {s.worldProfiles.filter((p) => p.worldId === w.id).length} 位角色
           </small>
+          {renderSpaceActions?.(w)}
           <div className="actions">
             <button
               onClick={() => {

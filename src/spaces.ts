@@ -138,7 +138,7 @@ export const useSpaces = create<SpaceState>((set, get) => {
     notice: "",
     restoreCurrentSpace: () => navigate(fromHash() || savedRoute(), "replace"),
     enterSpace: (spaceId) => navigate({ screen: "phone", spaceId }, "push"),
-    exitSpace: () => navigate(list, "push"),
+    exitSpace: () => navigate(get().space?.type === "world" ? { screen: "worlds" } : list, "push"),
     manageWorlds: () => navigate({ screen: "worlds" }, "push"),
     restoreUrl: async () => {
       const route = fromHash() || list;
