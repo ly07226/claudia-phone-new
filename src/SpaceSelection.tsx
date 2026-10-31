@@ -1,3 +1,4 @@
+import appleLeopardUrl from "./assets/apple-leopard.png";
 import { startBackupPresence } from "./backupGate";
 import { DataBackups } from "./DataBackups";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
@@ -89,6 +90,7 @@ function SpaceSelection() {
   const s = usePhone();
   const nav = useSpaces();
   const [scripts, setScripts] = useState(false);
+  const [mascotState, setMascotState] = useState<"loading" | "ready" | "failed">("loading");
   const [progress, setProgress] = useState<Set<string> | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -127,9 +129,20 @@ function SpaceSelection() {
         <h1>选择空间</h1>
         <p>日常与故事，各有归处。</p>
       </header>
-      <div className="space-mascot">
-        <img src="/images/apple-leopard.png" width="1635" height="962"
-          alt="头顶浅绿苹果、闭眼微笑的手绘小豹子" draggable={false} />
+      <div className="space-mascot" aria-busy={mascotState === "loading"}>
+        {mascotState !== "failed" ? (
+          <img src={appleLeopardUrl} width="1635" height="962"
+            alt="头顶浅绿苹果、闭眼微笑的手绘小豹子" draggable={false}
+            style={{ visibility: mascotState === "ready" ? "visible" : "hidden" }}
+            onLoad={(event) => {
+              const image = event.currentTarget;
+              void image.decode().then(
+                () => setMascotState("ready"),
+                () => setMascotState("failed"),
+              );
+            }}
+            onError={() => setMascotState("failed")} />
+        ) : <p className="hint" role="status">插画暂时未能加载</p>}
       </div>
       <nav className="space-entry-actions" aria-label="选择手机空间">
         <button data-testid="daily-space" aria-label="进入日常手机"

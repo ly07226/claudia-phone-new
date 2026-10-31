@@ -5,7 +5,7 @@ test("定稿空间首页使用透明原图，双入口等宽且不同视口无�
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "选择空间", exact: true })).toBeVisible();
   const image = page.locator(".space-mascot img");
-  await expect(image).toHaveAttribute("src", "/images/apple-leopard.png");
+  await expect(image).toHaveAttribute("src", /apple-leopard[^/]*\.png(?:\?.*)?$/);
   expect(await image.evaluate(async (img: HTMLImageElement) => {
     await img.decode();
     const canvas = document.createElement("canvas"); canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
@@ -40,4 +40,27 @@ test("定稿空间首页使用透明原图，双入口等宽且不同视口无�
   await expect(image).toBeVisible();
   await page.reload();
   await expect(image).toBeVisible();
+});
+
+
+test("吉祥物404或错误HTML响应不显示破图和alt，导航仍可用", async ({page}) => {
+  for (const status of [404, 200]) {
+    await page.route("**/*apple-leopard*.png*", route => {
+      if (route.request().resourceType() !== "image") return route.continue();
+      return route.fulfill({ status, contentType:"text/html", body:"<!doctype html><title>Not an image</title>" });
+    });
+    await page.goto("/");
+    await expect(page.getByRole("heading", {name:"选择空间",exact:true})).toBeVisible();
+    await expect(page.locator(".space-mascot img")).toHaveCount(0);
+    await expect(page.getByRole("status")).toContainText("插画暂时未能加载");
+    await expect(page.getByRole("heading", {name:"选择空间",exact:true})).toBeVisible();
+    await expect(page.locator(".space-entry-actions button")).toHaveCount(2);
+    expect(await page.locator(".space-mascot").evaluate(el=>el.querySelector("img")===null && getComputedStyle(el).borderWidth==="0px")).toBe(true);
+    await page.unroute("**/*apple-leopard*.png*");
+  }
+  await page.getByRole("button", {name:"剧本",exact:true}).click();
+  await expect(page.getByRole("button", {name:"创建 / 管理剧本",exact:true})).toBeVisible();
+  await page.getByRole("button", {name:"返回空间首页",exact:true}).click();
+  await page.getByRole("button", {name:"进入日常手机",exact:true}).click();
+  await expect(page.locator(".desktop")).toBeVisible();
 });
