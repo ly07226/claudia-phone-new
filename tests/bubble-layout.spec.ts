@@ -51,7 +51,7 @@ async function open(page: Page, content = text) {
   await page.getByRole("button", { name: /布局角色.*开始/ }).click();
 }
 
-test("气泡组间16px、组内6px、自适应宽度和边界换行不产生留白", async ({
+test("气泡组间20px、组内12px、自适应宽度和边界换行不产生留白", async ({
   page,
 }) => {
   await open(page);
@@ -96,8 +96,8 @@ test("气泡组间16px、组内6px、自适应宽度和边界换行不产生留�
           document.querySelector(".chat-history")!.clientWidth,
       };
     });
-    expect(metrics.gaps.every((gap) => Math.abs(gap - 6) < 1)).toBe(true);
-    expect(Math.abs(metrics.groupGap - 16)).toBeLessThan(1);
+    expect(metrics.gaps.every((gap) => Math.abs(gap - 12) < 1)).toBe(true);
+    expect(Math.abs(metrics.groupGap - 20)).toBeLessThan(1);
     expect(
       Math.max(...metrics.lefts) - Math.min(...metrics.lefts),
     ).toBeLessThan(1);

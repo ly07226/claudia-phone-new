@@ -115,7 +115,7 @@ for (const width of [375, 390, 430]) {
     for (const shape of ["portrait", "landscape", "square"]) {
       await page.getByRole("button", { name: new RegExp(`${shape} 测试角色`) }).click();
       await expect(page.locator(".chat-avatar-character")).toHaveCount(1);
-      await boundedAvatar(page.locator(".chat-avatar-character"), 34, fixture.sources[shape]);
+      await boundedAvatar(page.locator(".chat-avatar-character"), 48, fixture.sources[shape]);
       await page.screenshot({ path: `artifacts/character-unified-${width}-chat-${shape}.png` });
       await page.getByRole("button", { name: "返回角色列表", exact: true }).click();
     }

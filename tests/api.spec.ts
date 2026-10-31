@@ -34,9 +34,10 @@ async function create(page: any, name: string, provider = "openai-compatible") {
 test("API CRUD、默认唯一、启停、独立凭据及刷新保存", async ({ page }) => {
   await openSettings(page);
   await create(page, "连接一");
-  await expect(page.getByRole("button", { name: "设为默认", exact: true })).toBeDisabled();
   await create(page, "连接二", "gemini");
-  await page.locator(".api-config-card").filter({ has: page.getByRole("heading", { name: "连接二", exact: true }) }).getByRole("button", { name: "设为默认", exact: true }).click();
+  await page.locator(".api-config-card").filter({ has: page.getByRole("heading", { name: "连接二", exact: true }) }).click();
+  await page.getByLabel("设为默认配置", { exact: true }).check();
+  await page.getByRole("button", { name: "保存 API 配置", exact: true }).click();
   const state = await page.evaluate(async () => {
     const { db } = await import("/src/store.ts");
     return {
@@ -53,10 +54,7 @@ test("API CRUD、默认唯一、启停、独立凭据及刷新保存", async ({ 
   await page
     .getByRole("button", { name: "AI / API 设置", exact: true })
     .click();
-  await page
-    .getByLabel("当前默认 API")
-    .selectOption(state.configs.find((c: any) => c.name === "连接二").id);
-  await page.locator(".api-config-card").filter({ has: page.getByRole("heading", { name: "连接二", exact: true }) }).getByRole("button", { name: "编辑配置", exact: true }).click();
+  await page.locator(".api-config-card").filter({ has: page.getByRole("heading", { name: "连接二", exact: true }) }).click();
   await expect(page.getByLabel("API Key", { exact: true })).toHaveAttribute(
     "type",
     "password",
@@ -64,12 +62,14 @@ test("API CRUD、默认唯一、启停、独立凭据及刷新保存", async ({ 
   await page.getByLabel("配置名称", { exact: true }).fill("连接二修改");
   await page.getByRole("button", { name: "保存 API 配置" }).click();
   const second = page.locator(".api-config-card").filter({ has: page.getByRole("heading", { name: "连接二修改", exact: true }) });
-  await second.getByRole("button", { name: "停用配置", exact: true }).click();
+  await second.click();
+  await page.getByLabel("启用配置", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "保存 API 配置", exact: true }).click();
+  await second.click();
   await expect(
-    second.getByRole("button", { name: "测试连接", exact: true }),
-  ).toBeDisabled();
+    page.getByLabel("启用配置", { exact: true }),
+  ).not.toBeChecked();
   page.on("dialog", (d) => d.accept());
-  await second.getByRole("button", { name: "编辑配置", exact: true }).click();
   await page.getByRole("button", { name: "删除配置", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "连接二修改", exact: true }),
@@ -92,11 +92,12 @@ test("测试 UI 状态、请求协议及安全错误分类", async ({ page }) =>
       json: { choices: [{ message: { content: "Hi" } }] },
     });
   });
-  await page.getByRole("button", { name: "测试连接", exact: true }).click();
+  await page.locator(".api-config-card").click();
+  await page.getByRole("button", { name: "测试连接（当前表单）", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "测试中…", exact: true }),
+    page.getByRole("button", { name: "测试当前表单中…", exact: true }),
   ).toBeDisabled();
-  await expect(page.getByRole("status")).toContainText("连接成功");
+  await expect(page.locator(".api-draft-result")).toContainText("连接成功");
   expect(request.postDataJSON().max_tokens).toBe(1);
   await page.unroute("https://api.example.test/**");
   await page.route("https://api.example.test/**", (r) =>
@@ -105,8 +106,8 @@ test("测试 UI 状态、请求协议及安全错误分类", async ({ page }) =>
       json: { error: { message: "test-only-not-a-real-key" } },
     }),
   );
-  await page.getByRole("button", { name: "测试连接", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("认证失败");
+  await page.getByRole("button", { name: "测试连接（当前表单）", exact: true }).click();
+  await expect(page.locator(".api-draft-result")).toContainText("认证失败");
   await expect(page.locator("body")).not.toContainText(
     "test-only-not-a-real-key",
   );

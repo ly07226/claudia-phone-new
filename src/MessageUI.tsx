@@ -17,7 +17,7 @@ import {
   restoreRevision,
   selectVariant,
 } from "./messageOperations";
-function MessageAvatar({
+export function MessageAvatar({
   src,
   name,
   user = false,

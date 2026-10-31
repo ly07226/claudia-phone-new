@@ -1,7 +1,7 @@
 import { reconcileApiDefault } from "./apiSelection";
 import { apiBase, fetchModels } from "./apiModels";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Eye, EyeOff, Plus } from "lucide-react";
+import { ChevronRight, Eye, EyeOff, Plus } from "lucide-react";
 import { db, usePhone } from "./store";
 import {
   providers,
@@ -27,7 +27,6 @@ const labels: Record<TestResult["status"], string> = {
 };
 export function ApiSettings() {
   const [configs, setConfigs] = useState<ApiConfig[]>([]);
-  const [availableIds, setAvailableIds] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
   const panel = useRef<HTMLDivElement>(null);
   const editorSequence = useRef(0);
@@ -35,7 +34,6 @@ export function ApiSettings() {
   const [key, setKey] = useState("");
   const [visible, setVisible] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [results, setResults] = useState<Record<string, TestResult>>({});
   const [models, setModels] = useState<ModelOption[]>([]);
   const [search, setSearch] = useState("");
   const [modelResult, setModelResult] = useState<TestResult | null>(null);
@@ -45,7 +43,6 @@ export function ApiSettings() {
   const modelRequest = useRef<AbortController | null>(null);
   const draftRequest = useRef<AbortController | null>(null);
   const [error, setError] = useState("");
-  const running = useRef(new Map<string, AbortController>());
   const mounted = useRef(true);
   const report = () =>
     setError("本地存储操作失败，请检查浏览器存储空间后重试。");
@@ -53,7 +50,7 @@ export function ApiSettings() {
     const selection = await reconcileApiDefault();
     const rows = await db.apiConfigs.toCollection().sortBy("createdAt");
     if (mounted.current) {
-      setConfigs(rows); setAvailableIds(selection.availableIds);
+      setConfigs(rows);
       if (selection.changed) setNotice(selection.config ? "已自动选择默认配置。需要回退时按创建时间、ID选择最早的完整启用配置。" : "没有字段完整且启用的配置，请检查或添加 API。");
     }
   };
@@ -62,8 +59,6 @@ export function ApiSettings() {
     void reload().catch(report);
     return () => {
       mounted.current = false;
-      running.current.forEach((c) => c.abort());
-      running.current.clear();
     };
   }, []);
   useEffect(() => {
@@ -197,41 +192,7 @@ export function ApiSettings() {
       if (apiKey !== undefined)
         await db.apiCredentials.put({ configId: c.id, apiKey });
     });
-    setResults((old) => {
-      const next = { ...old };
-      delete next[c.id];
-      return next;
-    });
     await reload();
-  }
-  async function run(c: ApiConfig) {
-    if (running.current.has(c.id)) return;
-    const controller = new AbortController();
-    running.current.set(c.id, controller);
-    setResults((old) => ({
-      ...old,
-      [c.id]: { status: "testing", message: "正在发起最小请求…" },
-    }));
-    try {
-      const credential = await db.apiCredentials.get(c.id);
-      const result = await testConnection(
-        { ...c, baseUrl: apiBase(c.baseUrl) },
-        credential?.apiKey || "",
-        controller.signal,
-      );
-      if (mounted.current) setResults((old) => ({ ...old, [c.id]: result }));
-    } catch {
-      if (mounted.current)
-        setResults((old) => ({
-          ...old,
-          [c.id]: {
-            status: "other",
-            message: "无法读取本地凭据，请检查浏览器存储。",
-          },
-        }));
-    } finally {
-      running.current.delete(c.id);
-    }
   }
   async function remove(c: ApiConfig) {
     if (
@@ -279,16 +240,6 @@ export function ApiSettings() {
           {error}
         </p>
       )}
-      {!form && <section className="card api-default-panel">
-        <h3>当前默认 API</h3>
-        <select aria-label="当前默认 API" disabled={saving || !availableIds.length} value={configs.find(c => c.isDefault)?.id || ""}
-          onChange={async e => { const c = configs.find(c => c.id === e.target.value); if (!c) return; setSaving(true); try { await persist({ ...c, isDefault: true }); setNotice("默认配置已保存。角色或会话的明确指定优先于全局默认。"); } catch { report(); } finally { setSaving(false); } }}>
-          {!availableIds.length && <option value="">{configs.length ? "暂无完整且启用的配置" : "尚未配置 API"}</option>}
-          {configs.filter(c => availableIds.includes(c.id)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <p className="hint">可选表示字段完整且已启用，不代表连接测试或实际请求成功。</p>
-        {notice && <p className="api-default-notice">{notice}</p>}
-      </section>}
       {form && (
         <form
           className="card form"
@@ -321,6 +272,7 @@ export function ApiSettings() {
             }
           }}
         >
+          {notice && <p className="api-default-notice">{notice}</p>}
           <h3>
             {configs.some((c) => c.id === form.id)
               ? "编辑 API 配置"
@@ -602,88 +554,14 @@ export function ApiSettings() {
       {!configs.length && !form && (
         <p className="empty">尚未配置 API。添加第一个连接后，完整且启用的配置将自动成为默认。</p>
       )}
-      {!form && configs
-        .map((c) => (
-          <div className="card api-config-card" key={c.id} data-api-id={c.id} onClick={() => { if (!saving) void edit(c); }}>
-            <button className="api-card-title" aria-label={`编辑 ${c.name}`} disabled={saving} onClick={e => { e.stopPropagation(); void edit(c); }}><h3>{c.name}</h3></button>
-            <p>
-              {providers[c.provider]?.label || c.provider} ·{" "}
-              {c.isDefault ? "当前默认 · " : ""}
-              {c.enabled ? "已启用" : "已停用"}
-            </p>
-            <p className="api-card-model" title={c.model}>{c.model}</p>
-            <p className="hint">{availableIds.includes(c.id) ? "字段完整 · 未据此验证连接" : c.enabled ? "请补全字段、凭据或支持的协议" : "已停用"}</p>
-            <div className="api-actions" onClick={e => e.stopPropagation()}>
-              <button
-                disabled={saving || results[c.id]?.status === "testing"}
-                onClick={() => void edit(c)}
-              >
-                编辑配置
-              </button>
-              <button
-                disabled={saving || results[c.id]?.status === "testing"}
-                onClick={async () => {
-                  setSaving(true);
-                  try {
-                    await persist({
-                      ...c,
-                      enabled: !c.enabled,
-                      isDefault: false,
-                    });
-                  } catch {
-                    report();
-                  } finally {
-                    setSaving(false);
-                  }
-                }}
-              >
-                {c.enabled ? "停用配置" : "启用配置"}
-              </button>
-              <button
-                disabled={
-                  saving ||
-                  !availableIds.includes(c.id) ||
-                  c.isDefault ||
-                  results[c.id]?.status === "testing"
-                }
-                onClick={async () => {
-                  setSaving(true);
-                  try {
-                    await persist({ ...c, isDefault: true });
-                  } catch {
-                    report();
-                  } finally {
-                    setSaving(false);
-                  }
-                }}
-              >
-                设为默认
-              </button>
-            </div>
-            <button
-              className="primary api-test"
-              disabled={
-                results[c.id]?.status === "testing" ||
-                !c.enabled ||
-                saving
-              }
-              onClick={e => { e.stopPropagation(); void run(c); }}
-            >
-              {results[c.id]?.status === "testing" ? "测试中…" : "测试连接"}
-            </button>
-            {results[c.id] && (
-              <div
-                className={`api-result ${results[c.id].status === "success" ? "api-success" : ""}`}
-                role="status"
-              >
-                <strong>{labels[results[c.id].status]}</strong>
-                <p>{results[c.id].message}</p>
-              </div>
-            )}
-          </div>
-        ))}
+      {!form && configs.map(c => (
+        <button className="card api-config-card api-minimal-card" key={c.id} data-api-id={c.id} aria-label={`编辑 ${c.name}`} disabled={saving} onClick={() => void edit(c)}>
+          <span className="api-minimal-info"><h3>{c.name}</h3><span className="api-card-model">{c.model}</span></span>
+          <ChevronRight size={20} aria-hidden="true"/>
+        </button>
+      ))}
       {!form && <button className="primary api-add" aria-label="＋ 添加 API 配置" disabled={saving} onClick={fresh}><Plus size={17}/>添加 API 配置</button>}
-      <details className="card api-security">
+      {form && <details className="card api-security">
         <summary>本地凭据与隐私说明</summary>
         <p>
           API Key
@@ -694,11 +572,11 @@ export function ApiSettings() {
           测试和聊天可能产生 API 费用。不绕过
           CORS；请使用支持浏览器直连的可信服务。
         </p>
-      </details>
-      <p className="hint">
+      </details>}
+      {form && <p className="hint">
         角色可指定配置
         ID；未指定时使用已启用的默认配置。停用的指定配置不会被静默调用，需先调整选择。
-      </p>
+      </p>}
     </div>
   );
 }

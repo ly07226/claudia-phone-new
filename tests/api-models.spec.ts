@@ -58,7 +58,7 @@ test("手机表单获取、搜索选择及真实测试当前未保存模型，�
     }),
   ).toBe(0);
   await page.getByRole("button", { name: "保存 API 配置" }).click();
-  await page.getByRole("button", { name: "编辑配置", exact: true }).click();
+  await page.locator(".api-config-card").click();
   await page.getByLabel("Model", { exact: true }).fill("manual-unchanged");
   await page.unroute("https://models.example.test/**");
   await page.route("https://models.example.test/**", (r) =>

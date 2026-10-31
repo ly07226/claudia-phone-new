@@ -1,3 +1,5 @@
+import { liveQuery } from "dexie";
+import { chatListPreviews, chatPreviewTime, type ChatPreview } from "./chatListPreview";
 import { ChevronLeft, MoreHorizontal, Send, Square } from "lucide-react";
 import { ChatManagement } from "./ChatManagement";
 import { chatDisplayName } from "./chatPresentation";
@@ -8,7 +10,7 @@ import {
   invalidateGeneration,
   selectVariant,
 } from "./messageOperations";
-import { ChatMessage, MessageTools, SnapshotTools } from "./MessageUI";
+import { MessageAvatar, ChatMessage, MessageTools, SnapshotTools } from "./MessageUI";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { db, usePhone } from "./store";
 import type { Conversation, Message, MessageVariant } from "./chatTypes";
@@ -25,6 +27,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
+  const [previewState, setPreviews] = useState<{scope: string; rows: Record<string, ChatPreview>}>({scope: "", rows: {}});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [configs, setConfigs] = useState<ApiConfig[]>([]);
@@ -65,6 +68,16 @@ export function Chat({ worldId }: { worldId?: string }) {
         ),
       )
     : s.characters;
+  const characterIds = JSON.stringify(characters.map(c => c.id));
+  const previewScope = JSON.stringify([worldId ?? null, characterIds]);
+  const previews = previewState.scope === previewScope ? previewState.rows : {};
+  useEffect(() => {
+    if (conversation) return;
+    setPreviews({scope: previewScope, rows: {}});
+    const subscription = liveQuery(() => chatListPreviews(characters.map(c => c.id), worldId))
+      .subscribe({ next: rows => setPreviews({scope: previewScope, rows}), error: () => setError("无法读取聊天预览，请稍后重试。") });
+    return () => subscription.unsubscribe();
+  }, [characterIds, worldId, conversation?.id]);
   async function refresh(id: string, scroll = false) {
     const rows = await activeMessages(id);
     const ids = new Set(rows.map((m) => m.id));
@@ -229,6 +242,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   }
   return (
     <div className={`chat-app ${conversation ? "chat-immersive" : ""}`}>
+      {!conversation && <h2 className="chat-list-title">聊天</h2>}
       {!conversation && (
         <div className="chat-space">
           <strong>
@@ -245,15 +259,16 @@ export function Chat({ worldId }: { worldId?: string }) {
       )}
       {!conversation ? (
         <>
-          <h2>选择角色</h2>
           {characters.map((c) => (
             <button
-              className="list-row"
+              className="chat-list-row"
+              aria-label={`${c.name} 开始 / 继续聊天`}
               key={c.id}
               onClick={() => void open(c.id)}
             >
-              {c.name}
-              <span>开始 / 继续聊天</span>
+              <MessageAvatar src={s.assets.find(a => a.id === c.avatar)?.data} name={c.name}/>
+              <span className="chat-list-info"><strong>{c.name}</strong><span className="chat-list-preview">{previews[c.id]?.content || "开始聊天"}</span></span>
+              {previews[c.id] && <time dateTime={new Date(previews[c.id].createdAt).toISOString()}>{chatPreviewTime(previews[c.id].createdAt)}</time>}
             </button>
           ))}
           {!characters.length && (

@@ -17,10 +17,13 @@ async function create(page: Page, name: string, model = "model-for-testing") {
 }
 const card = (page: Page, id: string) => page.locator(`[data-api-id="${id}"]`);
 
+async function defaultIs(page: Page, id: string) {
+  await expect.poll(() => page.evaluate(async () => (await (await import("/src/store.ts")).db.apiConfigs.toArray()).filter(c => c.isDefault).map(c => c.id))).toEqual([id]);
+}
 test("唯一配置自动默认、新角色继承、多配置保留默认、切换刷新、停用删除回退与清空引导", async ({ page }) => {
   await open(page);
   const first = await create(page, "第一连接");
-  await expect(page.getByLabel("当前默认 API", { exact: true })).toHaveValue(first);
+  await defaultIs(page, first);
   const inherited = await page.evaluate(async () => {
     const { db } = await import("/src/store.ts"); const { getConversation, resolveApi } = await import("/src/chatService.ts");
     await db.characters.add({ id: "new-role", name: "新角色", persona: "" });
@@ -28,26 +31,33 @@ test("唯一配置自动默认、新角色继承、多配置保留默认、切�
   });
   expect(inherited).toBe(first);
   const second = await create(page, "第二连接");
-  await expect(page.getByLabel("当前默认 API", { exact: true })).toHaveValue(first);
-  await page.getByLabel("当前默认 API", { exact: true }).selectOption(second);
-  await expect(card(page, second)).toContainText("默认");
-  await open(page); await expect(page.getByLabel("当前默认 API", { exact: true })).toHaveValue(second);
+  await defaultIs(page, first);
+  await card(page, second).click();
+  await page.getByLabel("设为默认配置", { exact: true }).check();
+  await page.getByRole("button", { name: "保存 API 配置", exact: true }).click();
+  await expect(page.locator(".api-settings form")).toHaveCount(0);
+  await defaultIs(page, second);
+  await open(page); await defaultIs(page, second);
   const third = await create(page, "第三连接");
   // Valid explicit bindings must remain untouched by default changes.
   await page.evaluate(async id => { const { db } = await import("/src/store.ts"); await db.characters.update("new-role", { apiConfigId: id }); }, third);
-  await card(page, second).getByRole("button", { name: "停用配置", exact: true }).click();
-  await expect(page.getByLabel("当前默认 API", { exact: true })).toHaveValue(first);
+  await card(page, second).click();
+  await page.getByLabel("启用配置", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "保存 API 配置", exact: true }).click();
+  await defaultIs(page, first);
+  await card(page, first).click();
   await expect(page.locator(".api-default-notice")).toContainText("按创建时间");
+  await page.getByRole("button", { name: "取消", exact: true }).click();
   page.on("dialog", dialog => void dialog.accept());
-  await card(page, first).getByRole("button", { name: "编辑配置", exact: true }).click();
+  await card(page, first).click();
   await page.getByRole("button", { name: "删除配置", exact: true }).click();
-  await expect(page.getByLabel("当前默认 API", { exact: true })).toHaveValue(third);
+  await defaultIs(page, third);
   expect(await page.evaluate(async () => (await (await import("/src/store.ts")).db.characters.get("new-role"))?.apiConfigId)).toBe(third);
   for (const id of [second, third]) {
-    await card(page, id).getByRole("button", { name: "编辑配置", exact: true }).click();
+    await card(page, id).click();
     await page.getByRole("button", { name: "删除配置", exact: true }).click();
   }
-  await expect(page.getByLabel("当前默认 API", { exact: true })).toContainText("尚未配置 API");
+  await expect(page.locator(".api-config-card")).toHaveCount(0);
   await expect(page.locator(".empty")).toContainText("尚未配置 API");
   expect(await page.evaluate(async () => (await import("/src/store.ts")).db.apiCredentials.count())).toBe(0);
 });
@@ -69,7 +79,7 @@ test("旧配置缺默认可修复、字段完整不等于验证、无密钥/协�
   });
   expect(result).toEqual({ chosen: "a", available: ["a", "b"], repeatChanged: false, explicit: "b", failed: true, defaults: ["a"] });
   await open(page);
-  await card(page, "a").getByRole("button", { name: "编辑配置", exact: true }).click();
+  await card(page, "a").click();
   await expect(page.getByLabel("Temperature", { exact: true })).toHaveValue("0.4");
   await expect(page.getByLabel("Max Tokens", { exact: true })).toHaveValue("400");
   await expect(page.getByLabel("API Key", { exact: true })).toHaveAttribute("type", "password");
@@ -85,9 +95,12 @@ for (const width of [375, 390, 430]) {
     await expect(card(page, id)).not.toContainText(syntheticKey);
     await expect(card(page, id)).not.toContainText("https://selection.example.test");
     await expect(card(page, id)).not.toContainText("连接成功");
+    await expect(page.getByLabel("当前默认 API", { exact: true })).toHaveCount(0);
+    await expect(card(page, id).getByRole("button")).toHaveCount(0);
+    await expect(card(page, id)).not.toContainText("OpenAI Compatible");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: `artifacts/api-cards-${width}.png` });
-    await card(page, id).getByRole("button", { name: "编辑配置", exact: true }).click();
+    await card(page, id).click();
     await expect(page.locator(".api-config-card")).toHaveCount(0);
     await expect(page.getByLabel("API Key", { exact: true })).toHaveAttribute("type", "password");
     await page.getByRole("button", { name: "显示 API Key", exact: true }).click();

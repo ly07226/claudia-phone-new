@@ -260,7 +260,7 @@ test("管理菜单、会话 API 选择与真实连接测试、快照入口和删
   page.on("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "删除会话", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "选择角色", exact: true }),
+    page.getByRole("heading", { name: "聊天", exact: true }),
   ).toBeVisible();
   expect(
     await page.evaluate(async () => {
