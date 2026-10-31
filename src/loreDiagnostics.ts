@@ -29,3 +29,6 @@ export const loreReasonLabels:Record<LoreDiagnostic["reason"],string>={
   injected:"已注入", "book-disabled":"世界书已停用", "entry-disabled":"条目已停用", "compatibility-paused":"兼容性暂停",
   "no-user-message":"没有本轮用户消息", "regex-error":"正则错误或超时", "primary-miss":"主关键词未命中", "secondary-miss":"辅助条件未满足", probability:"概率未通过", "context-budget":"上下文预算不足", "book-budget":"本书预算不足",
 };
+
+/** Drop rebuildable diagnostic metadata after this conversation is cleared. */
+export function clearLoreTrace(id:string) { traces.delete(id); }

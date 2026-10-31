@@ -1,3 +1,4 @@
+import type { DailyFriendship } from "./friendTypes";
 import type { UserIdentity } from "./userIdentity";
 import { installBackupGuard } from "./backupGate";
 import type { Lorebook, LoreEntry } from "./loreTypes";
@@ -21,6 +22,7 @@ export interface World {
   createdAt: number;
 }
 export interface Character {
+  dailyFriendship?: DailyFriendship;
   id: string;
   /** Legacy association retained for rollback; new links use worldProfiles. */
   worldId?: string;

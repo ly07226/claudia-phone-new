@@ -2301,3 +2301,17 @@ html[data-ios="true"] { background: var(--page-background, #f4f5eb); background-
 .chat-custom-background .chat-bubble-surface{background:#fffdf5}
 .chat-custom-background .chat-user .chat-bubble-surface{background:#dde9d7}
 .chat-message-highlight .chat-bubble-surface{outline:3px solid #78966a;outline-offset:3px}
+/* Daily relationships are independent of the shared character profile/world links. */
+.chat-danger-actions{border-top:1px solid #8a9c7c33;padding-top:12px;display:flex;flex-direction:column;gap:10px}
+.friend-requests-entry{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:48px;padding:10px 16px;margin-bottom:12px;border-radius:16px;background:#e4eddf;text-align:left}
+.friend-requests-entry span{background:#78966a;color:white;border-radius:999px;padding:2px 9px;flex:none}
+.friend-requests{min-width:0;color:#35473d}
+.friend-requests-header{display:flex;align-items:center;justify-content:flex-start;gap:12px}
+.friend-requests-header button{min-width:44px;min-height:44px}
+.friend-requests-header h2{font-size:24px;margin:8px 0}
+.friend-request-card{padding:16px;border-radius:20px;background:#fffdf5;margin:14px 0;overflow-wrap:anywhere}
+.friend-request-person{display:flex;align-items:center;gap:14px;--chat-avatar-size:54px}
+.friend-request-person strong{min-width:0}
+.friend-request-card small{color:#70816c}
+.friend-request-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:14px}
+.friend-request-actions button{min-height:44px;min-width:72px}

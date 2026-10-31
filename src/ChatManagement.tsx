@@ -16,7 +16,7 @@ export function ChatManagement({
   busy,
   onApi,
   onSnapshots,
-  onDelete,
+  onDelete, onClear, onDeleteFriend,
   onSettings,
   onClose,
 }: {
@@ -31,6 +31,8 @@ export function ChatManagement({
   onApi: (id: string) => Promise<void>;
   onSnapshots: () => void;
   onDelete: () => Promise<void>;
+  onClear: () => Promise<void>;
+  onDeleteFriend: () => Promise<void>;
   onSettings: () => void;
   onClose: () => void;
 }) {
@@ -205,6 +207,19 @@ export function ChatManagement({
           >
             删除会话
           </button>
+          <div className="chat-danger-actions">
+            <button className="message-action danger" disabled={busy || saving} onClick={async()=>{
+              if(!confirm('清空当前会话的全部消息、版本、修订和快照？保留好友、人设、头像、世界书和 API 配置。其他会话不受影响。'))return;
+              if(!confirm('再次确认永久清空聊天记录？快照也将删除，此操作不可撤销。'))return;
+              setSaving(true);setError('');try{await onClear();}catch{setError('清空失败，未完成操作，请检查本地存储。');}finally{setSaving(false);}
+            }}>清空聊天记录</button>
+            <p className="hint">当前版本没有独立长期记忆或会话摘要存储；不会删除角色人设及世界书。</p>
+            {conversation.mode==='daily'&&!conversation.worldId&&<><button className="message-action danger" disabled={busy || saving} onClick={async()=>{
+              if(!confirm('删除日常好友？将从日常聊天列表隐藏，保留角色资料、聊天历史、版本和世界关联。'))return;
+              if(!confirm('再次确认删除好友？此操作不会清空聊天，也不会立即生成好友申请。'))return;
+              setSaving(true);setError('');try{await onDeleteFriend();}catch(e){setError(e instanceof Error?e.message:'删除好友失败，请检查本地存储。');}finally{setSaving(false);}
+            }}>删除好友</button><p className="hint">不影响世界聊天。重新申请由本地规则检查：删除满24小时、有基础人设及保留的双方对话；每次删除最多一次，不调用 AI。</p></>}
+          </div>
           {error && <p role="alert">{error}</p>}
         </>
       )}

@@ -1,3 +1,5 @@
+import { FriendRequests } from "./FriendRequests";
+import { isDailyFriend, checkDailyFriendApplications, clearChatHistory, deleteDailyFriend } from "./chatRelationships";
 import { orderChatCharacters, saveChatSettings, searchableMessages } from "./chatPreferences";
 import { identityFor } from "./userIdentity";
 import { createEnterSendGuard } from "./enterSend";
@@ -46,6 +48,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   >();
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [management, setManagement] = useState(false);
+  const [requests,setRequests] = useState(false);
   const activeConversation = useRef<string | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -85,7 +88,15 @@ export function Chat({ worldId }: { worldId?: string }) {
           (p) => p.worldId === worldId && p.characterId === c.id,
         ),
       )
-    : s.characters;
+    : s.characters.filter(isDailyFriend);
+  const applications = !worldId ? s.characters.filter(c=>c.dailyFriendship?.status==='pending'&&c.dailyFriendship.application) : [];
+  useEffect(()=>{setRequests(false);},[worldId]);
+  useEffect(()=>{
+    if(worldId || conversation)return;
+    let active=true;
+    void checkDailyFriendApplications().then(()=>{if(active)return s.reload();}).catch(()=>{if(active)setError('好友申请资格检查失败，请稍后重试。');});
+    return()=>{active=false;};
+  },[worldId,!!conversation]);
   const characterIds = JSON.stringify(characters.map(c => c.id));
   const previewScope = JSON.stringify([worldId ?? null, characterIds]);
   const previews = previewState.scope === previewScope ? previewState.rows : {};
@@ -160,6 +171,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     setError("");
     setMessages([]);
     try {
+      if(!worldId){const current=await db.characters.get(id);if(!current||!isDailyFriend(current))throw Error("此日常好友已删除，请先处理好友申请。");}
       const c = await getConversation(id, worldId);
       if (navigation !== taskSequence.current) return;
       activeConversation.current = c.id;
@@ -265,10 +277,12 @@ export function Chat({ worldId }: { worldId?: string }) {
     setMenuId(null);
     setShowSnapshots(false);
   }
+  if(requests && !worldId && !conversation)return <FriendRequests characters={applications} onClose={()=>setRequests(false)}/>;
   return (
     <div className={`chat-app ${conversation ? "chat-immersive" : ""} ${conversation?.chatSettings?.background ? 'chat-custom-background' : ''}`} style={conversation?.chatSettings?.background?.kind==='color'?{background:conversation.chatSettings.background.color}:conversation?.chatSettings?.background?.kind==='image'?{backgroundImage:`linear-gradient(rgba(243,245,236,.4),rgba(243,245,236,.4)),url("${s.assets.find(a=>a.id===(conversation.chatSettings?.background?.kind==='image'?conversation.chatSettings.background.assetId:undefined))?.data || ''}")`,backgroundSize:'cover',backgroundPosition:'center'}:undefined}>
       {!conversation && <h2 className="chat-list-title">聊天</h2>}
       {!conversation && !worldId && <label className="chat-search"><Search size={20} aria-hidden="true"/><input type="search" aria-label="搜索聊天" placeholder="搜索聊天…" value={search} onChange={e=>setSearch(e.target.value)} autoComplete="off"/>{search && <button type="button" aria-label="清空聊天搜索" onClick={()=>setSearch("")}><X size={18}/></button>}</label>}
+      {!conversation && !worldId && applications.length>0 && <button className="friend-requests-entry" onClick={()=>setRequests(true)}>新的好友申请 <span>{applications.length}</span></button>}
       {!conversation && worldId && <p className="chat-world-caption">世界聊天 · {world?.name || "世界不存在"}</p>}
       {!conversation ? (
         <>
@@ -290,7 +304,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               <p>
                 {worldId
                   ? "请先在此世界关联角色。"
-                  : "还没有角色。无需创建世界即可创建基础角色并开始日常聊天。"}
+                  : s.characters.length ? "暂无日常好友。已删除好友的角色资料和历史仍保留，不会自动恢复关系。" : "还没有角色。无需创建世界即可创建基础角色并开始日常聊天。"}
               </p>
               <button
                 className="primary"
@@ -456,6 +470,18 @@ export function Chat({ worldId }: { worldId?: string }) {
               onSnapshots={() => {
                 setManagement(false);
                 setShowSnapshots(true);
+              }}
+              onClear={async()=>{
+                const id=conversation.id;
+                await clearChatHistory(id);
+                if(activeConversation.current!==id)return;
+                pending.current?.abort();setBusy(false);setMenuId(null);setShowSnapshots(false);setPreviewVariant(undefined);setError('');
+                jumpTo.current=null;savedScroll.current=0;followBottom.current=true;
+                await refresh(id);setManagement(false);setFeedback('当前会话记录已清空，好友及角色资料保留。');
+              }}
+              onDeleteFriend={async()=>{
+                const id=conversation.id;await deleteDailyFriend(id);await s.reload();
+                if(activeConversation.current===id)leaveConversation();
               }}
               onDelete={async () => {
                 const id = conversation.id;

@@ -1,3 +1,4 @@
+import { validFriendship } from "./friendTypes";
 import Dexie from "dexie";
 import { db } from "./store";
 import {
@@ -858,6 +859,7 @@ async function validateReferences(
     "characters",
     async (x) => {
       await optional("assets", x.avatar, "characters.avatar");
+      if(x.dailyFriendship !== undefined && !validFriendship(x.dailyFriendship)) bad("characters.dailyFriendship");
       if (x.apiConfigId && !(await exists("apiConfigs", x.apiConfigId)))
         warnings.add("存在已失效角色API引用，需恢复后手动选择。");
       if (x.worldId && !(await exists("worlds", x.worldId)))
