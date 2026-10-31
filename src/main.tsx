@@ -295,6 +295,14 @@ function App() {
                   </div>
                   <button
                     className="list-row"
+                    onClick={() => s.set({ activeApp: "数据备份与恢复" })}
+                  >
+                    <NotebookPen />
+                    数据备份与恢复
+                    <ArrowRight size={17} />
+                  </button>
+                  <button
+                    className="list-row"
                     onClick={() => s.set({ activeApp: "世界书 / Lorebook" })}
                   >
                     <BookOpen />

@@ -1,3 +1,5 @@
+import { startBackupPresence } from "./backupGate";
+import { DataBackups } from "./DataBackups";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { liveQuery } from "dexie";
 import {
@@ -14,6 +16,7 @@ export function SpaceRoot({ phone }: { phone: ReactNode }) {
   const s = usePhone();
   const nav = useSpaces();
   useEffect(() => {
+    const stopPresence = startBackupPresence();
     let alive = true;
     void s.init().then(() => {
       if (alive) void useSpaces.getState().restoreCurrentSpace();
@@ -25,6 +28,7 @@ export function SpaceRoot({ phone }: { phone: ReactNode }) {
     window.addEventListener("hashchange", back);
     return () => {
       alive = false;
+      stopPresence();
       window.removeEventListener("popstate", back);
       window.removeEventListener("hashchange", back);
     };
@@ -38,7 +42,12 @@ export function SpaceRoot({ phone }: { phone: ReactNode }) {
         <p role="status">正在打开你的空间…</p>
       </main>
     );
-  if (nav.space) return <Fragment key={nav.space.spaceId}>{phone}</Fragment>;
+  if (nav.space)
+    return (
+      <Fragment key={nav.space.spaceId}>
+        {s.activeApp === "数据备份与恢复" ? <DataBackups /> : phone}
+      </Fragment>
+    );
   return (
     <main className="space-selection">
       <div className="space-select-shell">

@@ -45,3 +45,13 @@ self.addEventListener("fetch", (event) => {
       ),
   );
 });
+// Window inventory only; no backup data or credentials pass through the worker.
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "claudia-backup-clients-v1" || !event.ports[0])
+    return;
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clients) => event.ports[0].postMessage({ count: clients.length })),
+  );
+});

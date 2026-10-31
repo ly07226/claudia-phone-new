@@ -1,3 +1,4 @@
+import { installBackupGuard } from "./backupGate";
 import type { Lorebook, LoreEntry } from "./loreTypes";
 import Dexie, { type Table } from "dexie";
 import { create } from "zustand";
@@ -141,6 +142,7 @@ class PhoneDB extends Dexie {
   }
 }
 export const db = new PhoneDB();
+installBackupGuard(db);
 export const apps = [
   "聊天",
   "手记",
