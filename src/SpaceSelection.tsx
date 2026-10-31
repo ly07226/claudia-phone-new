@@ -8,6 +8,8 @@ import {
   Globe2,
   Plus,
   Smartphone,
+  Sun,
+  Orbit,
 } from "lucide-react";
 import { db, usePhone } from "./store";
 import { useSpaces } from "./spaces";
@@ -86,6 +88,7 @@ export function SpaceRoot({ phone }: { phone: ReactNode }) {
 function SpaceSelection() {
   const s = usePhone();
   const nav = useSpaces();
+  const [scripts, setScripts] = useState(false);
   const [progress, setProgress] = useState<Set<string> | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -117,8 +120,33 @@ function SpaceSelection() {
     });
     return () => sub.unsubscribe();
   }, [s.worlds]);
+  if (!scripts) return (
+    <section className="space-landing" aria-label="空间入口">
+      <header className="space-heading">
+        <span className="eyebrow">CLAUDIA PHONE</span>
+        <h1>选择空间</h1>
+        <p>日常与故事，各有归处。</p>
+      </header>
+      <div className="space-mascot">
+        <img src="/images/apple-leopard.png" width="1635" height="962"
+          alt="头顶浅绿苹果、闭眼微笑的手绘小豹子" draggable={false} />
+      </div>
+      <nav className="space-entry-actions" aria-label="选择手机空间">
+        <button data-testid="daily-space" aria-label="进入日常手机"
+          onClick={() => void nav.enterSpace("daily")}>
+          <Sun aria-hidden="true" size={21} /><span>日常</span><ArrowRight aria-hidden="true" size={18} />
+        </button>
+        <button aria-label="剧本" onClick={() => setScripts(true)}>
+          <Orbit aria-hidden="true" size={22} /><span>剧本</span><ArrowRight aria-hidden="true" size={18} />
+        </button>
+      </nav>
+    </section>
+  );
   return (
     <>
+      <button className="space-back" onClick={() => setScripts(false)}>
+        <ChevronLeft size={18} />返回空间首页
+      </button>
       <header className="space-heading">
         <span className="eyebrow">CLAUDIA PHONE</span>
         <h1>选择空间</h1>

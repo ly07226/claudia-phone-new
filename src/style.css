@@ -2120,3 +2120,20 @@ textarea {
   padding-top: 12px;
   cursor: pointer;
 }
+
+/* Space landing only: the same background and existing world pages are retained. */
+.space-landing {
+  height: calc(100vh - max(28px, env(safe-area-inset-top)) - max(32px, env(safe-area-inset-bottom)));
+  height: calc(100svh - max(28px, env(safe-area-inset-top)) - max(32px, env(safe-area-inset-bottom)));
+  height: calc(100dvh - max(28px, env(safe-area-inset-top)) - max(32px, env(safe-area-inset-bottom)));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+}
+.space-landing .space-heading { padding-bottom: 0; }
+.space-mascot { display: flex; align-items: center; justify-content: center; min-height: 0; min-width: 0; padding: 16px 0; }
+.space-mascot img { display: block; width: 100%; max-width: 560px; height: auto; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-select: none; }
+.space-entry-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 0 4px; }
+.space-entry-actions button { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 60px; min-width: 0; border-radius: 999px; border: 1px solid #ffffffb3; background: #fffdf299; color: #526750; box-shadow: 0 5px 16px #536d4b0c, inset 0 1px 0 #ffffffb3; -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); font-size: 17px; white-space: nowrap; }
+.space-entry-actions button:focus-visible { outline: 2px solid #617b5c; outline-offset: 4px; }
+@media (max-height: 450px) { .space-entry-actions button { min-height: 44px; } .space-landing .space-heading { padding-top: 0; } }

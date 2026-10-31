@@ -1,5 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 test.use({ storageState: { cookies: [], origins: [] } });
+async function openScripts(page: Page) {
+  await expect(page.getByRole("heading", { name: "选择空间", exact: true })).toBeVisible();
+  const entry = page.getByRole("button", { name: "剧本", exact: true });
+  if (await entry.count()) await entry.click();
+}
 async function selector(page: Page) {
   await page.goto("/");
   await expect(
@@ -7,6 +12,7 @@ async function selector(page: Page) {
   ).toBeVisible();
 }
 async function seed(page: Page) {
+  await openScripts(page);
   return page.evaluate(async () => {
     const { db, usePhone } = await import("/src/store.ts");
     const { getConversation } = await import("/src/chatService.ts");
@@ -110,6 +116,7 @@ async function chat(page: Page) {
 async function leaveChat(page: Page) {
   await page.getByRole("button", { name: "会话管理", exact: true }).click();
   await page.getByRole("button", { name: "返回空间列表", exact: true }).click();
+  await openScripts(page);
   await expect(
     page.getByRole("heading", { name: "选择空间", exact: true }),
   ).toBeVisible();
@@ -119,6 +126,7 @@ test("永久日常入口、零世界不空白、手机桌面与退出，导航�
   page,
 }) => {
   await selector(page);
+  await openScripts(page);
   await expect(page.getByTestId("daily-space")).toBeVisible();
   await expect(
     page.getByTestId("daily-space").getByRole("button", { name: /删除/ }),
@@ -134,6 +142,7 @@ test("永久日常入口、零世界不空白、手机桌面与退出，导航�
   await expect(page.locator(".desktop")).toBeVisible();
   await checkSpace(page, "daily");
   await page.getByRole("button", { name: "返回空间列表", exact: true }).click();
+  await openScripts(page);
   await expect(page.getByTestId("daily-space")).toBeVisible();
   const nav = await page.evaluate(() =>
     JSON.parse(localStorage.getItem("claudia.navigation.v1")!),
@@ -228,6 +237,7 @@ test("复用世界 CRUD，重命名保持稳定ID，删除活动世界安全回�
   page,
 }) => {
   await selector(page);
+  await openScripts(page);
   await page
     .getByRole("button", { name: "创建 / 管理剧本", exact: true })
     .click();
@@ -236,6 +246,7 @@ test("复用世界 CRUD，重命名保持稳定ID，删除活动世界安全回�
   await page.getByLabel("世界描述", { exact: true }).fill("自定义简介");
   await page.getByRole("button", { name: "保存世界", exact: true }).click();
   await page.getByRole("button", { name: "返回空间列表", exact: true }).click();
+  await openScripts(page);
   await expect(
     page.getByRole("heading", { name: "我的新剧本", exact: true }),
   ).toBeVisible();
@@ -398,6 +409,7 @@ test("导航保存失败仍可进入空间，原世界聊天和API凭据不变",
     }, a.id),
   ).toEqual({ messages: 2, key: "synthetic-space-key" });
   await page.getByRole("button", { name: "返回空间列表", exact: true }).click();
+  await openScripts(page);
   await expect(page.getByTestId("daily-space")).toBeVisible();
 });
 
@@ -462,6 +474,7 @@ test("日常角色管理默认基础角色不自动关联首世界，世界入�
     }),
   ).toBe(0);
   await page.getByRole("button", { name: "返回空间列表", exact: true }).click();
+  await openScripts(page);
   await page
     .getByRole("button", { name: "继续游戏 · 自定义甲", exact: true })
     .click();
