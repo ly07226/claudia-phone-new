@@ -499,9 +499,7 @@ for (const standalone of [false, true]) test(`三级路由、刷新/后退及真
   await expect(page.getByRole("heading",{name:"选择空间",exact:true})).toHaveCount(0);
   const card = page.getByTestId("world-space-space:a/一");
   await expect(card.getByRole("button",{name:"继续游戏 · 自定义甲",exact:true})).toBeVisible();
-  const newGame = card.getByRole("button",{name:"开始新游戏（暂不可用）",exact:true});
-  await expect(newGame).toBeDisabled();
-  await newGame.evaluate((el:HTMLButtonElement)=>el.click());
+  await expect(card.getByRole("button",{name:"开始新游戏",exact:true})).toHaveCount(0);
   expect(await capture()).toEqual(before);
   await card.getByRole("button",{name:"存档管理 · 自定义甲",exact:true}).click();
   await expect(card.getByRole("region",{name:"存档管理"})).toContainText("2 条消息 · 1 个历史快照");
@@ -558,10 +556,55 @@ test("新建入口默认折叠，AI仅提示无写入或请求，手动粘贴复
   await expect(page.getByRole("heading",{name:"剧本世界",exact:true})).toBeVisible();
   await expect(page.getByRole("button",{name:"手动粘贴",exact:true})).toHaveCount(0);
   await page.evaluate(async id=>{const {db,usePhone}=await import("/src/store.ts");await db.worlds.update(id,{cover:"legacy-cover",extraInfo:{note:"keep"}} as any); await usePhone.getState().reload();},world[0].id);
+  await card.locator("summary").click();
   await card.getByRole("button",{name:"编辑",exact:true}).click();
   await page.getByLabel("世界名称",{exact:true}).fill("修改名字");
   await page.getByRole("button",{name:"保存世界",exact:true}).click();
   expect(await page.evaluate(async id=>(await import("/src/store.ts")).db.worlds.get(id),world[0].id)).toMatchObject({id:world[0].id,name:"修改名字",cover:"legacy-cover",extraInfo:{note:"keep"}});
   await page.getByRole("button",{name:"进入剧本 · 修改名字",exact:true}).focus(); await page.keyboard.press("Enter");
   await expect(page.locator(".desktop")).toBeVisible(); await checkSpace(page,`world:${world[0].id}`);
+});
+
+test("独立创建子页逐级返回、取消无写入，紧凑卡片与更多操作不串导航", async ({page}) => {
+  await selector(page); const {a}=await seed(page);
+  const before=await page.evaluate(async()=>{const {db}=await import("/src/store.ts");return {worlds:await db.worlds.toArray(),messages:await db.messages.toArray(),profiles:await db.worldProfiles.toArray()};});
+  await expect(page.locator("form")).toHaveCount(0);
+  await page.getByRole("button",{name:"新建剧本",exact:true}).click();
+  expect(new URL(page.url()).hash).toBe("#worlds/create");
+  await expect(page.locator(".script-compact")).toHaveCount(0); await expect(page.locator("form")).toHaveCount(0);
+  await page.getByRole("button",{name:"手动粘贴",exact:true}).click();
+  expect(new URL(page.url()).hash).toBe("#worlds/create/manual");
+  await expect(page.locator(".script-compact")).toHaveCount(0);
+  await page.getByLabel("世界名称",{exact:true}).fill("不会保存的草稿");
+  await page.getByRole("button",{name:"取消",exact:true}).click();
+  await expect(page.getByRole("button",{name:"手动粘贴",exact:true})).toBeVisible();
+  await page.reload(); await expect(page.getByRole("button",{name:"手动粘贴",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"手动粘贴",exact:true}).click();
+  await page.goBack(); await expect(page.getByRole("button",{name:"AI 生成",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"返回剧本列表",exact:true}).click();
+  await expect(page.locator("form")).toHaveCount(0);
+  const card=page.getByTestId("world-space-space:a/一");
+  for (const width of [320,390,430]) {
+    await page.setViewportSize({width,height:844});
+    const layout=await card.evaluate(el=>{const card=el.getBoundingClientRect(),info=el.querySelector(".script-card-info")!.getBoundingClientRect(),actions=el.querySelector(".script-card-actions")!.getBoundingClientRect();return {height:card.height,aligned:actions.left>info.right,overflow:document.documentElement.scrollWidth>innerWidth};});
+    expect(layout.height).toBeLessThanOrEqual(220);expect(layout.aligned).toBe(true);expect(layout.overflow).toBe(false);
+  }
+  await card.locator("summary").click();
+  await expect(card.getByRole("button",{name:"查看角色",exact:true})).toBeVisible();
+  expect(new URL(page.url()).hash).toBe("#worlds");
+  const menu=await card.locator(".script-more-popup").boundingBox();expect(menu!.x).toBeGreaterThanOrEqual(0);
+  await card.getByRole("button",{name:"编辑",exact:true}).click();
+  expect(new URL(page.url()).hash).toBe("#worlds/edit/space%3Aa%2F%E4%B8%80");
+  await expect(page.locator(".script-compact")).toHaveCount(0);
+  await page.getByRole("button",{name:"取消",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"剧本世界",exact:true})).toBeVisible();
+  let confirms=0;const dismiss=(d:any)=>{confirms++;void d.dismiss();};page.on("dialog",dismiss);
+  await card.locator("summary").click();await card.getByRole("button",{name:"删除世界自定义甲",exact:true}).click();
+  expect(confirms).toBe(1);expect(new URL(page.url()).hash).toBe("#worlds");page.off("dialog",dismiss);
+  await card.getByRole("button",{name:"查看角色",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"角色管理",exact:true})).toBeVisible();await checkSpace(page,"world:space:a/一");
+  await page.getByRole("button",{name:"返回空间列表",exact:true}).click();await expect(page.getByRole("heading",{name:"剧本世界",exact:true})).toBeVisible();
+  expect(await page.evaluate(async()=>{const {db}=await import("/src/store.ts");return {worlds:await db.worlds.toArray(),messages:await db.messages.toArray(),profiles:await db.worldProfiles.toArray()};})).toEqual(before);
+  expect(await page.evaluate(async id=>(await import("/src/store.ts")).db.conversations.get(id),a.id)).toBeTruthy();
+  await page.screenshot({path:"artifacts/script-compact-mobile.png"});
 });

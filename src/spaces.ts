@@ -6,7 +6,7 @@ export type SpaceIdentity =
   | { spaceId: "daily"; type: "daily"; worldId?: undefined }
   | { spaceId: `world:${string}`; type: "world"; worldId: string };
 export type SpaceRoute =
-  { screen: "spaces" | "worlds" } | { screen: "phone"; spaceId: SpaceId };
+  { screen: "spaces" } | {screen: "worlds"; view?: "create" | "manual" | "edit"; worldId?: string} | { screen: "phone"; spaceId: SpaceId };
 const list: SpaceRoute = { screen: "spaces" };
 let sequence = 0;
 function identity(id: SpaceId): SpaceIdentity {
@@ -19,13 +19,21 @@ function hash(route: SpaceRoute) {
     ? route.spaceId === "daily"
       ? "#phone/daily"
       : `#phone/world/${encodeURIComponent(route.spaceId.slice(6))}`
-    : `#${route.screen}`;
+    : route.screen === "worlds" && route.view
+      ? route.view === "edit" ? `#worlds/edit/${encodeURIComponent(route.worldId || "")}` : `#worlds/create${route.view === "manual" ? "/manual" : ""}`
+      : `#${route.screen}`;
 }
 function fromHash(): SpaceRoute | null {
   const value = location.hash;
   if (!value) return null;
   if (value === "#spaces" || value === "#worlds")
     return { screen: value.slice(1) as "spaces" | "worlds" };
+  if (value === "#worlds/create") return {screen:"worlds",view:"create"};
+  if (value === "#worlds/create/manual") return {screen:"worlds",view:"manual"};
+  if (value.startsWith("#worlds/edit/")) {
+    try { const worldId = decodeURIComponent(value.slice(13)); if(worldId && worldId.length <= 2000) return {screen:"worlds",view:"edit",worldId}; } catch { /* Invalid route falls back safely. */ }
+    return {screen:"worlds"};
+  }
   if (value === "#phone/daily") return { screen: "phone", spaceId: "daily" };
   if (value.startsWith("#phone/world/")) {
     try {
@@ -43,8 +51,12 @@ function savedRoute(): SpaceRoute {
     const saved = JSON.parse(localStorage.getItem(spaceStorageKey) || "null");
     if (saved?.version !== 1) return list;
     const r = saved.route;
-    if (r?.screen === "spaces" || r?.screen === "worlds")
-      return { screen: r.screen };
+    if (r?.screen === "spaces") return {screen:"spaces"};
+    if (r?.screen === "worlds") {
+      if (r.view === "create" || r.view === "manual") return {screen:"worlds",view:r.view};
+      if (r.view === "edit" && typeof r.worldId === "string" && r.worldId.length > 0 && r.worldId.length <= 2000) return {screen:"worlds",view:"edit",worldId:r.worldId};
+      return {screen:"worlds"};
+    }
     if (
       r?.screen === "phone" &&
       (r.spaceId === "daily" ||
@@ -68,7 +80,8 @@ interface SpaceState {
   restoreCurrentSpace: () => Promise<void>;
   enterSpace: (id: SpaceId) => Promise<void>;
   exitSpace: () => Promise<void>;
-  manageWorlds: () => Promise<void>;
+  manageWorlds: (replace?: boolean) => Promise<void>;
+  openWorldEditor: (view: "create" | "manual" | "edit", worldId?: string) => Promise<void>;
   restoreUrl: () => Promise<void>;
   reconcile: () => Promise<void>;
 }
@@ -138,8 +151,14 @@ export const useSpaces = create<SpaceState>((set, get) => {
     notice: "",
     restoreCurrentSpace: () => navigate(fromHash() || savedRoute(), "replace"),
     enterSpace: (spaceId) => navigate({ screen: "phone", spaceId }, "push"),
-    exitSpace: () => navigate(get().space?.type === "world" ? { screen: "worlds" } : list, "push"),
-    manageWorlds: () => navigate({ screen: "worlds" }, "push"),
+    exitSpace: () => {
+      const r = get().route;
+      return navigate(get().space?.type === "world" || (r.screen === "worlds" && r.view)
+        ? r.screen === "worlds" && r.view === "manual" ? {screen:"worlds",view:"create"} : {screen:"worlds"}
+        : list, "push");
+    },
+    manageWorlds: (replace = false) => navigate({ screen: "worlds" }, replace ? "replace" : "push"),
+    openWorldEditor: (view, worldId) => navigate({screen:"worlds",view,...(view === "edit" ? {worldId} : {})}, "push"),
     restoreUrl: async () => {
       const route = fromHash() || list;
       if (

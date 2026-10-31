@@ -2146,3 +2146,23 @@ textarea {
 .script-creation-methods button { min-width: 0; min-height: 52px; border: 1px solid #ffffffb3; border-radius: 18px; background: #fffdf4c9; color: #526750; }
 .space-card .script-card-title { padding: 0; margin: 0; min-height: 44px; text-align: left; font: inherit; overflow-wrap: anywhere; }
 .script-card-title:focus-visible { outline: 2px solid #617b5c; outline-offset: 3px; }
+
+.script-compact.space-card { display: grid; grid-template-columns: minmax(0,1fr) 112px; gap: 12px; padding: 14px; min-height: 0; align-items: start; overflow: visible; }
+.script-card-info { min-width: 0; display: grid; gap: 6px; }
+.script-card-info .card-heading { gap: 6px; margin: 0; min-width: 0; }
+.script-card-info .card-heading svg { flex: 0 0 auto; width: 18px; }
+.script-card-info h3 { min-width: 0; flex: 1; font-size: 16px; }
+.script-compact .script-card-title { display: block; width: 100%; min-height: 0; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.script-card-info .space-description { margin: 0; -webkit-line-clamp: 2; overflow-wrap: anywhere; line-height: 1.45; }
+.script-card-info small { font-size: 11px; color: #637667; }
+.script-card-info .space-badge { justify-self: start; font-size: 10px; padding: 3px 7px; }
+.script-card-actions { display: grid; gap: 4px; min-width: 0; width: 100%; }
+.script-card-actions > button, .script-more > summary { width: 100%; min-height: 44px; padding: 8px 4px; margin: 0; font-size: 12px; justify-content: center; white-space: nowrap; }
+.script-card-actions .primary svg { display: none; }
+.script-more { position: relative; min-width: 0; }
+.script-more[open] { z-index: 20; }
+.script-more summary { display: flex; align-items: center; list-style: none; cursor: pointer; border-radius: 12px; }
+.script-more summary::-webkit-details-marker { display: none; }
+.script-more-popup { position: absolute; right: 0; top: 100%; min-width: 132px; background: #fffdf4; border: 1px solid #dce6d6; border-radius: 16px; box-shadow: 0 8px 24px #34483e20; padding: 6px; max-height: 50dvh; overflow-y: auto; }
+.script-more-popup button { display: block; width: 100%; min-height: 44px; text-align: left; padding: 8px 12px; }
+.script-compact > .script-archives { grid-column: 1 / -1; margin: 0; width: 100%; }

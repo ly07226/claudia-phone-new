@@ -143,29 +143,29 @@ function ScriptSpaces() {
 
   return <>
     <button className="space-back" onClick={() => void nav.exitSpace()}>
-      <ChevronLeft size={18} />返回空间首页
+      <ChevronLeft size={18} />{nav.route.screen === "worlds" && nav.route.view ? nav.route.view === "manual" ? "返回创建方式" : "返回剧本列表" : "返回空间首页"}
     </button>
     {error && <p className="space-notice" role="alert">{error}</p>}
-    <Worlds spaceList onEnterWorld={(id) => void nav.enterSpace(`world:${id}`)} onCharacters={(id) => {
+    <Worlds key={nav.route.screen === "worlds" ? `${nav.route.view || "list"}:${nav.route.worldId || ""}` : "list"} spaceList onEnterWorld={(id) => void nav.enterSpace(`world:${id}`)} onCharacters={(id) => {
       void nav.enterSpace(`world:${id}`).then(() => {
         if (useSpaces.getState().space?.worldId === id)
           usePhone.getState().set({ activeApp: "角色管理" });
       });
-    }} renderSpaceActions={(w) => {
+    }} renderSpaceInfo={(w) => <span className="space-badge">{progress ? progress.has(w.id) ? "已有聊天进度" : "尚无聊天进度" : "进度暂不可读取"}</span>}
+    renderSpaceDetails={(w) => archiveWorld === w.id ? <ArchiveOverview worldId={w.id} onClose={() => setArchiveWorld(null)} /> : null}
+    renderSpaceActions={(w) => {
       const hasProgress = progress?.has(w.id);
       const action = progress ? hasProgress ? "继续游戏" : "开始新游戏" : "进入世界";
       return <>
-        <span className="space-badge">{progress ? hasProgress ? "已有聊天进度" : "尚无聊天进度" : "进度暂不可读取"}</span>
-        <div className="actions">
+
           <button className="primary" aria-label={`${action} · ${w.name}`}
             onClick={() => void nav.enterSpace(`world:${w.id}`)}>{action}<ArrowRight size={16}/></button>
-          {hasProgress && <button disabled title="独立新存档尚未实现，不能覆盖现有进度">开始新游戏（暂不可用）</button>}
+
           <button aria-label={`存档管理 · ${w.name}`} onClick={() => setArchiveWorld(archiveWorld === w.id ? null : w.id)}>存档管理</button>
-        </div>
-        {archiveWorld === w.id && <ArchiveOverview worldId={w.id} onClose={() => setArchiveWorld(null)} />}
+
       </>;
     }} />
-    <p className="space-scope-note">“开始新游戏”仅用于尚无进度的剧本，直接进入已有世界空间，不创建独立会话或存档槽；已有进度请继续游戏。桌面、壁纸及主题仍共用。</p>
+
   </>;
 }
 function ArchiveOverview({worldId, onClose}: {worldId: string; onClose: () => void}) {
