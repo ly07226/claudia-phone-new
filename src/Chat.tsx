@@ -1,3 +1,6 @@
+import { identityFor } from "./userIdentity";
+import { createEnterSendGuard } from "./enterSend";
+import { Search, X } from "lucide-react";
 import { liveQuery } from "dexie";
 import { chatListPreviews, chatPreviewTime, type ChatPreview } from "./chatListPreview";
 import { ChevronLeft, MoreHorizontal, Send, Square } from "lucide-react";
@@ -27,6 +30,8 @@ export function Chat({ worldId }: { worldId?: string }) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
+  const [search, setSearch] = useState("");
+  const enterGuard = useRef(createEnterSendGuard());
   const [previewState, setPreviews] = useState<{scope: string; rows: Record<string, ChatPreview>}>({scope: "", rows: {}});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -56,6 +61,8 @@ export function Chat({ worldId }: { worldId?: string }) {
     (c) => c.id === conversation?.characterId,
   );
   const displayName = chatDisplayName(character);
+  const userIdentity = identityFor(s.theme, conversation?.mode === "world" ? `world:${conversation.worldId}` : "daily");
+  const userAvatar = s.assets.find(a=>a.id===userIdentity.avatar)?.data;
   const avatarSrc = s.assets.find((a) => a.id === character?.avatar)?.data;
   useChatViewport(!!conversation, text, inputRef, () => {
     if (followBottom.current && historyRef.current)
@@ -71,6 +78,9 @@ export function Chat({ worldId }: { worldId?: string }) {
   const characterIds = JSON.stringify(characters.map(c => c.id));
   const previewScope = JSON.stringify([worldId ?? null, characterIds]);
   const previews = previewState.scope === previewScope ? previewState.rows : {};
+  const query = search.trim().toLocaleLowerCase();
+  const displayedCharacters = !worldId && query ? characters.filter(c=>`${c.name} ${previews[c.id]?.content || ""}`.toLocaleLowerCase().includes(query)) : characters;
+  useEffect(()=>{setSearch("");enterGuard.current.reset();},[worldId]);
   useEffect(() => {
     if (conversation) return;
     setPreviews({scope: previewScope, rows: {}});
@@ -207,7 +217,10 @@ export function Chat({ worldId }: { worldId?: string }) {
       }
     }
   }
-  const send = (retry = false) => runGeneration(retry);
+  const send = (retry = false) => {
+    if (!retry && (!text.trim() || busy || pending.current)) return Promise.resolve();
+    return runGeneration(retry);
+  };
   const onGenerate = (message?: Message, allowArchive = false) =>
     runGeneration(true, message, allowArchive, true);
   async function chooseVariant(m: Message, v: MessageVariant) {
@@ -243,23 +256,11 @@ export function Chat({ worldId }: { worldId?: string }) {
   return (
     <div className={`chat-app ${conversation ? "chat-immersive" : ""}`}>
       {!conversation && <h2 className="chat-list-title">聊天</h2>}
-      {!conversation && (
-        <div className="chat-space">
-          <strong>
-            {worldId
-              ? `世界聊天 · ${world?.name || "世界不存在"}`
-              : "日常聊天 · 独立空间"}
-          </strong>
-          <p>
-            {worldId
-              ? "只使用本世界设定和本会话历史。"
-              : "不读取任何世界设定或世界聊天记录。"}
-          </p>
-        </div>
-      )}
+      {!conversation && !worldId && <label className="chat-search"><Search size={20} aria-hidden="true"/><input type="search" aria-label="搜索聊天" placeholder="搜索聊天…" value={search} onChange={e=>setSearch(e.target.value)} autoComplete="off"/>{search && <button type="button" aria-label="清空聊天搜索" onClick={()=>setSearch("")}><X size={18}/></button>}</label>}
+      {!conversation && worldId && <p className="chat-world-caption">世界聊天 · {world?.name || "世界不存在"}</p>}
       {!conversation ? (
         <>
-          {characters.map((c) => (
+          {displayedCharacters.map((c) => (
             <button
               className="chat-list-row"
               aria-label={`${c.name} 开始 / 继续聊天`}
@@ -271,6 +272,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               {previews[c.id] && <time dateTime={new Date(previews[c.id].createdAt).toISOString()}>{chatPreviewTime(previews[c.id].createdAt)}</time>}
             </button>
           ))}
+          {!!characters.length && !displayedCharacters.length && <p className="empty">没有匹配的聊天</p>}
           {!characters.length && (
             <div className="card">
               <p>
@@ -325,6 +327,8 @@ export function Chat({ worldId }: { worldId?: string }) {
                 variants={variants[m.id] || []}
                 characterName={displayName}
                 characterAvatar={avatarSrc}
+                userAvatar={userAvatar}
+                userName={userIdentity.name}
                 onMenu={() => {
                   setPreviewVariant(undefined);
                   setMenuId(m.id);
@@ -372,6 +376,11 @@ export function Chat({ worldId }: { worldId?: string }) {
                 value={text}
                 disabled={busy}
                 onChange={(e) => setText(e.target.value)}
+                onCompositionStart={()=>enterGuard.current.start()}
+                onCompositionEnd={()=>enterGuard.current.end()}
+                onKeyUp={e=>enterGuard.current.up(e.key)}
+                onBlur={()=>enterGuard.current.reset()}
+                onKeyDown={e=>{const action=enterGuard.current.key(e.nativeEvent);if(action==='send'||action==='block')e.preventDefault();if(action==='send')void send();}}
               />
               <button
                 className={`primary chat-send ${busy ? "is-cancel" : ""}`}

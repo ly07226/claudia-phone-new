@@ -841,6 +841,13 @@ async function validateReferences(
     "themes",
     async (x) => {
       await optional("assets", x.wallpaper, "themes.wallpaper");
+      if (x.userIdentities !== undefined) {
+        if (!x.userIdentities || typeof x.userIdentities !== "object" || Array.isArray(x.userIdentities)) bad("themes.userIdentities");
+        else for (const identity of Object.values(x.userIdentities)) {
+          if (!identity || typeof identity !== "object" || Array.isArray(identity)) bad("themes.userIdentities.profile");
+          else await optional("assets", (identity as Record<string, unknown>).avatar, "themes.userIdentities.avatar");
+        }
+      }
       if (x.worldId && !(await exists("worlds", x.worldId)))
         warnings.add("存在遗留主题worldId，不会据此分配空间。");
     },

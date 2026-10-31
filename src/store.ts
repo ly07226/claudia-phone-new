@@ -1,3 +1,4 @@
+import type { UserIdentity } from "./userIdentity";
 import { installBackupGuard } from "./backupGate";
 import type { Lorebook, LoreEntry } from "./loreTypes";
 import Dexie, { type Table } from "dexie";
@@ -45,6 +46,8 @@ export interface DesktopItem {
   icon?: string;
 }
 export interface Theme {
+  /** Scoped user metadata in the existing global configuration; not appearance inheritance. */
+  userIdentities?: Record<string, UserIdentity>;
   id: string;
   worldId?: string;
   color: string;
@@ -275,8 +278,13 @@ export const usePhone = create<State>((set, get) => ({
   },
   saveTheme: async (theme) => {
     try {
-      await db.themes.put(theme);
-      set({ theme });
+      const saved = await db.transaction("rw", db.themes, async () => {
+        const current = await db.themes.get(theme.id);
+        const saved = {...theme, userIdentities: current?.userIdentities ?? theme.userIdentities};
+        await db.themes.put(saved);
+        return saved;
+      });
+      set({ theme: saved });
     } catch {
       set({ error: "主题保存失败，请检查浏览器存储空间。" });
     }

@@ -207,7 +207,7 @@ export function DataBackups() {
         </div>
         <div className="card">
           <p>
-            备份包含聊天、角色、世界书和图片等隐私。默认不导出独立 API Key，API
+            备份包含用户身份、聊天、角色、世界书和图片等隐私。默认不导出独立 API Key，API
             地址中的敏感部分也会省略，但用户文本仍可能含秘密。文件不会自动上传；在“文件”App选择云盘可能由系统同步。
           </p>
           <p>

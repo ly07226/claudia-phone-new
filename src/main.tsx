@@ -1,3 +1,4 @@
+import { IdentityCard, IdentityEditor } from "./IdentitySettings";
 import { useDisplayEnvironment } from "./presentation";
 import { Lorebooks } from "./Lorebooks";
 import { Chat } from "./Chat";
@@ -287,15 +288,7 @@ function App() {
                     <h2>设置</h2>
                     <p>让这里，成为你的舒适区。</p>
                   </div>
-                  <div className="card">
-                    <h3>
-                      Claudia Phone <small>第二阶段 · 2.3</small>
-                    </h3>
-                    <p>
-                      所有数据仅保存在当前浏览器。日常与世界聊天相互隔离，API
-                      凭据仅存本地。
-                    </p>
-                  </div>
+                  <IdentityCard spaceId={space?.spaceId || "daily"}/>
                   <button
                     className="list-row"
                     onClick={() => s.set({ activeApp: "数据备份与恢复" })}
@@ -364,6 +357,8 @@ function App() {
                     恢复默认桌面布局与主题
                   </button>
                 </>
+              ) : s.activeApp === "用户身份" ? (
+                <IdentityEditor key={space?.spaceId || "daily"} spaceId={space?.spaceId || "daily"}/>
               ) : s.activeApp === "聊天" || s.activeApp === "世界聊天" ? (
                 <Chat worldId={space?.worldId} />
               ) : s.activeApp === "世界书 / Lorebook" ? (

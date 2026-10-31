@@ -78,6 +78,8 @@ export function ChatMessage({
   onVersion,
   characterName = "角色",
   characterAvatar,
+  userAvatar,
+  userName = "你",
 }: {
   message: Message;
   variants: MessageVariant[];
@@ -85,6 +87,8 @@ export function ChatMessage({
   onVersion: (variant: MessageVariant) => void;
   characterName?: string;
   characterAvatar?: string;
+  userAvatar?: string;
+  userName?: string;
 }) {
   const handlers = useMessagePress(onMenu);
   const fragments = useMemo(
@@ -155,7 +159,7 @@ export function ChatMessage({
           )}
         </div>
       </div>
-      {m.role === "user" && <MessageAvatar name="你" user />}
+      {m.role === "user" && <MessageAvatar src={userAvatar} name={userName} user />}
     </div>
   );
 }

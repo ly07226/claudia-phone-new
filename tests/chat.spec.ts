@@ -398,7 +398,7 @@ test("世界专属资料可编辑，共用基础角色不复制", async ({ page 
     page.getByRole("button", { name: "保存世界角色设定" }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "进入世界聊天" }).click();
-  await expect(page.locator(".chat-space")).toContainText(
+  await expect(page.locator(".chat-world-caption")).toContainText(
     "世界聊天 · 测试空间一",
   );
   await page.getByRole("button", { name: /测试角色.*开始/ }).click();
