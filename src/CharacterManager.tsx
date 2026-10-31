@@ -311,10 +311,13 @@ export function CharacterManager({
       {characters.map((c) => (
         <div className="card character-card" key={c.id} data-character-id={c.id}>
           <div className="card-heading">
-            {c.avatar && <span className="character-list-avatar"><CharacterAvatar alt={`${c.name}头像`} src={s.assets.find(a=>a.id===c.avatar)?.data}/></span>}
-            <h3>{c.name}</h3>
+            <span className="character-list-avatar"><CharacterAvatar alt={`${c.name}头像`} src={s.assets.find(a=>a.id===c.avatar)?.data}/></span>
+            <div className="character-card-info">
+              <h3>{c.name}</h3>
+              <p className="character-summary">{c.persona?.trim() ? c.persona : "尚未填写人设"}</p>
+            </div>
           </div>
-          {!expanded.has(c.id) ? <p className="character-summary">{c.persona?.trim() ? c.persona : "尚未填写人设"}</p> : <div className="character-details" id={`character-details-${c.id}`} tabIndex={0} role="region" aria-label={`${c.name}完整设定`}>
+          {expanded.has(c.id) && <div className="character-details" id={`character-details-${c.id}`} tabIndex={0} role="region" aria-label={`${c.name}完整设定`}>
             <h4>基础人设</h4><p className="preserve">{c.persona?.trim() ? c.persona : "尚未填写人设"}</p>
             <h4>基础说话方式</h4><p className="preserve">{c.speakingStyle || "尚未填写说话方式"}</p>
           </div>}
