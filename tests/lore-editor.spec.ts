@@ -153,7 +153,7 @@ test("纯函数激活、稳定排序、概率边界、正则安全、位置与�
       await import("/src/loreEngine.ts");
     const { evaluateRegex } = await import("/src/loreRegex.ts");
     const book = { ...newBook(), name: "test", global: true, charBudget: 8000 };
-    const base = { ...newEntry(book.id), id: "a", createdAt: 1, content: "A" };
+    const base = { ...newEntry(book.id), triggerMode: "history" as const, id: "a", createdAt: 1, content: "A" };
     const history: any = [
       {
         id: "1",

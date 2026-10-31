@@ -1,105 +1,106 @@
 import { db } from "./store";
-import {
-  loreLimits,
-  normalizeEntry,
-  type Lorebook,
-  type LoreEntry,
-} from "./loreTypes";
+import { loreLimits, normalizeEntry, type Lorebook, type LoreEntry } from "./loreTypes";
 import { evaluateRegex, type RegexHits } from "./loreRegex";
 import type { Conversation, Message, ContextMessage } from "./chatTypes";
-const scan = (e: LoreEntry, b: Lorebook, h: Message[]) =>
-  h
-    .slice(-(e.scanDepth ?? b.scanDepth))
-    .map((m) => m.content)
-    .join("\n");
-export function entryActive(
-  raw: LoreEntry,
-  b: Lorebook,
-  h: Message[],
-  random: () => number = Math.random,
-  regex?: RegexHits,
-) {
+export interface LoreMessageRef { id: string; role: "user" | "assistant" }
+export type LoreSkipReason = "injected" | "book-disabled" | "entry-disabled" | "compatibility-paused" | "no-user-message" | "regex-error" | "primary-miss" | "secondary-miss" | "probability" | "context-budget" | "book-budget";
+export interface LoreDiagnostic {
+  entryId: string;
+  lorebookId: string;
+  triggerMode: "constant" | "instant" | "history";
+  scanAssistant: boolean | null;
+  scannedMessageCount: number;
+  matchedMessages: LoreMessageRef[];
+  crossMessageMatch: boolean;
+  attribution: "first-match-per-key" | "unavailable";
+  outcome: "injected" | "skipped";
+  reason: LoreSkipReason;
+}
+const ref = (m: Message): LoreMessageRef => ({id:m.id,role:m.role as LoreMessageRef["role"]});
+export function loreScanMessages(raw: LoreEntry, book: Lorebook, history: Message[]) {
   const e = normalizeEntry(raw);
-  if (!b.enabled || !e.enabled || e.compatibilityIssues.length) return false;
-  let matches = e.constant;
-  if (!matches) {
-    const text = scan(e, b, h);
-    const hay = e.caseSensitive ? text : text.toLowerCase();
-    const hit = (key: string) =>
-      !!key && hay.includes(e.caseSensitive ? key : key.toLowerCase());
-    if (e.regex && (!regex || regex.error)) return false;
-    const primary = e.regex ? regex!.primary : e.primaryKeys.map(hit);
-    const secondary = e.regex ? regex!.secondary : e.secondaryKeys.map(hit);
-    matches = primary.some(Boolean);
-    if (matches && e.selective && e.secondaryKeys.length) {
-      switch (e.selectiveLogic) {
-        case 0:
-          matches = secondary.some(Boolean);
-          break;
-        case 1:
-          matches = !secondary.every(Boolean);
-          break;
-        case 2:
-          matches = !secondary.some(Boolean);
-          break;
-        case 3:
-          matches = secondary.every(Boolean);
-          break;
-        default:
-          matches = false;
-      }
+  if (e.constant) return [];
+  if (e.triggerMode === "instant") {
+    const latest = [...history].reverse().find(m=>m.role === "user");
+    return latest ? [latest] : [];
+  }
+  // Window first, then role filtering: scanDepth remains a message count, not user-turn count.
+  return history.slice(-(e.scanDepth ?? book.scanDepth)).filter(m=>m.role === "user" || (e.scanAssistant && m.role === "assistant"));
+}
+function scanBuffer(messages: Message[], foldCase = false) {
+  let text = "";
+  const spans = messages.map((m, index) => {
+    if (index) text += "\n";
+    const start = text.length;
+    text += foldCase ? m.content.toLowerCase() : m.content;
+    return {...ref(m),start,end:text.length};
+  });
+  return {text,spans};
+}
+function assess(raw: LoreEntry, b: Lorebook, h: Message[], random: () => number, regex?: RegexHits) {
+  const e = normalizeEntry(raw);
+  const d: LoreDiagnostic = {entryId:e.id,lorebookId:b.id,triggerMode:e.constant?"constant":e.triggerMode!,scanAssistant:e.constant || e.triggerMode === "instant" ? null : e.scanAssistant!,scannedMessageCount:0,matchedMessages:[],crossMessageMatch:false,attribution:"first-match-per-key",outcome:"skipped",reason:"primary-miss"};
+  const fail = (reason:LoreSkipReason) => ({eligible:false,diagnostic:{...d,reason}});
+  if (!b.enabled) return fail("book-disabled");
+  if (!e.enabled) return fail("entry-disabled");
+  if (e.compatibilityIssues.length) return fail("compatibility-paused");
+  if (!e.constant) {
+    const messages = loreScanMessages(e,b,h);
+    d.scannedMessageCount = messages.length;
+    if(e.triggerMode === "instant" && !messages.length) return fail("no-user-message");
+    let primary:boolean[], secondary:boolean[];
+    if(e.regex) {
+      if(!regex || regex.error) return fail("regex-error");
+      primary=regex.primary;secondary=regex.secondary;
+      d.matchedMessages=(regex.matches || []).map(({id,role})=>({id,role}));
+      d.crossMessageMatch=regex.crossMessageMatch || false;
+      if(!regex.matches) d.attribution="unavailable";
+    } else {
+      const buffer=scanBuffer(messages,!e.caseSensitive);
+      const matches=new Map<string,LoreMessageRef>();
+      const hit=(key:string)=>{
+        if(!key) return false;
+        const needle=e.caseSensitive?key:key.toLowerCase();
+        const start=buffer.text.indexOf(needle);
+        if(start<0) return false;
+        const end=start+needle.length;
+        const origins=buffer.spans.filter(span=>span.start<end&&span.end>start);
+        d.crossMessageMatch ||= origins.length>1;
+        for(const origin of origins) matches.set(origin.id,{id:origin.id,role:origin.role});
+        return true;
+      };
+      primary=e.primaryKeys.map(hit);secondary=e.secondaryKeys.map(hit);
+      d.matchedMessages=[...matches.values()];
+    }
+    if(!primary.some(Boolean)) return fail("primary-miss");
+    if(e.selective && e.secondaryKeys.length) {
+      const passes = [()=>secondary.some(Boolean),()=>!secondary.every(Boolean),()=>!secondary.some(Boolean),()=>secondary.every(Boolean)][e.selectiveLogic]?.() || false;
+      if(!passes) return fail("secondary-miss");
     }
   }
-  if (!matches) return false;
-  if (!e.useProbability) return true;
-  const p = e.probability!;
-  return p >= 100 || (p > 0 && random() < p / 100);
+  if(e.useProbability && !(e.probability!>=100 || (e.probability!>0 && random()<e.probability!/100))) return fail("probability");
+  return {eligible:true,diagnostic:d};
 }
-export interface LoreCandidate {
-  entry: LoreEntry;
-  book: Lorebook;
+export function entryActive(raw:LoreEntry,b:Lorebook,h:Message[],random:()=>number=Math.random,regex?:RegexHits) {
+  return assess(raw,b,h,random,regex).eligible;
 }
-/** Pure, deterministic with injected random and regex results; no metadata enters the prompt. */
-export function planLore(
-  candidates: LoreCandidate[],
-  history: Message[],
-  remainingBudget = loreLimits.promptChars,
-  random: () => number = Math.random,
-  regex: Record<string, RegexHits> = {},
-) {
-  const sorted = candidates
-    .map((c) => ({ ...c, entry: normalizeEntry(c.entry) }))
-    .sort(
-      (a, b) =>
-        b.entry.priority - a.entry.priority ||
-        a.entry.createdAt - b.entry.createdAt ||
-        (a.entry.id < b.entry.id ? -1 : a.entry.id > b.entry.id ? 1 : 0),
-    );
-  const selected: LoreEntry[] = [];
-  const used = new Map<string, number>();
-  let total = 0;
-  for (const { entry, book } of sorted) {
-    if (!entryActive(entry, book, history, random, regex[entry.id])) continue;
-    const cost = entry.content.length + 2;
-    const bookUsed = used.get(book.id) || 0;
-    if (
-      total + cost > Math.min(loreLimits.promptChars, remainingBudget) ||
-      bookUsed + cost > book.charBudget
-    )
-      continue;
-    used.set(book.id, bookUsed + cost);
-    total += cost;
-    selected.push(entry);
+export interface LoreCandidate {entry:LoreEntry;book:Lorebook}
+/** Metadata only. Entry content, keys and chat text are never part of diagnostics. */
+export function planLore(candidates:LoreCandidate[],history:Message[],remainingBudget=loreLimits.promptChars,random:()=>number=Math.random,regex:Record<string,RegexHits>={}) {
+  const sorted=candidates.map(c=>({...c,entry:normalizeEntry(c.entry)})).sort((a,b)=>b.entry.priority-a.entry.priority || a.entry.createdAt-b.entry.createdAt || (a.entry.id<b.entry.id?-1:a.entry.id>b.entry.id?1:0));
+  const selected:LoreEntry[]=[],diagnostics:LoreDiagnostic[]=[];
+  const used=new Map<string,number>();let total=0;
+  for(const {entry,book} of sorted) {
+    const result=assess(entry,book,history,random,regex[entry.id]);
+    const d=result.diagnostic;diagnostics.push(d);
+    if(!result.eligible) continue;
+    const cost=entry.content.length+2,bookUsed=used.get(book.id)||0;
+    if(total+cost>Math.min(loreLimits.promptChars,remainingBudget)){d.reason="context-budget";continue;}
+    if(bookUsed+cost>book.charBudget){d.reason="book-budget";continue;}
+    used.set(book.id,bookUsed+cost);total+=cost;selected.push(entry);
+    d.outcome="injected";d.reason="injected";
   }
-  return {
-    entries: selected,
-    activated: selected.map((e) => e.id),
-    regexErrors: Object.fromEntries(
-      Object.entries(regex)
-        .filter(([, r]) => r.error)
-        .map(([id, r]) => [id, r.error]),
-    ),
-  };
+  return {entries:selected,activated:selected.map(e=>e.id),diagnostics,regexErrors:Object.fromEntries(Object.entries(regex).filter(([,r])=>r.error).map(([id,r])=>[id,r.error]))};
 }
 export function injectLore(
   system: string,
@@ -173,16 +174,12 @@ export async function loreForConversation(
   remainingBudget = loreLimits.promptChars,
   random: () => number = Math.random,
 ) {
-  const books = await db.lorebooks
-    .filter(
-      (b) =>
-        b.enabled &&
-        (b.global ||
-          (c.mode === "world" &&
-            !!c.worldId &&
-            b.worldIds.includes(c.worldId))),
-    )
-    .toArray();
+  const skippedBooks: {lorebookId:string;reason:"book-disabled"|"out-of-scope"}[] = [];
+  const books = await db.lorebooks.filter(b => {
+    const inScope = b.global || (c.mode === "world" && !!c.worldId && b.worldIds.includes(c.worldId));
+    if(!inScope || !b.enabled) {skippedBooks.push({lorebookId:b.id,reason:!inScope?"out-of-scope":"book-disabled"});return false;}
+    return true;
+  }).toArray();
   const candidates: LoreCandidate[] = [];
   for (const book of books) {
     const entries = await db.loreEntries
@@ -203,16 +200,16 @@ export async function loreForConversation(
     )
     .map(({ entry: e, book: b }) => ({
       id: e.id,
-      text: scan(e, b, history),
+      ...scanBuffer(loreScanMessages(e, b, history)),
       primary: e.primaryKeys,
       secondary: e.secondaryKeys,
       caseSensitive: e.caseSensitive,
     }));
-  return planLore(
+  return {...planLore(
     candidates,
     history,
     remainingBudget,
     random,
     await evaluateRegex(jobs),
-  );
+  ), skippedBooks};
 }

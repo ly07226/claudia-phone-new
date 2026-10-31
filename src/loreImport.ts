@@ -40,6 +40,8 @@ export function validateLore(book: Lorebook, entries: LoreEntry[]) {
   let total = 0;
   for (const raw of entries) {
     const e = normalizeEntry(raw);
+    if (!["instant", "history"].includes(e.triggerMode!) || typeof e.scanAssistant !== "boolean")
+      throw Error("条目触发模式或AI扫描设置无效。");
     if (
       typeof e.content !== "string" ||
       e.content.length > loreLimits.contentChars ||
@@ -175,6 +177,8 @@ export function parseLorebook(
         const base = newEntry(book.id);
         e = {
           ...base,
+          triggerMode: (r.triggerMode ?? "history") as LoreEntry["triggerMode"],
+          scanAssistant: (r.scanAssistant ?? true) as boolean,
           title: typeof r.title === "string" ? r.title : "",
           content: r.content as string,
           primaryKeys: keys(r.primaryKeys),
@@ -204,6 +208,8 @@ export function parseLorebook(
       } else {
         e = {
           ...newEntry(book.id),
+          triggerMode: "history",
+          scanAssistant: true,
           title:
             typeof r.comment === "string"
               ? r.comment
@@ -283,6 +289,7 @@ export function parseLorebook(
       }
       if (native) {
         const known = new Set([
+          "triggerMode", "scanAssistant",
           "id",
           "lorebookId",
           "title",

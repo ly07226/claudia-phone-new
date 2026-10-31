@@ -1,3 +1,4 @@
+import { recordLoreTrace } from "./loreDiagnostics";
 import { activeMessages } from "./messagePath";
 import { loreForConversation, injectLore } from "./loreEngine";
 import { db } from "./store";
@@ -50,6 +51,7 @@ export async function buildContext(
     history,
     Math.max(0, contextLimits.systemChars - system.length - 4),
   );
+  recordLoreTrace(conversation, lore.diagnostics, lore.skippedBooks);
   return injectLore(
     system,
     history.map((m) => ({

@@ -29,6 +29,8 @@ export interface LoreEntry {
   secondaryKeys: string[];
   enabled: boolean;
   constant: boolean;
+  triggerMode?: "instant" | "history";
+  scanAssistant?: boolean;
   selective: boolean;
   selectiveLogic: 0 | 1 | 2 | 3;
   priority: number;
@@ -84,6 +86,8 @@ export const newEntry = (lorebookId: string): LoreEntry => ({
   secondaryKeys: [],
   enabled: true,
   constant: false,
+  triggerMode: "instant",
+  scanAssistant: true,
   selective: false,
   selectiveLogic: 0,
   priority: 100,
@@ -104,6 +108,8 @@ export const newEntry = (lorebookId: string): LoreEntry => ({
 export function normalizeEntry(e: LoreEntry): LoreEntry {
   return {
     ...e,
+    triggerMode: e.triggerMode ?? "history",
+    scanAssistant: e.scanAssistant ?? true,
     insertionDepth: e.insertionDepth ?? 0,
     role: e.role ?? "system",
     regex: e.regex ?? false,

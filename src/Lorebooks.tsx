@@ -1,3 +1,4 @@
+import { LoreDiagnostics } from "./LoreTriggerDiagnostics";
 import { ChevronDown, Plus, Search } from "lucide-react";
 import { evaluateRegex, regexError } from "./loreRegex";
 import { useEffect, useState, useRef, useLayoutEffect } from "react";
@@ -616,6 +617,14 @@ export function Lorebooks() {
               <option value="constant">常驻 / Always Active</option>
             </select>
           </label>
+          {!entryForm.constant && <>
+            <label>关键词触发模式<select aria-label="关键词触发模式" value={entryForm.triggerMode ?? "history"} onChange={e=>setEntryForm({...entryForm,triggerMode:e.target.value as "instant"|"history"})}>
+              <option value="instant">即时触发（仅本轮最新用户消息）</option>
+              <option value="history">历史触发（最近消息窗口）</option>
+            </select></label>
+            {(entryForm.triggerMode ?? "history") === "history" && <label className="lore-check"><input type="checkbox" aria-label="历史触发扫描AI消息" checked={entryForm.scanAssistant ?? true} onChange={e=>setEntryForm({...entryForm,scanAssistant:e.target.checked})}/>历史扫描包含 AI 消息</label>}
+            <p className="hint">即时触发不读取旧消息。历史触发先取扫描深度内的最近消息，再按开关排除 AI；旧条目默认保留历史扫描。</p>
+          </>}
           <label className="lore-check">
             <input
               type="checkbox"
@@ -811,7 +820,7 @@ export function Lorebooks() {
               区分大小写
             </label>
             <label>
-              关键词扫描深度（留空继承）
+              关键词扫描深度（历史触发生效；留空继承）
               <input
                 aria-label="条目扫描深度"
                 type="number"
@@ -880,7 +889,7 @@ export function Lorebooks() {
           <FoldHeader
             name={e.title || "未命名条目"}
             description={e.primaryKeys.slice(0, 3).join("、") || "无关键词"}
-            meta={`${e.enabled ? "已启用" : "已停用"} · ${e.constant ? "Constant / 常驻" : "关键词触发"}${e.compatibilityIssues.length ? " · 兼容性暂停" : ""}`}
+            meta={`${e.enabled ? "已启用" : "已停用"} · ${e.constant ? "Constant / 常驻" : (e.triggerMode ?? "history") === "instant" ? "关键词触发 · 即时" : "关键词触发 · 历史"}${e.compatibilityIssues.length ? " · 兼容性暂停" : ""}`}
             expanded={entryOpen.has(e.id)}
             id={`entry-${e.id}`}
             kind="条目"
@@ -999,6 +1008,7 @@ export function Lorebooks() {
           {error}
         </p>
       )}
+      <LoreDiagnostics />
       <div className="lore-toolbar">
         <button
           className="primary"

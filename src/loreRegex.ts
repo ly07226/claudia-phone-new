@@ -24,8 +24,11 @@ export interface RegexJob {
   primary: string[];
   secondary: string[];
   caseSensitive: boolean;
+  spans?: {id:string;role:"user"|"assistant";start:number;end:number}[];
 }
 export interface RegexHits {
+  matches?: {id:string;role:"user"|"assistant"}[];
+  crossMessageMatch?: boolean;
   primary: boolean[];
   secondary: boolean[];
   error?: string;

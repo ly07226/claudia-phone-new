@@ -2189,3 +2189,7 @@ html[data-ios="true"] { background: var(--page-background, #f4f5eb); background-
 .stage[data-ios] .app-panel > header { padding-left: max(20px, var(--safe-left)); padding-right: max(20px, var(--safe-right)); }
 /* A conversation hides the outer bars and owns its own single set of insets. */
 .stage[data-ios] .phone.chat-conversation > .app-panel > .app-scroll { padding: 0; }
+
+.lore-diagnostics { margin: 12px 0; }
+.lore-trace-row { border-top: 1px solid #63766730; padding: 8px 0; overflow-wrap: anywhere; }
+.lore-diagnostics select { width: 100%; max-width: 100%; }
