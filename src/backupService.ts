@@ -900,6 +900,8 @@ async function validateReferences(
         bad("conversations.scopeKey");
       if (x.apiConfigId && !(await exists("apiConfigs", x.apiConfigId)))
         warnings.add("存在已删除的会话API引用；不会自动改配。");
+      if (x.chatSettings && typeof x.chatSettings === "object" && x.chatSettings.background?.kind === "image")
+        await optional("assets", x.chatSettings.background.assetId, "conversations.chatSettings.background");
       if (x.sendingToken)
         warnings.add("备份含历史生成锁字段；候选库不运行应用或发出模型请求。");
     },

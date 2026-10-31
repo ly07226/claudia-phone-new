@@ -1,6 +1,6 @@
 import { db } from "./store";
 import { activeMessages } from "./messagePath";
-export interface ChatPreview { content: string; createdAt: number }
+export interface ChatPreview { content: string; createdAt?: number; remark?: string; pinned?: boolean; pinnedAt?: number; conversationId: string }
 /** Read-only display projection of the current space's active branch. */
 export async function chatListPreviews(characterIds: string[], worldId?: string) {
   const allowed = new Set(characterIds);
@@ -11,7 +11,7 @@ export async function chatListPreviews(characterIds: string[], worldId?: string)
   for (const c of conversations) {
     if (result[c.characterId]) continue;
     const last = (await activeMessages(c.id)).filter(m => m.role === "user" || m.role === "assistant").at(-1);
-    if (last) result[c.characterId] = { content: last.content.replace(/\s+/g, " ").trim(), createdAt: last.createdAt };
+    result[c.characterId] = { conversationId: c.id, remark: c.chatSettings?.remark, pinned: c.chatSettings?.pinned, pinnedAt: c.chatSettings?.pinnedAt, content: last?.content.replace(/\s+/g, " ").trim() || "", createdAt: last?.createdAt };
   }
   return result;
 }

@@ -1,3 +1,4 @@
+import { orderChatCharacters, saveChatSettings, searchableMessages } from "./chatPreferences";
 import { identityFor } from "./userIdentity";
 import { createEnterSendGuard } from "./enterSend";
 import { Search, X } from "lucide-react";
@@ -60,7 +61,17 @@ export function Chat({ worldId }: { worldId?: string }) {
   const character = s.characters.find(
     (c) => c.id === conversation?.characterId,
   );
-  const displayName = chatDisplayName(character);
+  const displayName = conversation?.chatSettings?.remark || chatDisplayName(character);
+  const savedScroll = useRef<number | null>(null);
+  const jumpTo = useRef<string | null>(null);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(()=>()=>clearTimeout(highlightTimer.current),[]);
+  useLayoutEffect(()=>{
+    if(management || !historyRef.current)return;
+    const history=historyRef.current;
+    if(jumpTo.current){const target=Array.from(history.querySelectorAll<HTMLElement>("[data-message-id]")).find(el=>el.dataset.messageId===jumpTo.current);if(target){history.scrollTop+=target.getBoundingClientRect().top-history.getBoundingClientRect().top-history.clientHeight/3;history.querySelectorAll(".chat-message-highlight").forEach(el=>el.classList.remove("chat-message-highlight"));target.classList.add("chat-message-highlight");clearTimeout(highlightTimer.current);highlightTimer.current=setTimeout(()=>target.classList.remove("chat-message-highlight"),2400);followBottom.current=false;}jumpTo.current=null;savedScroll.current=null;}
+    else if(savedScroll.current!==null){history.scrollTop=savedScroll.current;savedScroll.current=null;}
+  },[management]);
   const userIdentity = identityFor(s.theme, conversation?.mode === "world" ? `world:${conversation.worldId}` : "daily");
   const userAvatar = s.assets.find(a=>a.id===userIdentity.avatar)?.data;
   const avatarSrc = s.assets.find((a) => a.id === character?.avatar)?.data;
@@ -79,7 +90,8 @@ export function Chat({ worldId }: { worldId?: string }) {
   const previewScope = JSON.stringify([worldId ?? null, characterIds]);
   const previews = previewState.scope === previewScope ? previewState.rows : {};
   const query = search.trim().toLocaleLowerCase();
-  const displayedCharacters = !worldId && query ? characters.filter(c=>`${c.name} ${previews[c.id]?.content || ""}`.toLocaleLowerCase().includes(query)) : characters;
+  const orderedCharacters = orderChatCharacters(characters, previews);
+  const displayedCharacters = !worldId && query ? orderedCharacters.filter(c=>`${previews[c.id]?.remark || c.name} ${c.name} ${previews[c.id]?.content || ""}`.toLocaleLowerCase().includes(query)) : orderedCharacters;
   useEffect(()=>{setSearch("");enterGuard.current.reset();},[worldId]);
   useEffect(() => {
     if (conversation) return;
@@ -254,7 +266,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     setShowSnapshots(false);
   }
   return (
-    <div className={`chat-app ${conversation ? "chat-immersive" : ""}`}>
+    <div className={`chat-app ${conversation ? "chat-immersive" : ""} ${conversation?.chatSettings?.background ? 'chat-custom-background' : ''}`} style={conversation?.chatSettings?.background?.kind==='color'?{background:conversation.chatSettings.background.color}:conversation?.chatSettings?.background?.kind==='image'?{backgroundImage:`linear-gradient(rgba(243,245,236,.4),rgba(243,245,236,.4)),url("${s.assets.find(a=>a.id===(conversation.chatSettings?.background?.kind==='image'?conversation.chatSettings.background.assetId:undefined))?.data || ''}")`,backgroundSize:'cover',backgroundPosition:'center'}:undefined}>
       {!conversation && <h2 className="chat-list-title">聊天</h2>}
       {!conversation && !worldId && <label className="chat-search"><Search size={20} aria-hidden="true"/><input type="search" aria-label="搜索聊天" placeholder="搜索聊天…" value={search} onChange={e=>setSearch(e.target.value)} autoComplete="off"/>{search && <button type="button" aria-label="清空聊天搜索" onClick={()=>setSearch("")}><X size={18}/></button>}</label>}
       {!conversation && worldId && <p className="chat-world-caption">世界聊天 · {world?.name || "世界不存在"}</p>}
@@ -263,13 +275,13 @@ export function Chat({ worldId }: { worldId?: string }) {
           {displayedCharacters.map((c) => (
             <button
               className="chat-list-row"
-              aria-label={`${c.name} 开始 / 继续聊天`}
+              aria-label={`${previews[c.id]?.remark || c.name} 开始 / 继续聊天`}
               key={c.id}
               onClick={() => void open(c.id)}
             >
               <MessageAvatar src={s.assets.find(a => a.id === c.avatar)?.data} name={c.name}/>
-              <span className="chat-list-info"><strong>{c.name}</strong><span className="chat-list-preview">{previews[c.id]?.content || "开始聊天"}</span></span>
-              {previews[c.id] && <time dateTime={new Date(previews[c.id].createdAt).toISOString()}>{chatPreviewTime(previews[c.id].createdAt)}</time>}
+              <span className="chat-list-info"><strong>{previews[c.id]?.remark || c.name}{previews[c.id]?.pinned && <small className="chat-pinned-label"> · 置顶</small>}</strong><span className="chat-list-preview">{previews[c.id]?.content || "开始聊天"}</span></span>
+              {previews[c.id]?.createdAt !== undefined && <time dateTime={new Date(previews[c.id].createdAt!).toISOString()}>{chatPreviewTime(previews[c.id].createdAt!)}</time>}
             </button>
           ))}
           {!!characters.length && !displayedCharacters.length && <p className="empty">没有匹配的聊天</p>}
@@ -291,6 +303,7 @@ export function Chat({ worldId }: { worldId?: string }) {
         </>
       ) : (
         <>
+          <div className="chat-view" hidden={management}>
           <nav className="chat-nav" aria-label="当前会话导航">
             <button aria-label="返回角色列表" onClick={leaveConversation}>
               <ChevronLeft size={24} />
@@ -303,7 +316,7 @@ export function Chat({ worldId }: { worldId?: string }) {
             >
               {displayName}
             </span>
-            <button aria-label="会话管理" onClick={() => setManagement(true)}>
+            <button aria-label="会话管理" onClick={() => {savedScroll.current=historyRef.current?.scrollTop ?? 0;setManagement(true);}}>
               <MoreHorizontal size={23} />
             </button>
           </nav>
@@ -401,6 +414,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               </button>
             )}
           </div>
+          </div>
           {menuId && (
             <MessageTools
               key={`${menuId}-${previewVariant?.id || "active"}`}
@@ -429,6 +443,9 @@ export function Chat({ worldId }: { worldId?: string }) {
             <ChatManagement
               conversation={conversation}
               name={displayName}
+              avatar={avatarSrc}
+              onPreferences={async patch=>{const next=await saveChatSettings(conversation.id,patch);if(activeConversation.current===next.id)setConversation(next);}}
+              onLocate={id=>{void searchableMessages(conversation.id).then(rows=>{if(activeConversation.current!==conversation.id)return;if(!rows.some(m=>m.id===id)){setError('该消息已不在当前有效分支。');return;}jumpTo.current=id;setManagement(false);}).catch(()=>setError('无法定位消息，请稍后重试。'));}}
               worldName={
                 s.worlds.find((w) => w.id === conversation.worldId)?.name
               }

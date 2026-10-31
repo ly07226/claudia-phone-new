@@ -1,11 +1,15 @@
 import { useSpaces } from "./spaces";
 import { useEffect, useRef, useState } from "react";
-import { MessageSheet } from "./MessageUI";
+import { MessageAvatar } from "./MessageUI";
+import { ChevronLeft } from "lucide-react";
+import { ConversationSearch, ConversationBackground } from "./ChatPersonalization";
+import type { ChatSettingsPatch } from "./chatPreferences";
 import { resolveApi } from "./chatService";
 import { testConnection, type ApiConfig, type TestResult } from "./api";
 import type { Conversation } from "./chatTypes";
 export function ChatManagement({
   conversation,
+  avatar, onPreferences, onLocate,
   name,
   worldName,
   configs,
@@ -17,6 +21,9 @@ export function ChatManagement({
   onClose,
 }: {
   conversation: Conversation;
+  avatar?: string;
+  onPreferences: (patch: ChatSettingsPatch) => Promise<void>;
+  onLocate: (id: string) => void;
   name: string;
   worldName?: string;
   configs: ApiConfig[];
@@ -27,7 +34,11 @@ export function ChatManagement({
   onSettings: () => void;
   onClose: () => void;
 }) {
-  const [section, setSection] = useState<"menu" | "info" | "api">("menu");
+  const [section, setSection] = useState<"menu" | "info" | "api" | "remark" | "search" | "background">("menu");
+  const [remark, setRemark] = useState(conversation.chatSettings?.remark || "");
+  const [saving,setSaving] = useState(false);
+  async function save(patch: ChatSettingsPatch) { setSaving(true);setError("");try{await onPreferences(patch);}catch{setError("设置保存失败，请检查本地存储。");}finally{setSaving(false);} }
+  useEffect(()=>{const key=(e:KeyboardEvent)=>{if(e.key==="Escape")onClose();};window.addEventListener("keydown",key);return()=>window.removeEventListener("keydown",key);},[onClose]);
   const [result, setResult] = useState<TestResult | null>(null);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState("");
@@ -63,13 +74,16 @@ export function ChatManagement({
     }
   }
   return (
-    <MessageSheet title="会话管理" onClose={onClose}>
+    <section className="chat-settings-page" aria-label="聊天设置">
+      <nav className="chat-nav"><button aria-label={section==='menu'?'返回聊天':'返回聊天设置'} onClick={()=>section==='menu'?onClose():setSection('menu')}><ChevronLeft size={24}/></button><h2 className="chat-settings-title">{({menu:'聊天设置',info:'会话信息',api:'本会话 API',remark:'修改备注',search:'搜索聊天内容',background:'设置聊天背景'})[section]}</h2><span/></nav>
+      <div className="chat-settings-body">
+      {section==='menu'&&<div className="chat-settings-profile"><MessageAvatar src={avatar} name={name}/><strong>{name}</strong></div>}
       {section !== "menu" && (
         <button className="text-button" onClick={() => setSection("menu")}>
           返回管理菜单
         </button>
       )}
-      {section === "info" ? (
+      {section === 'remark' ? <><label className="chat-remark-label">聊天备注<input aria-label="聊天备注" value={remark} maxLength={80} onChange={e=>setRemark(e.target.value)}/></label><p className="hint">仅改变当前聊天的显示名称，不修改角色原名、人设或 AI 提示词。</p><button className="primary" disabled={saving} onClick={()=>void save({remark})}>保存备注</button><button className="text-button" disabled={saving} onClick={()=>{setRemark('');void save({remark:''});}}>清除备注</button>{error&&<p role="alert">{error}</p>}</> : section === 'search' ? <ConversationSearch id={conversation.id} onLocate={onLocate}/> : section === 'background' ? <ConversationBackground conversation={conversation} onSave={onPreferences}/> : section === "info" ? (
         <div className="conversation-info">
           <h4>{name}</h4>
           <p>
@@ -143,6 +157,12 @@ export function ChatManagement({
         </div>
       ) : (
         <>
+          <button className="message-action" onClick={()=>setSection('remark')}>修改备注</button>
+          <button className="message-action" onClick={()=>setSection('search')}>搜索聊天内容</button>
+          <label className="chat-setting-toggle">置顶聊天<input type="checkbox" role="switch" checked={!!conversation.chatSettings?.pinned} disabled={saving} onChange={e=>void save({pinned:e.target.checked})}/></label>
+          <label className="chat-setting-toggle">消息免打扰<input type="checkbox" role="switch" checked={!!conversation.chatSettings?.muted} disabled={saving} onChange={e=>void save({muted:e.target.checked})}/></label>
+          <p className="hint">当前暂无消息通知功能；此处仅保存免打扰偏好。</p>
+          <button className="message-action" onClick={()=>setSection('background')}>设置聊天背景</button>
           <button
             className="message-action"
             onClick={() => void useSpaces.getState().exitSpace()}
@@ -188,6 +208,6 @@ export function ChatManagement({
           {error && <p role="alert">{error}</p>}
         </>
       )}
-    </MessageSheet>
+    </div></section>
   );
 }

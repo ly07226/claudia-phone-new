@@ -2279,3 +2279,25 @@ html[data-ios="true"] { background: var(--page-background, #f4f5eb); background-
 .chat-search input:focus-visible { outline: none; }
 .chat-search input::-webkit-search-cancel-button, .chat-search input::-webkit-search-decoration { display: none; -webkit-appearance: none; }
 .identity-card-info > span { line-height: 1.6; }
+
+/* Conversation-local settings keep the chat mounted, preserving draft and scroll. */
+.chat-view{display:contents}
+.chat-view[hidden]{display:none!important}
+.chat-settings-page{display:flex;flex-direction:column;flex:1;min-height:0;width:100%;background:#f5f6ee;color:#35473d;overflow:hidden}
+.chat-settings-title{margin:0;font-size:18px;text-align:center}
+.chat-settings-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:16px 16px calc(20px + var(--safe-bottom,0px));display:flex;flex-direction:column;gap:12px}
+.chat-settings-body>*{flex-shrink:0;min-width:0}
+.chat-settings-profile{--chat-avatar-size:64px;display:flex;align-items:center;gap:16px;padding:8px 0 16px;overflow-wrap:anywhere}
+.chat-setting-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;padding:4px 12px;background:#fffdf5;border-radius:14px}
+.chat-setting-toggle input{width:44px;height:28px;accent-color:#799a75;flex:none}
+.chat-remark-label{display:flex;flex-direction:column;gap:8px}
+.chat-search-result{display:flex;flex-direction:column;gap:8px;padding:14px;text-align:left;background:#fffdf5;border-radius:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.chat-search-result small{color:#667a69}
+.chat-background-colors{display:flex;flex-wrap:wrap;gap:12px}
+.chat-background-colors button{width:48px;height:48px;border:1px solid #b8c5b3;border-radius:50%;flex:none}
+.chat-background-colors button[aria-pressed=true]{outline:3px solid #799a75;outline-offset:2px}
+.chat-pinned-label{font-size:11px;color:#6c816e}
+.chat-custom-background .chat-history{background:transparent}
+.chat-custom-background .chat-bubble-surface{background:#fffdf5}
+.chat-custom-background .chat-user .chat-bubble-surface{background:#dde9d7}
+.chat-message-highlight .chat-bubble-surface{outline:3px solid #78966a;outline-offset:3px}

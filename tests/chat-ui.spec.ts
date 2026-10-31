@@ -185,10 +185,10 @@ test("World 正确角色与回退名称头像，会话说明只在菜单展示",
   ).toContainText("另");
   await page.getByRole("button", { name: "会话管理", exact: true }).click();
   await page.getByRole("button", { name: "会话信息", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("世界聊天 · 用户世界二");
-  await expect(page.getByRole("dialog")).not.toContainText("用户世界一");
+  await expect(page.locator(".chat-settings-page")).toContainText("世界聊天 · 用户世界二");
+  await expect(page.locator(".chat-settings-page")).not.toContainText("用户世界一");
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator(".chat-settings-page")).toHaveCount(0);
   const names = await page.evaluate(async () => {
     const { chatDisplayName } = await import("/src/chatPresentation.ts");
     return [
@@ -217,7 +217,7 @@ test("管理菜单、会话 API 选择与真实连接测试、快照入口和删
   });
   await page.getByRole("button", { name: "会话管理", exact: true }).click();
   await page.getByRole("button", { name: "会话信息", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("日常聊天 · 独立空间");
+  await expect(page.locator(".chat-settings-page")).toContainText("日常聊天 · 独立空间");
   await page.getByRole("button", { name: "返回管理菜单" }).click();
   await page
     .getByRole("button", { name: "本会话 API 配置", exact: true })
@@ -399,9 +399,9 @@ test("浏览历史时回复不强制滚底，多版本切换保持位置，菜�
   expect(await history.evaluate((el) => el.scrollTop)).toBeLessThan(100);
   await page.getByRole("button", { name: "会话管理", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 330 });
-  await expect(page.getByRole("dialog")).toBeInViewport();
+  await expect(page.locator(".chat-settings-page")).toBeInViewport();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator(".chat-settings-page")).toHaveCount(0);
 });
 test("消息编辑面板缩小视口仍可保存取消，生成中返回不会污染新角色界面", async ({
   page,

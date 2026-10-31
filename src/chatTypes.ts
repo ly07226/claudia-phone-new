@@ -1,4 +1,13 @@
+export type ChatBackground = { kind: "color"; color: string } | { kind: "image"; assetId: string };
+export interface ChatSettings {
+  remark?: string;
+  pinned?: boolean;
+  pinnedAt?: number;
+  muted?: boolean;
+  background?: ChatBackground;
+}
 export interface Conversation {
+  chatSettings?: ChatSettings;
   id: string;
   scopeKey: string;
   characterId: string;
