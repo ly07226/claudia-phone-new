@@ -67,6 +67,8 @@ async function open(page: Page, world = false) {
     }
   }, original);
   await page.reload();
+  // Let the saved daily startup finish before bypassing UI through the navigation store.
+  await expect(page.locator(".desktop")).toBeVisible();
   if (world)
     await page.evaluate(async () => {
       const { usePhone } = await import("/src/store.ts");
