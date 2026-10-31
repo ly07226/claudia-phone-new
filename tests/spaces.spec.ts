@@ -367,7 +367,7 @@ test("生成中切换空间取消旧请求，迟到响应不写入新空间，�
   expect(stored.b.map((m) => m.content)).toEqual(["乙的新消息", "乙正常回复"]);
   expect(JSON.stringify(payloads.at(-1))).not.toContain("WORLD_A_ONLY");
   expect(JSON.stringify(payloads.at(-1))).not.toContain("DAILY_ONLY");
-  expect(stored.version).toBe(5);
+  expect(stored.version).toBe(6);
   await checkSpace(page, "world:space-b");
 });
 

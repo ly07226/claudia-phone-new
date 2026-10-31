@@ -57,7 +57,7 @@ test("真实上下文、正则来源、停用及角色/世界隔离，历史记�
   return {systems:contexts.map(c=>c[0].content),regen:regen[0].content,initial,role2,aiTrace,filtered:filtered[0].content,off,unchanged:JSON.stringify(before)===JSON.stringify(await db.messages.toArray()),version:db.verno,traceText:JSON.stringify([initial,role2,aiTrace,off])};
  });
  expect(r.systems[0]).not.toContain("TEMP_RULE");expect(r.systems[1]).toContain("TEMP_RULE");expect(r.systems[2]).toContain("ONLY_A");expect(r.systems[2]).not.toContain("ONLY_B");expect(r.systems[3]).toContain("ONLY_B");expect(r.systems[3]).not.toContain("ONLY_A");expect(r.systems[0]).not.toContain("ONLY_A");
- expect(r.initial.diagnostics[0].reason).toBe("primary-miss");expect(r.role2.diagnostics[0].matchedMessages).toEqual([{id:"last-1",role:"user"}]);expect(r.aiTrace.diagnostics[0].matchedMessages).toEqual([{id:"ai-0",role:"assistant"}]);expect(r.regen).not.toContain("TEMP_RULE");expect(r.filtered).not.toContain("TEMP_RULE");expect(r.off.skippedBooks).toContainEqual({lorebookId:"global",reason:"book-disabled"});expect(r.unchanged).toBe(true);expect(r.version).toBe(5);expect(r.traceText).not.toMatch(/PRIVATE_|TEMP_RULE|旧的暗号|ONLY_A|ONLY_B/);
+ expect(r.initial.diagnostics[0].reason).toBe("primary-miss");expect(r.role2.diagnostics[0].matchedMessages).toEqual([{id:"last-1",role:"user"}]);expect(r.aiTrace.diagnostics[0].matchedMessages).toEqual([{id:"ai-0",role:"assistant"}]);expect(r.regen).not.toContain("TEMP_RULE");expect(r.filtered).not.toContain("TEMP_RULE");expect(r.off.skippedBooks).toContainEqual({lorebookId:"global",reason:"book-disabled"});expect(r.unchanged).toBe(true);expect(r.version).toBe(6);expect(r.traceText).not.toMatch(/PRIVATE_|TEMP_RULE|旧的暗号|ONLY_A|ONLY_B/);
 });
 
 test("手机编辑器默认即时、旧条目历史可排除AI，诊断可读且不持久化",async({page})=>{

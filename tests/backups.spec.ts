@@ -212,19 +212,19 @@ async function unchanged(page: Page) {
           JSON.stringify((window as any).__sourceBefore, (_k, v) =>
             typeof v === "bigint" ? String(v) : v,
           ) &&
-        db.verno === 5 &&
-        db.backendDB().version === 50
+        db.verno === 6 &&
+        db.backendDB().version === 60
       );
     }),
   ).toBe(true);
 }
 
-test("16表完整分卷、默认无Key，版本/快照/图片及特殊元数据候选无损，主库不变", async ({
+test("18表完整分卷、默认无Key，版本/快照/图片及特殊元数据候选无损，主库不变", async ({
   page,
 }) => {
   await seed(page);
   const { manifest, leaked } = await exportFiles(page);
-  expect(Object.keys(manifest.tables)).toHaveLength(16);
+  expect(Object.keys(manifest.tables)).toHaveLength(18);
   expect(manifest.tables.apiCredentials).toMatchObject({
     sourceCount: 1,
     count: 0,
@@ -241,7 +241,7 @@ test("16表完整分卷、默认无Key，版本/快照/图片及特殊元数据�
     const D = Object.getPrototypeOf(db.constructor);
     const candidate = new D(value.report.candidateName!);
     candidate
-      .version(5)
+      .version(6)
       .stores(
         Object.fromEntries(
           db.tables.map((t) => [
@@ -292,7 +292,7 @@ test("16表完整分卷、默认无Key，版本/快照/图片及特殊元数据�
     recordDigestsMatch: true,
     referencesValid: true,
     sourceDatabaseWritten: false,
-    schemaVersion: 5,
+    schemaVersion: 6,
   });
   expect(result.report.candidateName).not.toBe("claudia-phone");
   expect(result.variants.map((v) => v.content)).toEqual(["旧回复", "新回复"]);
@@ -404,7 +404,7 @@ test("跨分卷大记录完整，缺卷/损坏/重复/未知版本正确拒绝",
     const damaged = new Uint8Array(await files[1].arrayBuffer());
     damaged[100] ^= 1;
     const badManifest = JSON.parse(await files[0].text());
-    badManifest.schemaVersion = 6;
+    badManifest.schemaVersion = 7;
     const failures = await Promise.all([
       expectFailure(files.slice(0, -1)),
       expectFailure([
@@ -476,7 +476,7 @@ test("引用缺失与取消不会成功，原库和密钥保留；后台中断�
     failed: true,
     background: true,
     unlocked: true,
-    version: 5,
+    version: 6,
   });
   await unchanged(page);
   await page.evaluate(async () => {

@@ -1,3 +1,4 @@
+import { ensureTimelineInTransaction, commitTimelineProjection, nodesForHead, messageFingerprint } from "./timelines";
 import { db } from "./store";
 import { activeMessages, variantsFor } from "./messagePath";
 import type {
@@ -58,6 +59,7 @@ export const messageTables = () => [
   db.messageVariants,
   db.messageRevisions,
   db.conversationSnapshots,
+  db.timelines, db.pathNodes,
 ];
 export async function invalidateGeneration(id: string) {
   const c = await db.conversations.get(id);
@@ -72,6 +74,7 @@ export async function snapshotPath(
   id: string,
   reason: ConversationSnapshot["reason"],
 ) {
+  const timeline = await ensureTimelineInTransaction(id);
   const messages = await activeMessages(id);
   const ids = new Set(messages.map((m) => m.id));
   const variants = await db.messageVariants
@@ -83,6 +86,7 @@ export async function snapshotPath(
     id: crypto.randomUUID(),
     conversationId: id,
     reason,
+    timelineId: timeline.id, headNodeId: timeline.headNodeId, timelineEpoch: timeline.epoch,
     createdAt: Date.now(),
     messages,
     variants,
@@ -136,6 +140,7 @@ export async function selectVariant(
 ) {
   cancelGeneration(id);
   await db.transaction("rw", messageTables(), async () => {
+    await ensureTimelineInTransaction(id);
     const t = await target(id, messageId);
     if (t.message.role !== "assistant") throw Error("只有 AI 回复可切换版本。");
     const v = await db.messageVariants.get(variantId);
@@ -150,6 +155,7 @@ export async function selectVariant(
       content: v.content,
       userEdited: v.userEdited,
     });
+    await commitTimelineProjection(id,"switch");
   });
 }
 export async function editMessage(
@@ -164,6 +170,7 @@ export async function editMessage(
     throw Error("消息内容需为 1–100000 字符。");
   cancelGeneration(id);
   await db.transaction("rw", messageTables(), async () => {
+    await ensureTimelineInTransaction(id);
     const t = await target(id, messageId);
     if (t.message.role !== "user" && t.message.role !== "assistant")
       throw Error("此消息不可编辑。");
@@ -195,6 +202,7 @@ export async function editMessage(
         userEdited: true,
       });
     await db.messages.update(messageId, { content, userEdited: true });
+    await commitTimelineProjection(id,"edit");
   });
 }
 export async function removeMessage(
@@ -206,6 +214,7 @@ export async function removeMessage(
   cancelGeneration(id);
   let content = "";
   await db.transaction("rw", messageTables(), async () => {
+    await ensureTimelineInTransaction(id);
     const t = await target(id, messageId);
     if (
       kind === "withdraw" &&
@@ -217,12 +226,14 @@ export async function removeMessage(
     await archiveAfter(id, messageId, allowArchive, kind);
     await db.messages.update(messageId, { archived: true });
     content = t.message.content;
+    await commitTimelineProjection(id,kind);
   });
   return content;
 }
 export async function restoreSnapshot(id: string, snapshotId: string) {
   cancelGeneration(id);
   await db.transaction("rw", messageTables(), async () => {
+    await ensureTimelineInTransaction(id);
     const s = await db.conversationSnapshots.get(snapshotId);
     if (!s || s.conversationId !== id)
       throw Error("快照不属于此会话或已不存在。");
@@ -245,6 +256,14 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
       )
         throw Error("快照版本关联不合法。");
     }
+    if(s.timelineId){
+      const source=await db.timelines.get(s.timelineId),c=await db.conversations.get(id);
+      if(!source||source.conversationId!==id||source.epoch!==c?.timelineEpoch||s.timelineEpoch!==source.epoch)throw Error("快照时间线关联已失效。");
+      if(s.headNodeId&&!(await nodesForHead(id,source.headNodeId)).some(n=>n.id===s.headNodeId))throw Error("快照不属于声明的时间线路径。");
+      const saved=await nodesForHead(id,s.headNodeId);
+      if(saved.length!==s.messages.length)throw Error("快照路径不匹配。");
+      for(let i=0;i<saved.length;i++)if(saved[i].fingerprint!==await messageFingerprint(s.messages[i]))throw Error("快照内容与不可变路径不匹配。");
+    }
     await invalidateGeneration(id);
     await snapshotPath(id, "restore");
     await db.messages
@@ -255,6 +274,8 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
     await db.messages.bulkPut(
       s.messages.map((m) => ({ ...m, archived: false })),
     );
+    if(s.timelineId)await db.conversations.update(id,{activeTimelineId:s.timelineId});
+    await commitTimelineProjection(id,"restore",!s.timelineId);
   });
 }
 export async function restoreRevision(

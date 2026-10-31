@@ -1,3 +1,4 @@
+import { ensureTimelineInTransaction } from "./timelines";
 import { db, type Character } from "./store";
 import { searchableMessages } from "./chatPreferences";
 import { cancelGeneration, messageTables } from "./messageOperations";
@@ -22,6 +23,10 @@ export async function clearChatHistory(id: string) {
     // No summary or long-term memory store exists in v5. Never delete persona/lore.
     for (const table of [db.messages, db.messageVariants, db.messageRevisions, db.conversationSnapshots])
       await table.where("conversationId").equals(id).delete();
+    await db.timelines.where("conversationId").equals(id).delete();
+    await db.pathNodes.where("conversationId").equals(id).delete();
+    await db.conversations.update(id,{activeTimelineId:undefined,timelineEpoch:(c.timelineEpoch??0)+1});
+    await ensureTimelineInTransaction(id);
     await db.conversations.update(id, {sendingToken: undefined, sendingUntil: undefined, updatedAt: Date.now()});
   });
   clearLoreTrace(id);
@@ -41,7 +46,7 @@ export async function deleteDailyFriend(conversationId: string, now = Date.now()
 }
 /** Called on entering the daily list. Atomic state transition also deduplicates tabs/StrictMode. */
 export async function checkDailyFriendApplications(now = Date.now()) {
-  return db.transaction("rw", [db.characters, db.conversations, db.messages, db.messageVariants], async () => {
+  return db.transaction("rw", [db.characters, db.conversations, db.messages, db.messageVariants, db.timelines, db.pathNodes], async () => {
     const candidates = (await db.characters.toArray()).filter(c => canReapply(c, now));
     let created = 0;
     for (const character of candidates) {

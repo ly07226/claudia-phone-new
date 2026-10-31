@@ -523,7 +523,7 @@ test("v4 消息无损迁移为单版本，其他表逐条保持不变", async ({
     "OLD_USER",
     "OLD_AI",
   ]);
-  expect(after.version).toBe(5);
+  expect(after.version).toBe(6);
 });
 test("iPhone 长按、移动取消、Escape/空白关闭、编辑/复制/删除/快照恢复 UI", async ({
   page,

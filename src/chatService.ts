@@ -1,3 +1,4 @@
+import { ensureTimelineInTransaction, commitTimelineProjection, timelineTables } from "./timelines";
 import { reconcileApiDefault, usableApi } from "./apiSelection";
 import { activeMessages } from "./messagePath";
 import {
@@ -68,26 +69,30 @@ export async function resolveApi(c: Conversation) {
   return { config, key: credential.apiKey };
 }
 const recentRequests: number[] = [];
+export interface ExpectedPath { timelineId?: string; epoch: number }
 export async function sendMessage(
   id: string,
   text: string,
   signal?: AbortSignal,
   retry = false,
   onSaved?: () => Promise<void>,
+  expectedPath?: ExpectedPath,
 ) {
   if (!retry && (!text.trim() || text.length > contextLimits.userChars))
     throw Error("请输入 1–8000 字符。");
-  return generate(id, { text, retry, onSaved }, signal);
+  return generate(id, { text, retry, onSaved, expectedPath }, signal);
 }
 export async function regenerateMessage(
   id: string,
   messageId: string,
   signal?: AbortSignal,
   allowArchive = false,
+  expectedPath?: ExpectedPath,
 ) {
-  return generate(id, { messageId, allowArchive }, signal);
+  return generate(id, { messageId, allowArchive, expectedPath }, signal);
 }
 interface GenerateOptions {
+  expectedPath?: ExpectedPath;
   text?: string;
   retry?: boolean;
   onSaved?: () => Promise<void>;
@@ -116,12 +121,14 @@ async function generate(
   try {
     const c = await db.transaction(
       "rw",
-      [db.conversations, db.messages, db.messageVariants],
+      timelineTables(),
       async () => {
         const c = await db.conversations.get(id);
         if (!c) throw Error("会话已删除。");
+        if(options.expectedPath&&(c.activeTimelineId!==options.expectedPath.timelineId||(c.timelineEpoch??0)!==options.expectedPath.epoch))throw Error("剧情已在其他窗口切换，请确认当前消息后重试。");
         if (c.sendingUntil && c.sendingUntil > Date.now())
           throw Error("此会话正在回复中，请稍候。");
+        await ensureTimelineInTransaction(id);
         const rows = await activeMessages(id);
         const last = rows.at(-1);
         if (options.messageId) {
@@ -143,12 +150,13 @@ async function generate(
               createdAt: Math.max(Date.now(), (last?.createdAt || 0) + 1),
             });
         }
+        if(!options.messageId && !options.retry)await commitTimelineProjection(id,"append");
         await db.conversations.update(id, {
           sendingToken: token,
           sendingUntil: Date.now() + 90000,
           updatedAt: Date.now(),
         });
-        return c;
+        return (await db.conversations.get(id))!;
       },
     );
     acquired = true;
@@ -169,6 +177,7 @@ async function generate(
       if (
         !current ||
         current.sendingToken !== token ||
+        current.activeTimelineId !== c.activeTimelineId || current.timelineEpoch !== c.timelineEpoch ||
         controller.signal.aborted
       )
         return;
@@ -200,6 +209,7 @@ async function generate(
         await db.messages.add(m);
         await addGeneratedVariant(m, reply);
       }
+      await commitTimelineProjection(id,options.messageId?"regenerate":"append");
       await db.conversations.update(id, { updatedAt: Date.now() });
     });
   } finally {
@@ -219,6 +229,8 @@ async function generate(
 }
 async function purgeRecords(id: string) {
   cancelGeneration(id);
+  await db.pathNodes.where("conversationId").equals(id).delete();
+  await db.timelines.where("conversationId").equals(id).delete();
   await db.messages.where("conversationId").equals(id).delete();
   await db.messageVariants.where("conversationId").equals(id).delete();
   await db.messageRevisions.where("conversationId").equals(id).delete();

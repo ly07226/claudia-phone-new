@@ -6,6 +6,7 @@ import Dexie, { type Table } from "dexie";
 import { create } from "zustand";
 import type { ApiConfig, ApiCredential } from "./api";
 import type {
+  MemoryTimeline, ConversationPathNode,
   Conversation,
   Message,
   WorldCharacterProfile,
@@ -66,6 +67,8 @@ export interface Asset {
   createdAt: number;
 }
 class PhoneDB extends Dexie {
+  timelines!: Table<MemoryTimeline>;
+  pathNodes!: Table<ConversationPathNode>;
   messageVariants!: Table<MessageVariant>;
   messageRevisions!: Table<MessageRevision>;
   conversationSnapshots!: Table<ConversationSnapshot>;
@@ -82,8 +85,8 @@ class PhoneDB extends Dexie {
   items!: Table<DesktopItem>;
   themes!: Table<Theme>;
   assets!: Table<Asset>;
-  constructor() {
-    super("claudia-phone");
+  constructor(databaseName = "claudia-phone") {
+    super(databaseName);
     this.version(1).stores({
       worlds: "id,createdAt",
       characters: "id,worldId",
@@ -144,6 +147,9 @@ class PhoneDB extends Dexie {
             await tx.table("messages").update(m.id, { activeVariantId: id });
           }
       });
+    // Additive v6: legacy rows and IDs are untouched; roots are initialized lazily.
+    this.version(6).stores({timelines:"id,conversationId,parentTimelineId",pathNodes:"id,conversationId,[conversationId+parentNodeId+fingerprint]"});
+
   }
 }
 export const db = new PhoneDB();
@@ -292,6 +298,9 @@ export const usePhone = create<State>((set, get) => ({
     }
   },
 }));
+// No automatic reload: preserve unsaved UI input while asking other tabs to update.
+db.on("blocked",()=>usePhone.getState().set({error:"数据库升级被其他窗口阻挡，请关闭其他标签页和 PWA 后重试；不会清理数据。"}));
+db.on("versionchange",()=>{db.close();usePhone.getState().set({error:"本地数据库已由其他窗口更新，请保存当前输入后刷新页面。"});});
 export async function safeWrite(action: () => Promise<unknown>) {
   try {
     await action();

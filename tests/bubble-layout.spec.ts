@@ -214,6 +214,6 @@ test("只收起边界空行，正文内部换行、用户文本和存储原文�
       version: db.verno,
     };
   });
-  expect(stored).toEqual({ content: original, version: 5 });
+  expect(stored).toEqual({ content: original, version: 6 });
   await page.screenshot({ path: "artifacts/chat-bubbles-2.3.4.4.png" });
 });

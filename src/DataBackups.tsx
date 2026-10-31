@@ -203,7 +203,7 @@ export function DataBackups() {
         </button>
         <div className="page-title">
           <h1>数据备份与恢复</h1>
-          <p>本地维护 · 正式数据库仍为 v5</p>
+          <p>本地维护 · 正式数据库为 v6（兼容读取 v5 备份）</p>
         </div>
         <div className="card">
           <p>
@@ -229,7 +229,7 @@ export function DataBackups() {
             我已关闭其他 Claudia Phone 标签页和独立 PWA
           </label>
           <p className="hint">
-            这项确认不是跨标签锁。当前客户端禁止写入，原生16表只读事务阻挡其他连接写入；旧客户端无法自动确认时仍必须手动关闭。
+            这项确认不是跨标签锁。当前客户端禁止写入，原生18表只读事务阻挡其他连接写入；旧客户端无法自动确认时仍必须手动关闭。
           </p>
           <label className="backup-check">
             <input
@@ -406,11 +406,11 @@ export function DataBackups() {
                 : "备份已验证"}
             </p>
             <p>
-              v5 · {report.totalRecords} 条 · {report.parts} 卷 ·{" "}
+              v{report.schemaVersion} · {report.totalRecords} 条 · {report.parts} 卷 ·{" "}
               {report.resources} 个图片资源
             </p>
             <p>
-              16表记录读回摘要匹配；主键及硬引用检查通过。正式数据库未写入。
+              全部表记录读回摘要匹配；主键及硬引用检查通过。正式数据库未写入。
             </p>
             <p className="hint">清单摘要：{report.manifestDigest}</p>
             <p className="hint">
@@ -421,7 +421,7 @@ export function DataBackups() {
               <p className="hint">候选库：{report.candidateName}</p>
             )}
             <details>
-              <summary>查看16表计数</summary>
+              <summary>查看全部表计数</summary>
               {Object.entries(report.counts).map(([name, count]) => (
                 <p key={name}>
                   {name}：{count}

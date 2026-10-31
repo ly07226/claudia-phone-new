@@ -7,6 +7,8 @@ export interface ChatSettings {
   background?: ChatBackground;
 }
 export interface Conversation {
+  activeTimelineId?: string;
+  timelineEpoch?: number;
   chatSettings?: ChatSettings;
   id: string;
   scopeKey: string;
@@ -59,10 +61,41 @@ export interface MessageRevision {
   createdAt: number;
 }
 export interface ConversationSnapshot {
+  timelineId?: string;
+  headNodeId?: string;
+  timelineEpoch?: number;
   id: string;
   conversationId: string;
   reason: "edit" | "switch" | "withdraw" | "delete" | "regenerate" | "restore";
   createdAt: number;
   messages: Message[];
   variants: MessageVariant[];
+}
+
+export interface MemoryTimeline {
+  id: string;
+  conversationId: string;
+  characterId: string;
+  spaceId: string;
+  worldId?: string;
+  epoch: number;
+  parentTimelineId?: string;
+  forkNodeId?: string;
+  parentRevisionAtFork?: number;
+  headNodeId?: string;
+  revision: number;
+  createdAt: number;
+  status: "live" | "invalidated";
+  reason: "legacy-root" | "append" | "edit" | "switch" | "regenerate" | "delete" | "withdraw" | "restore" | "legacy-snapshot";
+}
+export interface ConversationPathNode {
+  id: string;
+  conversationId: string;
+  parentNodeId: string;
+  messageId: string;
+  variantId?: string;
+  role: Message["role"];
+  message: Message;
+  fingerprint: string;
+  createdAt: number;
 }

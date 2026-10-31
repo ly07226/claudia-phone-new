@@ -51,6 +51,9 @@ export function Chat({ worldId }: { worldId?: string }) {
   const [requests,setRequests] = useState(false);
   const activeConversation = useRef<string | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
+  const refreshTicket = useRef(0);
+  const latestRefresh = useRef<Promise<void> | null>(null);
+  const visiblePath = useRef<{conversationId:string;timelineId?:string;epoch:number}|null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const followBottom = useRef(true);
   const preserveTop = useRef<number | null>(null);
@@ -111,7 +114,11 @@ export function Chat({ worldId }: { worldId?: string }) {
       .subscribe({ next: rows => setPreviews({scope: previewScope, rows}), error: () => setError("无法读取聊天预览，请稍后重试。") });
     return () => subscription.unsubscribe();
   }, [characterIds, worldId, conversation?.id]);
-  async function refresh(id: string, scroll = false) {
+  async function loadSnapshot(id: string, scroll = false) {
+    const ticket=++refreshTicket.current;
+    const data=await db.transaction("r",[db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{
+    const current=await db.conversations.get(id);
+    if(!current)return null;
     const rows = await activeMessages(id);
     const ids = new Set(rows.map((m) => m.id));
     const all = await db.messageVariants
@@ -119,6 +126,10 @@ export function Chat({ worldId }: { worldId?: string }) {
       .equals(id)
       .filter((v) => ids.has(v.messageId))
       .toArray();
+    return {current,rows,all};
+    });
+    if(ticket!==refreshTicket.current||!data)return;
+    const {current,rows,all}=data;
     const groups: Record<string, MessageVariant[]> = {};
     for (const v of all) (groups[v.messageId] ??= []).push(v);
     for (const list of Object.values(groups))
@@ -131,10 +142,23 @@ export function Chat({ worldId }: { worldId?: string }) {
         scrollRequested.current = true;
         preserveTop.current = null;
       } else preserveTop.current = historyRef.current?.scrollTop ?? null;
+      visiblePath.current={conversationId:id,timelineId:current.activeTimelineId,epoch:current.timelineEpoch??0};
+      setConversation(current);
       setMessages(rows);
       setVariants(groups);
     }
   }
+  function refresh(id:string,scroll=false):Promise<void> {
+    const completion=loadSnapshot(id,scroll).then(async()=>{const next=latestRefresh.current;if(next&&next!==completion)await next;});
+    latestRefresh.current=completion;return completion;
+  }
+  useEffect(()=>{
+    const id=conversation?.id;if(!id)return;
+    const subscription=liveQuery(async()=>{const c=await db.conversations.get(id);return {c,t:c?.activeTimelineId?await db.timelines.get(c.activeTimelineId):undefined};}).subscribe({
+      next:({c})=>{if(activeConversation.current!==id)return;if(!c){leaveConversation();return;}void refresh(id,followBottom.current).catch(()=>setError("时间线路径读取失败，请检查本地数据。"));},
+      error:()=>setError("无法订阅当前时间线，请刷新后重试。"),
+    });return()=>subscription.unsubscribe();
+  },[conversation?.id]);
   useEffect(() => {
     mounted.current = true;
     void db.apiConfigs
@@ -197,6 +221,8 @@ export function Chat({ worldId }: { worldId?: string }) {
   ) {
     if (!conversation || (busy && !force)) return;
     const id = conversation.id;
+    const view=visiblePath.current;
+    const expectedPath=view?.conversationId===id?{timelineId:view.timelineId,epoch:view.epoch}:{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0};
     if (!retry && !target) followBottom.current = true;
     const sequence = ++taskSequence.current;
     const previous = pending.current;
@@ -211,18 +237,19 @@ export function Chat({ worldId }: { worldId?: string }) {
     try {
       if (force) {
         previous?.abort();
-        cancelGeneration(id);
-        await db.transaction("rw", db.conversations, () =>
-          invalidateGeneration(id),
-        );
+        await db.transaction("rw", db.conversations, async () => {
+          const current=await db.conversations.get(id);
+          if(!current||current.activeTimelineId!==expectedPath.timelineId||(current.timelineEpoch??0)!==expectedPath.epoch)throw Error("剧情已在其他窗口切换，请确认后重试。");
+          cancelGeneration(id);await invalidateGeneration(id);
+        });
       }
       if (target)
-        await regenerateMessage(id, target.id, controller.signal, allowArchive);
+        await regenerateMessage(id, target.id, controller.signal, allowArchive, expectedPath);
       else
         await sendMessage(id, draft, controller.signal, retry, async () => {
           stored = true;
           await refresh(id, true);
-        });
+        }, expectedPath);
     } catch (e) {
       if (mounted.current && sequence === taskSequence.current) {
         if (!stored && !retry && !target) setText(draft);
@@ -265,6 +292,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   function leaveConversation() {
     taskSequence.current++;
     activeConversation.current = null;
+    visiblePath.current=null;
     pending.current?.abort();
     pending.current = null;
     setBusy(false);

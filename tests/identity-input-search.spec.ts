@@ -11,7 +11,7 @@ async function data(page:Page) {
   await usePhone.getState().reload();
  });
 }
-async function settings(page:Page){await ready(page);await page.evaluate(async()=>(await import('/src/store.ts')).usePhone.getState().set({activeApp:'设置'}));}
+async function settings(page:Page){await ready(page);await page.getByRole('button',{name:'设置',exact:true}).click();}
 async function chat(page:Page){await ready(page);await page.evaluate(async()=>(await import('/src/store.ts')).usePhone.getState().set({activeApp:'聊天'}));}
 async function picture(page:Page,w:number,h:number){const png=await page.evaluate(({w,h})=>{const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d')!;x.fillStyle='#adbea5';x.fillRect(0,0,w,h);x.fillStyle='#fff7e5';x.beginPath();x.arc(w/2,h/2,Math.min(w,h)*.3,0,Math.PI*2);x.fill();return c.toDataURL().split(',')[1];},{w,h});return {name:'identity.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')};}
 for(const width of [375,390,430]) {
@@ -63,17 +63,17 @@ for(const width of [375,390,430]) {
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  });
 }
-test('身份备份候选无损、主题保存保留身份、未知旧字段及空间独立，仍为v5/16表',async({page})=>{
+test('身份备份候选无损、主题保存保留身份、未知旧字段及空间独立，v6/18表',async({page})=>{
  await data(page);
  const result=await page.evaluate(async()=>{
   const {db,usePhone}=await import('/src/store.ts');const {saveIdentity,identityFor}=await import('/src/userIdentity.ts');const {createBackup,readBackup}=await import('/src/backupService.ts');
   const stale={...usePhone.getState().theme};await db.assets.put({id:'identity-backup',type:'avatar',data:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',createdAt:1});await saveIdentity('daily',{avatar:'identity-backup',name:'日常身份',bio:'简介',customSetting:'设定',gender:'女',age:30,occupation:'作者',extra:{keep:true}});await saveIdentity('world:identity-world',{name:'剧本身份',bio:'世界简介',customSetting:'世界设定'});
   await usePhone.getState().saveTheme({...stale,color:'#aabbcc'});const expected=(await db.themes.get('global'))!.userIdentities;
   const exported=await createBackup({closedOtherClients:true});const m=exported.manifest;const files=[new File([JSON.stringify(m)],`${m.backupId}.manifest.json`,{type:'application/json'})];for(const part of m.parts)files.push(new File([await exported.readPart(part.index)],part.name));
-  const restored=await readBackup(files,{mode:'rehearse'});const D=Object.getPrototypeOf(db.constructor),candidate=new D(restored.report.candidateName!);candidate.version(5).stores(Object.fromEntries(db.tables.map(t=>[t.name,[t.schema.primKey.src,...t.schema.indexes.map(i=>i.src)].join(',')])));await candidate.open();const actual=(await candidate.table('themes').get('global')).userIdentities;const restoredAvatar=await candidate.table('assets').get('identity-backup');const sourceAvatar=await db.assets.get('identity-backup');candidate.close();await restored.dispose();await exported.dispose();
+  const restored=await readBackup(files,{mode:'rehearse'});const D=Object.getPrototypeOf(db.constructor),candidate=new D(restored.report.candidateName!);candidate.version(6).stores(Object.fromEntries(db.tables.map(t=>[t.name,[t.schema.primKey.src,...t.schema.indexes.map(i=>i.src)].join(',')])));await candidate.open();const actual=(await candidate.table('themes').get('global')).userIdentities;const restoredAvatar=await candidate.table('assets').get('identity-backup');const sourceAvatar=await db.assets.get('identity-backup');candidate.close();await restored.dispose();await exported.dispose();
   return {expected,actual,restoredAvatar,sourceAvatar,version:db.verno,tables:db.tables.length,daily:identityFor((await db.themes.get('global'))!,'daily').name,world:identityFor((await db.themes.get('global'))!,'world:identity-world').name,report:restored.report.status};
  });
- expect(result.actual).toEqual(result.expected);expect(result.restoredAvatar).toEqual(result.sourceAvatar);expect(result.version).toBe(5);expect(result.tables).toBe(16);expect(result.daily).toBe('日常身份');expect(result.world).toBe('剧本身份');expect(result.report).toBe('rehearsed');
+ expect(result.actual).toEqual(result.expected);expect(result.restoredAvatar).toEqual(result.sourceAvatar);expect(result.version).toBe(6);expect(result.tables).toBe(18);expect(result.daily).toBe('日常身份');expect(result.world).toBe('剧本身份');expect(result.report).toBe('rehearsed');
 });
 test('Enter组合状态纯函数：Safari尾随Enter、229、候选确认、独立按键及Shift',async({page})=>{
  await page.goto('/');const results=await page.evaluate(async()=>{const {createEnterSendGuard}=await import('/src/enterSend.ts');let clock=0;const g=createEnterSendGuard(()=>clock),out=[];g.start();out.push(g.key({key:'Enter',isComposing:true}));g.end();out.push(g.key({key:'Enter'}));g.up('Enter');out.push(g.key({key:'Enter'}));out.push(g.key({key:'Enter',shiftKey:true}));g.reset();g.end();out.push(g.key({key:'Enter'}));clock+=100;out.push(g.key({key:'Enter'}));out.push(g.key({key:'Enter',keyCode:229}));out.push(g.key({key:'Enter',repeat:true}));g.reset();g.start();g.key({key:'Enter',isComposing:true});g.end();clock+=100;out.push(g.key({key:'Enter'}));return out;});expect(results).toEqual(['compose','block','send','normal','block','send','compose','block','send']);

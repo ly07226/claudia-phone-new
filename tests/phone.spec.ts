@@ -176,7 +176,7 @@ test("真实触摸事件排序、小组件及存储故障提示", async ({ page 
   await page.getByRole("button", { name: "删除小组件" }).last().click();
   await expect(page.getByRole("button", { name: "删除小组件" })).toHaveCount(1);
   await page.getByRole("button", { name: "完成", exact: true }).click();
-  await page.screenshot({ path: "artifacts/desktop-mobile.png" });
+  await page.screenshot({ path: process.env.CLAUDIA_DESKTOP_SCREENSHOT || "artifacts/desktop-mobile.png" });
   await page.evaluate(async () => {
     const { db } = await import(/* @vite-ignore */ "/src/store.ts");
     db.close();

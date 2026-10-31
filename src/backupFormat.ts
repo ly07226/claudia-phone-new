@@ -1,4 +1,4 @@
-export const backupSchemas = {
+export const legacyBackupSchemas = {
   worlds: "id,createdAt",
   characters: "id,worldId",
   pages: "id,order",
@@ -16,6 +16,7 @@ export const backupSchemas = {
   messageRevisions: "id,messageId,conversationId,variantId",
   conversationSnapshots: "id,conversationId,createdAt",
 } as const;
+export const backupSchemas = {...legacyBackupSchemas, timelines:"id,conversationId,parentTimelineId",pathNodes:"id,conversationId,[conversationId+parentNodeId+fingerprint]"} as const;
 export type BackupTable = keyof typeof backupSchemas;
 export const backupTables = Object.keys(backupSchemas) as BackupTable[];
 export const backupLimits = {
@@ -287,11 +288,11 @@ export async function rowBytes(table: BackupTable, row: unknown) {
 }
 export interface BackupManifest {
   format: "claudia-phone-backup";
-  version: 1;
+  version: 1 | 2;
   codec: 1;
   backupId: string;
-  schemaVersion: 5;
-  nativeVersion: 50;
+  schemaVersion: 5 | 6;
+  nativeVersion: 50 | 60;
   createdAt: string;
   snapshotCompletedAt: string;
   coordination: string;
