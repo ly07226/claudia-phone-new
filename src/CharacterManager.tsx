@@ -1,9 +1,15 @@
 import { useSpaces } from "./spaces";
-import { useEffect, useState } from "react";
+import { Camera, UserRound } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { db, safeWrite, usePhone, type Character } from "./store";
 import { deleteCharacter } from "./chatService";
 import type { ApiConfig } from "./api";
 import type { WorldCharacterProfile } from "./chatTypes";
+function CharacterAvatar({src,alt}:{src?:string;alt:string}) {
+  const [failed,setFailed]=useState(false);
+  useEffect(()=>setFailed(false),[src]);
+  return src && !failed ? <img alt={alt} src={src} onError={()=>setFailed(true)} /> : <UserRound aria-hidden="true" size={36}/>;
+}
 export function CharacterManager({
   fileChange,
 }: {
@@ -21,6 +27,47 @@ export function CharacterManager({
   const [profile, setProfile] = useState<WorldCharacterProfile | null>(null);
   const [link, setLink] = useState("");
   const [configs, setConfigs] = useState<ApiConfig[]>([]);
+  const [expanded,setExpanded]=useState<Set<string>>(()=>new Set());
+  const [editorSession,setEditorSession]=useState(0);
+  const [loading,setLoading]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [avatarBusy,setAvatarBusy]=useState(false);
+  const [editorError,setEditorError]=useState("");
+  const mounted=useRef(true);
+  const epoch=useRef(0),uploadSequence=useRef(0),saveLock=useRef(false);
+  const editorRef=useRef<HTMLFormElement>(null),nameRef=useRef<HTMLInputElement>(null),avatarInput=useRef<HTMLInputElement>(null);
+  const resetEditor=()=>{epoch.current++;uploadSequence.current++;setForm(null);setLoading(false);setAvatarBusy(false);setEditorError("");};
+  function createCharacter(){resetEditor();setProfile(null);setForm({name:"",persona:"",speakingStyle:""});setEditorSession(epoch.current);}
+  async function editCharacter(id:string){
+    resetEditor();setProfile(null);setLoading(true);const ticket=epoch.current;
+    try{
+      const character=await db.characters.get(id);
+      if(ticket!==epoch.current)return;
+      if(!character){setEditorError("角色已不存在，请刷新列表后重试。");return;}
+      setForm({...character,name:character.name||"",persona:character.persona||"",speakingStyle:character.speakingStyle||""});setEditorSession(ticket);
+    }catch{if(ticket===epoch.current)setEditorError("无法读取角色，请检查浏览器存储后重试。");}
+    finally{if(ticket===epoch.current)setLoading(false);}
+  }
+  async function chooseAvatar(file:File|undefined){
+    if(!file || !form)return;
+    setEditorError("");
+    if(!file.type.startsWith("image/") || file.type==="image/svg+xml"){setEditorError("请选择 JPG、PNG、WebP 等位图图片，暂不支持 SVG 或非图片文件。");return;}
+    if(file.size>20*1024*1024){setEditorError("头像图片不能超过20 MB。");return;}
+    const ticket=epoch.current,request=++uploadSequence.current;let applied=false;setAvatarBusy(true);
+    try{await fileChange(file,"avatar",async id=>{
+      if(ticket!==epoch.current || request!==uploadSequence.current)return;
+      applied=true;setForm(current=>current?{...current,avatar:id}:current);
+    });if(!applied && ticket===epoch.current && request===uploadSequence.current)setEditorError("头像上传未完成。请选择可解码的位图图片，并检查本地存储空间。");}
+    catch{if(ticket===epoch.current && request===uploadSequence.current)setEditorError("头像上传失败，请检查图片格式或本地存储空间。");}
+    finally{if(ticket===epoch.current && request===uploadSequence.current)setAvatarBusy(false);}
+  }
+  useLayoutEffect(()=>{
+    if(!editorRef.current)return;
+    editorRef.current.scrollIntoView({block:"start",behavior:"auto"});
+    nameRef.current?.focus({preventScroll:true});
+  },[editorSession]);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;epoch.current++;uploadSequence.current++;};},[]);
+
   useEffect(() => {
     void db.apiConfigs
       .toArray()
@@ -46,10 +93,12 @@ export function CharacterManager({
         <select
           aria-label="当前世界"
           value={selected}
+          disabled={saving}
           onChange={(e) => {
             setSelected(e.target.value);
             s.set({ worldId: e.target.value });
-            setForm(null);
+            resetEditor();
+            setExpanded(new Set());
             setProfile(null);
           }}
         >
@@ -63,7 +112,8 @@ export function CharacterManager({
       </label>
       <button
         className="primary"
-        onClick={() => setForm({ name: "", persona: "", speakingStyle: "" })}
+        disabled={saving}
+        onClick={createCharacter}
       >
         创建角色
       </button>
@@ -125,45 +175,49 @@ export function CharacterManager({
           </button>
         </div>
       )}
+      {loading && <p role="status">正在读取角色资料…</p>}
+      {editorError && <p className="character-error" role="alert">{editorError}</p>}
       {form && (
         <form
-          className="card form"
+          ref={editorRef}
+          className="card form character-editor"
+          aria-label={form.id ? "编辑角色表单" : "创建角色表单"}
           onSubmit={(e) => {
             e.preventDefault();
-            void safeWrite(() =>
-              db.transaction(
-                "rw",
-                [db.characters, db.worlds, db.worldProfiles],
-                async () => {
-                  const id = form.id || crypto.randomUUID();
-                  if (selected && !(await db.worlds.get(selected)))
-                    throw Error("世界不存在");
-                  await db.characters.put({
-                    ...form,
-                    id,
-                    name: form.name!.trim(),
-                    persona: form.persona || "",
-                    speakingStyle: form.speakingStyle || "",
-                  });
-                  if (!form.id && selected)
-                    await db.worldProfiles.add({
-                      id: crypto.randomUUID(),
-                      worldId: selected,
-                      characterId: id,
-                      setting: "",
-                    });
-                },
-              ),
-            ).then((ok) => {
-              if (ok) setForm(null);
-            });
+            if(saveLock.current || avatarBusy)return;
+            saveLock.current=true;setSaving(true);setEditorError("");
+            const draft={...form},ticket=epoch.current,world=selected;
+            void safeWrite(() => db.transaction("rw",[db.characters,db.worlds,db.worldProfiles],async()=>{
+              if(world && !(await db.worlds.get(world)))throw Error("世界不存在");
+              const fields={name:draft.name!.trim(),persona:draft.persona||"",speakingStyle:draft.speakingStyle||"",avatar:draft.avatar,apiConfigId:draft.apiConfigId};
+              if(draft.id){
+                const current=await db.characters.get(draft.id);
+                if(!current)throw Error("角色已被删除");
+                await db.characters.put({...current,...fields,id:current.id});
+              }else{
+                const id=crypto.randomUUID();await db.characters.add({...fields,id});
+                if(world)await db.worldProfiles.add({id:crypto.randomUUID(),worldId:world,characterId:id,setting:""});
+              }
+            })).then(ok=>{
+              if(ticket!==epoch.current)return;
+              if(ok){setExpanded(current=>{const next=new Set(current);if(draft.id)next.delete(draft.id);return next;});resetEditor();setSaving(false);}else setEditorError("保存未完成，请检查角色是否仍存在或浏览器存储是否可用。原有会话和关联未被重置。");
+            }).finally(()=>{saveLock.current=false;if(mounted.current)setSaving(false);});
           }}
         >
           <h3>{form.id ? "编辑角色" : "新角色"}</h3>
           <p className="hint">这里修改的是共用基础资料，不是世界专属身份。</p>
+          <div className="character-avatar-control">
+            <button type="button" className="character-avatar-picker" aria-label={form.avatar ? "更换角色头像" : "上传角色头像"} disabled={avatarBusy||saving} onClick={()=>avatarInput.current?.click()}>
+              <span className="character-avatar-preview"><CharacterAvatar src={s.assets.find(a=>a.id===form.avatar)?.data} alt="角色头像预览"/><span className="character-camera"><Camera size={20} aria-hidden="true"/></span></span>
+              <span>{avatarBusy?"正在上传…":form.avatar?"点击更换头像":"点击上传头像"}</span>
+            </button>
+            <input ref={avatarInput} type="file" accept="image/*" aria-label="上传头像" hidden disabled={avatarBusy||saving} onChange={e=>{const file=e.target.files?.[0];e.target.value="";void chooseAvatar(file);}}/>
+            {form.avatar && <button type="button" disabled={saving} onClick={()=>{uploadSequence.current++;setAvatarBusy(false);setEditorError("");setForm(current=>current?{...current,avatar:undefined}:current);}}>移除头像</button>}
+          </div>
           <label>
             姓名
             <input
+              ref={nameRef}
               aria-label="角色姓名"
               required
               pattern=".*\S.*"
@@ -214,31 +268,12 @@ export function CharacterManager({
               ))}
             </select>
           </label>
-          <label className="upload avatar-upload">
-            {form.avatar && (
-              <img
-                alt="角色头像预览"
-                src={s.assets.find((a) => a.id === form.avatar)?.data}
-              />
-            )}
-            上传头像
-            <input
-              aria-label="上传头像"
-              type="file"
-              accept="image/*"
-              onChange={(e) =>
-                void fileChange(e.target.files?.[0], "avatar", async (id) =>
-                  setForm({ ...form, avatar: id }),
-                )
-              }
-            />
-          </label>
           <div className="actions">
-            <button type="button" onClick={() => setForm(null)}>
+            <button type="button" disabled={saving} onClick={resetEditor}>
               取消
             </button>
-            <button className="primary" type="submit">
-              保存角色
+            <button className="primary" type="submit" disabled={saving||avatarBusy}>
+              {saving ? "保存中…" : "保存角色"}
             </button>
           </div>
         </form>
@@ -274,20 +309,18 @@ export function CharacterManager({
         </form>
       )}
       {characters.map((c) => (
-        <div className="card" key={c.id}>
+        <div className="card character-card" key={c.id} data-character-id={c.id}>
           <div className="card-heading">
-            {c.avatar && (
-              <img
-                className="avatar"
-                alt={`${c.name}头像`}
-                src={s.assets.find((a) => a.id === c.avatar)?.data}
-              />
-            )}
+            {c.avatar && <span className="character-list-avatar"><CharacterAvatar alt={`${c.name}头像`} src={s.assets.find(a=>a.id===c.avatar)?.data}/></span>}
             <h3>{c.name}</h3>
           </div>
-          <p className="preserve">{c.persona || "尚未填写人设"}</p>
+          {!expanded.has(c.id) ? <p className="character-summary">{c.persona?.trim() ? c.persona : "尚未填写人设"}</p> : <div className="character-details" id={`character-details-${c.id}`} tabIndex={0} role="region" aria-label={`${c.name}完整设定`}>
+            <h4>基础人设</h4><p className="preserve">{c.persona?.trim() ? c.persona : "尚未填写人设"}</p>
+            <h4>基础说话方式</h4><p className="preserve">{c.speakingStyle || "尚未填写说话方式"}</p>
+          </div>}
           <div className="api-actions">
-            <button onClick={() => setForm(c)}>编辑角色</button>
+            <button type="button" aria-expanded={expanded.has(c.id)} aria-controls={`character-details-${c.id}`} onClick={()=>setExpanded(current=>{const next=new Set(current);if(next.has(c.id))next.delete(c.id);else next.add(c.id);return next;})}>{expanded.has(c.id)?"收起":"展开"}</button>
+            <button disabled={saving} onClick={() => void editCharacter(c.id)}>编辑角色</button>
             {selected && (
               <button
                 onClick={() =>
@@ -321,6 +354,7 @@ export function CharacterManager({
             )}
             <button
               className="danger"
+              disabled={saving}
               onClick={() => {
                 if (
                   confirm(
