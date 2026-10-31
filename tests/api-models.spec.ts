@@ -6,7 +6,7 @@ async function form(page: any) {
     .getByRole("button", { name: "AI / API 设置", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "新建 API 配置", exact: true })
+    .getByRole("button", { name: "＋ 添加 API 配置", exact: true })
     .click();
   await page.getByLabel("配置名称", { exact: true }).fill("模型体验测试");
   await page

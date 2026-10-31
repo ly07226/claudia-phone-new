@@ -1,5 +1,6 @@
+import { reconcileApiDefault } from "./apiSelection";
 import { apiBase, fetchModels } from "./apiModels";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Plus } from "lucide-react";
 import { db, usePhone } from "./store";
 import {
@@ -26,7 +27,10 @@ const labels: Record<TestResult["status"], string> = {
 };
 export function ApiSettings() {
   const [configs, setConfigs] = useState<ApiConfig[]>([]);
-  const [selected, setSelected] = useState("");
+  const [availableIds, setAvailableIds] = useState<string[]>([]);
+  const [notice, setNotice] = useState("");
+  const panel = useRef<HTMLDivElement>(null);
+  const editorSequence = useRef(0);
   const [form, setForm] = useState<ApiConfig | null>(null);
   const [key, setKey] = useState("");
   const [visible, setVisible] = useState(false);
@@ -46,8 +50,12 @@ export function ApiSettings() {
   const report = () =>
     setError("本地存储操作失败，请检查浏览器存储空间后重试。");
   const reload = async () => {
+    const selection = await reconcileApiDefault();
     const rows = await db.apiConfigs.toCollection().sortBy("createdAt");
-    if (mounted.current) setConfigs(rows);
+    if (mounted.current) {
+      setConfigs(rows); setAvailableIds(selection.availableIds);
+      if (selection.changed) setNotice(selection.config ? "已自动选择默认配置。需要回退时按创建时间、ID选择最早的完整启用配置。" : "没有字段完整且启用的配置，请检查或添加 API。");
+    }
   };
   useEffect(() => {
     mounted.current = true;
@@ -88,6 +96,8 @@ export function ApiSettings() {
     },
     [],
   );
+  useLayoutEffect(() => { panel.current?.scrollIntoView({ block: "start" }); }, [form?.id]);
+  function closeEditor() { editorSequence.current++; setForm(null); setKey(""); setVisible(false); }
   async function loadModels() {
     if (!form || modelRequest.current) return;
     const controller = new AbortController();
@@ -144,6 +154,7 @@ export function ApiSettings() {
     }
   }
   function fresh() {
+    editorSequence.current++;
     setVisible(false);
     setKey("");
     setError("");
@@ -162,8 +173,10 @@ export function ApiSettings() {
     });
   }
   async function edit(c: ApiConfig) {
+    const ticket = ++editorSequence.current;
     try {
       const credential = await db.apiCredentials.get(c.id);
+      if (ticket !== editorSequence.current || !mounted.current) return;
       setKey(credential?.apiKey || "");
       setVisible(false);
       setError("");
@@ -220,53 +233,62 @@ export function ApiSettings() {
       running.current.delete(c.id);
     }
   }
+  async function remove(c: ApiConfig) {
+    if (
+      !confirm(
+        `删除配置「${c.name}」及其本地 Key？引用它的角色将恢复使用默认 API；显式指定它的会话需重新选择。`,
+      )
+    )
+      return;
+    setSaving(true);
+    try {
+      await db.transaction(
+        "rw",
+        [db.apiConfigs, db.apiCredentials, db.characters],
+        async () => {
+          await db.apiConfigs.delete(c.id);
+          await db.apiCredentials.delete(c.id);
+          await db.characters
+            .filter((ch) => ch.apiConfigId === c.id)
+            .modify((ch) => {
+              delete ch.apiConfigId;
+            });
+        },
+      );
+      if (form?.id === c.id) {
+        setForm(null);
+        setKey("");
+      }
+      await reload();
+      await usePhone.getState().reload();
+    } catch {
+      report();
+    } finally {
+      setSaving(false);
+    }
+  }
   return (
-    <div className="api-settings">
+    <div className="api-settings" ref={panel}>
       <div className="page-title">
-        <span className="eyebrow">AI CONNECTIONS · 2.2</span>
+        <span className="eyebrow">AI CONNECTIONS</span>
         <h2>AI / API 设置</h2>
         <p>管理日常与世界聊天使用的多个 API 连接。</p>
-      </div>
-      <div className="card">
-        <h3>仅保存在此浏览器</h3>
-        <p>
-          API Key
-          是客户端本地凭据，并非服务器秘密。同源脚本、浏览器扩展或能访问设备的人可能读取它；请使用限额、可撤销的专用
-          Key。测试会将 Key 发送到你填写的 HTTPS 服务，请只使用信任的地址。
-        </p>
-        <p>
-          测试和聊天可能产生 API 费用。不绕过
-          CORS；请使用支持浏览器直连的可信服务。
-        </p>
       </div>
       {error && (
         <p className="api-error" role="alert">
           {error}
         </p>
       )}
-      <button className="primary" disabled={saving} onClick={fresh}>
-        <Plus size={17} />
-        新建 API 配置
-      </button>
-      {configs.length > 0 && (
-        <label className="world-select api-switch">
-          切换配置
-          <select
-            aria-label="切换 API 配置"
-            value={selected}
-            onChange={(e) => setSelected(e.target.value)}
-          >
-            <option value="">全部配置</option>
-            {configs.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-                {c.isDefault ? " · 默认" : ""}
-                {!c.enabled ? " · 已停用" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      {!form && <section className="card api-default-panel">
+        <h3>当前默认 API</h3>
+        <select aria-label="当前默认 API" disabled={saving || !availableIds.length} value={configs.find(c => c.isDefault)?.id || ""}
+          onChange={async e => { const c = configs.find(c => c.id === e.target.value); if (!c) return; setSaving(true); try { await persist({ ...c, isDefault: true }); setNotice("默认配置已保存。角色或会话的明确指定优先于全局默认。"); } catch { report(); } finally { setSaving(false); } }}>
+          {!availableIds.length && <option value="">{configs.length ? "暂无完整且启用的配置" : "尚未配置 API"}</option>}
+          {configs.filter(c => availableIds.includes(c.id)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <p className="hint">可选表示字段完整且已启用，不代表连接测试或实际请求成功。</p>
+        {notice && <p className="api-default-notice">{notice}</p>}
+      </section>}
       {form && (
         <form
           className="card form"
@@ -289,7 +311,6 @@ export function ApiSettings() {
                 },
                 key.trim(),
               );
-              setSelected(form.id);
               setForm(null);
               setKey("");
               setVisible(false);
@@ -561,14 +582,13 @@ export function ApiSettings() {
             Temperature 与 Max Tokens
             为正式聊天参数。当前测试固定极短输出，不保证所有模型支持。获取列表失败时仍可手动填写并测试。
           </p>
+          {configs.some(c => c.id === form.id) && <button className="danger api-editor-delete" type="button" disabled={saving} onClick={() => void remove(form)}>删除配置</button>}
           <div className="actions">
             <button
               type="button"
               disabled={saving}
               onClick={() => {
-                setForm(null);
-                setKey("");
-                setVisible(false);
+                closeEditor();
               }}
             >
               取消
@@ -580,25 +600,20 @@ export function ApiSettings() {
         </form>
       )}
       {!configs.length && !form && (
-        <p className="empty">尚无 API 配置。点击上方按钮创建第一个连接。</p>
+        <p className="empty">尚未配置 API。添加第一个连接后，完整且启用的配置将自动成为默认。</p>
       )}
-      {configs
-        .filter((c) => !selected || c.id === selected)
+      {!form && configs
         .map((c) => (
-          <div className="card" key={c.id}>
-            <h3>{c.name}</h3>
+          <div className="card api-config-card" key={c.id} data-api-id={c.id} onClick={() => { if (!saving) void edit(c); }}>
+            <button className="api-card-title" aria-label={`编辑 ${c.name}`} disabled={saving} onClick={e => { e.stopPropagation(); void edit(c); }}><h3>{c.name}</h3></button>
             <p>
               {providers[c.provider]?.label || c.provider} ·{" "}
-              {c.isDefault ? "默认 · " : ""}
+              {c.isDefault ? "当前默认 · " : ""}
               {c.enabled ? "已启用" : "已停用"}
             </p>
-            <p>{c.model}</p>
-            <p className="api-url">{c.baseUrl}</p>
-            <p className="hint">
-              凭据已隐藏 · Temperature {c.temperature} · Max Tokens{" "}
-              {c.maxTokens}
-            </p>
-            <div className="api-actions">
+            <p className="api-card-model" title={c.model}>{c.model}</p>
+            <p className="hint">{availableIds.includes(c.id) ? "字段完整 · 未据此验证连接" : c.enabled ? "请补全字段、凭据或支持的协议" : "已停用"}</p>
+            <div className="api-actions" onClick={e => e.stopPropagation()}>
               <button
                 disabled={saving || results[c.id]?.status === "testing"}
                 onClick={() => void edit(c)}
@@ -627,7 +642,7 @@ export function ApiSettings() {
               <button
                 disabled={
                   saving ||
-                  !c.enabled ||
+                  !availableIds.includes(c.id) ||
                   c.isDefault ||
                   results[c.id]?.status === "testing"
                 }
@@ -644,57 +659,15 @@ export function ApiSettings() {
               >
                 设为默认
               </button>
-              <button
-                className="danger"
-                disabled={saving || results[c.id]?.status === "testing"}
-                onClick={async () => {
-                  if (
-                    !confirm(
-                      `删除配置「${c.name}」及其本地 Key？引用它的角色将恢复使用默认 API。`,
-                    )
-                  )
-                    return;
-                  setSaving(true);
-                  try {
-                    await db.transaction(
-                      "rw",
-                      [db.apiConfigs, db.apiCredentials, db.characters],
-                      async () => {
-                        await db.apiConfigs.delete(c.id);
-                        await db.apiCredentials.delete(c.id);
-                        await db.characters
-                          .filter((ch) => ch.apiConfigId === c.id)
-                          .modify((ch) => {
-                            delete ch.apiConfigId;
-                          });
-                      },
-                    );
-                    if (form?.id === c.id) {
-                      setForm(null);
-                      setKey("");
-                    }
-                    setSelected("");
-                    await reload();
-                    await usePhone.getState().reload();
-                  } catch {
-                    report();
-                  } finally {
-                    setSaving(false);
-                  }
-                }}
-              >
-                删除配置
-              </button>
             </div>
             <button
               className="primary api-test"
               disabled={
                 results[c.id]?.status === "testing" ||
                 !c.enabled ||
-                saving ||
-                form?.id === c.id
+                saving
               }
-              onClick={() => void run(c)}
+              onClick={e => { e.stopPropagation(); void run(c); }}
             >
               {results[c.id]?.status === "testing" ? "测试中…" : "测试连接"}
             </button>
@@ -709,6 +682,19 @@ export function ApiSettings() {
             )}
           </div>
         ))}
+      {!form && <button className="primary api-add" aria-label="＋ 添加 API 配置" disabled={saving} onClick={fresh}><Plus size={17}/>添加 API 配置</button>}
+      <details className="card api-security">
+        <summary>本地凭据与隐私说明</summary>
+        <p>
+          API Key
+          是客户端本地凭据，并非服务器秘密。同源脚本、浏览器扩展或能访问设备的人可能读取它；请使用限额、可撤销的专用
+          Key。测试会将 Key 发送到你填写的 HTTPS 服务，请只使用信任的地址。
+        </p>
+        <p>
+          测试和聊天可能产生 API 费用。不绕过
+          CORS；请使用支持浏览器直连的可信服务。
+        </p>
+      </details>
       <p className="hint">
         角色可指定配置
         ID；未指定时使用已启用的默认配置。停用的指定配置不会被静默调用，需先调整选择。

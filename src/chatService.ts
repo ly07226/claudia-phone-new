@@ -1,3 +1,4 @@
+import { reconcileApiDefault, usableApi } from "./apiSelection";
 import { activeMessages } from "./messagePath";
 import {
   registerGeneration,
@@ -54,7 +55,7 @@ export async function resolveApi(c: Conversation) {
   const id = c.apiConfigId || character?.apiConfigId;
   const config = id
     ? await db.apiConfigs.get(id)
-    : await db.apiConfigs.filter((a) => a.enabled && a.isDefault).first();
+    : (await reconcileApiDefault()).config;
   if (!config?.enabled)
     throw Error(
       "没有可用 API，或指定配置已删除/停用。请前往设置 → AI / API 设置，或更改当前配置。",
@@ -62,6 +63,8 @@ export async function resolveApi(c: Conversation) {
   const credential = await db.apiCredentials.get(config.id);
   if (!credential?.apiKey)
     throw Error("API 缺少凭据，请前往设置 → AI / API 设置。");
+  if (!usableApi(config, credential.apiKey))
+    throw Error("指定 API 配置字段不完整或协议不支持，请前往设置 → AI / API 设置检查。未更改角色或会话绑定。");
   return { config, key: credential.apiKey };
 }
 const recentRequests: number[] = [];
