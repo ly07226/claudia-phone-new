@@ -3,9 +3,11 @@ import { Plus, Globe2 } from "lucide-react";
 import { db, safeWrite, usePhone, type World } from "./store";
 import { deleteWorld } from "./chatService";
 export function Worlds({
-  onCharacters, spaceList = false, renderSpaceActions,
-}: { onCharacters?: (id: string) => void; spaceList?: boolean; renderSpaceActions?: (world: World) => ReactNode } = {}) {
+  onCharacters, spaceList = false, renderSpaceActions, onEnterWorld,
+}: { onCharacters?: (id: string) => void; spaceList?: boolean; renderSpaceActions?: (world: World) => ReactNode; onEnterWorld?: (id: string) => void } = {}) {
   const s = usePhone();
+  const [creationOpen, setCreationOpen] = useState(false);
+  const [creationNotice, setCreationNotice] = useState("");
   const [form, setForm] = useState<Partial<World> | null>(null);
   return (
     <>
@@ -16,11 +18,21 @@ export function Worlds({
       </div>
       <button
         className="primary"
-        onClick={() => setForm({ name: "", description: "" })}
+        aria-expanded={spaceList ? creationOpen : undefined}
+        aria-controls={spaceList ? "script-creation-methods" : undefined}
+        onClick={() => {
+          if (spaceList) {setCreationOpen(!creationOpen); setCreationNotice("");}
+          else setForm({ name: "", description: "" });
+        }}
       >
         <Plus size={17} />
-        {spaceList ? "创建剧本" : "创建世界"}
+        {spaceList ? "新建剧本" : "创建世界"}
       </button>
+      {spaceList && creationOpen && <div className="script-creation-methods" id="script-creation-methods">
+        <button onClick={() => {setForm({name:"", description:""}); setCreationNotice("");}}>手动粘贴</button>
+        <button onClick={() => setCreationNotice("AI 剧本生成器即将开放")}>AI 生成</button>
+      </div>}
+      {spaceList && creationNotice && <p role="status" className="space-notice">{creationNotice}</p>}
       {form && (
         <form
           className="card form"
@@ -28,6 +40,7 @@ export function Worlds({
             e.preventDefault();
             void safeWrite(() =>
               db.worlds.put({
+                ...form,
                 id: form.id || crypto.randomUUID(),
                 name: form.name!.trim(),
                 description: form.description || "",
@@ -41,6 +54,7 @@ export function Worlds({
           }}
         >
           <h3>{form.id ? "编辑世界" : "新世界"}</h3>
+          {spaceList && !form.id && <p className="hint">可直接粘贴到下方文本框。本版本沿用手动表单，暂不提供结构化剧本文件解析；点击保存才会创建剧本。</p>}
           <label>
             世界名称
             <input
@@ -73,7 +87,7 @@ export function Worlds({
             />
           </label>
           <label>
-            世界背景与补充
+            {spaceList && !form.id ? "剧本文本（手动粘贴）" : "世界背景与补充"}
             <textarea
               aria-label="世界背景"
               maxLength={6000}
@@ -94,15 +108,19 @@ export function Worlds({
       {!s.worlds.length && !form && (
         <div className="empty">
           <Globe2 size={42} />
-          <h3>{spaceList ? "还没有剧本世界。" : "从一个世界开始"}</h3>
+          <h3>{spaceList ? "暂无剧本" : "从一个世界开始"}</h3>
           <p>{spaceList ? "创建剧本后可关联现有角色，进入该世界手机。" : "创建世界后可关联基础角色；没有世界也可以日常聊天。"}</p>
         </div>
       )}
       {s.worlds.map((w) => (
-        <div className={spaceList ? "card space-card" : "card"} key={w.id} data-testid={spaceList ? `world-space-${w.id}` : undefined}>
+        <div className={spaceList ? "card space-card" : "card"} key={w.id} data-testid={spaceList ? `world-space-${w.id}` : undefined}
+          onClick={spaceList && onEnterWorld ? (event) => {
+            if ((event.target as Element).closest("button, a, input, textarea, select, .script-archives")) return;
+            onEnterWorld(w.id);
+          } : undefined}>
           <div className="card-heading">
             <Globe2 size={22} />
-            <h3>{w.name}</h3>
+            <h3 aria-label={spaceList ? w.name : undefined}>{spaceList && onEnterWorld ? <button className="script-card-title" aria-label={`进入剧本 · ${w.name}`} onClick={() => onEnterWorld(w.id)}>{w.name}</button> : w.name}</h3>
           </div>
           <p className={spaceList ? "space-description" : "preserve"}>
             {w.description || "这里的故事，等你来写。"}

@@ -136,7 +136,7 @@ test("永久日常入口、零世界不空白、手机桌面与退出，导航�
   expect(await page.evaluate(()=>JSON.parse(localStorage.getItem("claudia.navigation.v1")!))).toEqual({version:1,route:{screen:"spaces"}});
   await openScripts(page);
   await expect(page.getByTestId("daily-space")).toHaveCount(0);
-  await expect(page.getByText("还没有剧本世界。",{exact:true})).toBeVisible();
+  await expect(page.getByText("暂无剧本",{exact:true})).toBeVisible();
 });
 
 test("世界进度按实际聊天判断，进入/退出/刷新/后退不重置、不串身份", async ({
@@ -228,7 +228,8 @@ test("复用世界 CRUD，重命名保持稳定ID，删除活动世界安全回�
 }) => {
   await selector(page);
   await openScripts(page);
-  await page.getByRole("button", { name: "创建剧本", exact: true }).click();
+  await page.getByRole("button", { name: "新建剧本", exact: true }).click();
+  await page.getByRole("button", {name:"手动粘贴", exact:true}).click();
   await page.getByLabel("世界名称", { exact: true }).fill("我的新剧本");
   await page.getByLabel("世界描述", { exact: true }).fill("自定义简介");
   await page.getByRole("button", { name: "保存世界", exact: true }).click();
@@ -525,4 +526,42 @@ for (const standalone of [false, true]) test(`三级路由、刷新/后退及真
   await page.getByRole("button",{name:"返回空间列表",exact:true}).click();
   await expect(page.getByRole("heading",{name:"选择空间",exact:true})).toBeVisible();
   expect(await capture()).toEqual(before);
+});
+
+test("新建入口默认折叠，AI仅提示无写入或请求，手动粘贴复用保存，卡片直达手机", async ({page}) => {
+  await selector(page); await openScripts(page);
+  await expect(page.getByText("暂无剧本",{exact:true})).toBeVisible();
+  await expect(page.getByRole("button",{name:"手动粘贴",exact:true})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"AI 生成",exact:true})).toHaveCount(0);
+  const capture = () => page.evaluate(async () => {
+    const {db} = await import("/src/store.ts");
+    return db.transaction("r",db.tables,async()=>Object.fromEntries(await Promise.all(db.tables.map(async t=>[t.name,await t.toArray()]))));
+  });
+  const before = await capture();
+  let posts = 0; page.on("request", r=>{if(r.method()==="POST") posts++;});
+  await page.getByRole("button",{name:"新建剧本",exact:true}).click();
+  await expect(page.getByRole("button",{name:"手动粘贴",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"AI 生成",exact:true}).click();
+  await expect(page.getByRole("status")).toContainText("AI 剧本生成器即将开放");
+  expect(await capture()).toEqual(before); expect(posts).toBe(0);
+  await page.getByRole("button",{name:"手动粘贴",exact:true}).click();
+  await page.getByLabel("世界名称",{exact:true}).fill("我的粘贴剧本");
+  await page.getByLabel("世界背景",{exact:true}).fill("原始剧情第一行\n第二行：保留标点。");
+  expect(await capture()).toEqual(before);
+  await page.getByRole("button",{name:"保存世界",exact:true}).click();
+  const world = await page.evaluate(async()=> (await import("/src/store.ts")).db.worlds.toArray());
+  expect(world).toHaveLength(1); expect(world[0].background).toBe("原始剧情第一行\n第二行：保留标点。");
+  const card=page.getByTestId(`world-space-${world[0].id}`);
+  await card.locator(".space-description").click();
+  await expect(page.locator(".desktop")).toBeVisible(); await checkSpace(page,`world:${world[0].id}`);
+  await page.getByRole("button",{name:"返回空间列表",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"剧本世界",exact:true})).toBeVisible();
+  await expect(page.getByRole("button",{name:"手动粘贴",exact:true})).toHaveCount(0);
+  await page.evaluate(async id=>{const {db,usePhone}=await import("/src/store.ts");await db.worlds.update(id,{cover:"legacy-cover",extraInfo:{note:"keep"}} as any); await usePhone.getState().reload();},world[0].id);
+  await card.getByRole("button",{name:"编辑",exact:true}).click();
+  await page.getByLabel("世界名称",{exact:true}).fill("修改名字");
+  await page.getByRole("button",{name:"保存世界",exact:true}).click();
+  expect(await page.evaluate(async id=>(await import("/src/store.ts")).db.worlds.get(id),world[0].id)).toMatchObject({id:world[0].id,name:"修改名字",cover:"legacy-cover",extraInfo:{note:"keep"}});
+  await page.getByRole("button",{name:"进入剧本 · 修改名字",exact:true}).focus(); await page.keyboard.press("Enter");
+  await expect(page.locator(".desktop")).toBeVisible(); await checkSpace(page,`world:${world[0].id}`);
 });

@@ -146,7 +146,7 @@ function ScriptSpaces() {
       <ChevronLeft size={18} />返回空间首页
     </button>
     {error && <p className="space-notice" role="alert">{error}</p>}
-    <Worlds spaceList onCharacters={(id) => {
+    <Worlds spaceList onEnterWorld={(id) => void nav.enterSpace(`world:${id}`)} onCharacters={(id) => {
       void nav.enterSpace(`world:${id}`).then(() => {
         if (useSpaces.getState().space?.worldId === id)
           usePhone.getState().set({ activeApp: "角色管理" });
