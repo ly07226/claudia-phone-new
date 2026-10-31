@@ -2315,3 +2315,10 @@ html[data-ios="true"] { background: var(--page-background, #f4f5eb); background-
 .friend-request-card small{color:#70816c}
 .friend-request-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:14px}
 .friend-request-actions button{min-height:44px;min-width:72px}
+
+/* Single-file backup flow; legacy maintenance stays behind advanced options. */
+.backup-simple .primary{display:flex;align-items:center;justify-content:center;gap:10px;min-height:48px;width:100%}
+.backup-simple .backup-filename{overflow-wrap:anywhere;font-size:13px;color:#637667}
+.backup-simple .form{gap:12px}
+.backup-simple .backup-advanced{margin:16px 0;padding:0 4px}
+.backup-simple .backup-advanced button{padding:8px 14px;border-radius:12px;background:#e5ebdf}

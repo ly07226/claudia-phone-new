@@ -612,6 +612,8 @@ test("手机设置入口、分卷下载、Files读回与候选报告；下载不
   await expect(
     page.getByRole("heading", { name: "数据备份与恢复", exact: true }),
   ).toBeVisible();
+  await page.getByText("高级选项", { exact: true }).click();
+  await page.getByRole("button", { name: "旧格式备份工具", exact: true }).click();
   await page.getByLabel("我已关闭其他 Claudia Phone 标签页和独立 PWA").check();
   await page.getByRole("button", { name: "导出备份", exact: true }).click();
   await expect(
@@ -667,6 +669,7 @@ test("手机设置入口、分卷下载、Files读回与候选报告；下载不
         .evaluate((el) => el.scrollWidth <= el.clientWidth),
     ).toBe(true);
   }
+  await page.getByRole("button", { name: "返回备份首页", exact: true }).click();
   await page.getByRole("button", { name: "返回设置", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "设置", exact: true }),
