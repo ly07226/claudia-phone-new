@@ -35,3 +35,29 @@ test('超过30条待回复不静默截断，超过字符预算拒绝生成且原
   const {a}=await setup(page);
   const result=await page.evaluate(async({a})=>{const {db}=await import('/src/store.ts');const {saveChatSettings}=await import('/src/chatPreferences.ts');const {queueUserMessage}=await import('/src/chatService.ts');const {buildContext}=await import('/src/chatContext.ts');await saveChatSettings(a.id,{continuousSend:true});for(let i=0;i<31;i++)await queueUserMessage(a.id,'待回复'+i);const context=await buildContext((await db.conversations.get(a.id))!);for(let i=0;i<4;i++)await queueUserMessage(a.id,'长'.repeat(7000));let error='';try{await buildContext((await db.conversations.get(a.id))!);}catch(e){error=(e as Error).message;}return {users:context.filter(m=>m.role==='user').length,error,count:await db.messages.where('conversationId').equals(a.id).count()};},{a});expect(result.users).toBe(31);expect(result.error).toContain('待回复消息超过');expect(result.count).toBe(35);
 });
+
+test('连续点击及触屏发送保持同一输入框焦点；IME、换行和主动失焦不误发',async({page})=>{
+  const {a}=await setup(page);let calls=0;
+  await page.route('https://continuous.test/**',async r=>{calls++;await r.fulfill({json:{choices:[{message:{content:'手动回复'}}]}});});
+  await page.evaluate(async id=>{await(await import('/src/chatPreferences.ts')).saveChatSettings(id,{continuousSend:true});},a.id);
+  await page.getByRole('button',{name:'聊天',exact:true}).click();await page.getByRole('button',{name:'连续角色 开始 / 继续聊天'}).click();
+  const input=page.getByLabel('聊天消息',{exact:true});
+  await input.evaluate(el=>{(window as any).__composer=el;(window as any).__composerBlur=0;el.addEventListener('blur',()=>{(window as any).__composerBlur++;});});
+  for(const [i,text] of ['一','二','三'].entries()){
+    await input.fill(text);
+    if(i===1)await page.getByRole('button',{name:'发送',exact:true}).tap();else await page.getByRole('button',{name:'发送',exact:true}).click();
+    await expect(page.locator('.chat-history')).toContainText(text);await expect(input).toHaveValue('');await expect(input).toBeFocused();
+    expect(await input.evaluate(el=>el===(window as any).__composer&&!el.hasAttribute('disabled')&&(window as any).__composerBlur===0)).toBe(true);
+    await expect(page.getByRole('button',{name:'取消请求',exact:true})).toHaveCount(0);
+  }
+  expect(calls).toBe(0);
+  await input.fill('中文候选');await input.dispatchEvent('compositionstart');await input.dispatchEvent('keydown',{key:'Enter',isComposing:true});await input.dispatchEvent('compositionend');await input.dispatchEvent('keydown',{key:'Enter',isComposing:false});await input.dispatchEvent('keyup',{key:'Enter'});
+  await expect(input).toHaveValue('中文候选');
+  expect(await page.evaluate(async id=>(await import('/src/store.ts')).db.messages.where('conversationId').equals(id).count(),a.id)).toBe(3);
+  await input.press('Enter');await expect(input).toHaveValue('');await expect(input).toBeFocused();await expect(page.locator('.chat-history')).toContainText('中文候选');
+  await input.fill('保留手动换行');await input.press('Shift+Enter');await expect(input).toHaveValue('保留手动换行\n');
+  await input.fill(' \n');await expect(page.getByRole('button',{name:'发送',exact:true})).toBeDisabled();await input.press('Enter');await expect(input).toHaveValue(' \n');
+  await input.blur();await expect(input).not.toBeFocused();expect(calls).toBe(0);
+  await page.getByRole('button',{name:'AI 回复',exact:true}).click();await expect(page.locator('.chat-history')).toContainText('手动回复');expect(calls).toBe(1);
+  const texts=await page.evaluate(async id=>(await import('/src/messagePath.ts')).activeMessages(id).then(rows=>rows.filter(m=>m.role==='user').map(m=>m.content)),a.id);expect(texts).toEqual(['一','二','三','中文候选']);
+});

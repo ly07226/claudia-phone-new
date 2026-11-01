@@ -39,6 +39,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const [previewState, setPreviews] = useState<{scope: string; rows: Record<string, ChatPreview>}>({scope: "", rows: {}});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [savingMessage, setSavingMessage] = useState(false);
   const [configs, setConfigs] = useState<ApiConfig[]>([]);
   const [variants, setVariants] = useState<Record<string, MessageVariant[]>>(
     {},
@@ -227,6 +228,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     if (!retry && !target) followBottom.current = true;
     const sequence = ++taskSequence.current;
     const previous = pending.current;
+    setSavingMessage(!retry && !target && !!conversation.chatSettings?.continuousSend);
     setBusy(true);
     setError("");
     setFeedback("");
@@ -269,6 +271,7 @@ export function Chat({ worldId }: { worldId?: string }) {
           setError("无法读取聊天记录，请检查存储空间。"),
         );
         setBusy(false);
+        setSavingMessage(false);
         pending.current = null;
       }
     }
@@ -301,6 +304,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     pending.current?.abort();
     pending.current = null;
     setBusy(false);
+    setSavingMessage(false);
     setConversation(null);
     setMessages([]);
     setText("");
@@ -435,7 +439,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 placeholder="说点什么…"
                 maxLength={8000}
                 value={text}
-                disabled={busy}
+                disabled={busy && !savingMessage}
                 onChange={(e) => setText(e.target.value)}
                 onCompositionStart={()=>enterGuard.current.start()}
                 onCompositionEnd={()=>enterGuard.current.end()}
@@ -448,6 +452,8 @@ export function Chat({ worldId }: { worldId?: string }) {
                 type={busy ? "button" : "submit"}
                 aria-label={busy ? "取消请求" : "发送"}
                 disabled={!busy && !text.trim()}
+                onPointerDown={e=>{if(conversation.chatSettings?.continuousSend && document.activeElement===inputRef.current)e.preventDefault();}}
+                onMouseDown={e=>{if(conversation.chatSettings?.continuousSend && document.activeElement===inputRef.current)e.preventDefault();}}
                 onClick={busy ? () => pending.current?.abort() : undefined}
               >
                 {busy ? <Square size={18} /> : <Send size={20} />}
