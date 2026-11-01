@@ -11,6 +11,7 @@ import { ChevronLeft, MoreHorizontal, Send, Square } from "lucide-react";
 import { ChatManagement } from "./ChatManagement";
 import { chatDisplayName } from "./chatPresentation";
 import { useChatViewport } from "./useChatViewport";
+import { useKeyboardAutoReply } from "./useKeyboardAutoReply";
 import { activeMessages } from "./messagePath";
 import {
   cancelGeneration,
@@ -283,9 +284,20 @@ export function Chat({ worldId }: { worldId?: string }) {
     }
   }
   const send = (retry = false) => {
+    if(retry)keyboardAutoReply.cancel();else keyboardAutoReply.suppressSend();
     if (!retry && (!text.trim() || busy || pending.current)) return Promise.resolve();
     return runGeneration(retry);
   };
+  const keyboardAutoReply=useKeyboardAutoReply(inputRef,{
+    conversationId:conversation?.id,
+    initialTimeline:!conversation?.activeTimelineId,
+    savingMessage,
+    scope:JSON.stringify([worldId,conversation?.id,conversation?.characterId,conversation?.activeTimelineId,conversation?.timelineEpoch]),
+    enabled:!!conversation?.chatSettings?.continuousSend&&!!conversation?.chatSettings?.keyboardAutoReply,
+    blocked:management||!!menuId||!!previewVariant||showSnapshots||requests||(busy&&!savingMessage),
+    canReply:()=>!!conversation&&activeConversation.current===conversation.id&&visiblePath.current?.conversationId===conversation.id&&visiblePath.current.timelineId===conversation.activeTimelineId&&visiblePath.current.epoch===(conversation.timelineEpoch??0)&&!busy&&!pending.current&&messages.at(-1)?.role==='user',
+    reply:()=>{void send(true);},
+  });
   const onGenerate = (message?: Message, allowArchive = false) =>
     runGeneration(true, message, allowArchive, true);
   async function chooseVariant(m: Message, v: MessageVariant) {
