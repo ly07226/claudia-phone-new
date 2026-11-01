@@ -29,8 +29,8 @@ test('只读浮层不抢焦点/触摸、不占布局；成功链路日志无正�
   const text=JSON.stringify(rows);for(const secret of ['私密','synthetic-private-credential','private-role-id','api-private-id','https://keyboard-debug.test'])expect(text).not.toContain(secret);
 });
 test('失焦阻止和未挂载原因可见；缓冲200条、白名单过滤且重载不保留',async({page})=>{
-  const calls=await setup(page,true);await prepareSend(page);await page.getByLabel('聊天消息',{exact:true}).blur();await height(page,844);await page.clock.runFor(700);expect(calls()).toBe(0);
-  await expect(page.getByLabel('键盘开发诊断',{exact:true})).toContainText('blur-rejected');const rows=await logs(page);expect(rows.some(r=>r.event==='blur'&&r.fields.relatedTarget==='none')).toBe(true);expect(rows.some(r=>r.event==='reset'&&r.fields.reason==='blur-rejected'&&r.fields.armed===false)).toBe(true);expect(rows.some(r=>r.event==='not-mounted'&&r.fields.reason==='disabled')).toBe(true);
+  const calls=await setup(page,true);await prepareSend(page);await page.locator('.chat-nav button').first().focus();await height(page,844);await page.clock.runFor(700);expect(calls()).toBe(0);
+  await expect(page.getByLabel('键盘开发诊断',{exact:true})).toContainText('focus-other');const rows=await logs(page);expect(rows.some(r=>r.event==='blur'&&r.fields.relatedTarget==='control')).toBe(true);expect(rows.some(r=>r.event==='reset'&&r.fields.reason==='blur-rejected'&&r.fields.armed===false)).toBe(true);expect(rows.some(r=>r.event==='not-mounted'&&r.fields.reason==='disabled')).toBe(true);
   const capped=await page.evaluate(async()=>{const d=await import('/src/keyboardDebug.ts');for(let i=0;i<205;i++)d.recordKeyboardDebug('viewport',{height:i,reason:'raw-private-error',target:'private-user-id',text:'private-chat',apiKey:'private-key'} as any);return d.getKeyboardDebugRecords();});expect(capped).toHaveLength(200);expect(capped[0].fields.height).toBe(5);expect(capped.at(-1)?.fields).toEqual({height:204});expect(JSON.stringify(capped)).not.toContain('private');
   await page.reload();await expect(page.locator('.desktop')).toBeVisible();expect(await logs(page)).toEqual([]);
 });
@@ -42,11 +42,17 @@ test('回复失败仅记录固定分类，不记录Provider原始错误',async({
   expect(JSON.stringify(await logs(page))).not.toContain('private-provider-error');
 });
 
+test('诊断保留系统blur的armed与超时状态，视口关闭后记录实际回复入口',async({page})=>{
+  const calls=await setup(page,true);await prepareSend(page);await page.getByLabel('聊天消息',{exact:true}).blur();
+  const preserved=(await logs(page)).find(r=>r.event==='blur'&&r.fields.reason==='blur-preserved');expect(preserved?.fields.armed).toBe(true);expect(preserved?.fields.suppressionRemaining).toBe(0);
+  await height(page,844);await page.clock.runFor(400);await expect.poll(calls).toBe(1);expect((await logs(page)).some(r=>r.event==='send-true')).toBe(true);
+});
+
 test('375px小屏与键盘小视口中挂载状态、armed、原因和三条事件不被裁切',async({page})=>{
-  await setup(page,true);await prepareSend(page);await page.getByLabel('聊天消息',{exact:true}).blur();await height(page,844);await page.clock.runFor(700);
+  await setup(page,true);await prepareSend(page);await page.locator('.chat-nav button').first().focus();await height(page,844);await page.clock.runFor(700);
   for(const [width,height] of [[375,667],[375,400],[390,844]]){
     await page.setViewportSize({width,height});const panel=page.getByLabel('键盘开发诊断',{exact:true});
-    await expect(panel.locator('[data-debug-summary]')).toContainText('检测器：已挂载');await expect(panel.locator('[data-debug-summary]')).toContainText('armed=false');await expect(panel.locator('[data-debug-reason]')).toContainText('blur-rejected');await expect(panel.locator('[data-debug-event]')).toHaveCount(3);
+    await expect(panel.locator('[data-debug-summary]')).toContainText('检测器：已挂载');await expect(panel.locator('[data-debug-summary]')).toContainText('armed=false');await expect(panel.locator('[data-debug-reason]')).toContainText('focus-other');await expect(panel.locator('[data-debug-event]')).toHaveCount(3);
     const visible=await panel.evaluate(el=>{const p=el.getBoundingClientRect();return [...el.querySelectorAll('[data-debug-summary],[data-debug-reason],[data-debug-event]')].every(c=>{const r=c.getBoundingClientRect();return r.top>=p.top&&r.bottom<=p.bottom&&r.left>=p.left&&r.right<=p.right;})&&p.right<=innerWidth&&p.bottom<=innerHeight;});expect(visible).toBe(true);
     await panel.screenshot({animations:'disabled',path:`/tmp/claudia-keyboard-debug-${width}-${height}.png`});
   }

@@ -290,8 +290,9 @@ export function Chat({ worldId }: { worldId?: string }) {
   }
   const send = (retry = false) => {
     if(retry)recordKeyboardDebug('send-true',{hasConversation:!!conversation,idle:!busy,noPending:!pending.current});
-    if(retry)keyboardAutoReply.cancel();else keyboardAutoReply.suppressSend();
+    if(retry)keyboardAutoReply.cancel();
     if (!retry && (!text.trim() || busy || pending.current)) return Promise.resolve();
+    if(!retry)keyboardAutoReply.suppressSend();
     return runGeneration(retry);
   };
   const keyboardAutoReply=useKeyboardAutoReply(inputRef,{

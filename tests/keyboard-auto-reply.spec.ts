@@ -52,6 +52,28 @@ for(const blur of [false,true])test(`发送后立即收键盘不丢周期，延�
   for(let i=0;i<3;i++){await viewport(page,844);await page.clock.runFor(500);}expect(requests).toHaveLength(1);
 });
 
+for(const order of ['before-viewport','after-viewport'] as const)test(`iPhone无目标blur超过600ms仍保留周期，完整关闭后只回复一次：${order}`,async({page})=>{
+  const {requests}=await setup(page);await openKeyboard(page);await send(page);await page.clock.runFor(700);
+  if(order==='before-viewport'){await page.getByLabel('聊天消息',{exact:true}).blur();await page.clock.runFor(500);expect(requests).toHaveLength(0);}
+  await viewport(page,844);
+  if(order==='after-viewport'){await page.clock.runFor(100);await page.getByLabel('聊天消息',{exact:true}).blur();}
+  await page.clock.runFor(500);await expect.poll(()=>requests.length).toBe(1);await expect(page.locator('.chat-history')).toContainText('自动回复完成。');
+  for(let i=0;i<3;i++){await viewport(page,844);await page.clock.runFor(500);}expect(requests).toHaveLength(1);
+});
+
+test('保留无目标blur不等于放宽视口阈值，恢复不足仍不回复',async({page})=>{
+  const {requests}=await setup(page);await openKeyboard(page);await send(page);await page.clock.runFor(700);await page.getByLabel('聊天消息',{exact:true}).blur();
+  await viewport(page,754);await page.clock.runFor(700);expect(requests).toHaveLength(0);
+  await viewport(page,844);await page.clock.runFor(400);await expect.poll(()=>requests.length).toBe(1);
+});
+
+test('空白Enter不是发送过程，不能使后续系统blur被永久标为发送失焦',async({page})=>{
+  const {ids,requests}=await setup(page);await openKeyboard(page);await send(page);await page.clock.runFor(700);
+  await page.getByLabel('聊天消息',{exact:true}).fill(' ');await page.getByLabel('聊天消息',{exact:true}).press('Enter');await page.getByLabel('聊天消息',{exact:true}).blur();
+  await viewport(page,844);await page.clock.runFor(400);await expect.poll(()=>requests.length).toBe(1);
+  const users=await page.evaluate(async id=>(await(await import('/src/messagePath.ts')).activeMessages(id)).filter(m=>m.role==='user').map(m=>m.content),ids.a);expect(users).toEqual(['待回复消息']);
+});
+
 test('保存后blur但没有关闭几何信号不触发；发送按钮目标失焦即使高度恢复也不触发',async({page})=>{
   const {requests}=await setup(page);await openKeyboard(page);await send(page);await page.clock.runFor(1);await page.getByLabel('聊天消息',{exact:true}).blur();await page.clock.runFor(700);expect(requests).toHaveLength(0);
   await openKeyboard(page);await send(page,'第二条');
@@ -71,9 +93,9 @@ test('发送尚未完成时发生无目标失焦，随后视口恢复也不冒�
   await viewport(page,844);await page.clock.runFor(1000);expect(requests).toHaveLength(0);
 });
 
-for(const reason of ['blur','details','popup','background','window-blur','composition','rotation','zoom','invalid','leave','unmount'] as const)test(`候选期间取消：${reason}`,async({page})=>{
+for(const reason of ['control-blur','details','popup','background','window-blur','composition','rotation','zoom','invalid','leave','unmount'] as const)test(`候选期间取消：${reason}`,async({page})=>{
   const {requests}=await setup(page);await openKeyboard(page);await send(page);await page.clock.runFor(700);await viewport(page,844);await page.clock.runFor(100);
-  if(reason==='blur')await page.getByLabel('聊天消息',{exact:true}).blur();
+  if(reason==='control-blur')await page.locator('.chat-nav button').first().focus();
   if(reason==='details')await page.getByRole('button',{name:'会话管理',exact:true}).click();
   if(reason==='popup')await page.evaluate(()=>{const d=document.createElement('div');d.setAttribute('role','dialog');document.body.append(d);});
   if(reason==='background')await page.evaluate(()=>{Object.defineProperty(document,'hidden',{value:true,configurable:true});document.dispatchEvent(new Event('visibilitychange'));});
@@ -100,13 +122,18 @@ test('键盘仍打开时切换路径，旧视口事件不得给新时间线重�
   await viewport(page,400);await page.clock.runFor(700);await viewport(page,844);await page.clock.runFor(700);expect(requests).toHaveLength(0);
 });
 
-test('时间线切换取消旧候选；自动失败不因重复事件无限重试',async({page})=>{
+test('时间线切换取消旧候选且保留新路径消息',async({page})=>{
   const {ids,requests}=await setup(page);await openKeyboard(page);await send(page);await page.clock.runFor(700);await viewport(page,844);await page.clock.runFor(100);
   await page.evaluate(async id=>{const {activeMessages}=await import('/src/messagePath.ts');const m=(await activeMessages(id))[0];await(await import('/src/messageOperations.ts')).editMessage(id,m.id,'时间线更改');},ids.a);
   await page.clock.runFor(900);expect(requests).toHaveLength(0);
   await expect.poll(async()=>{await page.clock.runFor(1);return page.locator('.chat-history').textContent();}).toContain('时间线更改');
+  const rows=await page.evaluate(async id=>(await import('/src/messagePath.ts')).activeMessages(id),ids.a);expect(rows).toHaveLength(1);expect(rows[0].content).toBe('时间线更改');
+});
+
+test('自动回复API失败后重复viewport不重试且保留用户消息',async({page})=>{
+  const {ids}=await setup(page);await openKeyboard(page);await send(page,'失败待回复');await page.clock.runFor(700);
   let failures=0;await page.route('https://keyboard.test/**',r=>{failures++;return r.fulfill({status:401,json:{error:{message:'fixture denied'}}});});
-  await openKeyboard(page);await viewport(page,844);await page.clock.runFor(500);await expect.poll(()=>failures).toBe(1);await expect(page.getByRole('alert')).toBeVisible();
+  await viewport(page,844);await page.clock.runFor(500);await expect.poll(()=>failures).toBe(1);await expect(page.getByRole('alert')).toBeVisible();
   for(let i=0;i<3;i++){await viewport(page,844);await page.clock.runFor(500);}
-  const rows=await page.evaluate(async id=>(await import('/src/messagePath.ts')).activeMessages(id),ids.a);expect(rows).toHaveLength(1);expect(rows[0].content).toBe('时间线更改');expect(failures).toBe(1);
+  const rows=await page.evaluate(async id=>(await import('/src/messagePath.ts')).activeMessages(id),ids.a);expect(rows).toHaveLength(1);expect(rows[0].content).toBe('失败待回复');expect(failures).toBe(1);
 });
