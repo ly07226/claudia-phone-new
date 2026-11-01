@@ -1,12 +1,12 @@
 const events=['mounted','not-mounted','unmounted','viewport','open-check','close-check','keyboardOpen','keyboardClosed','focus','blur','pointer','composition','reset','candidate-created','candidate-cancelled','candidate-timer','reply-requested','reply-check','reply-returned','send-true','generation-entered','generation-blocked','save-state','save-finished','send-suppression'] as const;
 type DebugEvent=typeof events[number];
-const reasons=['disabled','blocked','no-viewport','no-touch','no-coarse-pointer','gate','invalid-viewport','width-changed','not-closed','reschedule','consumed','timer-rejected','reply-check-failed','focus-other','blur-rejected','blur-preserved','blur-send-in-progress','pointer-other','send-pointer','input-pointer','composition-start','composition-end','visibilitychange','pagehide','window-blur','orientationchange','contextmenu','cleanup','manual-cancel','no-conversation','busy','service-lock','service-path','service-no-pending','generation-failed'] as const;
+const reasons=['disabled','blocked','no-viewport','no-touch','no-coarse-pointer','gate','invalid-viewport','width-changed','not-closed','reschedule','consumed','timer-rejected','reply-check-failed','focus-other','blur-rejected','blur-preserved','blur-send-in-progress','pointer-other','send-pointer','input-pointer','composition-start','composition-end','visibilitychange','pagehide','window-blur','orientationchange','contextmenu','cleanup','manual-cancel','no-conversation','busy','service-lock','service-path','service-no-pending','generation-failed','gate-hidden','gate-overlay','gate-composing','gate-path','waiting-save','window-blur-observed'] as const;
 type DebugReason=typeof reasons[number];
 const numeric=['detector','height','width','offsetTop','scale','baseline','openHeight','closeHeight','innerHeight','clientHeight','widthDelta','openDelta','openThreshold','closedMinimum','closeDelta','suppressionRemaining','delay','candidateHeight'] as const;
 const flags=['armed','focused','inputFocused','savedWithFocus','sendFocusPending','saving','enabled','blocked','documentFocused','hidden','composing','scopeMatches','alive','noOverlay','viewportValid','openFocusPass','openHeightPass','closeBaselinePass','closeRisePass','closeOffsetPass','heightStable','suppressionElapsed','attempt','canReply','hasConversation','currentConversation','pathConversation','pathTimeline','pathEpoch','idle','noPending','pendingUser','success'] as const;
 type Target='input'|'send'|'reply'|'control'|'none'|'other';
 type Source='setup'|'resize'|'scroll'|'focusin'|'focusout'|'pointerdown'|'compositionstart'|'compositionend'|'visibilitychange'|'pagehide'|'blur'|'orientationchange'|'contextmenu';
-export type DebugFields=Partial<Record<typeof numeric[number],number>&Record<typeof flags[number],boolean>>&{reason?:DebugReason;target?:Target;relatedTarget?:Target;source?:Source;state?:'open'|'closed'|'unknown'};
+export type DebugFields=Partial<Record<typeof numeric[number],number>&Record<typeof flags[number],boolean>>&{reason?:DebugReason;target?:Target;relatedTarget?:Target;source?:Source;state?:'open'|'closed'|'unknown';phase?:'idle'|'open'|'closing'|'waiting-save'|'consumed'};
 export interface KeyboardDebugRecord {sequence:number;ms:number;event:DebugEvent;fields:DebugFields}
 const targets=['input','send','reply','control','none','other'];
 const sources=['setup','resize','scroll','focusin','focusout','pointerdown','compositionstart','compositionend','visibilitychange','pagehide','blur','orientationchange','contextmenu'];
@@ -25,6 +25,7 @@ export function recordKeyboardDebug(event:DebugEvent,fields:DebugFields={}){
   if(fields.relatedTarget&&targets.includes(fields.relatedTarget))safe.relatedTarget=fields.relatedTarget;
   if(fields.source&&sources.includes(fields.source))safe.source=fields.source;
   if(fields.state&&['open','closed','unknown'].includes(fields.state))safe.state=fields.state;
+  if(fields.phase&&['idle','open','closing','waiting-save','consumed'].includes(fields.phase))safe.phase=fields.phase;
   records=[...records.slice(-199),{sequence:++sequence,ms:Math.round(performance.now()),event,fields:safe as DebugFields}];
   for(const notify of listeners)notify();
 }

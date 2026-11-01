@@ -1,129 +1,132 @@
 import {useEffect,useRef,type RefObject} from 'react';
 import {keyboardDebugEnabled,keyboardDebugTarget,nextKeyboardDebugDetector,recordKeyboardDebug,type DebugFields} from './keyboardDebug';
-
 interface Options {
-  scope:string;
-  conversationId?:string;
-  initialTimeline:boolean;
-  enabled:boolean;
-  blocked:boolean;
-  savingMessage:boolean;
-  canReply:()=>boolean;
-  reply:()=>void;
+  scope:string; identity:string; epoch:number; conversationId?:string; initialTimeline:boolean;
+  enabled:boolean; blocked:boolean; savingMessage:boolean;
+  canReply:()=>boolean; reply:()=>void;
 }
-/** Best-effort intent inference, never a reliable system-keyboard notification.
- * No geometry, focus or scroll writes: this observer is independent of layout.
- */
+type Phase='idle'|'open'|'closing'|'waiting-save'|'consumed';
+/** Presentation-independent, best-effort keyboard cycle. Never writes geometry or focus. */
 export function useKeyboardAutoReply(input:RefObject<HTMLTextAreaElement|null>,options:Options){
   const latest=useRef(options);latest.current=options;
-  const suppressUntil=useRef(0);
-  const savedWithFocus=useRef(false);
-  const sendFocusPending=useRef(false);
-  const previousSaving=useRef(options.savingMessage);
-  const saveFinished=useRef(()=>{});
-  const initialRoot=useRef<string|undefined>(undefined);
-  const cancelRef=useRef(()=>{});
-  const debugDetector=useRef(0);
+  const control=useRef<{cancel:()=>void;send:()=>void;sample:()=>void}|null>(null);
   useEffect(()=>{
-    const debug=keyboardDebugEnabled(),detector=nextKeyboardDebugDetector();debugDetector.current=detector;
-    // Only lazy creation of the first root may retain the already-focused editor.
-    // A real path/overlay change requires a fresh input interaction before arming.
-    const initializingRoot=initialRoot.current===options.conversationId&&!options.initialTimeline;
-    initialRoot.current=options.initialTimeline?options.conversationId:undefined;
-    const viewport=window.visualViewport;
-    if(!options.enabled||options.blocked||!viewport||navigator.maxTouchPoints<1||!matchMedia('(pointer: coarse)').matches){
-      if(debug)recordKeyboardDebug('not-mounted',{detector,enabled:options.enabled,blocked:options.blocked,reason:!options.enabled?'disabled':options.blocked?'blocked':!viewport?'no-viewport':navigator.maxTouchPoints<1?'no-touch':'no-coarse-pointer'});
+    const debug=keyboardDebugEnabled(),detector=nextKeyboardDebugDetector(),availableViewport=window.visualViewport;
+    if(!options.enabled||!availableViewport||navigator.maxTouchPoints<1||!matchMedia('(pointer: coarse)').matches){
+      if(debug)recordKeyboardDebug('not-mounted',{detector,reason:!options.enabled?'disabled':!availableViewport?'no-viewport':navigator.maxTouchPoints<1?'no-touch':'no-coarse-pointer'});
       return;
     }
-    const scope=options.scope;
-    let timer:ReturnType<typeof setTimeout>|undefined;
-    let armed=false,focused=initializingRoot&&document.activeElement===input.current,composing=false,disposed=false;
-    let baseline=Math.max(innerHeight,document.documentElement.clientHeight,viewport.height);
-    let width=innerWidth,viewportWidth=viewport.width,openHeight=0;
+    const viewport=availableViewport;
+    let scope=options.scope,epoch=options.epoch,initial=options.initialTimeline;
+    let phase:Phase='idle',focusSeen=false,composing=false,disposed=false,acceptedSend=false;
+    // Learn the actually visible closed viewport, never the larger layout viewport.
+    let baseline=viewport.height,width=innerWidth,vwidth=viewport.width,openHeight=0;
+    let wasSaving=options.savingMessage;
+    let closeHeight=0,closedAt=0,suppressUntil=0,timer:ReturnType<typeof setTimeout>|undefined;
+    const armed=()=>phase==='open'||phase==='closing'||phase==='waiting-save';
+    const tolerance=()=>Math.max(80,(baseline-openHeight)*.25);
+    const valid=()=>Number.isFinite(viewport.height)&&viewport.height>0&&Number.isFinite(viewport.width)&&viewport.width>0&&Number.isFinite(viewport.offsetTop)&&Math.abs(viewport.scale-1)<.02;
+    const closed=()=>viewport.height>=baseline-tolerance()&&viewport.height-openHeight>=150;
     const trace=(event:Parameters<typeof recordKeyboardDebug>[0],fields:DebugFields={})=>{
       if(!debug)return;
-      recordKeyboardDebug(event,{detector,height:viewport.height,width:viewport.width,offsetTop:viewport.offsetTop,scale:viewport.scale,baseline,openHeight,closeHeight:viewport.height,innerHeight,clientHeight:document.documentElement.clientHeight,widthDelta:Math.abs(viewport.width-viewportWidth),openDelta:baseline-viewport.height,openThreshold:Math.max(150,baseline*.2),closedMinimum:baseline-80,closeDelta:viewport.height-openHeight,armed,focused,inputFocused:document.activeElement===input.current,savedWithFocus:savedWithFocus.current,sendFocusPending:sendFocusPending.current,saving:latest.current.savingMessage,enabled:latest.current.enabled,blocked:latest.current.blocked,documentFocused:document.hasFocus(),hidden:document.hidden,composing,scopeMatches:latest.current.scope===scope,alive:!disposed,noOverlay:!document.querySelector('[role="dialog"],[role="alertdialog"],dialog[open]'),viewportValid:Number.isFinite(viewport.height)&&viewport.height>0&&Number.isFinite(viewport.offsetTop)&&viewport.offsetTop>=0&&Math.abs(viewport.scale-1)<.02,openFocusPass:focused&&document.activeElement===input.current,openHeightPass:baseline-viewport.height>=Math.max(150,baseline*.2),closeBaselinePass:viewport.height>=baseline-80,closeRisePass:viewport.height-openHeight>=150,closeOffsetPass:viewport.offsetTop<=40,suppressionRemaining:Math.max(0,suppressUntil.current-performance.now()),state:armed?(viewport.height>=baseline-80&&viewport.height-openHeight>=150&&viewport.offsetTop<=40?'closed':'open'):'unknown',...fields});
+      recordKeyboardDebug(event,{detector,phase,height:viewport.height,width:viewport.width,offsetTop:viewport.offsetTop,scale:viewport.scale,baseline,openHeight,closeHeight,innerHeight,clientHeight:document.documentElement.clientHeight,armed:armed(),focused:focusSeen,inputFocused:document.activeElement===input.current,saving:latest.current.savingMessage,enabled:latest.current.enabled,blocked:latest.current.blocked,documentFocused:document.hasFocus(),hidden:document.hidden,composing,scopeMatches:scope===latest.current.scope,alive:!disposed,noOverlay:!document.querySelector('[role="dialog"],[role="alertdialog"],dialog[open]'),openFocusPass:focusSeen,openHeightPass:baseline-viewport.height>=Math.max(150,baseline*.2),openThreshold:Math.max(150,baseline*.2),closedMinimum:baseline-tolerance(),closeBaselinePass:viewport.height>=baseline-tolerance(),closeRisePass:viewport.height-openHeight>=150,closeOffsetPass:true,viewportValid:valid(),suppressionRemaining:Math.max(0,suppressUntil-performance.now()),state:armed()?(closed()?'closed':'open'):'unknown',...fields});
     };
-    const clear=(reason:DebugFields['reason']='reschedule')=>{if(timer!==undefined)trace('candidate-cancelled',{reason});clearTimeout(timer);timer=undefined;};
-    const reset=(reason:DebugFields['reason']='manual-cancel')=>{clear(reason);armed=false;focused=false;openHeight=0;savedWithFocus.current=false;trace('reset',{reason});};
-    cancelRef.current=()=>reset('manual-cancel');
-    saveFinished.current=()=>{savedWithFocus.current=document.activeElement===input.current;if(savedWithFocus.current)sendFocusPending.current=false;trace('save-finished');};
-    const valid=()=>Number.isFinite(viewport.height)&&viewport.height>0&&Number.isFinite(viewport.offsetTop)&&viewport.offsetTop>=0&&Math.abs(viewport.scale-1)<.02;
-    const allowed=()=>!disposed&&latest.current.scope===scope&&latest.current.enabled&&!latest.current.blocked&&!document.hidden&&document.hasFocus()&&!composing&&!document.querySelector('[role="dialog"],[role="alertdialog"],dialog[open]');
-    const closed=()=>viewport.height>=baseline-80&&viewport.height-openHeight>=150&&viewport.offsetTop<=40;
-    const update=(event?:Event)=>{
+    const clear=(reason:DebugFields['reason'])=>{if(timer!==undefined)trace('candidate-cancelled',{reason});clearTimeout(timer);timer=undefined;};
+    const reset=(reason:DebugFields['reason'])=>{clear(reason);phase='idle';focusSeen=false;openHeight=0;closeHeight=0;closedAt=0;acceptedSend=false;trace('reset',{reason});};
+    const gate=():DebugFields['reason']|undefined=>{
+      if(disposed)return 'cleanup';
+      if(!latest.current.enabled)return 'disabled';
+      if(document.hidden)return 'gate-hidden';
+      if(latest.current.blocked)return 'blocked';
+      if(composing)return 'gate-composing';
+      if(document.querySelector('[role="dialog"],[role="alertdialog"],dialog[open]'))return 'gate-overlay';
+    };
+    const sync=()=>{
+      if(scope===latest.current.scope)return true;
+      // A first local append may lazily create the root while closing/saving.
+      if(initial&&!latest.current.initialTimeline&&acceptedSend&&epoch===latest.current.epoch){
+        scope=latest.current.scope;initial=false;return true;
+      }
+      reset('gate-path');scope=latest.current.scope;epoch=latest.current.epoch;initial=latest.current.initialTimeline;return false;
+    };
+    function attempt(){
+      timer=undefined;
+      if(!sync())return;
+      const reason=gate();if(reason){reset(reason);return;}
+      if(!valid()){reset('invalid-viewport');return;}
+      if(!closed()){phase='open';closeHeight=0;trace('close-check');return;}
+      if(Math.abs(viewport.height-closeHeight)>=24){startClose();return;}
+      const remaining=Math.max(400-(performance.now()-closedAt),suppressUntil-performance.now());
+      if(remaining>0){timer=setTimeout(attempt,remaining);return;}
+      trace('candidate-timer',{attempt:true,heightStable:true,suppressionElapsed:true});
+      if(latest.current.savingMessage){phase='waiting-save';trace('reply-check',{reason:'waiting-save'});return;}
+      const canReply=latest.current.canReply();trace('reply-check',{canReply,reason:canReply?undefined:'reply-check-failed'});
+      // Consume before entering the shared manual path, even if that request fails.
+      phase='consumed';acceptedSend=false;trace('reset',{reason:'consumed'});
+      if(canReply){trace('reply-requested');latest.current.reply();}
+    }
+    function startClose(){
+      clear('reschedule');phase='closing';closeHeight=viewport.height;closedAt=performance.now();
+      const delay=Math.max(400,suppressUntil-performance.now());timer=setTimeout(attempt,delay);
+      trace('keyboardClosed');trace('candidate-created',{delay,candidateHeight:closeHeight});
+    }
+    function sample(event?:Event){
       trace('viewport',{source:event?.type as DebugFields['source']??'setup'});
-      if(!allowed()||!valid()){reset(!allowed()?'gate':'invalid-viewport');return;}
-      if(Math.abs(innerWidth-width)>2||Math.abs(viewport.width-viewportWidth)>2){
-        reset('width-changed');width=innerWidth;viewportWidth=viewport.width;baseline=Math.max(innerHeight,document.documentElement.clientHeight,viewport.height);return;
+      if(!sync())return;
+      const reason=gate();if(reason){reset(reason);return;}
+      if(!valid()){reset('invalid-viewport');return;}
+      if(Math.abs(innerWidth-width)>2||Math.abs(viewport.width-vwidth)>2){reset('width-changed');width=innerWidth;vwidth=viewport.width;baseline=viewport.height;return;}
+      if(!armed()){
+        if(focusSeen&&baseline-viewport.height>=Math.max(150,baseline*.2)){
+          phase='open';openHeight=viewport.height;trace('keyboardOpen');
+        }else if(!focusSeen&&document.activeElement!==input.current)baseline=viewport.height;
+        trace('open-check');return;
       }
-      const inputFocused=document.activeElement===input.current;
-      if(!armed){
-        trace('open-check');
-        if(focused&&inputFocused&&baseline-viewport.height>=Math.max(150,baseline*.2)){
-          armed=true;openHeight=viewport.height;
-          trace('keyboardOpen');
-        }else if(!inputFocused)baseline=Math.max(innerHeight,document.documentElement.clientHeight,viewport.height);
-        return;
+      if(!closed()){
+        clear('not-closed');phase='open';closeHeight=0;openHeight=Math.min(openHeight,viewport.height);trace('close-check');return;
       }
-      trace('close-check');
-      if(!closed()){clear('not-closed');return;}
-      trace('keyboardClosed');
-      clear();const height=viewport.height;
-      const delay=Math.max(400,suppressUntil.current-performance.now());
-      timer=setTimeout(()=>{
-        timer=undefined;
-        const attempt=armed&&allowed()&&valid()&&closed()&&Math.abs(viewport.height-height)<24&&performance.now()>=suppressUntil.current;
-        trace('candidate-timer',{candidateHeight:height,attempt,viewportValid:valid(),heightStable:Math.abs(viewport.height-height)<24,suppressionElapsed:performance.now()>=suppressUntil.current,reason:attempt?undefined:'timer-rejected'});
-        // Consume this open/close cycle before requesting anything, including failure.
-        reset('consumed');
-        if(attempt){const canReply=latest.current.canReply();trace('reply-check',{canReply,reason:canReply?undefined:'reply-check-failed'});if(canReply){trace('reply-requested');latest.current.reply();}}
-      },delay);
-      trace('candidate-created',{delay,candidateHeight:height});
+      if(phase==='open'||Math.abs(viewport.height-closeHeight)>=24){startClose();return;}
+      if(phase==='waiting-save'&&!latest.current.savingMessage)attempt();
+    }
+    const focus=(e:FocusEvent)=>{
+      trace('focus',{source:'focusin',target:keyboardDebugTarget(e.target,input.current)});
+      if(e.target===input.current){focusSeen=true;sample();}else if(e.target!==document.body&&e.target!==document.documentElement)reset('focus-other');
     };
-    const focus=(e:FocusEvent)=>{trace('focus',{target:keyboardDebugTarget(e.target,input.current),source:'focusin'});if(e.target===input.current){sendFocusPending.current=false;focused=true;update();}else reset('focus-other');};
-    // Unknown system blur can precede or follow viewport restoration. Keep an
-    // already-armed cycle regardless of elapsed time; blur never starts a timer.
-    // Known send-related focus loss is rejected until focus retention is observed.
     const blur=(e:FocusEvent)=>{
       if(e.target!==input.current)return;
       trace('blur',{source:'focusout',target:'input',relatedTarget:keyboardDebugTarget(e.relatedTarget,input.current)});
-      if(e.relatedTarget===null&&armed&&allowed()&&!sendFocusPending.current){trace('blur',{reason:'blur-preserved'});return;}
-      reset(e.relatedTarget===null&&sendFocusPending.current?'blur-send-in-progress':'blur-rejected');
+      if(e.relatedTarget===null||e.relatedTarget===document.body||e.relatedTarget===document.documentElement){
+        // Never create a close candidate from blur; retain the observed open cycle.
+        trace('blur',{reason:'blur-preserved'});return;
+      }
+      reset('blur-rejected');
     };
     const pointer=(e:PointerEvent)=>{
       trace('pointer',{source:'pointerdown',target:keyboardDebugTarget(e.target,input.current)});
-      if(e.target===input.current){clear();sendFocusPending.current=false;focused=true;update();return;}
-      if(e.target instanceof Element&&e.target.closest('.chat-send')){clear();sendFocusPending.current=true;savedWithFocus.current=false;suppressUntil.current=performance.now()+600;return;}
+      if(e.target===input.current){focusSeen=true;clear('input-pointer');if(phase==='consumed')phase='idle';sample();return;}
+      if(e.target instanceof Element&&e.target.closest('.chat-send')){clear('send-pointer');if(phase==='closing'||phase==='waiting-save')phase='open';return;}
       reset('pointer-other');
     };
-    const compositionStart=()=>{composing=true;trace('composition',{source:'compositionstart'});reset('composition-start');};
-    const compositionEnd=()=>{composing=false;trace('composition',{source:'compositionend'});reset('composition-end');};
-    const visibility=(event:Event)=>reset(event.type==='blur'?'window-blur':event.type==='pagehide'?'pagehide':'visibilitychange');
-    const context=(event:Event)=>reset(event.type==='orientationchange'?'orientationchange':'contextmenu');
-    viewport.addEventListener('resize',update);viewport.addEventListener('scroll',update);
-    document.addEventListener('focusin',focus);document.addEventListener('focusout',blur);
-    document.addEventListener('pointerdown',pointer,true);
-    input.current?.addEventListener('compositionstart',compositionStart);input.current?.addEventListener('compositionend',compositionEnd);
-    document.addEventListener('visibilitychange',visibility);window.addEventListener('pagehide',visibility);window.addEventListener('blur',visibility);window.addEventListener('orientationchange',context);document.addEventListener('contextmenu',context,true);
+    const compositionStart=()=>{composing=true;reset('composition-start');};
+    const compositionEnd=()=>{composing=false;reset('composition-end');};
+    const visibility=(e:Event)=>{if(e.type==='pagehide'||document.hidden)reset(e.type==='pagehide'?'pagehide':'gate-hidden');};
+    // iOS can report document/window focus loss for its keyboard UI while visible.
+    const windowBlur=()=>{trace('blur',{reason:'window-blur-observed'});if(document.hidden)reset('gate-hidden');};
+    const context=(e:Event)=>reset(e.type==='orientationchange'?'orientationchange':'contextmenu');
     const element=input.current;
-    trace('mounted');
-    update();
-    return()=>{
-      trace('unmounted',{reason:'cleanup'});disposed=true;reset('cleanup');cancelRef.current=()=>{};saveFinished.current=()=>{};
-      viewport.removeEventListener('resize',update);viewport.removeEventListener('scroll',update);
+    viewport.addEventListener('resize',sample);viewport.addEventListener('scroll',sample);
+    document.addEventListener('focusin',focus);document.addEventListener('focusout',blur);document.addEventListener('pointerdown',pointer,true);
+    element?.addEventListener('compositionstart',compositionStart);element?.addEventListener('compositionend',compositionEnd);
+    document.addEventListener('visibilitychange',visibility);window.addEventListener('pagehide',visibility);window.addEventListener('blur',windowBlur);window.addEventListener('orientationchange',context);document.addEventListener('contextmenu',context,true);
+    control.current={cancel:()=>reset('manual-cancel'),send:()=>{acceptedSend=true;suppressUntil=performance.now()+600;trace('send-suppression');},sample:()=>{trace('save-state');if(wasSaving&&!latest.current.savingMessage)trace('save-finished');wasSaving=latest.current.savingMessage;sample();}};
+    trace('mounted');sample();
+    return()=>{trace('unmounted',{reason:'cleanup'});disposed=true;reset('cleanup');control.current=null;
+      viewport.removeEventListener('resize',sample);viewport.removeEventListener('scroll',sample);
       document.removeEventListener('focusin',focus);document.removeEventListener('focusout',blur);document.removeEventListener('pointerdown',pointer,true);
       element?.removeEventListener('compositionstart',compositionStart);element?.removeEventListener('compositionend',compositionEnd);
-      document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',visibility);window.removeEventListener('blur',visibility);window.removeEventListener('orientationchange',context);document.removeEventListener('contextmenu',context,true);
+      document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',visibility);window.removeEventListener('blur',windowBlur);window.removeEventListener('orientationchange',context);document.removeEventListener('contextmenu',context,true);
     };
-  },[options.scope,options.enabled,options.blocked,input]);
-  useEffect(()=>{
-    recordKeyboardDebug('save-state',{detector:debugDetector.current,saving:options.savingMessage});
-    if(previousSaving.current&&!options.savingMessage)saveFinished.current();
-    previousSaving.current=options.savingMessage;
-  },[options.savingMessage]);
-  return {
-    cancel:()=>cancelRef.current(),
-    suppressSend:()=>{sendFocusPending.current=true;savedWithFocus.current=false;suppressUntil.current=performance.now()+600;recordKeyboardDebug('send-suppression',{detector:debugDetector.current,suppressionRemaining:600});},
-  };
+  },[options.identity,options.enabled,input]);
+  useEffect(()=>{control.current?.sample();},[options.scope,options.blocked,options.savingMessage]);
+  return {cancel:()=>control.current?.cancel(),suppressSend:()=>control.current?.send()};
 }

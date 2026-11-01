@@ -63,7 +63,7 @@ for(const order of ['before-viewport','after-viewport'] as const)test(`iPhone无
 
 test('保留无目标blur不等于放宽视口阈值，恢复不足仍不回复',async({page})=>{
   const {requests}=await setup(page);await openKeyboard(page);await send(page);await page.clock.runFor(700);await page.getByLabel('聊天消息',{exact:true}).blur();
-  await viewport(page,754);await page.clock.runFor(700);expect(requests).toHaveLength(0);
+  await viewport(page,700);await page.clock.runFor(700);expect(requests).toHaveLength(0);
   await viewport(page,844);await page.clock.runFor(400);await expect.poll(()=>requests.length).toBe(1);
 });
 
@@ -86,11 +86,11 @@ test('普通发送引起的短暂视口恢复再打开不触发；后续真正�
   await viewport(page,844);await page.clock.runFor(400);await expect.poll(()=>requests.length).toBe(1);
 });
 
-test('发送尚未完成时发生无目标失焦，随后视口恢复也不冒充主动收键盘',async({page})=>{
+test('发送过程中无目标系统失焦不丢周期，保存完成及视口恢复后回复',async({page})=>{
   const {requests}=await setup(page);await openKeyboard(page);await page.getByLabel('聊天消息',{exact:true}).fill('保存期间失焦');
   await page.getByRole('button',{name:'发送',exact:true}).evaluate(el=>{(el as HTMLButtonElement).click();(document.querySelector('.chat-compose textarea') as HTMLTextAreaElement).blur();});
   await expect(page.locator('.chat-history')).toContainText('保存期间失焦');await expect(page.getByRole('button',{name:'取消请求',exact:true})).toHaveCount(0);
-  await viewport(page,844);await page.clock.runFor(1000);expect(requests).toHaveLength(0);
+  await viewport(page,844);await page.clock.runFor(1000);await expect.poll(()=>requests.length).toBe(1);
 });
 
 for(const reason of ['control-blur','details','popup','background','window-blur','composition','rotation','zoom','invalid','leave','unmount'] as const)test(`候选期间取消：${reason}`,async({page})=>{
@@ -99,7 +99,7 @@ for(const reason of ['control-blur','details','popup','background','window-blur'
   if(reason==='details')await page.getByRole('button',{name:'会话管理',exact:true}).click();
   if(reason==='popup')await page.evaluate(()=>{const d=document.createElement('div');d.setAttribute('role','dialog');document.body.append(d);});
   if(reason==='background')await page.evaluate(()=>{Object.defineProperty(document,'hidden',{value:true,configurable:true});document.dispatchEvent(new Event('visibilitychange'));});
-  if(reason==='window-blur')await page.evaluate(()=>window.dispatchEvent(new Event('blur')));
+  if(reason==='window-blur')await page.evaluate(()=>{Object.defineProperty(document,'hidden',{value:true,configurable:true});window.dispatchEvent(new Event('blur'));});
   if(reason==='composition')await page.getByLabel('聊天消息',{exact:true}).dispatchEvent('compositionstart');
   if(reason==='rotation')await page.evaluate(()=>window.dispatchEvent(new Event('orientationchange')));
   if(reason==='zoom')await viewport(page,844,{scale:1.2});
@@ -136,4 +136,30 @@ test('自动回复API失败后重复viewport不重试且保留用户消息',asyn
   await viewport(page,844);await page.clock.runFor(500);await expect.poll(()=>failures).toBe(1);await expect(page.getByRole('alert')).toBeVisible();
   for(let i=0;i<3;i++){await viewport(page,844);await page.clock.runFor(500);}
   const rows=await page.evaluate(async id=>(await import('/src/messagePath.ts')).activeMessages(id),ids.a);expect(rows).toHaveLength(1);expect(rows[0].content).toBe('失败待回复');expect(failures).toBe(1);
+});
+
+test('Safari布局视口844但可见视口744，收起至667且offsetTop>40仍能回复',async({page})=>{
+  const {requests}=await setup(page);
+  await viewport(page,744);await page.clock.runFor(20);await openKeyboard(page);await send(page);
+  await page.clock.runFor(700);await page.getByLabel('聊天消息',{exact:true}).blur();
+  await viewport(page,667,{offsetTop:65});await page.clock.runFor(400);await expect.poll(()=>requests.length).toBe(1);
+});
+
+test('可见页面的系统窗口焦点变化不是后台，不丢失收键盘周期',async({page})=>{
+  const {requests}=await setup(page);await openKeyboard(page);await send(page);await page.clock.runFor(700);
+  await page.evaluate(()=>{Object.defineProperty(document,'hasFocus',{configurable:true,value:()=>false});window.dispatchEvent(new Event('blur'));});
+  await page.getByLabel('聊天消息',{exact:true}).blur();await viewport(page,844);await page.clock.runFor(400);await expect.poll(()=>requests.length).toBe(1);
+});
+
+test('关闭稳定时保存仍未完成，等待保存完成再尝试一次，不提前消费',async({page})=>{
+  const {requests}=await setup(page);await openKeyboard(page);
+  await page.evaluate(async()=>{
+    const {db}=await import('/src/store.ts');const Dexie=Object.getPrototypeOf(db.constructor);
+    await new Promise<void>(ready=>{(window as any).__saveBlock=db.transaction('rw',db.tables,async()=>{await Dexie.waitFor(new Promise<void>(release=>{(window as any).__releaseSave=release;ready();}));});});
+  });
+  await page.getByLabel('聊天消息',{exact:true}).fill('延迟保存的消息');await page.getByRole('button',{name:'发送',exact:true}).click();
+  await page.getByLabel('聊天消息',{exact:true}).blur();await viewport(page,844);await page.clock.runFor(1200);expect(requests).toHaveLength(0);
+  await page.evaluate(async()=>{(window as any).__releaseSave();await (window as any).__saveBlock;});
+  await expect.poll(async()=>{await page.clock.runFor(1);return requests.length;}).toBe(1);await expect(page.locator('.chat-history')).toContainText('自动回复完成。');
+  for(let i=0;i<3;i++){await viewport(page,844);await page.clock.runFor(500);}expect(requests).toHaveLength(1);
 });

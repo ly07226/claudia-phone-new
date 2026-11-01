@@ -297,6 +297,8 @@ export function Chat({ worldId }: { worldId?: string }) {
   };
   const keyboardAutoReply=useKeyboardAutoReply(inputRef,{
     conversationId:conversation?.id,
+    identity:JSON.stringify([worldId,conversation?.id,conversation?.characterId]),
+    epoch:conversation?.timelineEpoch??0,
     initialTimeline:!conversation?.activeTimelineId,
     savingMessage,
     scope:JSON.stringify([worldId,conversation?.id,conversation?.characterId,conversation?.activeTimelineId,conversation?.timelineEpoch]),
