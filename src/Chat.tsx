@@ -442,7 +442,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 void send();
               }}
             >
-              {conversation.chatSettings?.continuousSend && <button className="chat-reply-button" type="button" aria-label="AI 回复" title="让 AI 回复待回复消息" disabled={busy || messages.at(-1)?.role!=="user"} onClick={()=>void send(true)}><span aria-hidden="true">AI 回复</span><svg width={20} height={20} viewBox="0 0 24 24" fill="currentColor" data-icon="apple" aria-hidden="true"><path d="M12 7C9 4 4 5 3.2 9c-1.1 4.8 2.5 12 5.4 12 1.4 0 2.1-.8 3.4-.8s2 .8 3.4.8c2.9 0 6.5-7.2 5.4-12C20 5 15 4 12 7Z"/><path d="M12 5.6C11.7 2.7 14.4.8 17.4 1.2c.1 2.8-2.2 4.6-5.4 4.4Z"/></svg></button>}
+              {conversation.chatSettings?.continuousSend && <button className="chat-reply-button" type="button" aria-label="AI 回复" title="让 AI 回复待回复消息" disabled={busy || messages.at(-1)?.role!=="user"} onClick={()=>void send(true)}><span aria-hidden="true">AI 回复</span><svg width={24} height={24} viewBox="0 0 24 24" fill="none" data-icon="double-sparkle" aria-hidden="true"><path d="M9.5 6 11.8 11.7 17.5 14 11.8 16.3 9.5 22 7.2 16.3 1.5 14 7.2 11.7Z" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinejoin="round"/><path d="M19 1l1.2 3.3L23.5 5.5l-3.3 1.2L19 10l-1.2-3.3-3.3-1.2 3.3-1.2Z" fill="currentColor"/></svg></button>}
               <textarea
                 ref={inputRef}
                 rows={1}
