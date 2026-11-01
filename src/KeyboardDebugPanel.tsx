@@ -1,8 +1,25 @@
-import {useSyncExternalStore} from 'react';
-import {getKeyboardDebugRecords,getKeyboardDebugFirst,keyboardDebugEnabled,subscribeKeyboardDebug} from './keyboardDebug';
+import {useEffect,useState,useSyncExternalStore} from 'react';
+import {exportKeyboardDebugLog,getKeyboardDebugRecords,getKeyboardDebugFirst,keyboardDebugEnabled,subscribeKeyboardDebug} from './keyboardDebug';
 export function KeyboardDebugPanel(){
   const events=useSyncExternalStore(subscribeKeyboardDebug,getKeyboardDebugRecords);
+  const [copyStatus,setCopyStatus]=useState('');
+  useEffect(()=>{
+    if(!keyboardDebugEnabled())return;
+    // Keep this diagnostic-only gesture out of keyboard-cycle listeners, and prevent
+    // native focus transfer. Click remains a user activation for Clipboard API.
+    const keepFocus=(e:Event)=>{
+      if(e.target instanceof Element&&e.target.closest('[data-keyboard-debug-copy]')){e.preventDefault();e.stopPropagation();}
+    };
+    window.addEventListener('pointerdown',keepFocus,{capture:true,passive:false});
+    window.addEventListener('mousedown',keepFocus,{capture:true,passive:false});
+    return()=>{window.removeEventListener('pointerdown',keepFocus,true);window.removeEventListener('mousedown',keepFocus,true);};
+  },[]);
   if(!keyboardDebugEnabled())return null;
+  const copy=()=>{
+    const text=exportKeyboardDebugLog();
+    if(!navigator.clipboard?.writeText){setCopyStatus('此环境不支持复制');return;}
+    void navigator.clipboard.writeText(text).then(()=>setCopyStatus('已复制保留日志'),()=>setCopyStatus('复制失败，请允许剪贴板访问'));
+  };
   const latest=[...events].reverse();
   const first=getKeyboardDebugFirst();
   const stamp=(e:typeof events[number]|undefined)=>e?`#${e.sequence} +${e.ms}ms`:'尚无';
@@ -13,7 +30,8 @@ export function KeyboardDebugPanel(){
   const stopped=latest.find(e=>e.fields.reason&&e.fields.reason!=='consumed'&&['reset','not-mounted','candidate-cancelled','generation-blocked','reply-returned'].includes(e.event));
   const geometry=latest.find(e=>e.fields.height!==undefined)?.fields;
   const checks=latest.find(e=>e.fields.pendingUser!==undefined)?.fields;
-  return <aside inert aria-label="键盘开发诊断" style={{position:'fixed',top:'max(4px, env(safe-area-inset-top))',right:4,width:'min(330px, 84vw)',maxHeight:'min(340px, calc(100svh - 12px))',overflow:'hidden',zIndex:10000,pointerEvents:'none',userSelect:'none',WebkitUserSelect:'none',background:'#1e3028',color:'#f5f7ed',borderRadius:8,padding:7,fontSize:11,lineHeight:1.35,whiteSpace:'normal',overflowWrap:'anywhere'}}>
+  return <aside aria-label="键盘开发诊断" style={{position:'fixed',top:'max(4px, env(safe-area-inset-top))',right:4,width:'min(330px, 84vw)',maxHeight:'min(340px, calc(100svh - 12px))',overflow:'hidden',zIndex:10000,pointerEvents:'none',userSelect:'none',WebkitUserSelect:'none',background:'#1e3028',color:'#f5f7ed',borderRadius:8,padding:7,fontSize:11,lineHeight:1.35,whiteSpace:'normal',overflowWrap:'anywhere'}}>
+    <div inert data-debug-readonly>
     <strong>键盘诊断（只读／推断） · {events.length}/200</strong>
     <div data-debug-summary>检测器：{mounted?'已挂载':'未挂载'} · D{detector?.fields.detector??0} · armed={String(armed??false)}</div>
     <div>keyboard={state} save={String(geometry?.saving??'?')} h={geometry?.height??'?'} top={geometry?.offsetTop??'?'} B={geometry?.baseline??'?'}</div>
@@ -22,5 +40,8 @@ export function KeyboardDebugPanel(){
     <div data-debug-first>首次失焦：{stamp(first.blur)}<br/>首次视口恢复：{stamp(first.viewport)}<br/>首次自动触发：{stamp(first.auto)}<br/>首次 disabled：{stamp(first.disabled)}</div>
     <div>最近事件（旧→新；+ms 自页面加载）</div>
     {events.slice(-3).map(e=><div data-debug-event key={e.sequence} style={{whiteSpace:'normal',overflowWrap:'anywhere'}}>{e.sequence} · {e.ms}ms · {e.event}{e.fields.flow?` · ${e.fields.flow}`:''}{e.fields.reason?` · ${e.fields.reason}`:''}{e.fields.inputFocused!==undefined?` F=${+e.fields.inputFocused}`:''}{e.fields.disabled!==undefined?` D=${+e.fields.disabled}`:''}</div>)}
+    </div>
+    <button type="button" data-keyboard-debug-copy aria-label="复制完整日志" onClick={copy} style={{pointerEvents:'auto',minHeight:36,padding:'6px 12px',marginTop:4,borderRadius:6,border:'1px solid #a6bdad',background:'#f3f5ec',color:'#24392d',fontSize:12}}>复制完整日志</button>
+    <span role="status" style={{marginLeft:6}}>{copyStatus}</span>
   </aside>;
 }

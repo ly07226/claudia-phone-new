@@ -21,7 +21,7 @@ test('默认无面板、无日志；诊断关闭时不记录',async({page})=>{
   await setup(page,false);await prepareSend(page);await expect(page.getByLabel('键盘开发诊断',{exact:true})).toHaveCount(0);expect(await logs(page)).toEqual([]);
 });
 test('只读浮层不抢焦点/触摸、不占布局；成功链路日志无正文、Key或持久ID',async({page})=>{
-  const calls=await setup(page,true),panel=page.getByLabel('键盘开发诊断',{exact:true});await expect(panel).toBeVisible();await expect(panel).toHaveCSS('position','fixed');await expect(panel).toHaveCSS('pointer-events','none');await expect(panel).toHaveAttribute('inert','');await expect(panel.locator('button,input,textarea,a,[tabindex]')).toHaveCount(0);
+  const calls=await setup(page,true),panel=page.getByLabel('键盘开发诊断',{exact:true});await expect(panel).toBeVisible();await expect(panel).toHaveCSS('position','fixed');await expect(panel).toHaveCSS('pointer-events','none');await expect(panel.locator('[data-debug-readonly]')).toHaveAttribute('inert','');await expect(panel.locator('[data-debug-readonly] button,input,textarea,a,[tabindex]')).toHaveCount(0);await expect(panel.getByRole('button',{name:'复制完整日志'})).toHaveCount(1);
   const same=await panel.evaluate(el=>{const geometry=()=>['.chat-compose','.chat-compose textarea','.chat-send','.chat-history'].map(s=>{const r=document.querySelector(s)!.getBoundingClientRect();return [r.x,r.y,r.width,r.height];});const before=geometry(),scroll=scrollY;el.setAttribute('hidden','');const after=geometry();el.removeAttribute('hidden');return JSON.stringify(before)===JSON.stringify(after)&&scroll===scrollY;});expect(same).toBe(true);
   await prepareSend(page);await expect(page.getByLabel('聊天消息',{exact:true})).toBeFocused();await height(page,844);await page.clock.runFor(400);await expect.poll(calls).toBe(1);await expect(page.locator('.chat-history')).toContainText('私密AI正文');
   const rows=await logs(page),events=rows.map(r=>r.event);for(const event of ['mounted','keyboardOpen','keyboardClosed','candidate-created','candidate-timer','save-finished','reply-check','reply-requested','send-true','generation-entered'])expect(events).toContain(event);
@@ -99,4 +99,43 @@ test('禁用写入在同步blur前记录，恢复原生行为；节点替换/卸
   rows=await logs(page);expect(rows.filter(e=>e.event==='input-mounted').length).toBeGreaterThanOrEqual(3);expect(rows.some(e=>e.event==='input-removed'&&!e.fields.connected)).toBe(true);
   await page.evaluate(async()=>{(await import('/src/store.ts')).usePhone.getState().set({activeApp:null});});
   expect(await input.count()).toBe(0);
+});
+
+test('导出统一有序日志、时间/flow/观测状态；截断数量准确且敏感字段被过滤',async({page})=>{
+  await setup(page,true);
+  const result=await page.evaluate(async()=>{
+    const d=await import('/src/keyboardDebug.ts');
+    d.recordKeyboardDebug('viewport',{height:400,offsetTop:21,state:'open',armed:true,inputFocused:true,disabled:false});
+    d.recordKeyboardDebug('send-start',{flow:'ordinary'});
+    d.recordKeyboardDebug('send-true',{flow:'manual'});
+    d.recordKeyboardDebug('send-true',{flow:'automatic',text:'private-text',name:'private-name',apiKey:'private-key',token:'private-token',userId:'private-user'} as any);
+    const complete=d.exportKeyboardDebugLog();
+    for(let i=0;i<205;i++)d.recordKeyboardDebug('viewport',{height:i});
+    return {complete,truncated:d.exportKeyboardDebugLog(),rows:d.getKeyboardDebugRecords()};
+  });
+  const parse=(text:string)=>text.split('\n').filter(l=>l.startsWith('{')).map(l=>JSON.parse(l));
+  const rows=parse(result.complete);
+  expect(result.complete).toContain('丢弃=0');expect(result.complete).toContain('未截断：包含本页当前全部诊断事件');
+  expect(rows.filter(e=>e.event==='send-true').map(e=>e.flow)).toEqual(['manual','automatic']);
+  expect(rows.find(e=>e.event==='send-start').flow).toBe('ordinary');
+  expect(rows.at(-1).context).toMatchObject({height:400,offsetTop:21,state:'open',armed:true,inputFocused:true,disabled:false});
+  for(let i=1;i<rows.length;i++){expect(rows[i].sequence).toBe(rows[i-1].sequence+1);expect(rows[i].ms).toBeGreaterThanOrEqual(rows[i-1].ms);}
+  expect(result.truncated).toContain(`丢弃=${result.rows[0].sequence-1}`);expect(result.truncated).toContain('已截断：仅导出保留事件，并非完整历史');
+  expect(parse(result.truncated)).toHaveLength(200);
+  for(const secret of ['private-text','private-name','private-key','private-token','private-user','私密','synthetic-private-credential'])expect(result.complete+result.truncated).not.toContain(secret);
+});
+
+test('主动触屏复制不失焦、不取消armed、不发送；复制失败不使用抢焦点回退',async({page})=>{
+  const calls=await setup(page,true);await prepareSend(page);
+  await page.evaluate(()=>{Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async(text:string)=>{(window as any).__copied=text;}}});});
+  const input=page.getByLabel('聊天消息',{exact:true}),copy=page.getByRole('button',{name:'复制完整日志',exact:true});
+  const before=await logs(page);const geometry=await input.boundingBox();
+  await copy.tap();await expect(input).toBeFocused();expect(await input.boundingBox()).toEqual(geometry);expect(calls()).toBe(0);
+  const after=await logs(page);expect(after).toEqual(before);
+  await expect(page.getByLabel('键盘开发诊断',{exact:true})).toContainText('已复制保留日志');
+  const copied=await page.evaluate(()=>(window as any).__copied as string);expect(copied).toContain('Claudia Phone keyboard diagnostic v1');expect(copied).toContain('keyboardOpen');
+  await page.evaluate(()=>{Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('private-system-error');}}});});
+  await copy.tap();await expect(input).toBeFocused();await expect(page.getByLabel('键盘开发诊断',{exact:true})).toContainText('复制失败，请允许剪贴板访问');
+  expect(await logs(page)).toEqual(before);expect(calls()).toBe(0);
+  await height(page,844);await page.clock.runFor(400);await expect.poll(calls).toBe(1);
 });

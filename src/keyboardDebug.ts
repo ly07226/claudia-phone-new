@@ -42,3 +42,27 @@ export function keyboardDebugTarget(target:EventTarget|null,input:HTMLElement|nu
   if(target instanceof Element){if(target.closest('.chat-send'))return 'send';if(target.closest('.chat-reply-button'))return 'reply';if(target.closest('button,input,textarea,select,a'))return 'control';}
   return 'other';
 }
+
+/** Snapshot only: no DOM reads, persistence, network, or recovery of discarded events. */
+export function exportKeyboardDebugLog(){
+  if(!keyboardDebugEnabled())return '';
+  const snapshot=records;
+  const dropped=sequence-snapshot.length;
+  const header=[
+    'Claudia Phone keyboard diagnostic v1',
+    `记录=${snapshot.length}；丢弃=${dropped}；上限=200`,
+    dropped?'已截断：仅导出保留事件，并非完整历史。':'未截断：包含本页当前全部诊断事件。',
+    'ms 为页面加载后的 performance.now()；sequence 为统一事件序号。',
+    'flow=null 表示未归属普通/手动/自动流程，不推断归属。',
+    'context 为保留日志中的最近观测值；null 表示尚无观测，不代表实际状态。',
+  ];
+  const context:Record<string,number|boolean|string|null>={state:null,phase:null,armed:null,inputFocused:null,disabled:null,height:null,offsetTop:null,baseline:null,openHeight:null};
+  const lines=snapshot.map(record=>{
+    for(const key of Object.keys(context)){
+      const value=record.fields[key as keyof DebugFields];
+      if(value!==undefined)context[key]=value;
+    }
+    return JSON.stringify({sequence:record.sequence,ms:record.ms,event:record.event,flow:record.fields.flow??null,context:{...context},fields:record.fields});
+  });
+  return [...header,...lines].join('\n');
+}
