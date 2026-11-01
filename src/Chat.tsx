@@ -12,6 +12,7 @@ import { ChatManagement } from "./ChatManagement";
 import { chatDisplayName } from "./chatPresentation";
 import { useChatViewport } from "./useChatViewport";
 import { useKeyboardAutoReply } from "./useKeyboardAutoReply";
+import { observeComposerDebug } from "./composerDebug";
 import { KeyboardDebugPanel } from "./KeyboardDebugPanel";
 import { keyboardDebugEnabled, recordKeyboardDebug } from "./keyboardDebug";
 import { activeMessages } from "./messagePath";
@@ -62,6 +63,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const latestRefresh = useRef<Promise<void> | null>(null);
   const visiblePath = useRef<{conversationId:string;timelineId?:string;epoch:number}|null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(()=>observeComposerDebug(),[]);
   const followBottom = useRef(true);
   const onBubbleReveal=useCallback(()=>{if(followBottom.current && historyRef.current)historyRef.current.scrollTop=historyRef.current.scrollHeight;},[]);
   const preserveTop = useRef<number | null>(null);
@@ -228,9 +230,11 @@ export function Chat({ worldId }: { worldId?: string }) {
     target?: Message,
     allowArchive = false,
     force = false,
+    flow: "ordinary"|"automatic"|"manual"|"other" = "other",
   ) {
-    if (!conversation || ((busy || pending.current) && !force)) {recordKeyboardDebug('generation-blocked',{reason:!conversation?'no-conversation':'busy',hasConversation:!!conversation,idle:!busy,noPending:!pending.current});return;}
-    recordKeyboardDebug('generation-entered',{idle:!busy,noPending:!pending.current});
+    if (!conversation || ((busy || pending.current) && !force)) {recordKeyboardDebug('generation-blocked',{flow,reason:!conversation?'no-conversation':'busy',hasConversation:!!conversation,idle:!busy,noPending:!pending.current});return;}
+    recordKeyboardDebug('generation-entered',{flow,idle:!busy,noPending:!pending.current});
+    recordKeyboardDebug('generation-allowed',{flow,idle:!busy,noPending:!pending.current});
     const id = conversation.id;
     const view=visiblePath.current;
     const expectedPath=view?.conversationId===id?{timelineId:view.timelineId,epoch:view.epoch}:{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0};
@@ -257,18 +261,23 @@ export function Chat({ worldId }: { worldId?: string }) {
         });
       }
       if (!retry && !target && conversation.chatSettings?.continuousSend) {
+        recordKeyboardDebug('message-save-start',{flow,inputFocused:document.activeElement===inputRef.current});
         await queueUserMessage(id, draft, expectedPath);
+        recordKeyboardDebug('message-save-end',{flow,success:true,inputFocused:document.activeElement===inputRef.current});
         stored = true;
         await refresh(id, true);
       } else if (target)
         await regenerateMessage(id, target.id, controller.signal, allowArchive, expectedPath);
-      else
+      else {
+        recordKeyboardDebug('ai-start',{flow,inputFocused:document.activeElement===inputRef.current,disabled:!!inputRef.current?.disabled});
         await sendMessage(id, draft, controller.signal, retry, async () => {
           stored = true;
           await refresh(id, true);
         }, expectedPath);
+      }
       if(retry)recordKeyboardDebug('reply-returned',{success:true});
     } catch (e) {
+      if(!retry&&!target&&conversation.chatSettings?.continuousSend&&!stored)recordKeyboardDebug('message-save-end',{flow,success:false,inputFocused:document.activeElement===inputRef.current});
       if(retry&&keyboardDebugEnabled())recordKeyboardDebug('reply-returned',{success:false,reason:e instanceof Error&&e.message==='此会话正在回复中，请稍候。'?'service-lock':e instanceof Error&&e.message==='剧情已在其他窗口切换，请确认当前消息后重试。'?'service-path':e instanceof Error&&e.message==='没有可重试的用户消息。'?'service-no-pending':'generation-failed'});
       if (mounted.current && sequence === taskSequence.current) {
         if (!stored && !retry && !target) setText(draft);
@@ -288,12 +297,14 @@ export function Chat({ worldId }: { worldId?: string }) {
       }
     }
   }
-  const send = (retry = false) => {
-    if(retry)recordKeyboardDebug('send-true',{hasConversation:!!conversation,idle:!busy,noPending:!pending.current});
+  const send = (retry = false, origin: "automatic"|"manual" = "manual") => {
+    const flow=retry?origin:"ordinary";
+    if(!retry)recordKeyboardDebug('send-start',{flow,inputFocused:document.activeElement===inputRef.current,idle:!busy,noPending:!pending.current});
+    if(retry)recordKeyboardDebug('send-true',{flow,hasConversation:!!conversation,idle:!busy,noPending:!pending.current});
     if(retry)keyboardAutoReply.cancel();
     if (!retry && (!text.trim() || busy || pending.current)) return Promise.resolve();
     if(!retry)keyboardAutoReply.suppressSend();
-    return runGeneration(retry);
+    return runGeneration(retry,undefined,false,false,flow);
   };
   const keyboardAutoReply=useKeyboardAutoReply(inputRef,{
     conversationId:conversation?.id,
@@ -309,7 +320,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       if(keyboardDebugEnabled())recordKeyboardDebug('reply-check',{canReply:ready,hasConversation:!!conversation,currentConversation:activeConversation.current===conversation?.id,pathConversation:visiblePath.current?.conversationId===conversation?.id,pathTimeline:visiblePath.current?.timelineId===conversation?.activeTimelineId,pathEpoch:visiblePath.current?.epoch===(conversation?.timelineEpoch??0),idle:!busy,noPending:!pending.current,pendingUser:messages.at(-1)?.role==='user'});
       return ready;
     },
-    reply:()=>{void send(true);},
+    reply:()=>{void send(true,"automatic");},
   });
   const onGenerate = (message?: Message, allowArchive = false) =>
     runGeneration(true, message, allowArchive, true);

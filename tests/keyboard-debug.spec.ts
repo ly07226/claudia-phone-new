@@ -57,3 +57,46 @@ test('375px小屏与键盘小视口中挂载状态、armed、原因和三条事�
     await panel.screenshot({animations:'disabled',path:`/tmp/claudia-keyboard-debug-${width}-${height}.png`});
   }
 });
+
+test('单调时间线区分普通发送和自动回复，首次失焦/恢复/触发/禁用顺序可见',async({page})=>{
+  const calls=await setup(page,true);await prepareSend(page);
+  let rows=await logs(page);
+  for(const name of ['send-pointerdown','send-pointerup','send-click','send-start','message-save-start','message-save-end','input-mounted','input-focus'])expect(rows.some(e=>e.event===name)).toBe(true);
+  expect(rows.some(e=>e.event==='input-disabled'&&e.fields.disabled)).toBe(false);
+  const ordinary=rows.find(e=>e.event==='send-start')!;expect(ordinary.fields.flow).toBe('ordinary');
+  const saving=rows.find(e=>e.event==='message-save-start')!,saved=rows.find(e=>e.event==='message-save-end')!;
+  expect(ordinary.sequence).toBeLessThan(saving.sequence);expect(saving.sequence).toBeLessThan(saved.sequence);expect(saved.fields.success).toBe(true);
+  await page.getByLabel('聊天消息',{exact:true}).blur();await height(page,844);await page.clock.runFor(400);await expect.poll(calls).toBe(1);
+  await expect.poll(async()=>(await logs(page)).some(e=>e.event==='input-disabled'&&e.fields.disabled)).toBe(true);
+  rows=await logs(page);
+  const before=(a:string,b:string)=>expect(rows.find(e=>e.event===a)!.sequence).toBeLessThan(rows.find(e=>e.event===b)!.sequence);
+  before('input-blur','reply-requested');before('reply-requested','send-true');
+  const automatic=rows.filter(e=>e.fields.flow==='automatic');
+  const stages=['send-true','generation-entered','generation-allowed','ai-start'] as const;
+  for(const event of stages)expect(automatic.filter(e=>e.event===event)).toHaveLength(1);
+  const chain=stages.map(event=>automatic.find(e=>e.event===event)!);
+  for(let i=1;i<chain.length;i++)expect(chain[i-1].sequence).toBeLessThan(chain[i].sequence);
+  // Exactly one send(true), and no ordinary/manual generation stage inside this automatic attempt.
+  expect(rows.filter(e=>e.event==='send-true')).toHaveLength(1);
+  expect(rows.filter(e=>e.sequence>=chain[0].sequence&&e.sequence<=chain.at(-1)!.sequence&&stages.some(stage=>stage===e.event))).toEqual(chain);
+  expect(rows.find(e=>e.event==='generation-allowed'&&e.fields.flow==='ordinary')!.sequence).toBeLessThan(saved.sequence);
+  expect(chain[0].fields.flow).toBe('automatic');
+  for(let i=1;i<rows.length;i++){expect(rows[i].sequence).toBeGreaterThan(rows[i-1].sequence);expect(rows[i].ms).toBeGreaterThanOrEqual(rows[i-1].ms);}
+  const first=await page.evaluate(async()=>(await import('/src/keyboardDebug.ts')).getKeyboardDebugFirst());
+  expect(first.blur!.sequence).toBeLessThan(first.viewport!.sequence);expect(first.viewport!.sequence).toBeLessThan(first.auto!.sequence);expect(first.auto!.sequence).toBeLessThan(first.disabled!.sequence);
+  await expect(page.locator('[data-debug-first]')).toContainText('首次 disabled：#');
+  // Milestones survive the bounded 200-row viewport ring without persisting to disk.
+  await page.evaluate(async()=>{const d=await import('/src/keyboardDebug.ts');for(let i=0;i<205;i++)d.recordKeyboardDebug('viewport',{height:400});});
+  expect(await page.evaluate(async()=>(await import('/src/keyboardDebug.ts')).getKeyboardDebugFirst())).toEqual(first);
+});
+
+test('禁用写入在同步blur前记录，恢复原生行为；节点替换/卸载可追踪',async({page})=>{
+  await setup(page,true);const input=page.getByLabel('聊天消息',{exact:true});await input.focus();
+  await input.evaluate(el=>{el.disabled=true;el.disabled=false;el.setAttribute('disabled','');el.removeAttribute('disabled');});
+  let rows=await logs(page);const edges=rows.filter(e=>e.event==='input-disabled');expect(edges.map(e=>e.fields.disabled)).toEqual([true,false,true,false]);
+  const blur=rows.find(e=>e.event==='input-blur');if(blur)expect(edges[0].sequence).toBeLessThan(blur.sequence);
+  await input.evaluate(async el=>{const clone=el.cloneNode(true);el.replaceWith(clone);await Promise.resolve();await Promise.resolve();clone.replaceWith(el);await Promise.resolve();});
+  rows=await logs(page);expect(rows.filter(e=>e.event==='input-mounted').length).toBeGreaterThanOrEqual(3);expect(rows.some(e=>e.event==='input-removed'&&!e.fields.connected)).toBe(true);
+  await page.evaluate(async()=>{(await import('/src/store.ts')).usePhone.getState().set({activeApp:null});});
+  expect(await input.count()).toBe(0);
+});
