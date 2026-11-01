@@ -1,6 +1,9 @@
 import {test,expect,type Page} from '@playwright/test';
 import {isolatedApp} from './backupBrowser';
 async function setup(page:Page,debug:boolean){
+  // Install before any app scripts: installing later resets performance.now(),
+  // mixing native and mocked timestamps within the same diagnostic session.
+  await page.clock.install();
   await page.setViewportSize({width:390,height:844});
   await page.addInitScript(()=>{const vv=new EventTarget();Object.assign(vv,{height:844,width:390,offsetTop:0,offsetLeft:0,scale:1});Object.defineProperty(window,'visualViewport',{value:vv,configurable:true});});
   await isolatedApp(page,'keyboard-diagnostics-'+crypto.randomUUID());
@@ -14,7 +17,7 @@ async function setup(page:Page,debug:boolean){
 async function logs(page:Page){return page.evaluate(async()=>[...(await import('/src/keyboardDebug.ts')).getKeyboardDebugRecords()]);}
 async function height(page:Page,value:number){await page.evaluate(h=>{Object.assign(visualViewport!,{height:h});visualViewport!.dispatchEvent(new Event('resize'));},value);}
 async function prepareSend(page:Page){
-  await page.clock.install();await page.clock.pauseAt(new Date(Date.now()+1000));
+  await page.clock.pauseAt(new Date(Date.now()+1000));
   const input=page.getByLabel('聊天消息',{exact:true});await input.focus();await height(page,400);await page.clock.runFor(20);await input.fill('私密用户正文');await page.getByRole('button',{name:'发送',exact:true}).click();await expect(page.getByRole('button',{name:'取消请求',exact:true})).toHaveCount(0);await page.clock.runFor(700);
 }
 test('默认无面板、无日志；诊断关闭时不记录',async({page})=>{

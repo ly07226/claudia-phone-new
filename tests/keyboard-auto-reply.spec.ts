@@ -182,3 +182,90 @@ test('关闭稳定时保存仍未完成，等待保存完成再尝试一次，�
   await expect.poll(()=>requests.length).toBe(1);
   await viewport(page,844);await page.clock.runFor(1000);expect(requests).toHaveLength(1);
  });
+
+for(const auto of [true,false])test(`发送全流程监测：保存延迟、三次触屏发送无失焦/禁用/DOM替换，auto=${auto}`,async({page})=>{
+  const {requests}=await setup(page);
+  if(!auto){
+    await page.getByRole('button',{name:'会话管理',exact:true}).click();
+    await page.getByRole('switch',{name:'收起键盘自动回复',exact:true}).click();
+    await expect(page.getByRole('switch',{name:'收起键盘自动回复',exact:true})).not.toBeChecked();
+    await page.getByRole('button',{name:'返回聊天',exact:true}).click();
+  }
+  await openKeyboard(page);
+  const input=page.getByLabel('聊天消息',{exact:true});
+  await input.evaluate(el=>{
+    const state={input:el,blurs:0,disabled:0,removed:0,unprotectedPointer:0};
+    (window as any).__sendAudit=state;
+    el.addEventListener('blur',()=>state.blurs++);
+    const observer=new MutationObserver(records=>{
+      for(const record of records){
+        if(record.type==='attributes'&&record.target===el&&record.attributeName==='disabled')state.disabled++;
+        for(const removed of record.removedNodes)if(removed===el||removed.contains(el))state.removed++;
+      }
+    });
+    observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['disabled']});
+    document.addEventListener('pointerdown',event=>{
+      if(event.target instanceof Element&&event.target.closest('.chat-send')&&!event.defaultPrevented)state.unprotectedPointer++;
+    });
+  });
+  for(const text of ['第一条焦点检查','第二条焦点检查','第三条焦点检查']){
+    await input.fill(text);
+    await page.evaluate(async()=>{
+      const {db}=await import('/src/store.ts');const Dexie=Object.getPrototypeOf(db.constructor);
+      await new Promise<void>(ready=>{(window as any).__saveBlock=db.transaction('rw',db.tables,async()=>{await Dexie.waitFor(new Promise<void>(release=>{(window as any).__releaseSave=release;ready();}));});});
+    });
+    await page.getByRole('button',{name:'发送',exact:true}).tap();
+    await expect(page.getByRole('button',{name:'取消请求',exact:true})).toBeVisible();
+    await expect(input).toBeFocused();await expect(input).toBeEnabled();await expect(input).toHaveValue('');
+    await page.clock.runFor(1000);expect(requests).toHaveLength(0);
+    await page.evaluate(async()=>{(window as any).__releaseSave();await (window as any).__saveBlock;});
+    await expect.poll(async()=>{await page.clock.runFor(1);return page.locator('.chat-history').textContent();}).toContain(text);
+    await expect(page.getByRole('button',{name:'取消请求',exact:true})).toHaveCount(0);
+    await page.clock.runFor(700);await expect(input).toBeFocused();expect(requests).toHaveLength(0);
+    expect(await input.evaluate(el=>{const s=(window as any).__sendAudit;return {same:s.input===el,connected:el.isConnected,blurs:s.blurs,disabled:s.disabled,removed:s.removed,unprotectedPointer:s.unprotectedPointer};})).toEqual({same:true,connected:true,blurs:0,disabled:0,removed:0,unprotectedPointer:0});
+  }
+  // Only this explicit simulated dismissal changes the viewport; no OS keyboard is simulated by focus alone.
+  await input.blur();await viewport(page,844);await page.clock.runFor(700);
+  if(auto){await expect.poll(()=>requests.length).toBe(1);await viewport(page,844);await page.clock.runFor(800);expect(requests).toHaveLength(1);}
+  else expect(requests).toHaveLength(0);
+});
+
+test('真机事件顺序回归：300px键盘经中文组合输入及三次连续发送，背景点按后恢复666px只回复一次',async({page})=>{
+  const {requests}=await setup(page);await viewport(page,666);
+  const input=page.getByLabel('聊天消息',{exact:true});await input.focus();await viewport(page,300);
+  for(const text of ['中文第一条','中文第二条','中文第三条']){
+    await input.dispatchEvent('compositionstart');await viewport(page,300);await page.clock.runFor(800);expect(requests).toHaveLength(0);
+    await input.dispatchEvent('compositionend');await send(page,text);
+    await expect(input).toBeFocused();await expect(input).toBeEnabled();await page.clock.runFor(700);expect(requests).toHaveLength(0);
+  }
+  await page.locator('.chat-history').dispatchEvent('pointerdown',{pointerId:7,pointerType:'touch',button:0});
+  await input.blur();await page.clock.runFor(500);expect(requests).toHaveLength(0);
+  await viewport(page,666);await page.clock.runFor(399);expect(requests).toHaveLength(0);await page.clock.runFor(1);
+  await expect.poll(()=>requests.length).toBe(1);
+  expect(requests[0].messages.filter((m:any)=>m.role==='user').map((m:any)=>m.content)).toEqual(['中文第一条','中文第二条','中文第三条']);
+  for(let i=0;i<3;i++){await viewport(page,666);await page.clock.runFor(700);}expect(requests).toHaveLength(1);
+});
+
+for(const timing of ['close-during-composition','pause-existing-candidate'] as const)test(`组合输入暂停而不遗忘键盘证据：${timing}`,async({page})=>{
+  const {requests}=await setup(page);await openKeyboard(page);await send(page);await page.clock.runFor(700);
+  const input=page.getByLabel('聊天消息',{exact:true});
+  if(timing==='pause-existing-candidate'){await viewport(page,844);await page.clock.runFor(100);}
+  await input.dispatchEvent('compositionstart');await viewport(page,844);await page.clock.runFor(1200);expect(requests).toHaveLength(0);
+  await input.dispatchEvent('compositionend');await page.clock.runFor(399);expect(requests).toHaveLength(0);await page.clock.runFor(1);
+  await expect.poll(()=>requests.length).toBe(1);await viewport(page,844);await page.clock.runFor(700);expect(requests).toHaveLength(1);
+});
+
+for(const guard of ['navigation','dialog','manual-control','background-without-open'] as const)test(`保留组合输入证据不绕过取消保护：${guard}`,async({page})=>{
+  const {ids,requests}=await setup(page);
+  if(guard==='background-without-open'){
+    await page.evaluate(async id=>{await(await import('/src/chatService.ts')).queueUserMessage(id,'没有键盘证据');},ids.a);
+    await page.locator('.chat-history').dispatchEvent('pointerdown',{pointerId:7,pointerType:'touch',button:0});
+    await viewport(page,400);await viewport(page,844);await page.clock.runFor(1000);expect(requests).toHaveLength(0);return;
+  }
+  await openKeyboard(page);await send(page);await page.clock.runFor(700);
+  const input=page.getByLabel('聊天消息',{exact:true});await input.dispatchEvent('compositionstart');
+  if(guard==='navigation')await page.getByRole('button',{name:'会话管理',exact:true}).click();
+  if(guard==='dialog')await page.evaluate(()=>{const el=document.createElement('div');el.setAttribute('role','dialog');document.body.append(el);});
+  if(guard==='manual-control')await page.locator('.chat-nav button').first().dispatchEvent('pointerdown',{pointerId:9,pointerType:'touch',button:0});
+  await viewport(page,844);await input.dispatchEvent('compositionend');await page.clock.runFor(1000);expect(requests).toHaveLength(0);
+});

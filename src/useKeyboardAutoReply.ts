@@ -39,8 +39,8 @@ export function useKeyboardAutoReply(input:RefObject<HTMLTextAreaElement|null>,o
       if(!latest.current.enabled)return 'disabled';
       if(document.hidden)return 'gate-hidden';
       if(latest.current.blocked)return 'blocked';
-      if(composing)return 'gate-composing';
       if(document.querySelector('[role="dialog"],[role="alertdialog"],dialog[open]'))return 'gate-overlay';
+      if(composing)return 'gate-composing';
     };
     const sync=()=>{
       if(scope===latest.current.scope)return true;
@@ -50,10 +50,16 @@ export function useKeyboardAutoReply(input:RefObject<HTMLTextAreaElement|null>,o
       }
       reset('gate-path');scope=latest.current.scope;epoch=latest.current.epoch;initial=latest.current.initialTimeline;return false;
     };
+    const pauseComposition=(reason:DebugFields['reason'])=>{
+      clear(reason);
+      // Pause candidates, not the already observed open keyboard cycle.
+      if(armed()){phase='open';closeHeight=0;closedAt=0;}
+      trace('composition',{reason});
+    };
     function attempt(){
       timer=undefined;
       if(!sync())return;
-      const reason=gate();if(reason){reset(reason);return;}
+      const reason=gate();if(reason){if(reason==='gate-composing')pauseComposition(reason);else reset(reason);return;}
       if(!valid()){reset('invalid-viewport');return;}
       // A held send gesture is not evidence of voluntary keyboard dismissal.
       // Resume on release, without polling or changing the input focus.
@@ -77,7 +83,7 @@ export function useKeyboardAutoReply(input:RefObject<HTMLTextAreaElement|null>,o
     function sample(event?:Event){
       trace('viewport',{source:event?.type as DebugFields['source']??'setup'});
       if(!sync())return;
-      const reason=gate();if(reason){reset(reason);return;}
+      const reason=gate();if(reason){if(reason==='gate-composing')pauseComposition(reason);else reset(reason);return;}
       if(!valid()){reset('invalid-viewport');return;}
       if(Math.abs(innerWidth-width)>2||Math.abs(viewport.width-vwidth)>2){reset('width-changed');width=innerWidth;vwidth=viewport.width;baseline=viewport.height;return;}
       if(!armed()){
@@ -109,6 +115,13 @@ export function useKeyboardAutoReply(input:RefObject<HTMLTextAreaElement|null>,o
       trace('pointer',{source:'pointerdown',target:keyboardDebugTarget(e.target,input.current)});
       if(e.target===input.current){focusSeen=true;clear('input-pointer');if(phase==='consumed')phase='idle';sample();return;}
       if(e.target instanceof Element&&e.target.closest('.chat-send')){sendPointer=e.pointerId;clear('send-pointer');if(phase==='closing'||phase==='waiting-save')phase='open';return;}
+      // Tapping inert conversation space can be the user's keyboard-dismiss gesture.
+      // Controls/navigation still cancel; background alone never creates a candidate.
+      if(e.target instanceof Element){
+        const control=e.target.closest('.chat-nav,button,a,input,textarea,select,summary,[role="button"],[role="switch"],[role="menuitem"],[role="tab"],[role="dialog"],[role="alertdialog"],[contenteditable="true"],[tabindex]');
+        const background=e.target===document.body||e.target===document.documentElement||e.target.matches('.chat-app')||e.target.closest('.chat-view');
+        if(background&&!control)return;
+      }
       reset('pointer-other');
     };
     const pointerEnd=(e:PointerEvent)=>{
@@ -119,8 +132,8 @@ export function useKeyboardAutoReply(input:RefObject<HTMLTextAreaElement|null>,o
       if(armed()&&closed())startClose();
       else sample();
     };
-    const compositionStart=()=>{composing=true;reset('composition-start');};
-    const compositionEnd=()=>{composing=false;reset('composition-end');};
+    const compositionStart=()=>{composing=true;pauseComposition('composition-start');};
+    const compositionEnd=()=>{composing=false;trace('composition',{reason:'composition-end'});sample();};
     const visibility=(e:Event)=>{if(e.type==='pagehide'||document.hidden)reset(e.type==='pagehide'?'pagehide':'gate-hidden');};
     // iOS can report document/window focus loss for its keyboard UI while visible.
     const windowBlur=()=>{trace('blur',{reason:'window-blur-observed'});if(document.hidden)reset('gate-hidden');};
