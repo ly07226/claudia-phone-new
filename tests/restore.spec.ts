@@ -75,9 +75,9 @@ test('未知目标版本与旧Worker无法取得保护时失败关闭，不自�
 for(const width of [375,390,430])test(`恢复UI ${width}px：替换前确认、取消零写入，提交后重载并从随机测试库读回`,async({page})=>{
   await page.setViewportSize({width,height:844});await setup(page);const before=await contents(page);
   const name=await page.evaluate(async()=>{const {target,files}=(window as any).fixture;const {readBackup}=await import('/src/backupService.ts');const check=await readBackup(files,{mode:'verify'});await check.dispose();await(await import('/tests/restoreHarness.tsx')).mountRestore(files,check.report,target);return target.name;});
-  const root=page.locator('#isolated-restore-test');await expect(root.getByRole('button',{name:'恢复到当前手机',exact:true})).toBeDisabled();await root.getByRole('checkbox').check();page.once('dialog',d=>d.dismiss());await root.getByRole('button',{name:'恢复到当前手机',exact:true}).click();expect(await contents(page)).toBe(before);
+  const root=page.locator('#isolated-restore-test');await expect(root.getByRole('button',{name:'覆盖恢复',exact:true})).toBeDisabled();await root.getByRole('checkbox',{name:'我了解替换范围，已关闭其他标签页和 PWA'}).check();page.once('dialog',d=>d.dismiss());await root.getByRole('button',{name:'覆盖恢复',exact:true}).click();expect(await contents(page)).toBe(before);
   await page.screenshot({animations:'disabled',path:`artifacts/restore-confirm-${width}.png`});expect(await root.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
-  page.once('dialog',d=>d.accept());await Promise.all([page.waitForEvent('load'),root.getByRole('button',{name:'恢复到当前手机',exact:true}).click()]);
+  page.once('dialog',d=>d.accept());await Promise.all([page.waitForEvent('load'),root.getByRole('button',{name:'覆盖恢复',exact:true}).click()]);
   const restored=await page.evaluate(async name=>{const Dexie=Object.getPrototypeOf((await import('/src/store.ts')).db.constructor);const d=new Dexie(name);d.version(6).stores((await import('/src/backupFormat.ts')).backupSchemas);await d.open();const rows=await d.table('messages').toArray(),c=await d.table('characters').get('char');d.close();return {rows,c};},name);expect(restored.c.name).toBe('备份角色');expect(restored.rows[0].content).toBe('备份聊天');
 });
 test('恢复前仍在生成或快照后发生写入时拒绝替换，不吞掉合法新写入',async({page})=>{

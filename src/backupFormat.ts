@@ -287,6 +287,7 @@ export async function rowBytes(table: BackupTable, row: unknown) {
   return utf8(JSON.stringify([table, await encodeValue(row)]));
 }
 export interface BackupManifest {
+  sourceOrigin?: string;
   format: "claudia-phone-backup";
   version: 1 | 2;
   codec: 1;

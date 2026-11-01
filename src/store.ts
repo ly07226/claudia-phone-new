@@ -1,3 +1,4 @@
+import { startupImportNotice } from "./importReceipt";
 import type { DailyFriendship } from "./friendTypes";
 import type { UserIdentity } from "./userIdentity";
 import { installBackupGuard } from "./backupGate";
@@ -196,6 +197,7 @@ export const defaultItems = (): DesktopItem[] => [
 ];
 interface State {
   ready: boolean;
+  restoreNotice?: string;
   error: string;
   editing: boolean;
   activeApp: string | null;
@@ -235,11 +237,12 @@ export const usePhone = create<State>((set, get) => ({
         if (!(await db.pages.count())) {
           await db.pages.add({ id: "page-1", order: 0 });
           await db.items.bulkPut(defaultItems());
-          await db.themes.put(defaultTheme);
+          if(!(await db.themes.get("global")))await db.themes.add(defaultTheme);
         }
       });
       await get().reload();
-      set({ ready: true });
+      const notice=await startupImportNotice(db,get());
+      set({ ready: true,restoreNotice:notice });
     } catch {
       set({
         ready: true,

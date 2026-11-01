@@ -58,6 +58,7 @@ export function SpaceRoot({ phone }: { phone: ReactNode }) {
             {nav.notice}
           </p>
         )}
+        {s.restoreNotice&&<p className="space-notice" role={s.restoreNotice.startsWith("导入成功")?"status":"alert"}>{s.restoreNotice}</p>}
         {s.error && (
           <p className="space-notice" role="alert">
             {s.error}

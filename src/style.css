@@ -2325,3 +2325,5 @@ html[data-ios="true"] { background: var(--page-background, #f4f5eb); background-
 /* Restore owns input and navigation until the atomic commit is reloaded. */
 .restore-maintenance{position:fixed;inset:0;z-index:2147483647;background:#f3f5eb;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:max(24px,env(safe-area-inset-top)) 24px max(24px,env(safe-area-inset-bottom));text-align:center;touch-action:none}
 .restore-actions p{overflow-wrap:anywhere}
+.import-counts{display:grid;gap:8px;margin:12px 0}.import-counts>div{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.import-counts dd{margin:0;overflow-wrap:anywhere}.restore-actions fieldset{min-width:0;border:1px solid #d9e2d3;border-radius:14px;padding:12px}.restore-actions select{max-width:100%}
+.restore-actions fieldset .backup-check{min-height:44px;gap:12px;align-items:center}.restore-actions fieldset input[type=checkbox]{flex:none}

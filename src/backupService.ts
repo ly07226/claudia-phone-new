@@ -90,7 +90,7 @@ export async function eachBackupRow(
     last = key;
   }
 }
-function sanitizeConfig(row: any, redactions: BackupManifest["redactions"]) {
+export function sanitizeConfig(row: any, redactions: BackupManifest["redactions"]) {
   const copy = { ...row };
   const fields: string[] = [];
   for (const key of Object.keys(copy))
@@ -176,6 +176,7 @@ export async function createBackup(options: {
       version: 2,
       codec: 1,
       backupId: crypto.randomUUID(),
+      sourceOrigin: location.origin,
       schemaVersion: 6,
       nativeVersion: 60,
       createdAt: new Date().toISOString(),
@@ -389,6 +390,7 @@ function validateManifest(input: any): asserts input is BackupManifest {
       input.codec === 1,
     "备份格式或数据库版本不受支持，未恢复任何正式数据。",
   );
+  if(input.sourceOrigin!==undefined){let valid=false;try{const u=new URL(input.sourceOrigin);valid=["http:","https:"].includes(u.protocol)&&u.origin===input.sourceOrigin;}catch{}ensure(valid,"备份来源信息无效。");}
   ensure(
     typeof input.createdAt === "string" &&
       typeof input.snapshotCompletedAt === "string" &&
@@ -513,6 +515,10 @@ function validateManifest(input: any): asserts input is BackupManifest {
 }
 export interface IntegrityReport {
   status: "verified" | "rehearsed";
+  formatVersion: 1 | 2;
+  sourceOrigin?: string;
+  identities: number;
+  dailyVisibleCharacters: number;
   backupId: string;
   snapshotCompletedAt: string;
   manifestDigest: string;
@@ -793,6 +799,10 @@ export async function readBackup(
     if(m.schemaVersion===6)await validateTimelineDatabase(target);
     const report: IntegrityReport = {
       status: options.mode === "rehearse" ? "rehearsed" : "verified",
+      formatVersion: m.version,
+      sourceOrigin: m.sourceOrigin,
+      identities: Object.keys((await target.table("themes").get("global"))?.userIdentities??{}).length,
+      dailyVisibleCharacters: await target.table("characters").filter(c=>!c.dailyFriendship||c.dailyFriendship.status==="friend").count(),
       backupId: m.backupId,
       snapshotCompletedAt: m.snapshotCompletedAt,
       manifestDigest: await sha(utf8(manifestText)),
@@ -1059,11 +1069,11 @@ export async function validateReferences(
   );
   if (m.credentials === "excluded")
     warnings.add(
-      `独立API Key已排除（源表${m.tables.apiCredentials.sourceCount}条）；未来正式恢复可能需要重新输入。`,
+      `独立API Key已排除（源表${m.tables.apiCredentials.sourceCount}条）；导入后可能需要重新输入。`,
     );
   if (m.redactions.length)
     warnings.add(
-      `有${m.redactions.length}条API配置被脱敏，未来正式恢复前必须重设并确认。`,
+      `有${m.redactions.length}条API配置被脱敏，导入后必须检查并重新设置。`,
     );
   warnings.add("图片校验为资源清单、数据URL和字节摘要，不等同像素解码诊断。");
   return [...warnings];
