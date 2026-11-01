@@ -17,7 +17,13 @@ async function send(page:Page,text='待回复消息'){await page.getByLabel('聊
 
 test('三条连续发送后无blur收键盘，稳定400ms只回复一次且读取三条消息',async({page})=>{
   const {requests}=await setup(page);await openKeyboard(page);
-  for(const text of ['第一条','第二条','第三条'])await send(page,text);
+  const input=page.getByLabel('聊天消息',{exact:true});
+  await input.evaluate(el=>{(window as any).__input=el;(window as any).__blurs=0;el.addEventListener('blur',()=>{(window as any).__blurs++;});});
+  for(const text of ['第一条','第二条','第三条']){
+    await send(page,text);await expect(input).toBeFocused();await expect(input).toBeEnabled();await expect(input).toHaveValue('');
+    expect(await input.evaluate(el=>el===(window as any).__input&&(window as any).__blurs===0)).toBe(true);
+    await page.clock.runFor(700);expect(requests).toHaveLength(0);
+  }
   expect(requests).toHaveLength(0);await page.clock.runFor(700);await viewport(page,844);await page.clock.runFor(399);expect(requests).toHaveLength(0);await page.clock.runFor(1);
   await expect.poll(()=>requests.length).toBe(1);await expect(page.locator('.chat-history')).toContainText('自动回复完成。');expect(requests[0].messages.filter((m:any)=>m.role==='user').map((m:any)=>m.content)).toEqual(['第一条','第二条','第三条']);
   for(let i=0;i<3;i++){await viewport(page,844);await page.clock.runFor(500);}expect(requests).toHaveLength(1);
@@ -163,3 +169,16 @@ test('关闭稳定时保存仍未完成，等待保存完成再尝试一次，�
   await expect.poll(async()=>{await page.clock.runFor(1);return requests.length;}).toBe(1);await expect(page.locator('.chat-history')).toContainText('自动回复完成。');
   for(let i=0;i<3;i++){await viewport(page,844);await page.clock.runFor(500);}expect(requests).toHaveLength(1);
 });
+
+ test('按住发送期间视口恢复不提前生成，释放后短暂恢复消退不回复，真正收起只回复一次',async({page})=>{
+  const {requests}=await setup(page);await openKeyboard(page);await send(page);await page.clock.runFor(700);
+  const button=page.getByRole('button',{name:'发送',exact:true});
+  await page.getByLabel('聊天消息',{exact:true}).fill('下一条');
+  await button.dispatchEvent('pointerdown',{pointerId:42,pointerType:'touch',button:0});
+  await viewport(page,844);await page.clock.runFor(1200);expect(requests).toHaveLength(0);
+  await button.dispatchEvent('pointerup',{pointerId:42,pointerType:'touch',button:0});
+  await page.clock.runFor(100);await viewport(page,400);await page.clock.runFor(800);expect(requests).toHaveLength(0);
+  await send(page,'下一条');await viewport(page,844);await page.clock.runFor(650);
+  await expect.poll(()=>requests.length).toBe(1);
+  await viewport(page,844);await page.clock.runFor(1000);expect(requests).toHaveLength(1);
+ });

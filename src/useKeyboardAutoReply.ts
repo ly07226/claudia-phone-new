@@ -22,6 +22,7 @@ export function useKeyboardAutoReply(input:RefObject<HTMLTextAreaElement|null>,o
     // Learn the actually visible closed viewport, never the larger layout viewport.
     let baseline=viewport.height,width=innerWidth,vwidth=viewport.width,openHeight=0;
     let wasSaving=options.savingMessage;
+    let sendPointer:number|undefined;
     let closeHeight=0,closedAt=0,suppressUntil=0,timer:ReturnType<typeof setTimeout>|undefined;
     const armed=()=>phase==='open'||phase==='closing'||phase==='waiting-save';
     const tolerance=()=>Math.max(80,(baseline-openHeight)*.25);
@@ -32,7 +33,7 @@ export function useKeyboardAutoReply(input:RefObject<HTMLTextAreaElement|null>,o
       recordKeyboardDebug(event,{detector,phase,height:viewport.height,width:viewport.width,offsetTop:viewport.offsetTop,scale:viewport.scale,baseline,openHeight,closeHeight,innerHeight,clientHeight:document.documentElement.clientHeight,armed:armed(),focused:focusSeen,inputFocused:document.activeElement===input.current,saving:latest.current.savingMessage,enabled:latest.current.enabled,blocked:latest.current.blocked,documentFocused:document.hasFocus(),hidden:document.hidden,composing,scopeMatches:scope===latest.current.scope,alive:!disposed,noOverlay:!document.querySelector('[role="dialog"],[role="alertdialog"],dialog[open]'),openFocusPass:focusSeen,openHeightPass:baseline-viewport.height>=Math.max(150,baseline*.2),openThreshold:Math.max(150,baseline*.2),closedMinimum:baseline-tolerance(),closeBaselinePass:viewport.height>=baseline-tolerance(),closeRisePass:viewport.height-openHeight>=150,closeOffsetPass:true,viewportValid:valid(),suppressionRemaining:Math.max(0,suppressUntil-performance.now()),state:armed()?(closed()?'closed':'open'):'unknown',...fields});
     };
     const clear=(reason:DebugFields['reason'])=>{if(timer!==undefined)trace('candidate-cancelled',{reason});clearTimeout(timer);timer=undefined;};
-    const reset=(reason:DebugFields['reason'])=>{clear(reason);phase='idle';focusSeen=false;openHeight=0;closeHeight=0;closedAt=0;acceptedSend=false;trace('reset',{reason});};
+    const reset=(reason:DebugFields['reason'])=>{clear(reason);sendPointer=undefined;phase='idle';focusSeen=false;openHeight=0;closeHeight=0;closedAt=0;acceptedSend=false;trace('reset',{reason});};
     const gate=():DebugFields['reason']|undefined=>{
       if(disposed)return 'cleanup';
       if(!latest.current.enabled)return 'disabled';
@@ -54,6 +55,9 @@ export function useKeyboardAutoReply(input:RefObject<HTMLTextAreaElement|null>,o
       if(!sync())return;
       const reason=gate();if(reason){reset(reason);return;}
       if(!valid()){reset('invalid-viewport');return;}
+      // A held send gesture is not evidence of voluntary keyboard dismissal.
+      // Resume on release, without polling or changing the input focus.
+      if(sendPointer!==undefined){trace('candidate-cancelled',{reason:'send-pointer'});return;}
       if(!closed()){phase='open';closeHeight=0;trace('close-check');return;}
       if(Math.abs(viewport.height-closeHeight)>=24){startClose();return;}
       const remaining=Math.max(400-(performance.now()-closedAt),suppressUntil-performance.now());
@@ -104,8 +108,16 @@ export function useKeyboardAutoReply(input:RefObject<HTMLTextAreaElement|null>,o
     const pointer=(e:PointerEvent)=>{
       trace('pointer',{source:'pointerdown',target:keyboardDebugTarget(e.target,input.current)});
       if(e.target===input.current){focusSeen=true;clear('input-pointer');if(phase==='consumed')phase='idle';sample();return;}
-      if(e.target instanceof Element&&e.target.closest('.chat-send')){clear('send-pointer');if(phase==='closing'||phase==='waiting-save')phase='open';return;}
+      if(e.target instanceof Element&&e.target.closest('.chat-send')){sendPointer=e.pointerId;clear('send-pointer');if(phase==='closing'||phase==='waiting-save')phase='open';return;}
       reset('pointer-other');
+    };
+    const pointerEnd=(e:PointerEvent)=>{
+      if(sendPointer!==e.pointerId)return;
+      sendPointer=undefined;
+      if(e.type==='pointercancel'){reset('send-pointer');return;}
+      suppressUntil=performance.now()+600;
+      if(armed()&&closed())startClose();
+      else sample();
     };
     const compositionStart=()=>{composing=true;reset('composition-start');};
     const compositionEnd=()=>{composing=false;reset('composition-end');};
@@ -115,14 +127,14 @@ export function useKeyboardAutoReply(input:RefObject<HTMLTextAreaElement|null>,o
     const context=(e:Event)=>reset(e.type==='orientationchange'?'orientationchange':'contextmenu');
     const element=input.current;
     viewport.addEventListener('resize',sample);viewport.addEventListener('scroll',sample);
-    document.addEventListener('focusin',focus);document.addEventListener('focusout',blur);document.addEventListener('pointerdown',pointer,true);
+    document.addEventListener('focusin',focus);document.addEventListener('focusout',blur);document.addEventListener('pointerdown',pointer,true);document.addEventListener('pointerup',pointerEnd,true);document.addEventListener('pointercancel',pointerEnd,true);
     element?.addEventListener('compositionstart',compositionStart);element?.addEventListener('compositionend',compositionEnd);
     document.addEventListener('visibilitychange',visibility);window.addEventListener('pagehide',visibility);window.addEventListener('blur',windowBlur);window.addEventListener('orientationchange',context);document.addEventListener('contextmenu',context,true);
     control.current={cancel:()=>reset('manual-cancel'),send:()=>{acceptedSend=true;suppressUntil=performance.now()+600;trace('send-suppression');},sample:()=>{trace('save-state');if(wasSaving&&!latest.current.savingMessage)trace('save-finished');wasSaving=latest.current.savingMessage;sample();}};
     trace('mounted');sample();
     return()=>{trace('unmounted',{reason:'cleanup'});disposed=true;reset('cleanup');control.current=null;
       viewport.removeEventListener('resize',sample);viewport.removeEventListener('scroll',sample);
-      document.removeEventListener('focusin',focus);document.removeEventListener('focusout',blur);document.removeEventListener('pointerdown',pointer,true);
+      document.removeEventListener('focusin',focus);document.removeEventListener('focusout',blur);document.removeEventListener('pointerdown',pointer,true);document.removeEventListener('pointerup',pointerEnd,true);document.removeEventListener('pointercancel',pointerEnd,true);
       element?.removeEventListener('compositionstart',compositionStart);element?.removeEventListener('compositionend',compositionEnd);
       document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',visibility);window.removeEventListener('blur',windowBlur);window.removeEventListener('orientationchange',context);document.removeEventListener('contextmenu',context,true);
     };
