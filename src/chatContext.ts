@@ -33,9 +33,15 @@ export async function buildContext(
   // Reject excessive profile input rather than silently omitting critical world rules.
   if (system.length > contextLimits.systemChars)
     throw Error("角色与世界设定合计过长，请缩短到约 24000 字符以内。");
-  const rows = (await activeMessages(conversation.id, beforeMessageId))
-    .slice(-contextLimits.historyMessages)
-    .reverse();
+  const path = await activeMessages(conversation.id, beforeMessageId);
+  let lastReply = -1;
+  for(let i=path.length-1;i>=0;i--)if(path[i].role==="assistant"){lastReply=i;break;}
+  const pending = conversation.chatSettings?.continuousSend && !beforeMessageId
+    ? path.slice(lastReply+1).filter(m=>m.role==="user") : [];
+  // Save any number of messages, but never silently omit unanswered input at generation.
+  if(pending.reduce((n,m)=>n+m.content.length,0)>contextLimits.historyChars)
+    throw Error("待回复消息超过 24000 字符安全上限，本次未请求 AI；消息仍已保存，请编辑或减少待回复内容后重试。");
+  const rows = path.slice(-Math.max(contextLimits.historyMessages,pending.length)).reverse();
   const history: Message[] = [];
   let chars = 0;
   for (const m of rows) {

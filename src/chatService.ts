@@ -82,6 +82,22 @@ export async function sendMessage(
     throw Error("请输入 1–8000 字符。");
   return generate(id, { text, retry, onSaved, expectedPath }, signal);
 }
+/** Save to the same immutable active path, without starting a model request. */
+export async function queueUserMessage(id:string,text:string,expectedPath?:ExpectedPath) {
+  if(!text.trim() || text.length>contextLimits.userChars)throw Error("请输入 1–8000 字符。");
+  await db.transaction("rw",timelineTables(),async()=>{
+    const c=await db.conversations.get(id);
+    if(!c)throw Error("会话已删除。");
+    if(!c.chatSettings?.continuousSend)throw Error("连续发送模式已关闭，请重新确认后发送。");
+    if(expectedPath&&(c.activeTimelineId!==expectedPath.timelineId||(c.timelineEpoch??0)!==expectedPath.epoch))throw Error("剧情已在其他窗口切换，请确认当前消息后重试。");
+    if(c.sendingUntil&&c.sendingUntil>Date.now())throw Error("此会话正在回复中，请稍候。");
+    await ensureTimelineInTransaction(id);
+    const last=(await activeMessages(id)).at(-1);
+    await db.messages.add({id:crypto.randomUUID(),conversationId:id,role:"user",content:text.trim(),createdAt:Math.max(Date.now(),(last?.createdAt||0)+1)});
+    await commitTimelineProjection(id,"append");
+    await db.conversations.update(id,{updatedAt:Date.now()});
+  });
+}
 export async function regenerateMessage(
   id: string,
   messageId: string,

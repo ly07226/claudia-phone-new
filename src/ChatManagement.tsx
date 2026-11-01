@@ -161,6 +161,8 @@ export function ChatManagement({
         <>
           <button className="message-action" onClick={()=>setSection('remark')}>修改备注</button>
           <button className="message-action" onClick={()=>setSection('search')}>搜索聊天内容</button>
+          <label className="chat-setting-toggle">连续发送模式<input type="checkbox" role="switch" checked={!!conversation.chatSettings?.continuousSend} disabled={saving || busy} onChange={e=>void save({continuousSend:e.target.checked})}/></label>
+          <p className="hint">开启后先保存消息，点击输入框左侧「AI 回复」再生成。当前暂不通过键盘收起自动触发，避免误操作。</p>
           <label className="chat-setting-toggle">置顶聊天<input type="checkbox" role="switch" checked={!!conversation.chatSettings?.pinned} disabled={saving} onChange={e=>void save({pinned:e.target.checked})}/></label>
           <label className="chat-setting-toggle">消息免打扰<input type="checkbox" role="switch" checked={!!conversation.chatSettings?.muted} disabled={saving} onChange={e=>void save({muted:e.target.checked})}/></label>
           <p className="hint">当前暂无消息通知功能；此处仅保存免打扰偏好。</p>

@@ -1,5 +1,6 @@
 export type ChatBackground = { kind: "color"; color: string } | { kind: "image"; assetId: string };
 export interface ChatSettings {
+  continuousSend?: boolean;
   remark?: string;
   pinned?: boolean;
   pinnedAt?: number;

@@ -24,6 +24,7 @@ import type { ApiConfig } from "./api";
 import {
   getConversation,
   sendMessage,
+  queueUserMessage,
   deleteConversation,
   resolveApi,
   regenerateMessage,
@@ -219,7 +220,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     allowArchive = false,
     force = false,
   ) {
-    if (!conversation || (busy && !force)) return;
+    if (!conversation || ((busy || pending.current) && !force)) return;
     const id = conversation.id;
     const view=visiblePath.current;
     const expectedPath=view?.conversationId===id?{timelineId:view.timelineId,epoch:view.epoch}:{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0};
@@ -243,7 +244,11 @@ export function Chat({ worldId }: { worldId?: string }) {
           cancelGeneration(id);await invalidateGeneration(id);
         });
       }
-      if (target)
+      if (!retry && !target && conversation.chatSettings?.continuousSend) {
+        await queueUserMessage(id, draft, expectedPath);
+        stored = true;
+        await refresh(id, true);
+      } else if (target)
         await regenerateMessage(id, target.id, controller.signal, allowArchive, expectedPath);
       else
         await sendMessage(id, draft, controller.signal, retry, async () => {
@@ -422,6 +427,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 void send();
               }}
             >
+              {conversation.chatSettings?.continuousSend && <button type="button" aria-label="AI 回复" disabled={busy || messages.at(-1)?.role!=="user"} onClick={()=>void send(true)}>AI 回复</button>}
               <textarea
                 ref={inputRef}
                 rows={1}
@@ -447,7 +453,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 {busy ? <Square size={18} /> : <Send size={20} />}
               </button>
             </form>
-            {!busy && messages.at(-1)?.role === "user" && (
+            {!busy && !conversation.chatSettings?.continuousSend && messages.at(-1)?.role === "user" && (
               <button
                 className="text-button chat-retry"
                 onClick={() => void send(true)}
