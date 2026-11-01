@@ -1,3 +1,4 @@
+import { RestoreActions } from "./RestoreActions";
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, Download, FileCheck, ShieldCheck, X } from "lucide-react";
 import { usePhone } from "./store";
@@ -184,7 +185,7 @@ export function LegacyBackups({onBack}:{onBack:()=>void}) {
       setProgress(
         mode === "rehearse"
           ? "候选恢复演练通过。正式数据库未被覆盖。"
-          : "备份已验证（仅本次重新选择的文件）。恢复演练仍需单独完成。",
+          : "备份验证成功，尚未恢复到当前手机。",
       );
     });
   }
@@ -394,6 +395,7 @@ export function LegacyBackups({onBack}:{onBack:()=>void}) {
             {error}
           </p>
         )}
+        <RestoreActions files={files} report={report} password={password} disabled={busy}/>
         {report && (
           <section className="card backup-report" aria-label="校验报告">
             <h2>

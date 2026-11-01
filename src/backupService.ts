@@ -1,7 +1,7 @@
 import { validateTimelineDatabase } from "./timelineValidation";
 import { validFriendship } from "./friendTypes";
 import Dexie from "dexie";
-import { db } from "./store";
+import { db as phoneDatabase } from "./store";
 import {
   acquireBackupGuard,
   checkBackupClients,
@@ -66,7 +66,7 @@ async function discard(d: Dexie) {
   await Dexie.delete(d.name);
   owned.delete(d.name);
 }
-async function eachRow(
+export async function eachBackupRow(
   d: Dexie,
   table: string,
   fn: (row: any) => Promise<void>,
@@ -127,6 +127,7 @@ export interface BackupExport {
   dispose: () => Promise<void>;
 }
 export async function createBackup(options: {
+  database?: Dexie;
   closedOtherClients: boolean;
   includeCredentials?: boolean;
   credentialConsent?: boolean;
@@ -134,6 +135,7 @@ export async function createBackup(options: {
   signal?: AbortSignal;
   onProgress?: Progress;
 }): Promise<BackupExport> {
+  const db = options.database ?? phoneDatabase;
   ensure(
     options.closedOtherClients,
     "请先关闭其他标签页和独立PWA，并确认后再导出。",
@@ -268,7 +270,7 @@ export async function createBackup(options: {
         };
         m.tables[table] = info;
         if (table === "apiCredentials" && !options.includeCredentials) continue;
-        await eachRow(
+        await eachBackupRow(
           db,
           table,
           async (original) => {
@@ -531,6 +533,12 @@ export interface ReadbackResult {
   report: IntegrityReport;
   dispose: () => Promise<void>;
 }
+const candidates = new WeakMap<ReadbackResult, Dexie>();
+export function verifiedCandidate(result: ReadbackResult) {
+  const candidate=candidates.get(result);
+  ensure(candidate?.isOpen(), "候选备份已关闭，请重新验证。");
+  return candidate;
+}
 export async function readBackup(
   files: File[],
   options: {
@@ -751,7 +759,7 @@ export async function readBackup(
         "表记录数量与清单不一致。",
       );
       let digest = await tableSeed(table);
-      await eachRow(
+      await eachBackupRow(
         target,
         table,
         async (row) => {
@@ -806,11 +814,12 @@ export async function readBackup(
       await discard(target);
       candidate = undefined;
     }
-    return {
+    const result: ReadbackResult = {
       report,
-      dispose: () =>
-        owned.has(target.name) ? discard(target) : Promise.resolve(),
+      dispose: () => owned.has(target.name) ? discard(target) : Promise.resolve(),
     };
+    if(options.mode === "rehearse") candidates.set(result, target);
+    return result;
   } catch (error) {
     if (candidate && owned.has(candidate.name))
       await discard(candidate).catch(() => {});
@@ -818,7 +827,7 @@ export async function readBackup(
     throw error;
   }
 }
-async function validateReferences(
+export async function validateReferences(
   d: Dexie,
   m: BackupManifest,
   signal?: AbortSignal,
@@ -831,7 +840,7 @@ async function validateReferences(
   const optional = async (table: BackupTable, id: unknown, code: string) => {
     if (id !== undefined && id !== "" && !(await exists(table, id))) bad(code);
   };
-  await eachRow(
+  await eachBackupRow(
     d,
     "items",
     async (x) => {
@@ -840,7 +849,7 @@ async function validateReferences(
     },
     signal,
   );
-  await eachRow(
+  await eachBackupRow(
     d,
     "themes",
     async (x) => {
@@ -857,7 +866,7 @@ async function validateReferences(
     },
     signal,
   );
-  await eachRow(
+  await eachBackupRow(
     d,
     "characters",
     async (x) => {
@@ -870,7 +879,7 @@ async function validateReferences(
     },
     signal,
   );
-  await eachRow(
+  await eachBackupRow(
     d,
     "worldProfiles",
     async (x) => {
@@ -882,7 +891,7 @@ async function validateReferences(
     },
     signal,
   );
-  await eachRow(
+  await eachBackupRow(
     d,
     "conversations",
     async (x) => {
@@ -935,13 +944,13 @@ async function validateReferences(
         bad("messages.activeVariantId");
     }
   };
-  await eachRow(
+  await eachBackupRow(
     d,
     "messages",
     (x) => message(x, (id) => d.table("messageVariants").get(id)),
     signal,
   );
-  await eachRow(
+  await eachBackupRow(
     d,
     "messageVariants",
     async (x) => {
@@ -956,7 +965,7 @@ async function validateReferences(
     },
     signal,
   );
-  await eachRow(
+  await eachBackupRow(
     d,
     "messageRevisions",
     async (x) => {
@@ -977,7 +986,7 @@ async function validateReferences(
     },
     signal,
   );
-  await eachRow(
+  await eachBackupRow(
     d,
     "conversationSnapshots",
     async (x) => {
@@ -1010,7 +1019,7 @@ async function validateReferences(
     },
     signal,
   );
-  await eachRow(
+  await eachBackupRow(
     d,
     "lorebooks",
     async (x) => {
@@ -1022,7 +1031,7 @@ async function validateReferences(
     },
     signal,
   );
-  await eachRow(
+  await eachBackupRow(
     d,
     "loreEntries",
     async (x) => {
@@ -1031,7 +1040,7 @@ async function validateReferences(
     },
     signal,
   );
-  await eachRow(
+  await eachBackupRow(
     d,
     "apiCredentials",
     async (x) => {

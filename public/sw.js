@@ -1,4 +1,7 @@
 const CACHE = "claudia-shell-v2";
+// Short-lived admission barrier: refuse new app documents during atomic restore.
+let restoreLease;
+const liveRestore = () => restoreLease && restoreLease.until > Date.now();
 self.addEventListener("install", event => {
   self.skipWaiting();
   event.waitUntil((async () => {
@@ -35,6 +38,10 @@ function validShellResponse(request, response) {
 self.addEventListener("fetch", event => {
   const request = event.request;
   const url = new URL(request.url);
+  if (request.mode === "navigate" && url.origin === self.location.origin && liveRestore()) {
+    event.respondWith(Promise.resolve(new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><p>Claudia Phone 正在恢复数据，请关闭此窗口，稍后重新打开。</p>', {status:503,headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store"}})));
+    return;
+  }
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
   // Presentation shell only. Model/API requests are never intercepted or cached.
   if (!(request.mode === "navigate" || ["/", "/index.html", "/icon.svg", "/manifest.webmanifest"].includes(url.pathname) || url.pathname.startsWith("/assets/") || url.pathname.startsWith("/images/"))) return;
@@ -61,6 +68,25 @@ self.addEventListener("fetch", event => {
 });
 // Window inventory only; no backup data or credentials pass through the worker.
 self.addEventListener("message", (event) => {
+  if (event.data?.type === "claudia-restore-lease-v1" && event.ports[0]) {
+    event.waitUntil((async () => {
+      const {action,token}=event.data;
+      const reply=value=>event.ports[0].postMessage(value);
+      if (!event.source?.id || typeof token!=="string") return reply({ok:false});
+      if(action==="release") {
+        if(restoreLease?.owner===event.source.id && restoreLease.token===token) restoreLease=undefined;
+        return reply({ok:true});
+      }
+      if(action!=="acquire" && action!=="renew") return reply({ok:false});
+      if(action==="renew" && !liveRestore()) return reply({ok:false});
+      if(liveRestore() && (restoreLease.owner!==event.source.id || restoreLease.token!==token)) return reply({ok:false});
+      restoreLease={owner:event.source.id,token,until:Date.now()+30000};
+      const clients=await self.clients.matchAll({type:"window",includeUncontrolled:true});
+      if(clients.length!==1 || clients[0].id!==event.source.id) {restoreLease=undefined;return reply({ok:false});}
+      reply({ok:true,until:restoreLease.until});
+    })());
+    return;
+  }
   if (event.data?.type !== "claudia-backup-clients-v1" || !event.ports[0])
     return;
   event.waitUntil(
