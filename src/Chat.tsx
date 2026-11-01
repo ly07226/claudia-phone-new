@@ -7,7 +7,7 @@ import "./chatReplyButton.css";
 import { Search, X } from "lucide-react";
 import { liveQuery } from "dexie";
 import { chatListPreviews, chatPreviewTime, type ChatPreview } from "./chatListPreview";
-import { ChevronLeft, MoreHorizontal, Send, Square, Star } from "lucide-react";
+import { ChevronLeft, MoreHorizontal, Send, Square } from "lucide-react";
 import { ChatManagement } from "./ChatManagement";
 import { chatDisplayName } from "./chatPresentation";
 import { useChatViewport } from "./useChatViewport";
@@ -442,7 +442,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 void send();
               }}
             >
-              {conversation.chatSettings?.continuousSend && <button className="chat-reply-button" type="button" aria-label="AI 回复" title="让 AI 回复待回复消息" disabled={busy || messages.at(-1)?.role!=="user"} onClick={()=>void send(true)}><span aria-hidden="true">AI 回复</span><Star size={20} aria-hidden="true"/></button>}
+              {conversation.chatSettings?.continuousSend && <button className="chat-reply-button" type="button" aria-label="AI 回复" title="让 AI 回复待回复消息" disabled={busy || messages.at(-1)?.role!=="user"} onClick={()=>void send(true)}><span aria-hidden="true">AI 回复</span><svg width={20} height={20} viewBox="0 0 24 24" fill="currentColor" data-icon="apple" aria-hidden="true"><path d="M12 7C9 4 4 5 3.2 9c-1.1 4.8 2.5 12 5.4 12 1.4 0 2.1-.8 3.4-.8s2 .8 3.4.8c2.9 0 6.5-7.2 5.4-12C20 5 15 4 12 7Z"/><path d="M12 5.6C11.7 2.7 14.4.8 17.4 1.2c.1 2.8-2.2 4.6-5.4 4.4Z"/></svg></button>}
               <textarea
                 ref={inputRef}
                 rows={1}

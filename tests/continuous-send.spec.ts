@@ -62,13 +62,13 @@ test('连续点击及触屏发送保持同一输入框焦点；IME、换行和�
   const texts=await page.evaluate(async id=>(await import('/src/messagePath.ts')).activeMessages(id).then(rows=>rows.filter(m=>m.role==='user').map(m=>m.content)),a.id);expect(texts).toEqual(['一','二','三','中文候选']);
 });
 
-test('连续模式软键盘发送提示、星星保持原按钮尺寸及反馈，关闭模式不改发送提示',async({page})=>{
+test('连续模式软键盘发送提示、苹果保持原按钮尺寸及反馈，关闭模式不改发送提示',async({page})=>{
   const {a}=await setup(page);let calls=0;
   await page.route('https://continuous.test/**',async r=>{calls++;await r.fulfill({json:{choices:[{message:{content:'星星回复'}}]}});});
   await page.evaluate(async id=>{await(await import('/src/chatPreferences.ts')).saveChatSettings(id,{continuousSend:true});},a.id);
   await page.getByRole('button',{name:'聊天',exact:true}).click();await page.getByRole('button',{name:'连续角色 开始 / 继续聊天'}).click();
   const input=page.getByLabel('聊天消息',{exact:true}),star=page.getByRole('button',{name:'AI 回复',exact:true});
-  await expect(input).toHaveAttribute('enterkeyhint','send');await expect(star.locator('svg')).toHaveClass(/lucide-star/);await expect(star.locator('span')).toHaveCSS('visibility','hidden');
+  await expect(input).toHaveAttribute('enterkeyhint','send');await expect(star.locator('svg')).toHaveAttribute('data-icon','apple');await expect(star.locator('svg')).toHaveAttribute('fill','currentColor');await expect(star.locator('svg path')).toHaveCount(2);await expect(star.locator('span')).toHaveCSS('visibility','hidden');
   const dimensions=await star.evaluate(el=>{const current=el.getBoundingClientRect();const copy=el.cloneNode(true) as HTMLElement;copy.removeAttribute('class');copy.removeAttribute('title');copy.querySelector('svg')?.remove();copy.textContent='AI 回复';el.parentElement!.append(copy);const old=copy.getBoundingClientRect();copy.remove();return {width:current.width,height:current.height,oldWidth:old.width,oldHeight:old.height};});expect(dimensions.width).toBe(dimensions.oldWidth);expect(dimensions.height).toBe(dimensions.oldHeight);
   await input.fill('键盘发送');await input.press('Enter');await expect(page.locator('.chat-history')).toContainText('键盘发送');await expect(input).toHaveValue('');await expect(input).toBeFocused();expect(calls).toBe(0);
   await star.hover();await page.mouse.down();await expect(star).toHaveCSS('background-color','rgb(215, 226, 210)');await page.mouse.up();await expect(page.locator('.chat-history')).toContainText('星星回复');expect(calls).toBe(1);
