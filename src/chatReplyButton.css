@@ -1,0 +1,4 @@
+.chat-reply-button { position: relative; }
+.chat-reply-button > span { visibility: hidden; }
+.chat-reply-button > svg { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+.chat-reply-button:active:not(:disabled) { background: #d7e2d2; }

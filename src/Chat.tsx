@@ -3,10 +3,11 @@ import { isDailyFriend, checkDailyFriendApplications, clearChatHistory, deleteDa
 import { orderChatCharacters, saveChatSettings, searchableMessages } from "./chatPreferences";
 import { identityFor } from "./userIdentity";
 import { createEnterSendGuard } from "./enterSend";
+import "./chatReplyButton.css";
 import { Search, X } from "lucide-react";
 import { liveQuery } from "dexie";
 import { chatListPreviews, chatPreviewTime, type ChatPreview } from "./chatListPreview";
-import { ChevronLeft, MoreHorizontal, Send, Square } from "lucide-react";
+import { ChevronLeft, MoreHorizontal, Send, Square, Star } from "lucide-react";
 import { ChatManagement } from "./ChatManagement";
 import { chatDisplayName } from "./chatPresentation";
 import { useChatViewport } from "./useChatViewport";
@@ -441,12 +442,13 @@ export function Chat({ worldId }: { worldId?: string }) {
                 void send();
               }}
             >
-              {conversation.chatSettings?.continuousSend && <button type="button" aria-label="AI 回复" disabled={busy || messages.at(-1)?.role!=="user"} onClick={()=>void send(true)}>AI 回复</button>}
+              {conversation.chatSettings?.continuousSend && <button className="chat-reply-button" type="button" aria-label="AI 回复" title="让 AI 回复待回复消息" disabled={busy || messages.at(-1)?.role!=="user"} onClick={()=>void send(true)}><span aria-hidden="true">AI 回复</span><Star size={20} aria-hidden="true"/></button>}
               <textarea
                 ref={inputRef}
                 rows={1}
                 aria-label="聊天消息"
                 placeholder="说点什么…"
+                enterKeyHint={conversation.chatSettings?.continuousSend ? "send" : undefined}
                 maxLength={8000}
                 value={text}
                 disabled={busy && !savingMessage}
