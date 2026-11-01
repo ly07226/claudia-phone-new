@@ -17,7 +17,7 @@ import {
   selectVariant,
 } from "./messageOperations";
 import { MessageAvatar, ChatMessage, MessageTools, SnapshotTools } from "./MessageUI";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { db, usePhone } from "./store";
 import type { Conversation, Message, MessageVariant } from "./chatTypes";
 import type { ApiConfig } from "./api";
@@ -40,6 +40,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [savingMessage, setSavingMessage] = useState(false);
+  const [replyPresentation,setReplyPresentation]=useState<{sequence:number;conversationId:string;known:Set<string>}|null>(null);
   const [configs, setConfigs] = useState<ApiConfig[]>([]);
   const [variants, setVariants] = useState<Record<string, MessageVariant[]>>(
     {},
@@ -58,6 +59,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const visiblePath = useRef<{conversationId:string;timelineId?:string;epoch:number}|null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const followBottom = useRef(true);
+  const onBubbleReveal=useCallback(()=>{if(followBottom.current && historyRef.current)historyRef.current.scrollTop=historyRef.current.scrollHeight;},[]);
   const preserveTop = useRef<number | null>(null);
   const [feedback, setFeedback] = useState("");
   const taskSequence = useRef(0);
@@ -140,6 +142,7 @@ export function Chat({ worldId }: { worldId?: string }) {
           a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
       );
     if (mounted.current && activeConversation.current === id) {
+      if(visiblePath.current?.conversationId===id && visiblePath.current.timelineId!==current.activeTimelineId && (!pending.current || pending.current.signal.aborted))setReplyPresentation(null);
       if (scroll && followBottom.current) {
         scrollRequested.current = true;
         preserveTop.current = null;
@@ -196,6 +199,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     const navigation = ++taskSequence.current;
     setError("");
     setMessages([]);
+    setReplyPresentation(null);
     try {
       if(!worldId){const current=await db.characters.get(id);if(!current||!isDailyFriend(current))throw Error("此日常好友已删除，请先处理好友申请。");}
       const c = await getConversation(id, worldId);
@@ -227,6 +231,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     const expectedPath=view?.conversationId===id?{timelineId:view.timelineId,epoch:view.epoch}:{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0};
     if (!retry && !target) followBottom.current = true;
     const sequence = ++taskSequence.current;
+    if(retry || target || !conversation.chatSettings?.continuousSend)setReplyPresentation({sequence,conversationId:id,known:new Set(messages.filter(m=>m.role==='assistant').map(m=>JSON.stringify([m.id,m.activeVariantId,m.content])))});
     const previous = pending.current;
     setSavingMessage(!retry && !target && !!conversation.chatSettings?.continuousSend);
     setBusy(true);
@@ -283,6 +288,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const onGenerate = (message?: Message, allowArchive = false) =>
     runGeneration(true, message, allowArchive, true);
   async function chooseVariant(m: Message, v: MessageVariant) {
+    setReplyPresentation(null);
     if (v.id === m.activeVariantId) return;
     if (messages.findIndex((row) => row.id === m.id) < messages.length - 1) {
       setPreviewVariant(v);
@@ -298,6 +304,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     }
   }
   function leaveConversation() {
+    setReplyPresentation(null);
     taskSequence.current++;
     activeConversation.current = null;
     visiblePath.current=null;
@@ -367,7 +374,7 @@ export function Chat({ worldId }: { worldId?: string }) {
             >
               {displayName}
             </span>
-            <button aria-label="会话管理" onClick={() => {savedScroll.current=historyRef.current?.scrollTop ?? 0;setManagement(true);}}>
+            <button aria-label="会话管理" onClick={() => {setReplyPresentation(null);savedScroll.current=historyRef.current?.scrollTop ?? 0;setManagement(true);}}>
               <MoreHorizontal size={23} />
             </button>
           </nav>
@@ -388,12 +395,15 @@ export function Chat({ worldId }: { worldId?: string }) {
               <ChatMessage
                 key={m.id}
                 message={m}
+                playbackKey={replyPresentation?.conversationId===conversation.id && m.role==='assistant' && !replyPresentation.known.has(JSON.stringify([m.id,m.activeVariantId,m.content])) ? `${replyPresentation.sequence}:${m.id}:${m.activeVariantId??''}` : undefined}
+                onReveal={onBubbleReveal}
                 variants={variants[m.id] || []}
                 characterName={displayName}
                 characterAvatar={avatarSrc}
                 userAvatar={userAvatar}
                 userName={userIdentity.name}
                 onMenu={() => {
+                  setReplyPresentation(null);
                   setPreviewVariant(undefined);
                   setMenuId(m.id);
                 }}

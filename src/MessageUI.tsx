@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, X, UserRound } from "lucide-react";
 import type {
@@ -8,6 +8,7 @@ import type {
   MessageRevision,
 } from "./chatTypes";
 import { splitAssistantBubbles } from "./splitAssistantBubbles";
+import { useBubbleReveal } from "./useBubbleReveal";
 import { useMessagePress } from "./useMessagePress";
 import { db } from "./store";
 import {
@@ -80,6 +81,8 @@ export function ChatMessage({
   characterAvatar,
   userAvatar,
   userName = "你",
+  playbackKey,
+  onReveal,
 }: {
   message: Message;
   variants: MessageVariant[];
@@ -89,6 +92,8 @@ export function ChatMessage({
   characterAvatar?: string;
   userAvatar?: string;
   userName?: string;
+  playbackKey?: string;
+  onReveal?: () => void;
 }) {
   const handlers = useMessagePress(onMenu);
   const fragments = useMemo(
@@ -100,6 +105,8 @@ export function ChatMessage({
     0,
     variants.findIndex((v) => v.id === m.activeVariantId),
   );
+  const visibleCount=useBubbleReveal(fragments.length,m.role==='assistant'?playbackKey:undefined);
+  useLayoutEffect(()=>{onReveal?.();},[visibleCount,onReveal]);
   return (
     <div className={`chat-message-row chat-message-row-${m.role}`}>
       {m.role !== "user" && (
@@ -125,7 +132,7 @@ export function ChatMessage({
           >
             消息操作
           </button>
-          {fragments.map((fragment, fragmentIndex) => (
+          {fragments.slice(0,visibleCount).map((fragment, fragmentIndex) => (
             <div className="chat-bubble-surface" key={fragmentIndex}>
               <p>
                 {m.role === "assistant" ? (
