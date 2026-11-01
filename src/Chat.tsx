@@ -12,6 +12,8 @@ import { ChatManagement } from "./ChatManagement";
 import { chatDisplayName } from "./chatPresentation";
 import { useChatViewport } from "./useChatViewport";
 import { useKeyboardAutoReply } from "./useKeyboardAutoReply";
+import { KeyboardDebugPanel } from "./KeyboardDebugPanel";
+import { keyboardDebugEnabled, recordKeyboardDebug } from "./keyboardDebug";
 import { activeMessages } from "./messagePath";
 import {
   cancelGeneration,
@@ -227,7 +229,8 @@ export function Chat({ worldId }: { worldId?: string }) {
     allowArchive = false,
     force = false,
   ) {
-    if (!conversation || ((busy || pending.current) && !force)) return;
+    if (!conversation || ((busy || pending.current) && !force)) {recordKeyboardDebug('generation-blocked',{reason:!conversation?'no-conversation':'busy',hasConversation:!!conversation,idle:!busy,noPending:!pending.current});return;}
+    recordKeyboardDebug('generation-entered',{idle:!busy,noPending:!pending.current});
     const id = conversation.id;
     const view=visiblePath.current;
     const expectedPath=view?.conversationId===id?{timelineId:view.timelineId,epoch:view.epoch}:{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0};
@@ -264,7 +267,9 @@ export function Chat({ worldId }: { worldId?: string }) {
           stored = true;
           await refresh(id, true);
         }, expectedPath);
+      if(retry)recordKeyboardDebug('reply-returned',{success:true});
     } catch (e) {
+      if(retry&&keyboardDebugEnabled())recordKeyboardDebug('reply-returned',{success:false,reason:e instanceof Error&&e.message==='此会话正在回复中，请稍候。'?'service-lock':e instanceof Error&&e.message==='剧情已在其他窗口切换，请确认当前消息后重试。'?'service-path':e instanceof Error&&e.message==='没有可重试的用户消息。'?'service-no-pending':'generation-failed'});
       if (mounted.current && sequence === taskSequence.current) {
         if (!stored && !retry && !target) setText(draft);
         setError(
@@ -284,6 +289,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     }
   }
   const send = (retry = false) => {
+    if(retry)recordKeyboardDebug('send-true',{hasConversation:!!conversation,idle:!busy,noPending:!pending.current});
     if(retry)keyboardAutoReply.cancel();else keyboardAutoReply.suppressSend();
     if (!retry && (!text.trim() || busy || pending.current)) return Promise.resolve();
     return runGeneration(retry);
@@ -295,7 +301,11 @@ export function Chat({ worldId }: { worldId?: string }) {
     scope:JSON.stringify([worldId,conversation?.id,conversation?.characterId,conversation?.activeTimelineId,conversation?.timelineEpoch]),
     enabled:!!conversation?.chatSettings?.continuousSend&&!!conversation?.chatSettings?.keyboardAutoReply,
     blocked:management||!!menuId||!!previewVariant||showSnapshots||requests||(busy&&!savingMessage),
-    canReply:()=>!!conversation&&activeConversation.current===conversation.id&&visiblePath.current?.conversationId===conversation.id&&visiblePath.current.timelineId===conversation.activeTimelineId&&visiblePath.current.epoch===(conversation.timelineEpoch??0)&&!busy&&!pending.current&&messages.at(-1)?.role==='user',
+    canReply:()=>{
+      const ready=!!conversation&&activeConversation.current===conversation.id&&visiblePath.current?.conversationId===conversation.id&&visiblePath.current.timelineId===conversation.activeTimelineId&&visiblePath.current.epoch===(conversation.timelineEpoch??0)&&!busy&&!pending.current&&messages.at(-1)?.role==='user';
+      if(keyboardDebugEnabled())recordKeyboardDebug('reply-check',{canReply:ready,hasConversation:!!conversation,currentConversation:activeConversation.current===conversation?.id,pathConversation:visiblePath.current?.conversationId===conversation?.id,pathTimeline:visiblePath.current?.timelineId===conversation?.activeTimelineId,pathEpoch:visiblePath.current?.epoch===(conversation?.timelineEpoch??0),idle:!busy,noPending:!pending.current,pendingUser:messages.at(-1)?.role==='user'});
+      return ready;
+    },
     reply:()=>{void send(true);},
   });
   const onGenerate = (message?: Message, allowArchive = false) =>
@@ -571,6 +581,7 @@ export function Chat({ worldId }: { worldId?: string }) {
         </>
       )}
       {error && !conversation && <p role="alert">{error}</p>}
+      <KeyboardDebugPanel/>
     </div>
   );
 }
