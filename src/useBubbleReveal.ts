@@ -11,7 +11,7 @@ export function useBubbleReveal(total:number,playbackKey?:string){
       count++;
       setProgress({key:playbackKey,count});
       if(count>=total)clearInterval(timer);
-    },350);
+    },600);
     return()=>clearInterval(timer);
   },[playbackKey,total]);
   return !playbackKey ? total : Math.min(total,progress.key===playbackKey?progress.count:1);
