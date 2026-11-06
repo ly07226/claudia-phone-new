@@ -1,3 +1,4 @@
+import { realTimeContext } from "./realTimeContext";
 import { recordLoreTrace } from "./loreDiagnostics";
 import { activeMessages } from "./messagePath";
 import { loreForConversation, injectLore } from "./loreEngine";
@@ -34,6 +35,9 @@ export async function buildContext(
   if (system.length > contextLimits.systemChars)
     throw Error("角色与世界设定合计过长，请缩短到约 24000 字符以内。");
   const path = await activeMessages(conversation.id, beforeMessageId);
+  const time = conversation.chatSettings?.followRealTime ? realTimeContext(conversation.id, path) : null;
+  if(time && system.length + time.content.length > contextLimits.systemChars)
+    throw Error("角色、世界与真实时间上下文合计过长，请缩短角色或世界设定。");
   let lastReply = -1;
   for(let i=path.length-1;i>=0;i--)if(path[i].role==="assistant"){lastReply=i;break;}
   const pending = conversation.chatSettings?.continuousSend && !beforeMessageId
@@ -55,10 +59,10 @@ export async function buildContext(
   const lore = await loreForConversation(
     conversation,
     history,
-    Math.max(0, contextLimits.systemChars - system.length - 4),
+    Math.max(0, contextLimits.systemChars - system.length - (time?.content.length ?? 0) - 4),
   );
   recordLoreTrace(conversation, lore.diagnostics, lore.skippedBooks);
-  return injectLore(
+  const context = injectLore(
     system,
     history.map((m) => ({
       role: m.role as "user" | "assistant",
@@ -66,4 +70,7 @@ export async function buildContext(
     })),
     lore.entries,
   );
+  // Gemini accepts only the first systemInstruction. Keep the independently built
+  // time block there without changing profile data or downgrading the profile role.
+  return time ? [{...context[0], content: `${context[0].content}\n\n${time.content}`}, ...context.slice(1)] : context;
 }

@@ -2,6 +2,7 @@ export type ChatBackground = { kind: "color"; color: string } | { kind: "image";
 export interface ChatSettings {
   continuousSend?: boolean;
   keyboardAutoReply?: boolean;
+  followRealTime?: boolean;
   remark?: string;
   pinned?: boolean;
   pinnedAt?: number;

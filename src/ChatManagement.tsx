@@ -165,6 +165,8 @@ export function ChatManagement({
           <p className="hint">开启后先保存消息，点击输入框左侧双闪光再生成回复。</p>
           <label className="chat-setting-toggle">收起键盘自动回复<input type="checkbox" role="switch" checked={!!conversation.chatSettings?.keyboardAutoReply} disabled={saving || busy || !conversation.chatSettings?.continuousSend} onChange={e=>void save({keyboardAutoReply:e.target.checked})}/></label>
           <p className="hint">连续发送消息后，收起键盘时尝试自动触发角色回复。仅连续模式生效；视口判断可能漏判或误判，失焦收起、硬件键盘等情况可能不触发，仍可手动点击双闪光。</p>
+          <label className="chat-setting-toggle">跟随真实时间<input type="checkbox" role="switch" checked={!!conversation.chatSettings?.followRealTime} disabled={saving || busy} onChange={e=>void save({followRealTime:e.target.checked})}/></label>
+          <p className="hint">开启后，角色可以感知现实日期、时间及聊天间隔。</p>
           <label className="chat-setting-toggle">置顶聊天<input type="checkbox" role="switch" checked={!!conversation.chatSettings?.pinned} disabled={saving} onChange={e=>void save({pinned:e.target.checked})}/></label>
           <label className="chat-setting-toggle">消息免打扰<input type="checkbox" role="switch" checked={!!conversation.chatSettings?.muted} disabled={saving} onChange={e=>void save({muted:e.target.checked})}/></label>
           <p className="hint">当前暂无消息通知功能；此处仅保存免打扰偏好。</p>
