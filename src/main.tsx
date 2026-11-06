@@ -1,3 +1,4 @@
+import { MemoryApp } from "./MemoryApp";
 import { IdentityCard, IdentityEditor } from "./IdentitySettings";
 import { useDisplayEnvironment } from "./presentation";
 import { Lorebooks } from "./Lorebooks";
@@ -10,6 +11,7 @@ import { ApiSettings } from "./ApiSettings";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  Brain,
   MessageCircle,
   NotebookPen,
   Music2,
@@ -59,6 +61,7 @@ const icons = [
   Palette,
   Globe2,
   Users,
+  Brain,
 ];
 function App() {
   const environment = useDisplayEnvironment();
@@ -512,6 +515,8 @@ function App() {
                 </>
               ) : s.activeApp === "世界管理" ? (
                 <Worlds />
+              ) : s.activeApp === "记忆" ? (
+                <MemoryApp />
               ) : s.activeApp === "角色管理" ? (
                 <CharacterManager fileChange={fileChange} />
               ) : (

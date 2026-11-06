@@ -170,6 +170,7 @@ export const apps = [
   "主题编辑器",
   "世界管理",
   "角色管理",
+  "记忆",
 ];
 export const defaultTheme: Theme = {
   id: "global",
@@ -271,7 +272,7 @@ export const usePhone = create<State>((set, get) => ({
       characters,
       worldProfiles,
       pages,
-      items,
+      items: items.some(i=>i.kind==="app"&&i.app==="记忆")||!pages.length ? items : [...items,{id:"app-memory",kind:"app",app:"记忆",pageId:pages[0].id,position:Math.max(0,...items.filter(i=>i.pageId===pages[0].id).map(i=>i.position))+1,size:1}],
       theme: theme || defaultTheme,
       assets,
     });

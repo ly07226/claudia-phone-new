@@ -1,3 +1,4 @@
+import type {MemoryStore} from './memoryTypes';
 import type {BubblePart,BubbleDeletion} from './messageBubbles';
 export type ChatBackground = { kind: "color"; color: string } | { kind: "image"; assetId: string };
 export interface ChatSettings {
@@ -11,6 +12,8 @@ export interface ChatSettings {
   background?: ChatBackground;
 }
 export interface Conversation {
+  /** Independent memory journal. Not persona, lore, messages, or prompt injection. */
+  memoryStore?: MemoryStore;
   activeTimelineId?: string;
   timelineEpoch?: number;
   chatSettings?: ChatSettings;

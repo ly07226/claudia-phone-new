@@ -1,3 +1,4 @@
+import {validateMemoryStore} from './memoryValidation';
 import {validateBubbleDeletion} from './messageBubbles';
 import {validateQuoteReference} from './messageReferences';
 import { attachmentImages } from "./imageAttachments";
@@ -935,6 +936,7 @@ export async function validateReferences(
     signal,
   );
   await eachBackupRow(d,'conversations',async x=>{
+    try{await validateMemoryStore(d,x);}catch{bad('conversations.memoryStore');}
     if(x.imageDrafts!==undefined){
       if(!x.imageDrafts||typeof x.imageDrafts!=='object'||Array.isArray(x.imageDrafts)){bad('imageDrafts.shape');return;}
       for(const draft of Object.values(x.imageDrafts) as any[]){
