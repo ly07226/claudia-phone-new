@@ -1,3 +1,4 @@
+import {memoryContext} from './memoryContext';
 import {visibleMessage} from './messageBubbles';
 import {quotedMessage} from './messageReferences';
 import { attachmentImages, imageLimits } from "./imageAttachments";
@@ -13,7 +14,7 @@ export const contextLimits = {
   systemChars: 24000,
   userChars: 8000,
 };
-/** Extension boundary for future explicit memories/summaries; no other conversation is queried. */
+/** Assemble the existing effective path, then add bounded, scoped memory facts. */
 export async function buildContext(
   conversation: Conversation,
   beforeMessageId?: string,
@@ -94,5 +95,9 @@ export async function buildContext(
   const context = injectLore(system,requestHistory,lore.entries);
   // Gemini accepts only the first systemInstruction. Keep the independently built
   // time block there without changing profile data or downgrading the profile role.
-  return time ? [{...context[0], content: `${context[0].content}\n\n${time.content}`}, ...context.slice(1)] : context;
+  const timed = time ? [{...context[0], content: `${context[0].content}\n\n${time.content}`}, ...context.slice(1)] : context;
+  const available=contextLimits.systemChars-timed.filter(m=>m.role==='system').reduce((n,m)=>n+m.content.length,0);
+  const memory=await memoryContext(conversation,originalPath,available);
+  // Keep memory data in the first systemInstruction for Gemini as well as OpenAI.
+  return memory ? [{...timed[0],content:timed[0].content+memory},...timed.slice(1)] : timed;
 }
