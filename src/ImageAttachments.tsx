@@ -38,7 +38,7 @@ export function StoredImage({id,onOpen}:{id:string;onOpen?:(src:string)=>void}){
 export function MessageImages({ids}:{ids:string[]}){
  const [full,setFull]=useState<string|null>(null),dialog=useRef<HTMLDialogElement>(null);
  useEffect(()=>{if(full)dialog.current?.showModal();},[full]);
- return <><div className="chat-message-images">{ids.map(id=><div key={id}><StoredImage id={id} onOpen={setFull}/></div>)}</div>{full&&createPortal(<dialog ref={dialog} className="chat-image-viewer" aria-label="聊天图片大图" onClose={()=>setFull(null)} onClick={e=>{if(e.target===e.currentTarget){dialog.current?.close();setFull(null);}}}><button type="button" onClick={()=>{dialog.current?.close();setFull(null);}} aria-label="关闭图片大图">×</button><img src={full} alt="聊天图片大图"/></dialog>,document.body)}</>;
+ return <><div className="chat-message-images">{ids.map(id=><div key={id} data-bubble-key={`image:${id}`}><StoredImage id={id} onOpen={setFull}/></div>)}</div>{full&&createPortal(<dialog ref={dialog} className="chat-image-viewer" aria-label="聊天图片大图" onClose={()=>setFull(null)} onClick={e=>{if(e.target===e.currentTarget){dialog.current?.close();setFull(null);}}}><button type="button" onClick={()=>{dialog.current?.close();setFull(null);}} aria-label="关闭图片大图">×</button><img src={full} alt="聊天图片大图"/></dialog>,document.body)}</>;
 }
 export function AttachmentMenu({disabled,processing,scope,onChoose,onOpenChange}:{disabled:boolean;processing:boolean;scope:string;onChoose:(files:FileList|null,scope:string)=>void;onOpenChange:(open:boolean)=>void}){
  const [open,setOpen]=useState(false),root=useRef<HTMLDivElement>(null),album=useRef<HTMLInputElement>(null),camera=useRef<HTMLInputElement>(null),files=useRef<HTMLInputElement>(null),selection=useRef(scope);

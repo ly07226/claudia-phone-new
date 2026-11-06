@@ -4,10 +4,11 @@ import type {
   MouseEvent as ReactMouseEvent,
   KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-export function useMessagePress(open: () => void) {
+export function useMessagePress(open: (target?:HTMLElement) => void) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const point = useRef<{ x: number; y: number; id: number } | null>(null);
   const pointerType = useRef("");
+  const target=useRef<HTMLElement|undefined>(undefined);
   const fired = useRef(false);
   const callback = useRef(open);
   callback.current = open;
@@ -27,13 +28,14 @@ export function useMessagePress(open: () => void) {
         (e.target as HTMLElement).closest("button,input,textarea,a")
       )
         return;
+      target.current=e.target as HTMLElement;
       point.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
       // Observe actual scrolling as well as pointer displacement; do not block pan/zoom.
       document.addEventListener("scroll", clear, true);
       timer.current = setTimeout(() => {
         clear();
         fired.current = true;
-        callback.current();
+        callback.current(target.current);
       }, 500);
     },
     onPointerMove: (e: ReactPointerEvent) => {
@@ -70,14 +72,14 @@ export function useMessagePress(open: () => void) {
       // our timer decide. Mouse right-click opens the same whole-message menu.
       if (pointerType.current !== "touch" && !fired.current) {
         clear();
-        callback.current();
+        callback.current(e.target as HTMLElement);
       }
     },
     onKeyDown: (e: ReactKeyboardEvent) => {
       if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
         e.preventDefault();
         clear();
-        callback.current();
+        callback.current(e.target as HTMLElement);
       }
     },
   };

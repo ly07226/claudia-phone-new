@@ -195,11 +195,13 @@ test("长按任意 AI 子气泡及用户气泡，500ms、菜单内容与原文�
   ).not.toBe("none");
   await page.keyboard.press("Escape");
   await pressBubble(page, ".chat-user .chat-bubble-surface");
-  for (const name of ["复制", "编辑", "撤回", "删除"])
+  for (const name of ["引用回复", "复制", "编辑", "删除"])
     await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "重新生成", exact: true }),
   ).toHaveCount(0);
+  await page.getByRole("button",{name:"编辑",exact:true}).click();
+  await expect(page.getByRole("button",{name:"撤回",exact:true})).toBeVisible();
   await page.locator(".message-backdrop").click({ position: { x: 4, y: 4 } });
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });

@@ -1,3 +1,5 @@
+import {validateBubbleDeletion} from './messageBubbles';
+import {validateQuoteReference} from './messageReferences';
 import { attachmentImages } from "./imageAttachments";
 import { validateTimelineDatabase } from "./timelineValidation";
 import { validFriendship } from "./friendTypes";
@@ -958,6 +960,7 @@ export async function validateReferences(
       bad("messages.shape/parent");
       return;
     }
+    try{validateBubbleDeletion(x);await validateQuoteReference(d,x);}catch{bad("messages.bubbles/quote");}
     try{await attachmentImages(d,x);}catch{bad("messages.attachments");}
     if (x.activeVariantId) {
       const v = await lookup(x.activeVariantId);

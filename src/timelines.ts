@@ -7,6 +7,11 @@ export const timelineTables = () => [db.conversations, db.messages, db.messageVa
 export const timelineSpace = (c: Conversation) => c.mode === "daily" ? "daily" : `world:${c.worldId}`;
 export async function messageFingerprint(message: Message) {
   const normalized={...message,archived:false};
+  // Backup JSON canonicalizes nested keys. Normalize only the new metadata so
+  // old v6 fingerprints remain byte-for-byte compatible with existing nodes.
+  const canonical=(value:any):any=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value;
+  if(message.replyTo)normalized.replyTo=canonical(message.replyTo);
+  if(message.bubbleDeletion)normalized.bubbleDeletion=canonical(message.bubbleDeletion);
   const data=JSON.stringify(Object.fromEntries(Object.keys(normalized).sort().map(k=>[k,normalized[k as keyof Message]])));
   const bytes=await Dexie.waitFor(crypto.subtle.digest("SHA-256",new TextEncoder().encode(data)));
   return Array.from(new Uint8Array(bytes),v=>v.toString(16).padStart(2,"0")).join("");

@@ -1,3 +1,5 @@
+import {validateBubbleDeletion} from './messageBubbles';
+import {validateQuoteReference} from './messageReferences';
 import { attachmentImages } from "./imageAttachments";
 import type Dexie from "dexie";
 import { messageFingerprint, timelineSpace } from "./timelines";
@@ -15,6 +17,7 @@ export async function validateTimelineDatabase(d:Dexie) {
   const fail=()=>{throw Error("时间线引用、作用域、内容指纹或路径完整性校验失败，未覆盖正式数据。");};
   await each(d,"pathNodes",async(n:ConversationPathNode)=>{
     if(!conversations.has(n.conversationId)||n.message?.conversationId!==n.conversationId||n.messageId!==n.message.id||n.role!==n.message.role||!["user","assistant","system","tool"].includes(n.role)||n.variantId!==n.message.activeVariantId||typeof n.parentNodeId!=="string"||typeof n.message.content!=="string"||!Number.isFinite(n.message.createdAt)||!Number.isFinite(n.createdAt)||n.fingerprint!==await messageFingerprint(n.message))fail();
+    validateBubbleDeletion(n.message);await validateQuoteReference(d,n.message);
     await attachmentImages(d,n.message);
     const original=await d.table("messages").get(n.messageId);if(original&&original.conversationId!==n.conversationId)fail();
     if(n.variantId){const v=await d.table("messageVariants").get(n.variantId);if(v&&(v.conversationId!==n.conversationId||v.messageId!==n.messageId))fail();}

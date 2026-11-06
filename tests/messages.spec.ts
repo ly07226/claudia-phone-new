@@ -630,12 +630,11 @@ test("iPhone 长按、移动取消、Escape/空白关闭、编辑/复制/删除/
     .getByRole("button", { name: /消息操作/ })
     .press("Enter");
   await page.getByRole("button", { name: "复制", exact: true }).click();
-  await expect(page.getByRole("dialog").getByRole("status")).toContainText(
-    "已复制",
-  );
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__copiedMessage)).toBe(
     "UI_AI_EDIT",
   );
+  await page.locator(".chat-assistant").getByRole("button",{name:/消息操作/}).press("Enter");
   await page.getByRole("button", { name: "删除", exact: true }).click();
   await expect(page.locator(".chat-assistant")).toHaveCount(0);
   await page.getByRole("button", { name: "会话管理", exact: true }).click();
@@ -768,6 +767,7 @@ test("请求进行中撤回并恢复输入框，编辑最新用户消息后保�
     .getByRole("button", { name: /消息操作/ })
     .press("Enter");
   page.on("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
   await page.getByRole("button", { name: "撤回", exact: true }).click();
   await expect(page.locator(".chat-bubble")).toHaveCount(0);
   await expect(page.getByLabel("聊天消息")).toHaveValue("WITHDRAW_INFLIGHT");
@@ -976,7 +976,7 @@ test("编辑器固定打开时版本，生成完成后不能把旧草稿误写�
   );
   await page.getByRole("button", { name: "仅保存修改" }).click();
   await expect(page.getByRole("dialog").getByRole("status")).toContainText(
-    "消息已在其他操作中变化",
+    "聊天分支已变化",
   );
   const state = await page.evaluate(async (id) => {
     const { activeMessages } = await import("/src/messagePath.ts");

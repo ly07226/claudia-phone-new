@@ -2,7 +2,7 @@ import {useSyncExternalStore} from 'react';
 import {db} from './store';
 import {sendMessage,regenerateMessage,type ExpectedPath} from './chatService';
 import {cancelGeneration,invalidateGeneration} from './messageOperations';
-import type {Conversation} from './chatTypes';
+import type {Conversation,MessageQuote} from './chatTypes';
 
 type Status='saving'|'generating'|'completed'|'failed'|'stopped';
 export interface GenerationTask {
@@ -11,7 +11,7 @@ export interface GenerationTask {
 }
 interface Request {
  conversation:Conversation; expectedPath:ExpectedPath; text:string; retry:boolean;
- messageId?:string; allowArchive?:boolean; images:string[];
+ messageId?:string; allowArchive?:boolean; images:string[]; replyTo?:MessageQuote;
 }
 interface Entry {state:GenerationTask;controller:AbortController;done:Promise<void>}
 const tasks=new Map<string,Entry>();
@@ -42,7 +42,7 @@ export function startGenerationTask(request:Request,onSaved?:()=>void){
   };
   try{
    if(request.messageId)await regenerateMessage(c.id,request.messageId,controller.signal,request.allowArchive,expectedPath,saved);
-   else await sendMessage(c.id,request.text,controller.signal,request.retry,saved,expectedPath,request.images);
+   else await sendMessage(c.id,request.text,controller.signal,request.retry,saved,expectedPath,request.images,request.replyTo);
    update({status:'completed',saved:true});
   }catch(error){
    update({status:controller.signal.aborted?'stopped':'failed',error:controller.signal.aborted?'回复已停止或当前路径已变化，已保存的消息和版本保留。':error instanceof Error?error.message:'回复未完成，已保存的消息保留。'});

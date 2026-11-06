@@ -1,3 +1,7 @@
+import {MessagePopover,type MessageSelection} from './MessagePopover';
+import {messageBubbles,partKey,visibleContent,type BubblePart} from './messageBubbles';
+import {quotedMessage,quoteSummary} from './messageReferences';
+import {Reply,RefreshCw,Pencil,Copy,Trash2} from 'lucide-react';
 import { MessageImages } from "./ImageAttachments";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -8,13 +12,13 @@ import type {
   ConversationSnapshot,
   MessageRevision,
 } from "./chatTypes";
-import { splitAssistantBubbles } from "./splitAssistantBubbles";
 import { useBubbleReveal } from "./useBubbleReveal";
 import { useMessagePress } from "./useMessagePress";
 import { db } from "./store";
 import {
   editMessage,
   removeMessage,
+  deleteBubble,
   restoreSnapshot,
   restoreRevision,
   selectVariant,
@@ -84,10 +88,13 @@ export function ChatMessage({
   userName = "你",
   playbackKey,
   onReveal,
+  conversation,
+  messages,
+  onLocate,
 }: {
   message: Message;
   variants: MessageVariant[];
-  onMenu: () => void;
+  onMenu: (selection:MessageSelection) => void;
   onVersion: (variant: MessageVariant) => void;
   characterName?: string;
   characterAvatar?: string;
@@ -95,13 +102,21 @@ export function ChatMessage({
   userName?: string;
   playbackKey?: string;
   onReveal?: () => void;
+  conversation: import("./chatTypes").Conversation;
+  messages: Message[];
+  onLocate: (id:string,part:BubblePart)=>void;
 }) {
-  const handlers = useMessagePress(onMenu);
-  const fragments = useMemo(
-    () =>
-      m.role === "assistant" ? splitAssistantBubbles(m.content) : [m.content],
-    [m.role, m.content],
-  );
+  const root=useRef<HTMLDivElement>(null);
+  const bubbles=useMemo(()=>messageBubbles(m),[m]);
+  const fragments=bubbles.filter((p):p is Extract<BubblePart,{kind:'text'}>=>p.kind==='text');
+  const openMenu=(target?:HTMLElement)=>{
+    const element=target?.closest<HTMLElement>('[data-bubble-key]');
+    const anchor=element&&root.current?.contains(element)?element:root.current?.querySelector<HTMLElement>('[data-bubble-key]');
+    const part=bubbles.find(p=>partKey(p)===anchor?.dataset.bubbleKey);
+    if(part&&anchor)onMenu({part,anchor});
+  };
+  const handlers = useMessagePress(openMenu);
+  const quoteAvailable=m.replyTo&&quotedMessage(m.replyTo,messages,conversation);
   const index = Math.max(
     0,
     variants.findIndex((v) => v.id === m.activeVariantId),
@@ -117,6 +132,7 @@ export function ChatMessage({
         <div
           className={`chat-bubble chat-${m.role}`}
           data-message-id={m.id}
+          ref={root}
           {...handlers}
         >
           <button
@@ -129,18 +145,19 @@ export function ChatMessage({
                 ? "用户已编辑。打开完整消息的操作菜单。"
                 : "打开完整消息的操作菜单。"
             }
-            onClick={onMenu}
+            onClick={()=>openMenu()}
           >
             消息操作
           </button>
-          {!!m.attachments?.length&&<MessageImages ids={m.attachments.map(a=>a.assetId)}/>}
-          {((!m.content.trim()&&m.attachments?.length)?[]:fragments.slice(0,visibleCount)).map((fragment, fragmentIndex) => (
-            <div className="chat-bubble-surface" key={fragmentIndex}>
+          {m.replyTo&&<button type="button" className="message-quote" aria-label="定位引用消息" disabled={!quoteAvailable} onClick={()=>onLocate(m.replyTo!.messageId,m.replyTo!.part)}><strong>{m.replyTo.role==='user'?userName:characterName}</strong><span>{quoteAvailable?quoteSummary(m.replyTo):'原消息已删除或不在当前分支'}</span></button>}
+          {bubbles.some(p=>p.kind==='image')&&<MessageImages ids={bubbles.flatMap(p=>p.kind==='image'?[p.assetId]:[])}/>}
+          {fragments.slice(0,visibleCount).map((fragment) => (
+            <div className="chat-bubble-surface" key={partKey(fragment)} data-bubble-key={partKey(fragment)} tabIndex={0}>
               <p>
                 {m.role === "assistant" ? (
-                  <AssistantBubbleText content={fragment} />
+                  <AssistantBubbleText content={fragment.text} />
                 ) : (
-                  fragment
+                  fragment.text
                 )}
               </p>
             </div>
@@ -285,6 +302,9 @@ export function MessageTools({
   onGenerate,
   onDraft,
   preview,
+  selection,
+  expectedPath,
+  onQuote,
 }: {
   message: Message | null;
   conversationId: string;
@@ -295,9 +315,12 @@ export function MessageTools({
   onGenerate: (message?: Message, allowArchive?: boolean) => Promise<void>;
   onDraft: (text: string) => void;
   preview?: MessageVariant;
+  selection?: MessageSelection;
+  expectedPath: import("./chatService").ExpectedPath;
+  onQuote:(part:BubblePart,base:{content:string;activeVariantId?:string})=>Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
-  const [content, setContent] = useState(message?.content || "");
+  const [content, setContent] = useState(message?visibleContent(message):"");
   const editBase = useRef({
     content: message?.content || "",
     activeVariantId: message?.activeVariantId,
@@ -354,7 +377,7 @@ export function MessageTools({
     }
     if (!confirmTail(hasLater)) return;
     const ok = await act(() =>
-      editMessage(conversationId, m.id, content, hasLater, editBase.current),
+      editMessage(conversationId, m.id, content, hasLater, editBase.current,expectedPath),
     );
     if (ok && regenerate)
       await onGenerate().catch((e) =>
@@ -365,16 +388,24 @@ export function MessageTools({
   }
 
   async function copy() {
-    const text = preview?.content || m.content;
+    const text = preview?.content || visibleContent(m);
     try {
       if (!navigator.clipboard?.writeText) throw Error();
       await navigator.clipboard.writeText(text);
-      setFeedback("已复制消息文本。");
+      onClose();
     } catch {
       setCopyFallback(true);
       setFeedback("浏览器未允许自动复制，可在下方文本框选择文本复制。");
     }
   }
+  if(!preview&&!editing&&!copyFallback&&!showRevisions&&selection)return <MessagePopover anchor={selection.anchor} onClose={()=>{if(!working)onClose();}}>
+    {feedback&&<p role="status" className="hint">{feedback}</p>}
+    <button className="message-action" disabled={working} onClick={()=>void act(()=>onQuote(selection.part,editBase.current))}>引用回复<Reply size={17}/></button>
+    {m.role==='assistant'&&<button className="message-action" disabled={working} onClick={()=>{if(confirmTail(hasLater)){onClose();void onGenerate(m,hasLater).catch(e=>onError(e instanceof Error?e.message:'重新生成失败。'));}}}>重新生成<RefreshCw size={17}/></button>}
+    <button className="message-action" disabled={working} onClick={()=>{setContent(visibleContent(m));setEditing(true);}}>编辑<Pencil size={17}/></button>
+    <button className="message-action" disabled={working} onClick={()=>void copy()}>复制<Copy size={17}/></button>
+    <button className="message-action danger" disabled={working} onClick={()=>{if(confirm('仅删除这条消息？只移除所选气泡，保留其他气泡、回复版本和历史分支。'))void act(()=>deleteBubble(conversationId,m.id,selection.part,expectedPath,editBase.current));}}>删除<Trash2 size={17}/></button>
+  </MessagePopover>;
   return (
     <MessageSheet
       title={
@@ -445,6 +476,11 @@ export function MessageTools({
               </button>
             )}
           </div>
+          {m.role==='user'&&<button className="message-action" disabled={!latestUser||working} onClick={()=>{
+            if(!confirm('撤回最新用户消息及其后续 AI 回复？将保留可恢复快照，并取消当前生成。'))return;
+            const draft=confirm('是否将原文字放回输入框？');void act(async()=>{await removeMessage(conversationId,m.id,'withdraw',true);if(draft)onDraft(visibleContent(m));});
+          }}>撤回{!latestUser?'（仅最新用户消息）':''}</button>}
+          {revisions.length>0&&<button className="message-action" onClick={()=>{setEditing(false);setShowRevisions(true);}}>修订历史（{revisions.length}）</button>}
           <p className="hint">
             修改有后续消息的内容时会先保存可恢复快照；AI
             编辑只改变当前版本并保留修订原文。
@@ -452,84 +488,6 @@ export function MessageTools({
         </>
       ) : (
         <>
-          {m.role === "assistant" && (
-            <button
-              className="message-action"
-              disabled={working}
-              onClick={() => {
-                if (confirmTail(hasLater)) {
-                  onClose();
-                  void onGenerate(m, hasLater).catch((e) =>
-                    onError(e instanceof Error ? e.message : "重新生成失败。"),
-                  );
-                }
-              }}
-            >
-              重新生成
-            </button>
-          )}
-          <button
-            className="message-action"
-            onClick={() => {
-              editBase.current = {
-                content: m.content,
-                activeVariantId: m.activeVariantId,
-              };
-              setContent(m.content);
-              setEditing(true);
-            }}
-          >
-            编辑
-          </button>
-          {m.role === "user" && (
-            <button
-              className="message-action"
-              disabled={!latestUser || working}
-              onClick={() => {
-                if (
-                  !confirm(
-                    "撤回最新用户消息及其后续 AI 回复？将保留可恢复快照，并取消当前生成。",
-                  )
-                )
-                  return;
-                const draft = confirm("是否将原文字放回输入框？");
-                void act(async () => {
-                  const text = await removeMessage(
-                    conversationId,
-                    m.id,
-                    "withdraw",
-                    true,
-                  );
-                  if (draft) onDraft(text);
-                });
-              }}
-            >
-              撤回{!latestUser ? "（仅最新用户消息）" : ""}
-            </button>
-          )}
-          <button className="message-action" onClick={() => void copy()}>
-            复制
-          </button>
-          <button
-            className="message-action danger"
-            disabled={working}
-            onClick={() => {
-              if (
-                confirm(
-                  hasLater
-                    ? "删除此消息及当前路径中的后续消息？后续剧情可能受影响，整条原路径将保留为可恢复快照。"
-                    : "删除此消息？AI 多版本将整组移出当前路径，原内容保留在快照中。",
-                )
-              )
-                void act(() =>
-                  removeMessage(conversationId, m.id, "delete", hasLater).then(
-                    () => {},
-                  ),
-                );
-            }}
-          >
-            删除
-          </button>
           {revisions.length > 0 && (
             <button
               className="message-action"
@@ -564,7 +522,7 @@ export function MessageTools({
         <textarea
           aria-label="可手动复制的消息文本"
           readOnly
-          value={preview?.content || m.content}
+          value={preview?.content || visibleContent(m)}
           onFocus={(e) => e.target.select()}
         />
       )}

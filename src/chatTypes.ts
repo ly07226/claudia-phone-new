@@ -1,3 +1,4 @@
+import type {BubblePart,BubbleDeletion} from './messageBubbles';
 export type ChatBackground = { kind: "color"; color: string } | { kind: "image"; assetId: string };
 export interface ChatSettings {
   continuousSend?: boolean;
@@ -25,7 +26,13 @@ export interface Conversation {
   sendingToken?: string;
   sendingUntil?: number;
 }
+export interface MessageQuote {
+  version:1; conversationId:string; timelineId:string; epoch:number;
+  messageId:string; variantId?:string; role:"user"|"assistant"; part:BubblePart;
+}
 export interface Message {
+  replyTo?: MessageQuote;
+  bubbleDeletion?: BubbleDeletion;
   id: string;
   conversationId: string;
   role: "user" | "assistant" | "system" | "tool";

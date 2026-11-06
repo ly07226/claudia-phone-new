@@ -1,0 +1,15 @@
+.message-backdrop.message-popover-backdrop{display:block;padding:0;background:transparent;z-index:1000;overscroll-behavior:contain}
+.message-popover-shade{position:absolute;inset:0;pointer-events:none;background:rgba(35,48,39,.2);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+.message-popover{position:absolute;overflow-y:auto;overscroll-behavior:contain;max-width:calc(100% - 24px);padding:6px;background:rgba(255,253,242,.94);color:#34483e;border:1px solid #fff9;border-radius:20px;box-shadow:0 8px 30px #283b3026;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.message-popover .message-action{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;min-height:44px;font-size:15px;border-radius:12px;line-height:1.4}
+.message-popover .message-action.danger{color:#a14a48}
+.message-popover .hint{padding:4px 10px;font-size:12px}
+.message-quote,.chat-quote-draft{border:0;border-left:3px solid #81967e;background:#81967e14;border-radius:10px;color:inherit;text-align:left;min-width:0;overflow:hidden}
+.message-quote{display:block;max-width:100%;width:100%;padding:7px 10px;margin-bottom:6px;cursor:pointer;font-size:12px}
+.message-quote strong,.message-quote span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.message-quote:disabled{opacity:.65;cursor:default}
+.chat-quote-draft{display:flex;gap:8px;align-items:center;margin:6px 12px;padding:8px 10px;font-size:12px}
+.chat-quote-draft > span{flex:1;min-width:0}
+.chat-quote-draft strong,.chat-quote-draft small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-quote-draft button{flex:0 0 40px;width:40px;min-height:40px;display:grid;place-items:center}
+[data-bubble-key]:focus-visible{outline:2px solid #81967e;outline-offset:2px}

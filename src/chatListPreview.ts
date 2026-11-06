@@ -1,3 +1,4 @@
+import {visibleMessage} from './messageBubbles';
 import { db } from "./store";
 import { activeMessages } from "./messagePath";
 export interface ChatPreview { content: string; createdAt?: number; remark?: string; pinned?: boolean; pinnedAt?: number; conversationId: string }
@@ -10,7 +11,7 @@ export async function chatListPreviews(characterIds: string[], worldId?: string)
   const result: Record<string, ChatPreview> = {};
   for (const c of conversations) {
     if (result[c.characterId]) continue;
-    const last = (await activeMessages(c.id)).filter(m => m.role === "user" || m.role === "assistant").at(-1);
+    const last = (await activeMessages(c.id)).filter(m => m.role === "user" || m.role === "assistant").map(visibleMessage).at(-1);
     result[c.characterId] = { conversationId: c.id, remark: c.chatSettings?.remark, pinned: c.chatSettings?.pinned, pinnedAt: c.chatSettings?.pinnedAt, content: last?.content.replace(/\s+/g, " ").trim() || (last?.attachments?.length?"[图片]":""), createdAt: last?.createdAt };
   }
   return result;

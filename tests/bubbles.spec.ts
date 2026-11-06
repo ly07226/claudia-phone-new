@@ -150,7 +150,7 @@ test("旧消息分组显示、用户不拆、单版本隐藏，多版本整组�
   expect(state.version).toBe(6);
 });
 
-test("长按任意片段操作整条消息，复制、编辑、删除保留完整原文", async ({
+test("长按任意片段复制和编辑完整消息，删除仅作用于所选气泡并保留历史原文", async ({
   page,
 }) => {
   const { original } = await openLegacy(page);
@@ -186,6 +186,8 @@ test("长按任意片段操作整条消息，复制、编辑、删除保留完�
   expect(await page.evaluate(() => (window as any).__copiedBubbleText)).toBe(
     original,
   );
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.locator(".chat-assistant").getByRole("button", {name:"AI 消息操作"}).press("Enter");
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await expect(page.getByLabel("编辑消息内容")).toHaveValue(original);
   const edited = original + "\n编辑后的完整第四段。";
@@ -204,9 +206,14 @@ test("长按任意片段操作整条消息，复制、编辑、删除保留完�
     .locator(".chat-assistant")
     .getByRole("button", { name: "AI 消息操作" })
     .press("Enter");
-  page.once("dialog", (d) => d.accept());
+  const beforeDelete=await surfaces.locator("p").allTextContents();
+  page.once("dialog", (d) => {expect(d.message()).toContain("仅删除这条消息");return d.accept();});
   await page.getByRole("button", { name: "删除", exact: true }).click();
-  await expect(page.locator(".chat-assistant")).toHaveCount(0);
+  await expect(page.locator(".chat-assistant")).toHaveCount(1);
+  await expect(surfaces).toHaveCount(3);
+  await expect(surfaces.locator("p")).toHaveText(beforeDelete.slice(1));
+  const stored=await page.evaluate(async()=>{const {db}=await import("/src/store.ts");const m=(await db.messages.get("bubble-ai"))!;return {content:m.content,variant:(await db.messageVariants.get(m.activeVariantId!))?.content};});
+  expect(stored.content).toBe(edited);expect(stored.variant).toBe(edited);
   expect(
     await page.evaluate(async (edited) => {
       const { db } = await import("/src/store.ts");

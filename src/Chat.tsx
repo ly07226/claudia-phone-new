@@ -1,3 +1,6 @@
+import {prepareQuote,quoteSummary} from './messageReferences';
+import {partKey,type BubblePart} from './messageBubbles';
+import type {MessageSelection} from './MessagePopover';
 import {useGenerationTask, startGenerationTask, stopGenerationTask, runningTask} from "./generationTasks";
 import { AttachmentMenu, StoredImage, useImageDraft } from "./ImageAttachments";
 import { FriendRequests } from "./FriendRequests";
@@ -28,7 +31,7 @@ import {
 import { MessageAvatar, ChatMessage, MessageTools, SnapshotTools } from "./MessageUI";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { db, usePhone } from "./store";
-import type { Conversation, Message, MessageVariant } from "./chatTypes";
+import type { Conversation, Message, MessageVariant, MessageQuote } from "./chatTypes";
 import type { ApiConfig } from "./api";
 import {
   getConversation,
@@ -60,12 +63,17 @@ export function Chat({ worldId }: { worldId?: string }) {
     {},
   );
   const [menuId, setMenuId] = useState<string | null>(null);
+  const [selection,setSelection]=useState<MessageSelection>();
+  const [menuPath,setMenuPath]=useState<import('./chatService').ExpectedPath>();
+  const [replyTo,setReplyTo]=useState<MessageQuote|null>(null);
+  useEffect(()=>{setReplyTo(q=>q&&(!conversation||q.conversationId!==conversation.id||q.epoch!==(conversation.timelineEpoch??0)||(conversation.activeTimelineId&&q.timelineId!==conversation.activeTimelineId))?null:q);},[conversation?.id,conversation?.activeTimelineId,conversation?.timelineEpoch]);
   const [previewVariant, setPreviewVariant] = useState<
     MessageVariant | undefined
   >();
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [management, setManagement] = useState(false);
   const [requests,setRequests] = useState(false);
+  useEffect(()=>{if(menuId&&!messages.some(m=>m.id===menuId)){setMenuId(null);setSelection(undefined);setPreviewVariant(undefined);}},[menuId,messages]);
   const activeConversation = useRef<string | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
   const refreshTicket = useRef(0);
@@ -97,6 +105,15 @@ export function Chat({ worldId }: { worldId?: string }) {
     if(jumpTo.current){const target=Array.from(history.querySelectorAll<HTMLElement>("[data-message-id]")).find(el=>el.dataset.messageId===jumpTo.current);if(target){history.scrollTop+=target.getBoundingClientRect().top-history.getBoundingClientRect().top-history.clientHeight/3;history.querySelectorAll(".chat-message-highlight").forEach(el=>el.classList.remove("chat-message-highlight"));target.classList.add("chat-message-highlight");clearTimeout(highlightTimer.current);highlightTimer.current=setTimeout(()=>target.classList.remove("chat-message-highlight"),2400);followBottom.current=false;}jumpTo.current=null;savedScroll.current=null;}
     else if(savedScroll.current!==null){history.scrollTop=savedScroll.current;savedScroll.current=null;}
   },[management]);
+  function locateQuote(id:string,part:BubblePart){
+    const history=historyRef.current;if(!history)return;
+    const group=Array.from(history.querySelectorAll<HTMLElement>('[data-message-id]')).find(el=>el.dataset.messageId===id);
+    const target=group&&Array.from(group.querySelectorAll<HTMLElement>('[data-bubble-key]')).find(el=>el.dataset.bubbleKey===partKey(part));
+    if(!target){setFeedback('原消息已删除或不在当前分支。');return;}
+    followBottom.current=false;scrollRequested.current=false;preserveTop.current=null;
+    history.scrollTop+=target.getBoundingClientRect().top-history.getBoundingClientRect().top-history.clientHeight/3;
+    history.querySelectorAll('.chat-message-highlight').forEach(el=>el.classList.remove('chat-message-highlight'));target.classList.add('chat-message-highlight');clearTimeout(highlightTimer.current);highlightTimer.current=setTimeout(()=>target.classList.remove('chat-message-highlight'),2400);
+  }
   const userIdentity = identityFor(s.theme, conversation?.mode === "world" ? `world:${conversation.worldId}` : "daily");
   const userAvatar = s.assets.find(a=>a.id===userIdentity.avatar)?.data;
   const avatarSrc = s.assets.find((a) => a.id === character?.avatar)?.data;
@@ -213,7 +230,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     const navigation = ++taskSequence.current;
     setError("");
     setMessages([]);
-    setBusy(false);setSavingMessage(false);pending.current=null;
+    setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
     setReplyPresentation(null);
     try {
       if(!worldId){const current=await db.characters.get(id);if(!current||!isDailyFriend(current))throw Error("此日常好友已删除，请先处理好友申请。");}
@@ -274,16 +291,17 @@ export function Chat({ worldId }: { worldId?: string }) {
       }
       if (!retry && !target && conversation.chatSettings?.continuousSend) {
         recordKeyboardDebug('message-save-start',{flow,inputFocused:document.activeElement===inputRef.current});
-        await queueUserMessage(id, draft, expectedPath,images);
+        await queueUserMessage(id, draft, expectedPath,images,replyTo??undefined);
         recordKeyboardDebug('message-save-end',{flow,success:true,inputFocused:document.activeElement===inputRef.current});
         stored = true;
-        if(ownsView()){imageDraft.clear();await refresh(id, true);}
+        if(ownsView()){imageDraft.clear();setReplyTo(null);await refresh(id, true);}
       } else {
         recordKeyboardDebug('ai-start',{flow,inputFocused:document.activeElement===inputRef.current,disabled:!!inputRef.current?.disabled});
-        const task=startGenerationTask({conversation,expectedPath,text:draft,retry,messageId:target?.id,allowArchive,images},()=>{
+        const task=startGenerationTask({conversation,expectedPath,text:draft,retry,messageId:target?.id,allowArchive,images,replyTo:!retry&&!target?replyTo??undefined:undefined},()=>{
           stored = true;
           if(ownsView()){
             if(!target)imageDraft.clear();
+            if(!retry&&!target)setReplyTo(null);
             void refresh(id,true).catch(()=>{if(ownsView())setError("无法读取聊天记录，请检查本地存储。");});
           }
         });
@@ -343,6 +361,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     runGeneration(true, message, allowArchive, true);
   async function chooseVariant(m: Message, v: MessageVariant) {
     setReplyPresentation(null);
+    setSelection(undefined);
     if (v.id === m.activeVariantId) return;
     if (messages.findIndex((row) => row.id === m.id) < messages.length - 1) {
       setPreviewVariant(v);
@@ -367,6 +386,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     setBusy(false);
     setSavingMessage(false);
     setConversation(null);
+    setReplyTo(null);
     setMessages([]);
     setText("");
     setError("");
@@ -458,7 +478,13 @@ export function Chat({ worldId }: { worldId?: string }) {
                 characterAvatar={avatarSrc}
                 userAvatar={userAvatar}
                 userName={userIdentity.name}
-                onMenu={() => {
+                conversation={conversation}
+                messages={messages}
+                onLocate={locateQuote}
+                onMenu={(selected) => {
+                  followBottom.current=false;scrollRequested.current=false;preserveTop.current=historyRef.current?.scrollTop??null;
+                  setSelection(selected);
+                  setMenuPath({timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0});
                   setReplyPresentation(null);
                   setPreviewVariant(undefined);
                   setMenuId(m.id);
@@ -493,6 +519,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 </button>
               </div>
             )}
+            {replyTo&&<div className="chat-quote-draft" aria-label="引用预览"><span><strong>{replyTo.role==='user'?userIdentity.name:displayName}</strong><small>{quoteSummary(replyTo)}</small></span><button type="button" aria-label="取消引用" onClick={()=>setReplyTo(null)}><X size={18}/></button></div>}
             {imageDraft.ids.length>0&&<div className="chat-pending-images" aria-label="待发送图片">{imageDraft.ids.map(id=><div key={id}><StoredImage id={id}/><button type="button" aria-label="移除待发送图片" disabled={busy||imageDraft.processing} onClick={()=>void imageDraft.remove(id,text)}>×</button></div>)}<small>最多3张；大图缩至1600px，单张≤1.5MB，请使用支持视觉输入的模型。{imageDraft.processing?'处理中…':''}{imageDraft.notice}</small></div>}
             <form
               className="chat-compose"
@@ -550,6 +577,13 @@ export function Chat({ worldId }: { worldId?: string }) {
               conversationId={conversation.id}
               messages={messages}
               preview={previewVariant}
+              selection={selection}
+              expectedPath={menuPath??{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0}}
+              onQuote={async(part,base)=>{
+                const id=conversation.id,q=await prepareQuote(id,menuId!,part,menuPath??{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0},base);
+                await refresh(id);
+                if(activeConversation.current===id&&visiblePath.current?.timelineId===q.timelineId&&visiblePath.current.epoch===q.epoch)setReplyTo(q);
+              }}
               onClose={() => {
                 setMenuId(null);
                 setPreviewVariant(undefined);

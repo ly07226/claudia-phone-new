@@ -1,3 +1,4 @@
+import {visibleMessage} from './messageBubbles';
 import { db, type Character } from "./store";
 import { activeMessages } from "./messagePath";
 import type { ChatSettings, Message } from "./chatTypes";
@@ -30,7 +31,7 @@ export function orderChatCharacters<T extends Pick<Character,"id">>(characters: 
 export async function searchableMessages(id: string): Promise<Message[]> {
   const rows=(await activeMessages(id)).filter(m=>m.role==='user'||m.role==='assistant');
   const variants = new Map((await db.messageVariants.bulkGet(rows.flatMap(m=>m.role==='assistant'&&m.activeVariantId?[m.activeVariantId]:[]))).filter(v=>!!v).map(v=>[v!.id,v!]));
-  return rows.filter(m=>{if(m.role!=='assistant'||!m.activeVariantId)return true;const v=variants.get(m.activeVariantId);return v?.messageId===m.id&&v.conversationId===id;});
+  return rows.filter(m=>{if(m.role!=='assistant'||!m.activeVariantId)return true;const v=variants.get(m.activeVariantId);return v?.messageId===m.id&&v.conversationId===id;}).map(visibleMessage);
 }
 export async function searchConversation(id:string, query:string) {
   const needle=query.trim().toLocaleLowerCase();if(!needle)return [];

@@ -1,3 +1,4 @@
+import {messageBubbles,samePart,type BubblePart} from './messageBubbles';
 import { ensureTimelineInTransaction, commitTimelineProjection, nodesForHead, messageFingerprint } from "./timelines";
 import { db } from "./store";
 import { activeMessages, variantsFor } from "./messagePath";
@@ -154,6 +155,7 @@ export async function selectVariant(
       activeVariantId: v.id,
       content: v.content,
       userEdited: v.userEdited,
+      bubbleDeletion: undefined,
     });
     await commitTimelineProjection(id,"switch");
   });
@@ -164,12 +166,14 @@ export async function editMessage(
   content: string,
   allowArchive = false,
   expected?: { content: string; activeVariantId?: string },
+  expectedPath?: {timelineId?:string;epoch:number},
 ) {
   content = content.trim();
   if (content.length > 100000)
     throw Error("消息内容需为 1–100000 字符。");
-  cancelGeneration(id);
   await db.transaction("rw", messageTables(), async () => {
+    if(expectedPath){const c=await db.conversations.get(id);if(!c||c.activeTimelineId!==expectedPath.timelineId||(c.timelineEpoch??0)!==expectedPath.epoch)throw Error("聊天分支已变化，请重新打开编辑器。");}
+    cancelGeneration(id);
     await ensureTimelineInTransaction(id);
     const t = await target(id, messageId);
     if(!content&&!t.message.attachments?.length)throw Error("消息不能为空。");
@@ -202,7 +206,7 @@ export async function editMessage(
         content,
         userEdited: true,
       });
-    await db.messages.update(messageId, { content, userEdited: true });
+    await db.messages.update(messageId, { content, userEdited: true, bubbleDeletion:undefined });
     await commitTimelineProjection(id,"edit");
   });
 }
@@ -310,6 +314,22 @@ export async function addGeneratedVariant(m: Message, content: string) {
     activeVariantId: v.id,
     content,
     userEdited: false,
+    bubbleDeletion: undefined,
   });
   return v;
+}
+
+/** Branch-local tombstones: never mutate a variant or archive following messages. */
+export async function deleteBubble(id:string,messageId:string,part:BubblePart,expected:{timelineId?:string;epoch:number},base:{content:string;activeVariantId?:string}){
+ await db.transaction('rw',messageTables(),async()=>{
+  const c=await db.conversations.get(id);
+  if(!c||c.activeTimelineId!==expected.timelineId||(c.timelineEpoch??0)!==expected.epoch)throw Error('聊天分支已变化，请重新长按消息。');
+  await ensureTimelineInTransaction(id);const t=await target(id,messageId),m=t.message;
+  if(!['user','assistant'].includes(m.role)||m.content!==base.content||m.activeVariantId!==base.activeVariantId||!messageBubbles(m).some(p=>samePart(p,part)))throw Error('消息或气泡已变化，未删除其他内容。');
+  cancelGeneration(id);await invalidateGeneration(id);await snapshotPath(id,'delete');
+  const previous=m.bubbleDeletion||{variantId:m.activeVariantId,text:[],images:[]};
+  const bubbleDeletion={...previous,text:[...previous.text,...(part.kind==='text'?[part]:[])],images:[...previous.images,...(part.kind==='image'?[part.assetId]:[])]};
+  const next={...m,bubbleDeletion};await db.messages.update(m.id,{bubbleDeletion,archived:!messageBubbles(next).length});
+  await commitTimelineProjection(id,'delete');
+ });
 }
