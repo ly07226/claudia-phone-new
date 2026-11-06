@@ -1,3 +1,4 @@
+import type {SummaryReceipt} from './memorySummaryTypes';
 import {db} from './store';
 import {activeMessages} from './messagePath';
 import {visibleMessage} from './messageBubbles';
@@ -30,17 +31,23 @@ export async function getMemoryScope(conversationId:string):Promise<MemoryScope>
 async function reconciled(c:Conversation){
  const state:MemoryStore=structuredClone(c.memoryStore??emptyMemoryStore());
  if(c.mode==='world')for(const t of await db.timelines.where('conversationId').equals(c.id).toArray()){
-  if(t.epoch!==(c.timelineEpoch??0)||t.status!=='live'||state.forks.some(f=>f.timelineId===t.id))continue;
-  state.forks.push({timelineId:t.id,epoch:t.epoch,parentTimelineId:t.parentTimelineId,sharedHeadNodeId:t.forkNodeId,inheritThroughRevision:t.parentTimelineId?state.revision:0});
+  if(t.epoch!==(c.timelineEpoch??0)||t.status!=='live')continue;
+  const existing=state.forks.find(f=>f.timelineId===t.id);
+  if(existing){existing.summaryRevisionAtFork??=t.parentTimelineId?(c.memorySummary?.revision??0):0;continue;}
+  state.forks.push({timelineId:t.id,epoch:t.epoch,parentTimelineId:t.parentTimelineId,sharedHeadNodeId:t.forkNodeId,inheritThroughRevision:t.parentTimelineId?state.revision:0,summaryRevisionAtFork:t.parentTimelineId?(c.memorySummary?.revision??0):0});
  }
  if(state.forks.length>memoryLimits.forks)throw Error('记忆分支元数据已达安全容量上限，未删除旧记录。');
  return state;
 }
+async function visibility(c:Conversation,scope:Extract<MemoryScope,{mode:'world'}>,state:MemoryStore,summary=false){
+ const chain=await getTimelineAncestors(c.id,scope.timelineId),nodes=new Set((await nodesForHead(c.id,chain.at(-1)?.headNodeId)).map(n=>n.id));
+ const limits=new Map<string,number>();let limit=summary?(c.memorySummary?.revision??0):state.revision;
+ for(let i=chain.length-1;i>=0;i--){const t=chain[i],fork=state.forks.find(f=>f.timelineId===t.id);if(!fork)throw Error('记忆分支修订边界缺失。');limits.set(t.id,limit);limit=Math.min(limit,summary?(fork.summaryRevisionAtFork??0):fork.inheritThroughRevision);}
+ return {limits,nodes};
+}
 async function eligible(c:Conversation,scope:MemoryScope,state:MemoryStore){
  if(scope.mode==='daily')return state.entries;
- const chain=await getTimelineAncestors(c.id,scope.timelineId),nodes=new Set((await nodesForHead(c.id,chain.at(-1)?.headNodeId)).map(n=>n.id));
- const limits=new Map<string,number>();let limit=state.revision;
- for(let i=chain.length-1;i>=0;i--){const t=chain[i],fork=state.forks.find(f=>f.timelineId===t.id);if(!fork)throw Error('记忆分支修订边界缺失。');limits.set(t.id,limit);limit=Math.min(limit,fork.inheritThroughRevision);}
+ const {limits,nodes}=await visibility(c,scope,state);
  return state.entries.filter(e=>e.scope.mode==='world'&&e.scope.epoch===scope.epoch&&limits.has(e.scope.timelineId)&&e.revision<=limits.get(e.scope.timelineId)!&&(!e.anchorNodeId||nodes.has(e.anchorNodeId)));
 }
 function latest(entries:MemoryEntry[]){const result=new Map<string,MemoryEntry>();for(const e of entries)result.set(e.id,e);return result;}
@@ -80,4 +87,21 @@ export async function readShortMemory(scope:MemoryScope,maxMessages=30):Promise<
   const rows=(await activeMessages(c.id)).filter(m=>m.role==='user'||m.role==='assistant').map(visibleMessage).slice(-maxMessages);
   return {kind:'short',scope,context:{timelineId:t?.id,epoch:c.timelineEpoch??0,revision:t?.revision,headNodeId:t?.headNodeId},messages:rows.map(m=>({messageId:m.id,variantId:m.activeVariantId,nodeId:byMessage.get(m.id),role:m.role as 'user'|'assistant',content:m.content,assetIds:(m.attachments??[]).map(a=>a.assetId),createdAt:m.createdAt}))};
  });
+}
+
+/** Summary writes seal the same existing fork journal before changing progress. */
+export async function sealMemorySummaryForks(scope:MemoryScope){
+ return db.transaction('rw',tables(),async()=>{const c=await checked(scope),state=await reconciled(c);await db.conversations.update(c.id,{memoryStore:state});});
+}
+export async function visibleSummaryReceipts(scope:MemoryScope):Promise<SummaryReceipt[]>{
+ return db.transaction('r',tables(),async()=>{const c=await checked(scope),receipts=c.memorySummary?.receipts??[];
+  if(scope.mode==='daily')return receipts;
+  const {limits,nodes}=await visibility(c,scope,await reconciled(c),true);
+  return receipts.filter(r=>r.scope.mode==='world'&&r.epoch===scope.epoch&&limits.has(r.scope.timelineId)&&r.revision<=limits.get(r.scope.timelineId)!&&nodes.has(r.throughNodeId));
+ });
+}
+
+/** Visible revisions include tombstones; used only for local summary deduplication. */
+export async function listMemoryRevisions(scope:MemoryScope){
+ return db.transaction('r',tables(),async()=>{const c=await checked(scope);return eligible(c,scope,await reconciled(c));});
 }

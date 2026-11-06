@@ -1,3 +1,4 @@
+import {validateSummaryState} from './memorySummaryValidation';
 import type Dexie from 'dexie';
 import type {Conversation,MemoryTimeline} from './chatTypes';
 import {memoryLimits,type MemoryStore,type MemoryScope} from './memoryTypes';
@@ -10,6 +11,7 @@ export function validMemoryScope(c:Conversation,scope:MemoryScope){
  scope.mode==='world'&&!!c.worldId&&scope.worldId===c.worldId&&scope.spaceId===`world:${c.worldId}`&&id(scope.timelineId)&&integer(scope.epoch);
 }
 export async function validateMemoryStore(d:Dexie,c:Conversation){
+ await validateSummaryState(d,c,validMemoryScope);
  const state=c.memoryStore;if(state===undefined)return;
  check(state&&state.version===1&&integer(state.revision)&&Array.isArray(state.entries)&&Array.isArray(state.forks));
  check(state.entries.length<=memoryLimits.events&&state.forks.length<=memoryLimits.forks&&state.revision===state.entries.length);

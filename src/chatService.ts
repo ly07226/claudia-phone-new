@@ -268,6 +268,8 @@ async function generate(
           });
       });
   }
+  // Detached from views and from normal reply completion. No auto retry on failure.
+  if(!options.messageId)void import('./memorySummary').then(m=>m.tryAutoSummary(id)).catch(()=>{});
 }
 async function purgeRecords(id: string) {
   cancelGeneration(id);

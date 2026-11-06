@@ -13,6 +13,8 @@ export interface MemoryFork {
  timelineId:string;epoch:number;parentTimelineId?:string;sharedHeadNodeId?:string;
  /** Sealed before the first memory write after this existing chat fork. */
  inheritThroughRevision:number;
+ /** Existing fork boundary for successful summary receipts, not a new timeline. */
+ summaryRevisionAtFork?:number;
 }
 export interface MemoryStore {version:1;revision:number;entries:MemoryEntry[];forks:MemoryFork[]}
 export interface MemoryInput {kind:StoredMemoryKind;content:string;source?:MemorySource}
