@@ -35,7 +35,7 @@ export async function buildContext(
   if (system.length > contextLimits.systemChars)
     throw Error("角色与世界设定合计过长，请缩短到约 24000 字符以内。");
   const path = await activeMessages(conversation.id, beforeMessageId);
-  const time = conversation.chatSettings?.followRealTime ? realTimeContext(conversation.id, path) : null;
+  const time = conversation.chatSettings?.followRealTime ? realTimeContext(conversation.id, path, Date.now(), undefined, conversation.mode) : null;
   if(time && system.length + time.content.length > contextLimits.systemChars)
     throw Error("角色、世界与真实时间上下文合计过长，请缩短角色或世界设定。");
   let lastReply = -1;

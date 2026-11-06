@@ -4,6 +4,8 @@ import { orderChatCharacters, saveChatSettings, searchableMessages } from "./cha
 import { identityFor } from "./userIdentity";
 import { createEnterSendGuard } from "./enterSend";
 import "./chatReplyButton.css";
+import "./chatTime.css";
+import { chatTimeLabels } from "./chatTime";
 import { Search, X } from "lucide-react";
 import { liveQuery } from "dexie";
 import { chatListPreviews, chatPreviewTime, type ChatPreview } from "./chatListPreview";
@@ -22,7 +24,7 @@ import {
   selectVariant,
 } from "./messageOperations";
 import { MessageAvatar, ChatMessage, MessageTools, SnapshotTools } from "./MessageUI";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { db, usePhone } from "./store";
 import type { Conversation, Message, MessageVariant } from "./chatTypes";
 import type { ApiConfig } from "./api";
@@ -358,6 +360,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     setMenuId(null);
     setShowSnapshots(false);
   }
+  const timeLabels=chatTimeLabels(messages);
   if(requests && !worldId && !conversation)return <FriendRequests characters={applications} onClose={()=>setRequests(false)}/>;
   return (
     <div className={`chat-app ${conversation ? "chat-immersive" : ""} ${conversation?.chatSettings?.background ? 'chat-custom-background' : ''}`} style={conversation?.chatSettings?.background?.kind==='color'?{background:conversation.chatSettings.background.color}:conversation?.chatSettings?.background?.kind==='image'?{backgroundImage:`linear-gradient(rgba(243,245,236,.4),rgba(243,245,236,.4)),url("${s.assets.find(a=>a.id===(conversation.chatSettings?.background?.kind==='image'?conversation.chatSettings.background.assetId:undefined))?.data || ''}")`,backgroundSize:'cover',backgroundPosition:'center'}:undefined}>
@@ -429,8 +432,9 @@ export function Chat({ worldId }: { worldId?: string }) {
               <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
             )}
             {messages.map((m) => (
+              <Fragment key={m.id}>
+              {timeLabels.has(m.id)&&<div className="chat-time-divider" data-chat-time-for={m.id}><time dateTime={new Date(m.createdAt).toISOString()}>{timeLabels.get(m.id)}</time></div>}
               <ChatMessage
-                key={m.id}
                 message={m}
                 playbackKey={replyPresentation?.conversationId===conversation.id && m.role==='assistant' && !replyPresentation.known.has(JSON.stringify([m.id,m.activeVariantId,m.content])) ? `${replyPresentation.sequence}:${m.id}:${m.activeVariantId??''}` : undefined}
                 onReveal={onBubbleReveal}
@@ -446,6 +450,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 }}
                 onVersion={(v) => void chooseVariant(m, v)}
               />
+              </Fragment>
             ))}
             {busy && <p role="status">正在回复…</p>}
             <div ref={bottom} />

@@ -131,3 +131,20 @@ test('连续发送与延迟生成排除整组本轮消息，间隔使用请求�
  },morning+10*60000);
  for(const text of missing){expect(text).not.toContain('距离上次互动：');expect(text).not.toContain('上次有效互动（');}
 });
+
+test('17:40现实问时优先设备时间；时段阈值、跨日、明确继续意图及剧本时间边界',async({page})=>{
+ await seed(page);
+ const data=await page.evaluate(async()=>{
+  const {realTimeContext}=await import('/src/realTimeContext.ts');
+  const current=Date.parse('2026-11-04T09:40:00Z');
+  const make=(delta:number,mode:'daily'|'world'='daily',at=current)=>realTimeContext('c',[{id:'a',conversationId:'c',role:'assistant',content:'昨晚餐厅的菜单',createdAt:at-delta},{id:'u',conversationId:'c',role:'user',content:'继续刚才的剧情，接着说',createdAt:at}],at,'Asia/Shanghai',mode)!.content;
+  return {clock:make(29*60000),at30:make(30*60000),under4:make(4*3600000-1),at4:make(4*3600000),night:make(9*3600000,'daily',Date.parse('2026-11-04T00:00:00Z')),midnight:make(5*60000,'daily',Date.parse('2026-11-03T16:02:00Z')),world:make(9*3600000,'world')};
+ });
+ expect(data.clock).toContain('2026-11-04 17:40');expect(data.clock).toContain('星期三，傍晚');expect(data.clock).toContain('优先使用本上下文的设备日期');expect(data.clock).toContain('[连续对话提示]');
+ for(const text of [data.clock,data.at30,data.under4,data.midnight])expect(text).not.toContain('[新交流时段提示]');
+ expect(data.at30).not.toContain('[连续对话提示]');expect(data.at4).toContain('[新交流时段提示]');
+ expect(data.night).toContain('2026-11-04 08:00');expect(data.night).toContain('2026-11-03 23:00');expect(data.night).toContain('540分钟');expect(data.night).toContain('不要默认双方仍停留在上轮场景');expect(data.night).toContain('不得编造间隔期间');expect(data.night).toContain('[日期变化提示]');
+ expect(data.midnight).toContain('不能仅凭跨零点强制切换场景');
+ for(const text of Object.values(data))expect(text).toContain('优先尊重用户意图，不因时间间隔强制切换场景');
+ expect(data.world).toContain('[剧本时间边界]');expect(data.world).toContain('剧本时间推进仅以剧情内容和用户指令为准');expect(data.world).not.toContain('[新交流时段提示]');
+});
