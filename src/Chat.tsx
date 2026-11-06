@@ -1,3 +1,4 @@
+import {useGenerationTask, startGenerationTask, stopGenerationTask, runningTask} from "./generationTasks";
 import { AttachmentMenu, StoredImage, useImageDraft } from "./ImageAttachments";
 import { FriendRequests } from "./FriendRequests";
 import { isDailyFriend, checkDailyFriendApplications, clearChatHistory, deleteDailyFriend } from "./chatRelationships";
@@ -31,11 +32,9 @@ import type { Conversation, Message, MessageVariant } from "./chatTypes";
 import type { ApiConfig } from "./api";
 import {
   getConversation,
-  sendMessage,
   queueUserMessage,
   deleteConversation,
   resolveApi,
-  regenerateMessage,
 } from "./chatService";
 export function Chat({ worldId }: { worldId?: string }) {
   const s = usePhone();
@@ -46,7 +45,12 @@ export function Chat({ worldId }: { worldId?: string }) {
   const enterGuard = useRef(createEnterSendGuard());
   const [previewState, setPreviews] = useState<{scope: string; rows: Record<string, ChatPreview>}>({scope: "", rows: {}});
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [localBusy, setBusy] = useState(false);
+  const generationTask=useGenerationTask(conversation?.id);
+  const [leaseClock,setLeaseClock]=useState(Date.now());
+  const remotePending=!!conversation?.sendingToken&&!runningTask(generationTask)&&(conversation.sendingUntil??0)>leaseClock;
+  const busy=localBusy||runningTask(generationTask)||remotePending;
+  useEffect(()=>{setLeaseClock(Date.now());const until=conversation?.sendingUntil;if(!until)return;const timer=setTimeout(()=>setLeaseClock(Date.now()),Math.max(0,until-Date.now()+1));return()=>clearTimeout(timer);},[conversation?.id,conversation?.sendingToken,conversation?.sendingUntil]);
   const [savingMessage, setSavingMessage] = useState(false);
   const [attachmentOpen,setAttachmentOpen]=useState(false);
   const imageDraft=useImageDraft(conversation,text,setText,setError);
@@ -184,9 +188,8 @@ export function Chat({ worldId }: { worldId?: string }) {
     return () => {
       mounted.current = false;
       ++taskSequence.current;
-      pending.current?.abort();
-      if (pending.current && activeConversation.current)
-        cancelGeneration(activeConversation.current);
+      // Navigation detaches this view; the application task retains its request.
+      pending.current = null;
       activeConversation.current = null;
     };
   }, []);
@@ -210,6 +213,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     const navigation = ++taskSequence.current;
     setError("");
     setMessages([]);
+    setBusy(false);setSavingMessage(false);pending.current=null;
     setReplyPresentation(null);
     try {
       if(!worldId){const current=await db.characters.get(id);if(!current||!isDailyFriend(current))throw Error("此日常好友已删除，请先处理好友申请。");}
@@ -245,6 +249,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     const expectedPath=view?.conversationId===id?{timelineId:view.timelineId,epoch:view.epoch}:{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0};
     if (!retry && !target) followBottom.current = true;
     const sequence = ++taskSequence.current;
+    const ownsView=()=>mounted.current&&activeConversation.current===id&&sequence===taskSequence.current;
     if(retry || target || !conversation.chatSettings?.continuousSend)setReplyPresentation({sequence,conversationId:id,known:new Set(messages.filter(m=>m.role==='assistant').map(m=>JSON.stringify([m.id,m.activeVariantId,m.content])))});
     const previous = pending.current;
     setSavingMessage(!retry && !target && !!conversation.chatSettings?.continuousSend);
@@ -259,6 +264,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     if (!retry && !target) setText("");
     try {
       if (force) {
+        await stopGenerationTask(id);
         previous?.abort();
         await db.transaction("rw", db.conversations, async () => {
           const current=await db.conversations.get(id);
@@ -271,37 +277,40 @@ export function Chat({ worldId }: { worldId?: string }) {
         await queueUserMessage(id, draft, expectedPath,images);
         recordKeyboardDebug('message-save-end',{flow,success:true,inputFocused:document.activeElement===inputRef.current});
         stored = true;
-        imageDraft.clear();
-        await refresh(id, true);
-      } else if (target)
-        await regenerateMessage(id, target.id, controller.signal, allowArchive, expectedPath);
-      else {
+        if(ownsView()){imageDraft.clear();await refresh(id, true);}
+      } else {
         recordKeyboardDebug('ai-start',{flow,inputFocused:document.activeElement===inputRef.current,disabled:!!inputRef.current?.disabled});
-        await sendMessage(id, draft, controller.signal, retry, async () => {
+        const task=startGenerationTask({conversation,expectedPath,text:draft,retry,messageId:target?.id,allowArchive,images},()=>{
           stored = true;
-          imageDraft.clear();
-          await refresh(id, true);
-        }, expectedPath,images);
+          if(ownsView()){
+            if(!target)imageDraft.clear();
+            void refresh(id,true).catch(()=>{if(ownsView())setError("无法读取聊天记录，请检查本地存储。");});
+          }
+        });
+        pending.current=task.controller;
+        await task.done;
       }
       if(retry)recordKeyboardDebug('reply-returned',{success:true});
     } catch (e) {
       if(!retry&&!target&&conversation.chatSettings?.continuousSend&&!stored)recordKeyboardDebug('message-save-end',{flow,success:false,inputFocused:document.activeElement===inputRef.current});
       if(retry&&keyboardDebugEnabled())recordKeyboardDebug('reply-returned',{success:false,reason:e instanceof Error&&e.message==='此会话正在回复中，请稍候。'?'service-lock':e instanceof Error&&e.message==='剧情已在其他窗口切换，请确认当前消息后重试。'?'service-path':e instanceof Error&&e.message==='没有可重试的用户消息。'?'service-no-pending':'generation-failed'});
-      if (mounted.current && sequence === taskSequence.current) {
+      if (ownsView()) {
         if (!stored && !retry && !target) setText(draft);
         setError(
           e instanceof Error ? e.message : "请求失败，已保存消息仍保留。",
         );
       }
-      if (force) throw e;
+      if (force&&ownsView()) throw e;
     } finally {
-      if (mounted.current && sequence === taskSequence.current) {
-        await refresh(id, !target).catch(() =>
-          setError("无法读取聊天记录，请检查存储空间。"),
-        );
-        setBusy(false);
-        setSavingMessage(false);
-        pending.current = null;
+      if (ownsView()) {
+        await refresh(id, !target).catch(() => {
+          if(ownsView())setError("无法读取聊天记录，请检查存储空间。");
+        });
+        if(ownsView()){
+          setBusy(false);
+          setSavingMessage(false);
+          pending.current = null;
+        }
       }
     }
   }
@@ -353,7 +362,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     taskSequence.current++;
     activeConversation.current = null;
     visiblePath.current=null;
-    pending.current?.abort();
+    // Keep in-flight generation owned by generationTasks when leaving this view.
     pending.current = null;
     setBusy(false);
     setSavingMessage(false);
@@ -458,7 +467,9 @@ export function Chat({ worldId }: { worldId?: string }) {
               />
               </Fragment>
             ))}
-            {busy && <p role="status">正在回复…</p>}
+            {busy && <p role="status">{remotePending?"请求状态待确认：可能仍在其他窗口处理中。可等待，或停止后手动重试；不会自动重复请求。":"正在回复…"}</p>}
+            {!busy&&conversation.sendingToken&&!runningTask(generationTask)&&<p role="status">上次请求尚未确认完成，可能已中断；不会自动重发。请确认后手动重试。</p>}
+            {!busy&&!error&&generationTask?.error&&generationTask.timelineId===conversation.activeTimelineId&&generationTask.epoch===(conversation.timelineEpoch??0)&&<p role="status">{generationTask.error}</p>}
             <div ref={bottom} />
           </div>
           <div className="chat-footer">
@@ -517,7 +528,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 disabled={!busy && ((!text.trim()&&!imageDraft.ids.length)||imageDraft.processing)}
                 onPointerDown={e=>{if(conversation.chatSettings?.continuousSend && document.activeElement===inputRef.current)e.preventDefault();}}
                 onMouseDown={e=>{if(conversation.chatSettings?.continuousSend && document.activeElement===inputRef.current)e.preventDefault();}}
-                onClick={busy ? () => pending.current?.abort() : undefined}
+                onClick={busy ? () => {if(conversation)void stopGenerationTask(conversation.id).catch(()=>setError("停止请求失败，请稍后重试。"));} : undefined}
               >
                 {busy ? <Square size={18} /> : <Send size={20} />}
               </button>

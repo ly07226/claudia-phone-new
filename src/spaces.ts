@@ -93,8 +93,8 @@ export const useSpaces = create<SpaceState>((set, get) => {
     const previous = { route: get().route, space: get().space };
     const previousNotice = get().notice;
     const ticket = ++sequence;
-    // Synchronously unmount Chat before validating the destination. This aborts
-    // its request and keeps the existing generation token/late-response guards.
+    // Detach the current view before validating the destination. Application-level
+    // generation keeps its original conversation token and path guards.
     set({ transitioning: true });
     usePhone.getState().set({ activeApp: null, editing: false });
     let route = requested;

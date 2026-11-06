@@ -77,7 +77,7 @@ export async function sendMessage(
   text: string,
   signal?: AbortSignal,
   retry = false,
-  onSaved?: () => Promise<void>,
+  onSaved?: (path:ExpectedPath) => Promise<void>,
   expectedPath?: ExpectedPath,
   images: string[] = [],
 ) {
@@ -111,8 +111,9 @@ export async function regenerateMessage(
   signal?: AbortSignal,
   allowArchive = false,
   expectedPath?: ExpectedPath,
+  onSaved?: (path:ExpectedPath) => Promise<void>,
 ) {
-  return generate(id, { messageId, allowArchive, expectedPath }, signal);
+  return generate(id, { messageId, allowArchive, expectedPath, onSaved }, signal);
 }
 async function storeImageReferences(c:Conversation,images:string[]){
   if(!images.length)return;
@@ -125,7 +126,7 @@ interface GenerateOptions {
   expectedPath?: ExpectedPath;
   text?: string;
   retry?: boolean;
-  onSaved?: () => Promise<void>;
+  onSaved?: (path:ExpectedPath) => Promise<void>;
   messageId?: string;
   allowArchive?: boolean;
 }
@@ -193,7 +194,7 @@ async function generate(
     );
     acquired = true;
     release = registerGeneration(id, abort, token);
-    await options.onSaved?.();
+    await options.onSaved?.({timelineId:c.activeTimelineId,epoch:c.timelineEpoch??0});
     const { config, key } = await resolveApi(c);
     const context = await buildContext(c, options.messageId);
     if (
@@ -204,7 +205,7 @@ async function generate(
     const reply = await requestReply(config, key, context, controller.signal);
     if (controller.signal.aborted)
       throw Error("请求已取消，原消息和版本已保留。");
-    await db.transaction("rw", messageTables(), async () => {
+    const committed=await db.transaction("rw", messageTables(), async () => {
       const current = await db.conversations.get(id);
       if (
         !current ||
@@ -243,7 +244,9 @@ async function generate(
       }
       await commitTimelineProjection(id,options.messageId?"regenerate":"append");
       await db.conversations.update(id, { updatedAt: Date.now() });
+      return true;
     });
+    if(!committed)throw Error("当前剧情已变化，回复未写入其他会话或分支。原消息和版本保留。");
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener("abort", abort);

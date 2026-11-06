@@ -292,7 +292,7 @@ test("无效/已删除世界及损坏导航不会误入其他空间，窄屏可�
   }
 });
 
-test("生成中切换空间取消旧请求，迟到响应不写入新空间，保留旧用户消息", async ({
+test("生成中切换空间保留原请求，回复只写入原空间，另一空间不受影响", async ({
   page,
 }) => {
   await selector(page);
@@ -363,7 +363,7 @@ test("生成中切换空间取消旧请求，迟到响应不写入新空间，�
     { a, b },
   );
   expect(stored.a.some((m) => m.content === "甲待回复")).toBe(true);
-  expect(stored.a.some((m) => m.content === "甲迟到响应")).toBe(false);
+  expect(stored.a.some((m) => m.content === "甲迟到响应")).toBe(true);
   expect(stored.b.map((m) => m.content)).toEqual(["乙的新消息", "乙正常回复"]);
   expect(JSON.stringify(payloads.at(-1))).not.toContain("WORLD_A_ONLY");
   expect(JSON.stringify(payloads.at(-1))).not.toContain("DAILY_ONLY");
