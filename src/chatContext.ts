@@ -1,4 +1,4 @@
-import { realTimeContext } from "./realTimeContext";
+import { realTimeContext, realTimeSession, sessionHistory, sessionMarkerChars } from "./realTimeContext";
 import { recordLoreTrace } from "./loreDiagnostics";
 import { activeMessages } from "./messagePath";
 import { loreForConversation, injectLore } from "./loreEngine";
@@ -35,7 +35,10 @@ export async function buildContext(
   if (system.length > contextLimits.systemChars)
     throw Error("角色与世界设定合计过长，请缩短到约 24000 字符以内。");
   const path = await activeMessages(conversation.id, beforeMessageId);
-  const time = conversation.chatSettings?.followRealTime ? realTimeContext(conversation.id, path, Date.now(), undefined, conversation.mode) : null;
+  const now=Date.now();
+  const session=conversation.chatSettings?.followRealTime?realTimeSession(conversation.id,path,now,conversation.mode):null;
+  const time = conversation.chatSettings?.followRealTime ? realTimeContext(conversation.id, path, now, undefined, conversation.mode) : null;
+  const historyBudget=contextLimits.historyChars-(session?.newSession?sessionMarkerChars:0);
   if(time && system.length + time.content.length > contextLimits.systemChars)
     throw Error("角色、世界与真实时间上下文合计过长，请缩短角色或世界设定。");
   let lastReply = -1;
@@ -43,7 +46,7 @@ export async function buildContext(
   const pending = conversation.chatSettings?.continuousSend && !beforeMessageId
     ? path.slice(lastReply+1).filter(m=>m.role==="user") : [];
   // Save any number of messages, but never silently omit unanswered input at generation.
-  if(pending.reduce((n,m)=>n+m.content.length,0)>contextLimits.historyChars)
+  if(pending.reduce((n,m)=>n+m.content.length,0)>historyBudget)
     throw Error("待回复消息超过 24000 字符安全上限，本次未请求 AI；消息仍已保存，请编辑或减少待回复内容后重试。");
   const rows = path.slice(-Math.max(contextLimits.historyMessages,pending.length)).reverse();
   const history: Message[] = [];
@@ -51,7 +54,7 @@ export async function buildContext(
   for (const m of rows) {
     if (m.conversationId !== conversation.id) throw Error("会话消息关联异常。");
     if (m.role !== "user" && m.role !== "assistant") continue;
-    if (chars + m.content.length > contextLimits.historyChars) break;
+    if (chars + m.content.length > historyBudget) break;
     chars += m.content.length;
     history.unshift(m);
   }
@@ -64,7 +67,7 @@ export async function buildContext(
   recordLoreTrace(conversation, lore.diagnostics, lore.skippedBooks);
   const context = injectLore(
     system,
-    history.map((m) => ({
+    session?.newSession ? sessionHistory(history,session) : history.map((m) => ({
       role: m.role as "user" | "assistant",
       content: m.content,
     })),
