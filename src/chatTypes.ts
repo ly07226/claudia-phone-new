@@ -13,6 +13,7 @@ export interface Conversation {
   activeTimelineId?: string;
   timelineEpoch?: number;
   chatSettings?: ChatSettings;
+  imageDrafts?: Record<string,{assetIds:string[];text:string;epoch:number}>;
   id: string;
   scopeKey: string;
   characterId: string;
@@ -30,6 +31,7 @@ export interface Message {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
   createdAt: number;
+  attachments?: {assetId:string}[];
   activeVariantId?: string;
   archived?: boolean;
   userEdited?: boolean;
@@ -42,7 +44,9 @@ export interface WorldCharacterProfile {
   characterId: string;
   setting: string;
 }
+export interface ContextImage { mimeType: "image/jpeg"|"image/png"|"image/webp"; data: string }
 export interface ContextMessage {
+  images?: ContextImage[];
   role: "system" | "user" | "assistant";
   content: string;
 }

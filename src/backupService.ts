@@ -1,3 +1,4 @@
+import { attachmentImages } from "./imageAttachments";
 import { validateTimelineDatabase } from "./timelineValidation";
 import { validFriendship } from "./friendTypes";
 import Dexie from "dexie";
@@ -931,6 +932,15 @@ export async function validateReferences(
     },
     signal,
   );
+  await eachBackupRow(d,'conversations',async x=>{
+    if(x.imageDrafts!==undefined){
+      if(!x.imageDrafts||typeof x.imageDrafts!=='object'||Array.isArray(x.imageDrafts)){bad('imageDrafts.shape');return;}
+      for(const draft of Object.values(x.imageDrafts) as any[]){
+        if(!draft||!Array.isArray(draft.assetIds)||typeof draft.text!=='string'||draft.text.length>8000||!Number.isInteger(draft.epoch)){bad('imageDrafts.shape');continue;}
+        try{await attachmentImages(d,{attachments:draft.assetIds.map((assetId:string)=>({assetId}))});}catch{bad('imageDrafts.assets');}
+      }
+    }
+  },signal);
   const message = async (
     x: any,
     lookup: (id: string) => Promise<any>,
@@ -948,6 +958,7 @@ export async function validateReferences(
       bad("messages.shape/parent");
       return;
     }
+    try{await attachmentImages(d,x);}catch{bad("messages.attachments");}
     if (x.activeVariantId) {
       const v = await lookup(x.activeVariantId);
       if (!v || v.messageId !== x.id || v.conversationId !== x.conversationId)

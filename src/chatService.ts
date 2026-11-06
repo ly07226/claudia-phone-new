@@ -1,3 +1,5 @@
+import { attachmentImages, attachmentIds } from "./imageAttachments";
+import { assertImageProvider } from "./chatProvider";
 import { ensureTimelineInTransaction, commitTimelineProjection, timelineTables } from "./timelines";
 import { reconcileApiDefault, usableApi } from "./apiSelection";
 import { activeMessages } from "./messagePath";
@@ -77,23 +79,28 @@ export async function sendMessage(
   retry = false,
   onSaved?: () => Promise<void>,
   expectedPath?: ExpectedPath,
+  images: string[] = [],
 ) {
-  if (!retry && (!text.trim() || text.length > contextLimits.userChars))
+  attachmentIds({attachments:images.map(assetId=>({assetId}))});
+  if(images.length&&!retry){const c=await db.conversations.get(id);if(!c)throw Error("会话已删除。");assertImageProvider((await resolveApi(c)).config);}
+  if (!retry && ((!text.trim()&&!images.length) || text.length > contextLimits.userChars))
     throw Error("请输入 1–8000 字符。");
-  return generate(id, { text, retry, onSaved, expectedPath }, signal);
+  return generate(id, { text, retry, onSaved, expectedPath, images }, signal);
 }
 /** Save to the same immutable active path, without starting a model request. */
-export async function queueUserMessage(id:string,text:string,expectedPath?:ExpectedPath) {
-  if(!text.trim() || text.length>contextLimits.userChars)throw Error("请输入 1–8000 字符。");
-  await db.transaction("rw",timelineTables(),async()=>{
+export async function queueUserMessage(id:string,text:string,expectedPath?:ExpectedPath,images:string[]=[]) {
+  attachmentIds({attachments:images.map(assetId=>({assetId}))});
+  if((!text.trim()&&!images.length) || text.length>contextLimits.userChars)throw Error("请输入 1–8000 字符。");
+  await db.transaction("rw",[...timelineTables(),db.assets],async()=>{
     const c=await db.conversations.get(id);
     if(!c)throw Error("会话已删除。");
     if(!c.chatSettings?.continuousSend)throw Error("连续发送模式已关闭，请重新确认后发送。");
     if(expectedPath&&(c.activeTimelineId!==expectedPath.timelineId||(c.timelineEpoch??0)!==expectedPath.epoch))throw Error("剧情已在其他窗口切换，请确认当前消息后重试。");
     if(c.sendingUntil&&c.sendingUntil>Date.now())throw Error("此会话正在回复中，请稍候。");
+    await storeImageReferences(c,images);
     await ensureTimelineInTransaction(id);
     const last=(await activeMessages(id)).at(-1);
-    await db.messages.add({id:crypto.randomUUID(),conversationId:id,role:"user",content:text.trim(),createdAt:Math.max(Date.now(),(last?.createdAt||0)+1)});
+    await db.messages.add({id:crypto.randomUUID(),conversationId:id,role:"user",content:text.trim(),...(images.length?{attachments:images.map(assetId=>({assetId}))}:{}),createdAt:Math.max(Date.now(),(last?.createdAt||0)+1)});
     await commitTimelineProjection(id,"append");
     await db.conversations.update(id,{updatedAt:Date.now()});
   });
@@ -107,7 +114,14 @@ export async function regenerateMessage(
 ) {
   return generate(id, { messageId, allowArchive, expectedPath }, signal);
 }
+async function storeImageReferences(c:Conversation,images:string[]){
+  if(!images.length)return;
+  await attachmentImages(db,{attachments:images.map(assetId=>({assetId}))});
+  const drafts={...c.imageDrafts};delete drafts[c.activeTimelineId||''];
+  await db.conversations.update(c.id,{imageDrafts:drafts});
+}
 interface GenerateOptions {
+  images?: string[];
   expectedPath?: ExpectedPath;
   text?: string;
   retry?: boolean;
@@ -137,13 +151,14 @@ async function generate(
   try {
     const c = await db.transaction(
       "rw",
-      timelineTables(),
+      [...timelineTables(),db.assets],
       async () => {
         const c = await db.conversations.get(id);
         if (!c) throw Error("会话已删除。");
         if(options.expectedPath&&(c.activeTimelineId!==options.expectedPath.timelineId||(c.timelineEpoch??0)!==options.expectedPath.epoch))throw Error("剧情已在其他窗口切换，请确认当前消息后重试。");
         if (c.sendingUntil && c.sendingUntil > Date.now())
           throw Error("此会话正在回复中，请稍候。");
+        if(!options.retry&&!options.messageId)await storeImageReferences(c,options.images||[]);
         await ensureTimelineInTransaction(id);
         const rows = await activeMessages(id);
         const last = rows.at(-1);
@@ -163,6 +178,7 @@ async function generate(
               conversationId: id,
               role: "user",
               content: options.text!.trim(),
+              ...(options.images?.length?{attachments:options.images.map(assetId=>({assetId}))}:{}),
               createdAt: Math.max(Date.now(), (last?.createdAt || 0) + 1),
             });
         }

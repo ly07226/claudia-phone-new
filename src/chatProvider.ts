@@ -5,16 +5,22 @@ import {
   browserTransport,
 } from "./api";
 import type { ContextMessage } from "./chatTypes";
+export function assertImageProvider(c:ApiConfig){
+  if(!(c.provider==='gemini'||['openai','openai-compatible','openrouter'].includes(c.provider)||(c.provider==='custom'&&['gemini','openai-chat'].includes(c.protocol||''))))throw Error('此 Provider 未支持图片输入协议，请更换支持视觉输入的配置。');
+  if(/gpt-3\.5|embedding|whisper|(?:^|[-/])tts(?:$|[-/])|dall-e/i.test(c.model))throw Error('当前模型不支持图片聊天，请选择视觉模型。图片草稿仍保留。');
+}
+export function openaiMessages(messages:ContextMessage[]){return messages.map(m=>({role:m.role,content:m.images?.length?[...(m.content?[{type:'text',text:m.content}]:[]),...m.images.map(i=>({type:'image_url',image_url:{url:i.data}}))]:m.content}));}
 /** Gemini has one systemInstruction. In-history system entries degrade to labelled user context at the same slot. */
 export function geminiMessages(messages: ContextMessage[]) {
-  const contents: { role: "user" | "model"; parts: { text: string }[] }[] = [];
+  const contents: { role: "user" | "model"; parts: { text?: string; inlineData?: {mimeType:string;data:string} }[] }[] = [];
   for (const m of messages.slice(1)) {
     const role = m.role === "assistant" ? "model" : "user";
     const text =
       m.role === "system" ? `[系统设定资料]\n${m.content}` : m.content;
     const last = contents.at(-1);
-    if (last?.role === role) last.parts.push({ text });
-    else contents.push({ role, parts: [{ text }] });
+    const parts=[...(text?[{text}]:[]),...(m.images||[]).map(i=>({inlineData:{mimeType:i.mimeType,data:i.data.slice(i.data.indexOf(",")+1)}}))];
+    if (last?.role === role) last.parts.push(...parts);
+    else contents.push({ role, parts });
   }
   // Avoid a leading model turn or trailing assistant prefill on restrictive Gemini endpoints.
   if (contents[0]?.role === "model")
@@ -45,6 +51,8 @@ export async function requestReply(
   transport: ApiTransport = browserTransport,
   allowRoleFallback = true,
 ): Promise<string> {
+  const hasImages=messages.some(m=>m.images?.length);
+  if(hasImages)assertImageProvider(c);
   const error = validateConfig(c, key);
   if (error) throw Error(error);
   if (!c.enabled) throw Error("API 配置已停用。");
@@ -72,7 +80,7 @@ export async function requestReply(
       }
     : {
         model: c.model,
-        messages,
+        messages:openaiMessages(messages),
         temperature: c.temperature,
         ...(c.provider === "openai"
           ? { max_completion_tokens: c.maxTokens }
@@ -115,6 +123,7 @@ export async function requestReply(
     String(data?.error?.param || "") +
     " " +
     String(data?.error?.message || "");
+  if(hasImages&&[400,404,415,422].includes(response.status)&&/image|vision|multimodal|inline.?data|mime.?type/i.test(roleError))throw Error('当前模型或服务拒绝图片输入。请检查视觉能力与图片限制；已保存的图片和文字仍保留。');
   if (
     !gemini &&
     allowRoleFallback &&
@@ -125,6 +134,7 @@ export async function requestReply(
   ) {
     const fallback: ContextMessage[] = messages.map((m) => ({
       role: "user",
+      ...(m.images?.length?{images:m.images}:{}),
       content:
         m.role === "user"
           ? m.content

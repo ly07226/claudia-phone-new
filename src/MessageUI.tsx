@@ -1,3 +1,4 @@
+import { MessageImages } from "./ImageAttachments";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, X, UserRound } from "lucide-react";
@@ -132,7 +133,8 @@ export function ChatMessage({
           >
             消息操作
           </button>
-          {fragments.slice(0,visibleCount).map((fragment, fragmentIndex) => (
+          {!!m.attachments?.length&&<MessageImages ids={m.attachments.map(a=>a.assetId)}/>}
+          {((!m.content.trim()&&m.attachments?.length)?[]:fragments.slice(0,visibleCount)).map((fragment, fragmentIndex) => (
             <div className="chat-bubble-surface" key={fragmentIndex}>
               <p>
                 {m.role === "assistant" ? (
@@ -346,7 +348,7 @@ export function MessageTools({
     }
   }
   async function save(regenerate = false) {
-    if (!content.trim()) {
+    if (!content.trim()&&!m.attachments?.length) {
       setFeedback("消息不能为空。");
       return;
     }
@@ -428,7 +430,7 @@ export function MessageTools({
             </button>
             <button
               className="primary"
-              disabled={working || !content.trim()}
+              disabled={working || (!content.trim()&&!m.attachments?.length)}
               onClick={() => void save()}
             >
               仅保存修改
@@ -436,7 +438,7 @@ export function MessageTools({
             {m.role === "user" && latestUser && (
               <button
                 className="primary"
-                disabled={working || !content.trim()}
+                disabled={working || (!content.trim()&&!m.attachments?.length)}
                 onClick={() => void save(true)}
               >
                 保存并重新回复

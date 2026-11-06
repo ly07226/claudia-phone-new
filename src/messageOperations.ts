@@ -166,12 +166,13 @@ export async function editMessage(
   expected?: { content: string; activeVariantId?: string },
 ) {
   content = content.trim();
-  if (!content || content.length > 100000)
+  if (content.length > 100000)
     throw Error("消息内容需为 1–100000 字符。");
   cancelGeneration(id);
   await db.transaction("rw", messageTables(), async () => {
     await ensureTimelineInTransaction(id);
     const t = await target(id, messageId);
+    if(!content&&!t.message.attachments?.length)throw Error("消息不能为空。");
     if (t.message.role !== "user" && t.message.role !== "assistant")
       throw Error("此消息不可编辑。");
     if (t.message.role === "user" && content.length > 8000)

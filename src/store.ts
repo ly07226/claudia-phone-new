@@ -63,7 +63,9 @@ export interface Theme {
 }
 export interface Asset {
   id: string;
-  type: "wallpaper" | "avatar" | "icon";
+  type: "wallpaper" | "avatar" | "icon" | "chat-image";
+  width?: number;
+  height?: number;
   data: string;
   createdAt: number;
 }

@@ -1,3 +1,4 @@
+import { attachmentImages, imageLimits } from "./imageAttachments";
 import { realTimeContext, realTimeSession, sessionHistory, sessionMarkerChars } from "./realTimeContext";
 import { recordLoreTrace } from "./loreDiagnostics";
 import { activeMessages } from "./messagePath";
@@ -65,14 +66,15 @@ export async function buildContext(
     Math.max(0, contextLimits.systemChars - system.length - (time?.content.length ?? 0) - 4),
   );
   recordLoreTrace(conversation, lore.diagnostics, lore.skippedBooks);
-  const context = injectLore(
-    system,
-    session?.newSession ? sessionHistory(history,session) : history.map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    })),
-    lore.entries,
-  );
+  const requestHistory:ContextMessage[]=session?.newSession?sessionHistory(history,session):history.map(m=>({role:m.role as 'user'|'assistant',content:m.content}));
+  let imageChars=0;
+  for(let i=0;i<history.length;i++){
+    const images=await attachmentImages(db,history[i]);
+    imageChars+=images.reduce((n,img)=>n+img.data.length,0);
+    if(imageChars>imageLimits.requestChars)throw Error('当前上下文图片超过8MiB请求上限，本次未调用模型；图片仍保存在本地，可调整当前分支消息后重试。');
+    if(images.length)requestHistory[i].images=images;
+  }
+  const context = injectLore(system,requestHistory,lore.entries);
   // Gemini accepts only the first systemInstruction. Keep the independently built
   // time block there without changing profile data or downgrading the profile role.
   return time ? [{...context[0], content: `${context[0].content}\n\n${time.content}`}, ...context.slice(1)] : context;

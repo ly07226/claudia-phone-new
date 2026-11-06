@@ -1,3 +1,4 @@
+import { AttachmentMenu, StoredImage, useImageDraft } from "./ImageAttachments";
 import { FriendRequests } from "./FriendRequests";
 import { isDailyFriend, checkDailyFriendApplications, clearChatHistory, deleteDailyFriend } from "./chatRelationships";
 import { orderChatCharacters, saveChatSettings, searchableMessages } from "./chatPreferences";
@@ -47,6 +48,8 @@ export function Chat({ worldId }: { worldId?: string }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [savingMessage, setSavingMessage] = useState(false);
+  const [attachmentOpen,setAttachmentOpen]=useState(false);
+  const imageDraft=useImageDraft(conversation,text,setText,setError);
   const [replyPresentation,setReplyPresentation]=useState<{sequence:number;conversationId:string;known:Set<string>}|null>(null);
   const [configs, setConfigs] = useState<ApiConfig[]>([]);
   const [variants, setVariants] = useState<Record<string, MessageVariant[]>>(
@@ -251,6 +254,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     const controller = new AbortController();
     pending.current = controller;
     const draft = text;
+    const images=!retry&&!target?imageDraft.ids:[];
     let stored = retry || !!target;
     if (!retry && !target) setText("");
     try {
@@ -264,9 +268,10 @@ export function Chat({ worldId }: { worldId?: string }) {
       }
       if (!retry && !target && conversation.chatSettings?.continuousSend) {
         recordKeyboardDebug('message-save-start',{flow,inputFocused:document.activeElement===inputRef.current});
-        await queueUserMessage(id, draft, expectedPath);
+        await queueUserMessage(id, draft, expectedPath,images);
         recordKeyboardDebug('message-save-end',{flow,success:true,inputFocused:document.activeElement===inputRef.current});
         stored = true;
+        imageDraft.clear();
         await refresh(id, true);
       } else if (target)
         await regenerateMessage(id, target.id, controller.signal, allowArchive, expectedPath);
@@ -274,8 +279,9 @@ export function Chat({ worldId }: { worldId?: string }) {
         recordKeyboardDebug('ai-start',{flow,inputFocused:document.activeElement===inputRef.current,disabled:!!inputRef.current?.disabled});
         await sendMessage(id, draft, controller.signal, retry, async () => {
           stored = true;
+          imageDraft.clear();
           await refresh(id, true);
-        }, expectedPath);
+        }, expectedPath,images);
       }
       if(retry)recordKeyboardDebug('reply-returned',{success:true});
     } catch (e) {
@@ -304,7 +310,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     if(!retry)recordKeyboardDebug('send-start',{flow,inputFocused:document.activeElement===inputRef.current,idle:!busy,noPending:!pending.current});
     if(retry)recordKeyboardDebug('send-true',{flow,hasConversation:!!conversation,idle:!busy,noPending:!pending.current});
     if(retry)keyboardAutoReply.cancel();
-    if (!retry && (!text.trim() || busy || pending.current)) return Promise.resolve();
+    if (!retry && ((!text.trim()&&!imageDraft.ids.length) || imageDraft.processing || busy || pending.current)) return Promise.resolve();
     if(!retry)keyboardAutoReply.suppressSend();
     return runGeneration(retry,undefined,false,false,flow);
   };
@@ -316,7 +322,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     savingMessage,
     scope:JSON.stringify([worldId,conversation?.id,conversation?.characterId,conversation?.activeTimelineId,conversation?.timelineEpoch]),
     enabled:!!conversation?.chatSettings?.continuousSend&&!!conversation?.chatSettings?.keyboardAutoReply,
-    blocked:management||!!menuId||!!previewVariant||showSnapshots||requests||(busy&&!savingMessage),
+    blocked:attachmentOpen||imageDraft.processing||management||!!menuId||!!previewVariant||showSnapshots||requests||(busy&&!savingMessage),
     canReply:()=>{
       const ready=!!conversation&&activeConversation.current===conversation.id&&visiblePath.current?.conversationId===conversation.id&&visiblePath.current.timelineId===conversation.activeTimelineId&&visiblePath.current.epoch===(conversation.timelineEpoch??0)&&!busy&&!pending.current&&messages.at(-1)?.role==='user';
       if(keyboardDebugEnabled())recordKeyboardDebug('reply-check',{canReply:ready,hasConversation:!!conversation,currentConversation:activeConversation.current===conversation?.id,pathConversation:visiblePath.current?.conversationId===conversation?.id,pathTimeline:visiblePath.current?.timelineId===conversation?.activeTimelineId,pathEpoch:visiblePath.current?.epoch===(conversation?.timelineEpoch??0),idle:!busy,noPending:!pending.current,pendingUser:messages.at(-1)?.role==='user'});
@@ -476,6 +482,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 </button>
               </div>
             )}
+            {imageDraft.ids.length>0&&<div className="chat-pending-images" aria-label="待发送图片">{imageDraft.ids.map(id=><div key={id}><StoredImage id={id}/><button type="button" aria-label="移除待发送图片" disabled={busy||imageDraft.processing} onClick={()=>void imageDraft.remove(id,text)}>×</button></div>)}<small>最多3张；大图缩至1600px，单张≤1.5MB，请使用支持视觉输入的模型。{imageDraft.processing?'处理中…':''}{imageDraft.notice}</small></div>}
             <form
               className="chat-compose"
               onSubmit={(e) => {
@@ -484,6 +491,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               }}
             >
               {conversation.chatSettings?.continuousSend && <button className="chat-reply-button" type="button" aria-label="AI 回复" title="让 AI 回复待回复消息" disabled={busy || messages.at(-1)?.role!=="user"} onClick={()=>void send(true)}><span aria-hidden="true">AI 回复</span><svg width={24} height={24} viewBox="0 0 24 24" fill="none" data-icon="double-sparkle" aria-hidden="true"><path d="M9.5 6 11.8 11.7 17.5 14 11.8 16.3 9.5 22 7.2 16.3 1.5 14 7.2 11.7Z" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinejoin="round"/><path d="M19 1l1.2 3.3L23.5 5.5l-3.3 1.2L19 10l-1.2-3.3-3.3-1.2 3.3-1.2Z" fill="currentColor"/></svg></button>}
+              <div className="chat-input-wrap">
               <textarea
                 ref={inputRef}
                 rows={1}
@@ -493,18 +501,20 @@ export function Chat({ worldId }: { worldId?: string }) {
                 maxLength={8000}
                 value={text}
                 disabled={busy && !savingMessage}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => {setText(e.target.value);if(!busy)imageDraft.caption(e.target.value);}}
                 onCompositionStart={()=>enterGuard.current.start()}
                 onCompositionEnd={()=>enterGuard.current.end()}
                 onKeyUp={e=>enterGuard.current.up(e.key)}
                 onBlur={()=>enterGuard.current.reset()}
                 onKeyDown={e=>{const action=enterGuard.current.key(e.nativeEvent);if(action==='send'||action==='block')e.preventDefault();if(action==='send')void send();}}
               />
+              <AttachmentMenu disabled={busy||!imageDraft.ready} processing={imageDraft.processing} scope={imageDraft.scope} onOpenChange={setAttachmentOpen} onChoose={(files,scope)=>void imageDraft.choose(files,text,scope)}/>
+              </div>
               <button
                 className={`primary chat-send ${busy ? "is-cancel" : ""}`}
                 type={busy ? "button" : "submit"}
                 aria-label={busy ? "取消请求" : "发送"}
-                disabled={!busy && !text.trim()}
+                disabled={!busy && ((!text.trim()&&!imageDraft.ids.length)||imageDraft.processing)}
                 onPointerDown={e=>{if(conversation.chatSettings?.continuousSend && document.activeElement===inputRef.current)e.preventDefault();}}
                 onMouseDown={e=>{if(conversation.chatSettings?.continuousSend && document.activeElement===inputRef.current)e.preventDefault();}}
                 onClick={busy ? () => pending.current?.abort() : undefined}
