@@ -18,7 +18,7 @@ export const StoryReader=memo(function StoryReader({path,opening}:{path:StoryNod
   {path.slice(from).map((node,index)=>{const absolute=from+index,action=absolute?storyActionText(path[absolute-1],node):undefined;return <section className="story-entry" key={node.id} data-story-sequence={node.sequence} aria-label={`第 ${node.sequence} 段剧情`}>
    <div className="story-divider">第 {node.sequence} 段</div>
    {action&&<p className="story-action-record">{action.kind==='custom'?'自定义行动':`已选择 ${action.label}`} · {action.text}</p>}
-   <p className="story-prose">{node.body}</p>
+   <div className="story-prose">{node.body.split(/(\r\n|\r|\n)/).map((part,i)=>i%2?part:<p className="story-paragraph" key={i}>{part}</p>)}</div>
   </section>;})}
  </div>;
 });

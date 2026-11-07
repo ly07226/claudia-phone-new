@@ -1,3 +1,4 @@
+import type {StoryPerspective} from './scriptTypes';
 import {validateWizardSuggestions,type WizardSuggestions} from './wizardAssistanceTypes';
 import type {StoryLength} from './storyTypes';
 import type {UserIdentity} from './userIdentity';
@@ -7,13 +8,13 @@ export interface WizardIdentity {name:string;gender:string;appearance:string;per
 export interface WizardCharacter {worldSetting?:string;name:string;persona:string;speakingStyle:string}
 export interface ScriptWizardDraft {
  suggestions?:WizardSuggestions;aiCharacterRequirements?:string;
- background?:string;
+ background?:string;perspective?:StoryPerspective;
  creationToken?:string;createdWorldId?:string;length?:StoryLength;
  version:1;step:number;title:string;synopsis:string;rules:string;direction:string;pace:keyof typeof wizardPaces;customPace:string;
  identity:WizardIdentity;identitySource?:string;characterIds:string[];customCharacters:WizardCharacter[];opening:string;confirmed:boolean;
 }
 export const emptyWizardIdentity=():WizardIdentity=>({name:'',gender:'',appearance:'',personality:'',occupation:'',experience:'',bio:'',customSetting:''});
-export const newWizardDraft=():ScriptWizardDraft=>({version:1,creationToken:crypto.randomUUID(),length:'standard',step:0,title:'',synopsis:'',rules:'',direction:'',pace:'balanced',customPace:'',identity:emptyWizardIdentity(),characterIds:[],customCharacters:[],opening:'',confirmed:false});
+export const newWizardDraft=():ScriptWizardDraft=>({version:1,perspective:'second',creationToken:crypto.randomUUID(),length:'standard',step:0,title:'',synopsis:'',rules:'',direction:'',pace:'balanced',customPace:'',identity:emptyWizardIdentity(),characterIds:[],customCharacters:[],opening:'',confirmed:false});
 /** Explicitly copy static identity fields only. Never copy chat, memory or credentials. */
 export function copyWizardIdentity(identity:UserIdentity):WizardIdentity {
  const next=emptyWizardIdentity();for(const key of Object.keys(next) as (keyof typeof next)[])if(typeof identity[key]==='string')Object.assign(next,{[key]:identity[key]});
@@ -24,6 +25,7 @@ export function copyWizardIdentity(identity:UserIdentity):WizardIdentity {
 const text=(x:unknown,max:number)=>typeof x==='string'&&x.length<=max;
 export function validateWizardDraft(value:unknown):asserts value is ScriptWizardDraft {
  const x=value as ScriptWizardDraft;
+ if(x?.perspective!==undefined&&!['first','second','third'].includes(x.perspective))throw Error('叙事人称配置无效。');
  if(x?.background!==undefined&&!text(x.background,6000))throw Error('世界背景最多6000字符。');
  if(x?.suggestions!==undefined)validateWizardSuggestions(x.suggestions,true);if(x?.aiCharacterRequirements!==undefined&&!text(x.aiCharacterRequirements,2000))throw Error('角色补充要求过长。');
  if(x?.creationToken!==undefined&&(typeof x.creationToken!=='string'||!/^[-a-zA-Z0-9]{16,80}$/.test(x.creationToken))||x?.createdWorldId!==undefined&&!text(x.createdWorldId,2000)||x?.length!==undefined&&!['brief','standard','detailed'].includes(x.length))throw Error('创作草稿标识或篇幅无效。');

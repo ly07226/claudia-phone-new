@@ -14,7 +14,7 @@ export async function saveScriptWorld(form:Partial<World>){
     const next:World={...current,...form,id:current?.id??crypto.randomUUID(),name:form.name.trim(),description:form.description??'',rules:form.rules??'',background:form.background??'',createdAt:current?.createdAt??Date.now()};
     if(current?.storyPreferences)next.storyPreferences=current.storyPreferences;
     if(form.script){
-      const definition=(w:Partial<World>)=>JSON.stringify([w.name?.trim()??'',w.description??'',w.rules??'',w.background??'',w.script?.playMode,w.script?.opening,w.script?.direction??'',w.script?.pace,w.script?.customPace??'']);
+      const definition=(w:Partial<World>)=>JSON.stringify([w.name?.trim()??'',w.description??'',w.rules??'',w.background??'',w.script?.playMode,w.script?.opening,w.script?.direction??'',w.script?.pace,w.script?.customPace??'',w.script?.perspective??'second']);
       const revision=current?.script?current.script.definitionRevision+Number(definition(current)!==definition(next)):1;
       if(!Number.isSafeInteger(revision))throw Error('剧本设定版本超出安全范围。');
       next.script={...form.script,definitionRevision:revision};

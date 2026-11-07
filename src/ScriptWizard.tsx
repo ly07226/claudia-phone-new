@@ -1,3 +1,4 @@
+import {storyPerspectives,type StoryPerspective} from './scriptTypes';
 import {WizardAssistanceUI} from './WizardAssistanceUI';
 import {requestWizardAssistance} from './wizardAssistance';
 import type {WizardAssistanceKind} from './wizardAssistanceTypes';
@@ -76,6 +77,7 @@ export function ScriptWizard(){
     {reading&&<p role="status">正在读取本地文件…</p>}
     <p className="wizard-note">TXT/MD 最多 10000 字符。JSON 使用 version:1、synopsis，可选 title、rules、direction；不会导入世界或世界书。</p>
     <label>自定义内容与补充规则<textarea aria-label="补充规则" maxLength={4000} value={draft.rules} onChange={e=>update({rules:e.target.value})}/></label>
+    <label>叙事人称<select aria-label="叙事人称" value={draft.perspective??'second'} onChange={e=>update({perspective:e.target.value as StoryPerspective})}>{Object.entries(storyPerspectives).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
     <label>剧情节奏<select aria-label="剧情节奏" value={draft.pace} onChange={e=>update({pace:e.target.value as ScriptWizardDraft['pace']})}>{Object.entries(wizardPaces).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
     {draft.pace==='custom'&&<label>自定义节奏<textarea aria-label="自定义节奏" maxLength={1000} value={draft.customPace} onChange={e=>update({customPace:e.target.value})}/></label>}
     <label>发展方向（可选）<textarea aria-label="发展方向" maxLength={4000} value={draft.direction} onChange={e=>update({direction:e.target.value})}/></label>
