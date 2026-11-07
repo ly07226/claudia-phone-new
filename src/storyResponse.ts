@@ -1,5 +1,7 @@
+import {resolveStorySegments} from './storySegments';
+import type {StorySegment} from './storyTypes';
 import {storyLimits} from './storyTypes';
-export type StoryResponseCode='response-too-long'|'empty-response'|'json-invalid'|'json-incomplete'|'json-ambiguous'|'root-shape'|'body-invalid'|'choice-count'|'choice-shape'|'choice-label'|'choice-text'|'choice-duplicate'|'truncated'|'blocked'|'envelope-invalid';
+export type StoryResponseCode='response-too-long'|'empty-response'|'json-invalid'|'json-incomplete'|'json-ambiguous'|'root-shape'|'body-invalid'|'choice-count'|'choice-shape'|'choice-label'|'choice-text'|'choice-duplicate'|'truncated'|'blocked'|'envelope-invalid'|'segments-invalid';
 type Detail={responseCharacters?:number;choiceCount?:number;missingBody?:boolean;missingChoices?:boolean;outputTokenLimit?:number};
 export class StoryResponseError extends Error {
  constructor(public readonly code:StoryResponseCode,public readonly detail:Detail={}){super('invalid');}
@@ -26,10 +28,10 @@ function jsonValue(raw:string):any {
  try{return JSON.parse(text.slice(obj.start,obj.end));}catch{fail('json-invalid');}
 }
 /** Canonicalize explicit A/B/C/D labels only. No body/choice synthesis or partial acceptance. */
-export function parseStoryReply(raw:string){
+export function parseStoryReply(raw:string,knownSpeakers:readonly string[]=[]){
  if(raw.length>storyLimits.outputChars)fail('response-too-long',{responseCharacters:raw.length});
  const x=jsonValue(raw),object=(o:any)=>o&&typeof o==='object'&&!Array.isArray(o);
- if(!object(x)||Object.keys(x).some(k=>!['body','choices'].includes(k)))fail('root-shape');
+ if(!object(x)||Object.keys(x).some(k=>!['body','choices','segments'].includes(k)))fail('root-shape');
  if(typeof x.body!=='string'||!x.body.trim()||x.body.length>storyLimits.body)fail('body-invalid',{missingBody:!Object.hasOwn(x,'body')});
  if(!Array.isArray(x.choices)||x.choices.length!==4)fail('choice-count',{missingChoices:!Object.hasOwn(x,'choices'),...(Array.isArray(x.choices)?{choiceCount:x.choices.length}:{})});
  const label=(v:unknown)=>typeof v==='string'?v.normalize('NFKC').trim().toUpperCase():'';
@@ -40,5 +42,7 @@ export function parseStoryReply(raw:string){
  });
  if(new Set(choices.map((c:{id:string})=>c.id)).size!==4)fail('choice-label');
  if(new Set(choices.map((c:{text:string})=>c.text.trim())).size!==4)fail('choice-duplicate');
- return {body:x.body as string,choices:choices.sort((a:{id:string},b:{id:string})=>a.id.localeCompare(b.id))} as {body:string;choices:{id:'A'|'B'|'C'|'D';text:string}[]};
+ const segments=x.segments===undefined?undefined:resolveStorySegments(x.body,x.segments,knownSpeakers);
+ if(x.segments!==undefined&&!segments)recordStoryResponseFailure(new StoryResponseError('segments-invalid'));
+ return {...(segments?{segments}:{}),body:x.body as string,choices:choices.sort((a:{id:string},b:{id:string})=>a.id.localeCompare(b.id))} as {segments?:StorySegment[];body:string;choices:{id:'A'|'B'|'C'|'D';text:string}[]};
 }

@@ -9,7 +9,7 @@ import {validateStoryNode} from './storyValidation';
 import {storyLimits,storyLengths,type StoryNode,type StoryAction,type StoryExpectedProgress} from './storyTypes';
 import {storyPrompt} from './storyContext';
 export {storyPrompt,storyInput} from './storyContext';
-const schema={type:'OBJECT',properties:{body:{type:'STRING'},choices:{type:'ARRAY',minItems:4,maxItems:4,items:{type:'OBJECT',properties:{id:{type:'STRING',enum:['A','B','C','D']},text:{type:'STRING'}},required:['id','text']}}},required:['body','choices']};
+const schema={type:'OBJECT',properties:{segments:{type:'ARRAY',maxItems:256,items:{type:'OBJECT',properties:{type:{type:'STRING',enum:['narration','action','dialogue']},text:{type:'STRING'},speaker:{type:'STRING'}},required:['type','text']}},body:{type:'STRING'},choices:{type:'ARRAY',minItems:4,maxItems:4,items:{type:'OBJECT',properties:{id:{type:'STRING',enum:['A','B','C','D']},text:{type:'STRING'}},required:['id','text']}}},required:['body','choices']};
 
 export async function generateStory(worldId:string,actionInput?:string|StoryAction,options:{signal?:AbortSignal;allowOldDefinition?:boolean;expected?:StoryExpectedProgress;firstAttemptOnly?:boolean}={}){
  if(options.signal?.aborted)throw Error('生成已取消，原主线未改变。');
@@ -30,8 +30,8 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
   });
   outputTokenLimit=Math.min(config.maxTokens,storyLengths[claim.length].tokens,storyLimits.outputTokens);
   const raw=await requestReply({...config,maxTokens:outputTokenLimit},credential.apiKey,[{role:'system',content:storyPrompt},{role:'user',content:input}],controller.signal,structured.transport,false);
-  failure='invalid';if(structured.getResponseInfo().blocked)throw new StoryResponseError('blocked');if(structured.isTruncated())throw new StoryResponseError('truncated',{responseCharacters:raw.length});const result=parseStoryReply(raw);const id=crypto.randomUUID();
-  const node:StoryNode={id,worldId,sessionId:s.id,body:result.body,choices:result.choices.map(c=>({id:`${id}:${c.id}`,label:c.id,text:c.text})),...(s.headNodeId?{parentNodeId:s.headNodeId,action:claim.action,...(claim.action?.kind==='choice'?{fromChoiceId:claim.action.choiceId}:{})}:{}),narrativeLength:claim.length,requestId:token,createdAt:Date.now(),definitionRevision:s.definitionRevision,sequence:s.revision+1};validateStoryNode(node);
+  failure='invalid';if(structured.getResponseInfo().blocked)throw new StoryResponseError('blocked');if(structured.isTruncated())throw new StoryResponseError('truncated',{responseCharacters:raw.length});const participants=s.definition.participants;const result=parseStoryReply(raw,participants?[participants.protagonist.name,...participants.characters.map(c=>c.name)]:[]);const id=crypto.randomUUID();
+  const node:StoryNode={id,worldId,sessionId:s.id,body:result.body,...(result.segments?{segments:result.segments}:{}),choices:result.choices.map(c=>({id:`${id}:${c.id}`,label:c.id,text:c.text})),...(s.headNodeId?{parentNodeId:s.headNodeId,action:claim.action,...(claim.action?.kind==='choice'?{fromChoiceId:claim.action.choiceId}:{})}:{}),narrativeLength:claim.length,requestId:token,createdAt:Date.now(),definitionRevision:s.definitionRevision,sequence:s.revision+1};validateStoryNode(node);
   failure='stale';let abortCommit=()=>{};const cancelCommit=()=>abortCommit();controller.signal.addEventListener('abort',cancelCommit,{once:true});
   try{await db.transaction('rw',storyTables(),async tx=>{
    abortCommit=()=>{try{tx.abort();}catch{/* Transaction already settled. */}};

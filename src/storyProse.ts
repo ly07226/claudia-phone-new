@@ -29,7 +29,7 @@ export function formatStoryProse(body:string):StoryProsePart[]{
   let cursor=0;
   for(const q of ranges){
    if(q.unsafe)continue;const before=line.slice(0,q.start),after=line.slice(q.end),quoted=line.slice(q.start,q.end),clause=before.split(/[。！？!?]/).at(-1)??'';
-   const standalone=!before.trim()&&!after.trim()&&/[。！？!?…][”」]$/.test(quoted)&&/[你我您咱？?!！]/.test(quoted);
+   const standalone=!before.trim()&&!after.trim()&&/[。！？!?…][”」]$/.test(quoted);
    const following=/^[，,]?\s*(?:他|她|我|你|您)(?:说道|问道|答道|说|问|回答)[。！]?/.test(after)&&!nonSpeech.test(after.slice(0,80));
    if(nonSpeech.test(clause)||standalone&&nonSpeech.test(previous.slice(-80))||!(speech.test(clause)||standalone||following))continue;
    narrative(line.slice(cursor,q.start));parts.push({kind:'dialogue',text:quoted});cursor=q.end;

@@ -1,3 +1,4 @@
+import {resolveStorySegments} from './storySegments';
 import {validateStoryParticipants} from './storyParticipants';
 import type Dexie from 'dexie';
 import {validateScriptConfig} from './scriptValidation';
@@ -10,6 +11,7 @@ export function validateStoryGuidance(x:unknown):asserts x is StoryGuidance {con
 export function validateStoryNode(n:StoryNode){
  check(n&&id(n.id)&&id(n.worldId)&&id(n.sessionId)&&id(n.requestId)&&num(n.createdAt)&&num(n.sequence)&&n.sequence>0&&num(n.definitionRevision)&&n.definitionRevision>0);
  check(typeof n.body==='string'&&!!n.body.trim()&&n.body.length<=storyLimits.body&&Array.isArray(n.choices)&&n.choices.length===4);
+ if(n.segments!==undefined)check(resolveStorySegments(n.body,n.segments));
  check(n.parentNodeId===undefined||id(n.parentNodeId));check(n.fromChoiceId===undefined||id(n.fromChoiceId));
  if(n.narrativeLength!==undefined)check(['brief','standard','detailed'].includes(n.narrativeLength));
  if(n.action!==undefined){check(n.action&&typeof n.action==='object'&&!Array.isArray(n.action));check(Object.keys(n.action).every(k=>['kind',n.action!.kind==='custom'?'text':'choiceId'].includes(k)));if(n.action.kind==='custom')check(typeof n.action.text==='string'&&!!n.action.text.trim()&&n.action.text.length<=storyLimits.action&&n.fromChoiceId===undefined&&!!n.parentNodeId);else check(n.action.kind==='choice'&&id(n.action.choiceId)&&n.action.choiceId===n.fromChoiceId&&!!n.parentNodeId);}

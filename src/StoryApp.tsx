@@ -46,13 +46,14 @@ export function StoryApp({worldId}:{worldId:string}){
   {changed&&<p className="story-notice">设定已更新；主线仍使用开始时的版本 {s?.definitionRevision}，继续前需要确认。</p>}
   {busy&&<p className="story-notice" role="status">正在生成…已有剧情可继续阅读，离开本页将尝试取消。</p>}
   {data?.world.script?.playMode!=='story'&&data?<p>此世界未开启剧情模式，已有主线数据保留。</p>:data&&<>
-   <StoryReader key={worldId} inert={!!dialog} path={data.path} opening={data.world.script!.opening}/>
+   <StoryReader key={worldId} inert={!!dialog} path={data.path} opening={data.world.script!.opening}>
+   {node&&<fieldset className="story-options" disabled={busy}><legend>接下来，你想怎么做？</legend>{node.choices.map(c=><label key={c.id} className={mode==='choice'&&selected===c.id?'story-selected':''}><input type="radio" name="story-choice" value={c.id} checked={mode==='choice'&&selected===c.id} onChange={()=>choose(c.id)}/><strong>{c.label}</strong><span>{c.text}</span></label>)}</fieldset>}
    <footer className="story-drawer" inert={!!dialog} data-collapsed={collapsed}>
     <button className="story-drawer-handle" aria-expanded={!collapsed} aria-controls="story-operation-panel" aria-label={collapsed?'展开操作':'收起操作'} onClick={()=>setCollapsed(x=>!x)}><span aria-hidden="true"/></button>
     <div className="story-drawer-panel" id="story-operation-panel" inert={collapsed} aria-hidden={collapsed}>
      <div className="story-drawer-content">
 
-      {node&&<><fieldset className="story-options" disabled={busy}><legend>选择下一步行动</legend>{node.choices.map(c=><label key={c.id} className={mode==='choice'&&selected===c.id?'story-selected':''}><input type="radio" name="story-choice" value={c.id} checked={mode==='choice'&&selected===c.id} onChange={()=>choose(c.id)}/><strong>{c.label}</strong><span>{c.text}</span></label>)}</fieldset>
+      {node&&<>
        <label className="story-custom-label">或自定义行动<textarea aria-label="自定义行动" rows={2} maxLength={storyLimits.action} value={custom} disabled={busy} onChange={e=>input(e.target.value)} placeholder="描述你尝试采取的行动…"/></label>
        <p className="story-draft-hint">输入会取消选项；选择选项会清空输入。{custom.length}/{storyLimits.action}</p>
       </>}
@@ -63,6 +64,7 @@ export function StoryApp({worldId}:{worldId:string}){
      </div>
     </div>
    </footer>
+   </StoryReader>
   </>}
   {dialog&&data&&<StoryControls key={`${worldId}:${dialog}`} kind={dialog} guidance={data.world.storyPreferences?.guidance} length={length} busy={busy} availableHeight={viewport.height??700} onClose={()=>setDialog(null)} onSave={(value,revision)=>saveStoryGuidance(worldId,value,revision)} onLength={changeLength} onRefresh={()=>setRefresh(x=>x+1)}/>}
  </article>;
