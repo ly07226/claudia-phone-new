@@ -4,6 +4,7 @@ import {getMemoryScope,listMemories,listMemoryRevisions,createMemory,sealMemoryS
 import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelines';
 import {visibleMessage} from './messageBubbles';
 import {resolveApi} from './chatService';
+import {selectSummaryCandidates,summaryDuplicateIndex} from './memorySummaryQuality';
 import {requestSummary,SummaryResponseError} from './memorySummaryRequest';
 import {parseSummary,summaryPrompt,SummaryFormatError} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
@@ -13,7 +14,6 @@ import {emptySummaryState,summaryLimits,type SummaryFact,type SummaryTurn,type S
 const tables=()=>[...timelineTables(),db.characters,db.worlds,db.worldProfiles];
 const key=(turn:SummaryTurn)=>JSON.stringify([turn.userIds,turn.assistantId]);
 const scopeKey=(scope:MemoryScope)=>JSON.stringify(scope);
-const normalize=(s:string)=>s.normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{S}]/gu,'');
 const labels={fact:'已发生事实',belief:'人物主观判断',speculation:'猜测（未证实）',pending:'未完成事项'};
 const system=summaryPrompt;
 export async function saveSummarySettings(scope:MemoryScope,enabled:boolean,interval:number){
@@ -67,7 +67,7 @@ async function execute(scope:MemoryScope,manual:boolean){
   const {config,key:apiKey}=await resolveApi(c);
   const raw=await requestSummary(config,apiKey,claimed.input,controller.signal);
   if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
-  failure='format';let facts:SummaryFact[];try{facts=parseSummary(raw);}catch(e){if((e as Error).message==='empty')failure='empty';if(e instanceof SummaryFormatError)diagnostic={...e.diagnostic,receivedChars:raw.length,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)};throw e;}
+  failure='format';let facts:SummaryFact[];try{facts=selectSummaryCandidates(parseSummary(raw),claimed.input).accepted;}catch(e){if((e as Error).message==='empty')failure='empty';if(e instanceof SummaryFormatError)diagnostic={...e.diagnostic,receivedChars:raw.length,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)};throw e;}
   failure='stale-path';
   await db.transaction('rw',tables(),async()=>{
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
@@ -78,9 +78,9 @@ async function execute(scope:MemoryScope,manual:boolean){
    // Include tombstones/previous revisions too: a deleted or manually edited auto
    // fact must not be recreated merely because a later summary repeats its text.
    const all=await listMemoryRevisions(scope);
-   const known=new Set(all.map(e=>normalize(e.content.replace(/^【[^】]+】/,''))));
+   const known=summaryDuplicateIndex(all.map(e=>e.content));
    let added=0,duplicates=0;
-   for(const fact of facts){const normalized=normalize(fact.content);if(known.has(normalized)){duplicates++;continue;}failure='capacity';await createMemory(scope,{kind:'long',source:'auto',content:`【${labels[fact.type]}】${fact.content}`});known.add(normalized);added++;}
+   for(const fact of facts){if(known.has(fact)){duplicates++;continue;}failure='capacity';await createMemory(scope,{kind:'long',source:'auto',content:`【${labels[fact.type]}】${fact.content}`});known.add(fact);added++;}
    state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,createdAt:Date.now(),added,duplicates});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
   });
  }catch(error){if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;failure=diagnostic.code==='truncated'?'format':'provider';}if(diagnostic)diagnostic={...diagnostic,inputRounds:claimed.turns.length,inputTokenEstimate:memoryTokenCost(system)+memoryTokenCost(claimed.input)};await fail(job,failure,diagnostic).catch(()=>{});}finally{clearTimeout(timer);}
