@@ -1,3 +1,4 @@
+import {validateScriptConfig} from './scriptValidation';
 import {validateMemoryStore} from './memoryValidation';
 import {validateBubbleDeletion} from './messageBubbles';
 import {validateQuoteReference} from './messageReferences';
@@ -854,6 +855,9 @@ export async function validateReferences(
   const optional = async (table: BackupTable, id: unknown, code: string) => {
     if (id !== undefined && id !== "" && !(await exists(table, id))) bad(code);
   };
+  await eachBackupRow(d,"worlds",async x=>{
+    if(x.script!==undefined){try{validateScriptConfig(x.script);}catch{bad("worlds.script");}}
+  },signal);
   await eachBackupRow(
     d,
     "items",

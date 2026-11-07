@@ -1,3 +1,4 @@
+import type {ScriptConfig} from './scriptTypes';
 import { startupImportNotice } from "./importReceipt";
 import type { DailyFriendship } from "./friendTypes";
 import type { UserIdentity } from "./userIdentity";
@@ -16,6 +17,7 @@ import type {
   ConversationSnapshot,
 } from "./chatTypes";
 export interface World {
+  script?: ScriptConfig;
   id: string;
   name: string;
   description: string;

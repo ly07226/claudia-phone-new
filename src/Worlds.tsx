@@ -1,3 +1,5 @@
+import {newScriptConfig} from './scriptTypes';
+import {saveScriptWorld} from './scriptWorlds';
 import { useState, type ReactNode } from "react";
 import { Plus, Globe2 } from "lucide-react";
 import { db, safeWrite, usePhone, type World } from "./store";
@@ -12,7 +14,7 @@ export function Worlds({
   const editId = nav.route.screen === "worlds" ? nav.route.worldId : undefined;
   const formPage = spaceList && (view === "manual" || view === "edit");
   const [creationNotice, setCreationNotice] = useState("");
-  const [form, setForm] = useState<Partial<World> | null>(() => formPage ? view === "edit" && nav.route.screen === "worlds" ? s.worlds.find(w=>w.id===editId) || null : {name:"",description:""} : null);
+  const [form, setForm] = useState<Partial<World> | null>(() => formPage ? view === "edit" && nav.route.screen === "worlds" ? s.worlds.find(w=>w.id===editId) || null : {name:"",description:"",script:newScriptConfig()} : null);
   if (spaceList && view === "create") return <>
     <div className="page-title"><h1>新建剧本</h1><p>选择创建方式</p></div>
     <div className="script-creation-methods">
@@ -31,7 +33,7 @@ export function Worlds({
       </div>
       {!formPage && <button className="primary" onClick={() => {
         if(spaceList) void nav.openWorldEditor("create");
-        else setForm({name:"",description:""});
+        else setForm({name:"",description:"",script:newScriptConfig()});
       }}><Plus size={17}/>{spaceList ? "新建剧本" : "创建世界"}</button>}
       {form && (
         <form
@@ -39,15 +41,7 @@ export function Worlds({
           onSubmit={(e) => {
             e.preventDefault();
             void safeWrite(() =>
-              db.worlds.put({
-                ...form,
-                id: form.id || crypto.randomUUID(),
-                name: form.name!.trim(),
-                description: form.description || "",
-                rules: form.rules || "",
-                background: form.background || "",
-                createdAt: form.createdAt || Date.now(),
-              }),
+              saveScriptWorld(form),
             ).then((ok) => {
               if (ok) { if(formPage) void nav.manageWorlds(true); else setForm(null); }
             });
@@ -95,6 +89,17 @@ export function Worlds({
               onChange={(e) => setForm({ ...form, background: e.target.value })}
             />
           </label>
+          <label>剧本玩法
+            <select aria-label="剧本玩法" value={form.script?.playMode??''} onChange={e=>setForm({...form,script:e.target.value?{...(form.script??newScriptConfig()),playMode:e.target.value as 'story'|'everyday'}:undefined})}>
+              {form.id&&!s.worlds.find(w=>w.id===form.id)?.script&&<option value="">保持旧世界（未配置玩法）</option>}
+              <option value="story">剧情模式</option><option value="everyday">日常模式</option>
+            </select>
+          </label>
+          {form.script&&<>
+            <p className="hint">{form.script.playMode==='story'?'本阶段仅保存剧情设定，主线 App 将在后续开放；聊天功能照常使用。':'在此世界内通过聊天自然发展剧情，与独立日常聊天分区相互隔离。'}</p>
+            <label>开场情境<textarea aria-label="开场情境" maxLength={6000} value={form.script.opening} onChange={e=>setForm({...form,script:{...form.script!,opening:e.target.value}})}/></label>
+            {form.script.playMode==='story'&&<label>故事发展方向（可选）<textarea aria-label="故事发展方向" maxLength={4000} value={form.script.direction??''} onChange={e=>setForm({...form,script:{...form.script!,direction:e.target.value}})}/></label>}
+          </>}
           <div className="actions">
             <button type="button" onClick={() => { if(formPage) void nav.exitSpace(); else setForm(null); }}>
               取消
