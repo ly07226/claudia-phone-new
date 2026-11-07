@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 // Audit-only contracts. A fresh Playwright context uses the normal application
 // startup; these tests issue no table writes, schema changes or migrations.
-test("3.0.2-A 只读核对现有v6全部18表及主键索引", async ({ page }) => {
+test("3.0.2-A 只读核对现有v7全部20表及主键索引", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".desktop")).toBeVisible();
   const inventory = await page.evaluate(async () => {
@@ -21,9 +21,11 @@ test("3.0.2-A 只读核对现有v6全部18表及主键索引", async ({ page }) 
       ),
     };
   });
-  expect(inventory.logicalVersion).toBe(6);
-  expect(inventory.nativeVersion).toBe(60);
+  expect(inventory.logicalVersion).toBe(7);
+  expect(inventory.nativeVersion).toBe(70);
   const schemas: Record<string, string> = {
+    storySessions:'id,&worldId',
+    storyNodes:'id,worldId,sessionId,parentNodeId,&requestId',
     timelines:"id,conversationId,parentTimelineId",
     pathNodes:"id,conversationId,[conversationId+parentNodeId+fingerprint]",
     worlds: "id,createdAt",

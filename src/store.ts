@@ -1,3 +1,4 @@
+import {storySchemas,type StorySession,type StoryNode,type StoryPreferences} from './storyTypes';
 import type {ScriptConfig} from './scriptTypes';
 import { startupImportNotice } from "./importReceipt";
 import type { DailyFriendship } from "./friendTypes";
@@ -18,6 +19,7 @@ import type {
 } from "./chatTypes";
 export interface World {
   script?: ScriptConfig;
+  storyPreferences?: StoryPreferences;
   id: string;
   name: string;
   description: string;
@@ -72,6 +74,8 @@ export interface Asset {
   createdAt: number;
 }
 class PhoneDB extends Dexie {
+  storySessions!: Table<StorySession>;
+  storyNodes!: Table<StoryNode>;
   timelines!: Table<MemoryTimeline>;
   pathNodes!: Table<ConversationPathNode>;
   messageVariants!: Table<MessageVariant>;
@@ -154,6 +158,8 @@ class PhoneDB extends Dexie {
       });
     // Additive v6: legacy rows and IDs are untouched; roots are initialized lazily.
     this.version(6).stores({timelines:"id,conversationId,parentTimelineId",pathNodes:"id,conversationId,[conversationId+parentNodeId+fingerprint]"});
+    // Additive v7: existing records and IDs are retained.
+    this.version(7).stores(storySchemas);
 
   }
 }

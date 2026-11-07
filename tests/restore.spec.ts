@@ -6,8 +6,8 @@ async function setup(page:Page){
   await page.evaluate(async()=>{
     const {db}=await import('/src/store.ts');const Dexie=Object.getPrototypeOf(db.constructor);
     const {backupSchemas}=await import('/src/backupFormat.ts');
-    const source=new Dexie(`restore-test-source-${crypto.randomUUID()}`);source.version(6).stores(backupSchemas);await source.open();
-    const target=new Dexie(`restore-test-target-${crypto.randomUUID()}`);target.version(6).stores(backupSchemas);await target.open();
+    const source=new Dexie(`restore-test-source-${crypto.randomUUID()}`);source.version(7).stores(backupSchemas);await source.open();
+    const target=new Dexie(`restore-test-target-${crypto.randomUUID()}`);target.version(7).stores(backupSchemas);await target.open();
     await source.table('characters').add({id:'char',name:'备份角色',persona:'人设',avatar:'img'});
     await source.table('assets').add({id:'img',type:'avatar',createdAt:1,data:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='});
     const message={id:'m',conversationId:'c',role:'user',content:'备份聊天',createdAt:1};
@@ -54,7 +54,7 @@ test('旧v5备份真实恢复保留旧消息ID，新增时间线表为空而非�
     const bytes=f.utf8(text),part={index:0,name:`${id}.part-0001.cphone`,bytes:bytes.length,digest:await f.sha(bytes)},manifest={format:'claudia-phone-backup',version:1,codec:1,backupId:id,schemaVersion:5,nativeVersion:50,createdAt:now,snapshotCompletedAt:now,coordination:'isolated legacy fixture',tables,resources,parts:[part],credentials:'excluded',redactions:[]};
     await(await import('/src/restoreService.ts')).restoreToCurrent([new File([JSON.stringify(manifest)],`${id}.manifest.json`),new File([bytes],part.name)],{database:target,confirmed:true});
     return {version:target.verno,m:(await target.table('messages').get('m')).content,nodes:await target.table('pathNodes').count(),timelines:await target.table('timelines').count(),avatar:(await target.table('characters').get('char')).avatar};});
-  expect(result).toEqual({version:6,m:'备份聊天',nodes:0,timelines:0,avatar:'img'});
+  expect(result).toEqual({version:7,m:'备份聊天',nodes:0,timelines:0,avatar:'img'});
 });
 test('旧加密分卷错误密码不写入，正确密码可恢复但不覆盖本机API配置和Key',async({page})=>{
   await setup(page);const before=await contents(page);
@@ -78,7 +78,7 @@ for(const width of [375,390,430])test(`恢复UI ${width}px：替换前确认、�
   const root=page.locator('#isolated-restore-test');await expect(root.getByRole('button',{name:'覆盖恢复',exact:true})).toBeDisabled();await root.getByRole('checkbox',{name:'我了解替换范围，已关闭其他标签页和 PWA'}).check();page.once('dialog',d=>d.dismiss());await root.getByRole('button',{name:'覆盖恢复',exact:true}).click();expect(await contents(page)).toBe(before);
   await page.screenshot({animations:'disabled',path:`artifacts/restore-confirm-${width}.png`});expect(await root.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
   page.once('dialog',d=>d.accept());await Promise.all([page.waitForEvent('load'),root.getByRole('button',{name:'覆盖恢复',exact:true}).click()]);
-  const restored=await page.evaluate(async name=>{const Dexie=Object.getPrototypeOf((await import('/src/store.ts')).db.constructor);const d=new Dexie(name);d.version(6).stores((await import('/src/backupFormat.ts')).backupSchemas);await d.open();const rows=await d.table('messages').toArray(),c=await d.table('characters').get('char');d.close();return {rows,c};},name);expect(restored.c.name).toBe('备份角色');expect(restored.rows[0].content).toBe('备份聊天');
+  const restored=await page.evaluate(async name=>{const Dexie=Object.getPrototypeOf((await import('/src/store.ts')).db.constructor);const d=new Dexie(name);d.version(7).stores((await import('/src/backupFormat.ts')).backupSchemas);await d.open();const rows=await d.table('messages').toArray(),c=await d.table('characters').get('char');d.close();return {rows,c};},name);expect(restored.c.name).toBe('备份角色');expect(restored.rows[0].content).toBe('备份聊天');
 });
 test('恢复前仍在生成或快照后发生写入时拒绝替换，不吞掉合法新写入',async({page})=>{
   await setup(page);

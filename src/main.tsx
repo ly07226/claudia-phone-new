@@ -1,3 +1,4 @@
+import {StoryApp} from './StoryApp';
 import { MemoryApp } from "./MemoryApp";
 import { IdentityCard, IdentityEditor } from "./IdentitySettings";
 import { useDisplayEnvironment } from "./presentation";
@@ -164,7 +165,11 @@ function App() {
     gesture.current = undefined;
   }
   const pageIndex = s.pages.findIndex((p) => p.id === s.pageId);
-  const pageItems = s.items
+  const canStory=!!space?.worldId&&s.worlds.find(w=>w.id===space.worldId)?.script?.playMode==='story';
+  const firstPage=s.pages[0]?.id;
+  const displayItems=s.items.filter(i=>i.app!=='剧本'||canStory);
+  if(canStory&&!displayItems.some(i=>i.app==='剧本')&&firstPage)displayItems.push({id:'virtual-story-app',kind:'app',app:'剧本',pageId:firstPage,position:Math.max(0,...displayItems.filter(i=>i.pageId===firstPage).map(i=>i.position))+1,size:1});
+  const pageItems = displayItems
     .filter((i) => i.pageId === s.pageId)
     .sort((a, b) => a.position - b.position);
   function widget(item: DesktopItem) {
@@ -271,7 +276,7 @@ function App() {
         {!s.ready ? (
           <div className="loading">正在整理你的小小世界…</div>
         ) : s.activeApp ? (
-          <section className="app-panel" key={s.activeApp}>
+          <section className={`app-panel${s.activeApp==='剧本'?' story-panel':''}`} key={s.activeApp}>
             <header>
               <button
                 aria-label="返回桌面"
@@ -283,7 +288,7 @@ function App() {
               <span>{s.activeApp}</span>
               <Flower2 size={20} />
             </header>
-            <div className="app-scroll">
+            <div className={`app-scroll${s.activeApp==='剧本'?' story-scroll':''}`}>
               {s.activeApp === "设置" ? (
                 <>
                   <div className="page-title">
@@ -515,6 +520,8 @@ function App() {
                 </>
               ) : s.activeApp === "世界管理" ? (
                 <Worlds />
+              ) : s.activeApp === "剧本" ? (
+                canStory&&space?.worldId?<StoryApp key={space.worldId} worldId={space.worldId}/>:<p>当前空间没有剧情模式主线入口。</p>
               ) : s.activeApp === "记忆" ? (
                 <MemoryApp />
               ) : s.activeApp === "角色管理" ? (
@@ -624,7 +631,7 @@ function App() {
             )}
             <div className="grid" key={s.pageId}>
               {pageItems.map((item) => {
-                const Icon = icons[apps.indexOf(item.app || "")] || Flower2;
+                const Icon = item.app==='剧本'?BookOpen:icons[apps.indexOf(item.app || "")] || Flower2;
                 return (
                   <div
                     key={item.id}
@@ -633,7 +640,7 @@ function App() {
                     style={{
                       gridColumn: `span ${item.kind === "widget" ? item.size : 1}`,
                     }}
-                    onPointerDown={(e) => start(e, item.id)}
+                    onPointerDown={(e) => {if(item.id!=='virtual-story-app')start(e, item.id);}}
                     onPointerMove={motion}
                     onPointerUp={end}
                     onPointerCancel={() => {
@@ -682,7 +689,7 @@ function App() {
                         </>
                       )}
                     </button>
-                    {s.editing && (
+                    {s.editing && item.id!=='virtual-story-app' && (
                       <div
                         className="item-edit"
                         onPointerDown={(e) => e.stopPropagation()}

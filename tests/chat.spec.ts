@@ -492,7 +492,7 @@ test("并发发送受保护，取消与删除会话不产生孤立回复", async
   expect(result.orphan).toBe(0);
   expect(result.conversation).toBeUndefined();
 });
-test("兼容桥接表声明可打开当前 v6，聊天与旧数据保持不变", async ({
+test("兼容桥接表声明可打开当前 v7，聊天与旧数据保持不变", async ({
   page,
 }) => {
   const conversations = await seed(page);
@@ -538,6 +538,7 @@ test("兼容桥接表声明可打开当前 v6，聊天与旧数据保持不变",
         conversationSnapshots: "id,conversationId,createdAt",
       });
     compatibility.version(6).stores({timelines:"id,conversationId,parentTimelineId",pathNodes:"id,conversationId,[conversationId+parentNodeId+fingerprint]"});
+    compatibility.version(7).stores((await import('/src/storyTypes.ts')).storySchemas);
     await compatibility.open();
     const after: any = {};
     for (const name of names)

@@ -1,3 +1,4 @@
+import {storySchemas} from './storyTypes';
 export const legacyBackupSchemas = {
   worlds: "id,createdAt",
   characters: "id,worldId",
@@ -16,7 +17,9 @@ export const legacyBackupSchemas = {
   messageRevisions: "id,messageId,conversationId,variantId",
   conversationSnapshots: "id,conversationId,createdAt",
 } as const;
-export const backupSchemas = {...legacyBackupSchemas, timelines:"id,conversationId,parentTimelineId",pathNodes:"id,conversationId,[conversationId+parentNodeId+fingerprint]"} as const;
+export const v6BackupSchemas = {...legacyBackupSchemas, timelines:"id,conversationId,parentTimelineId",pathNodes:"id,conversationId,[conversationId+parentNodeId+fingerprint]"} as const;
+export const backupSchemas = {...v6BackupSchemas,...storySchemas} as const;
+export const schemasForVersion=(version:5|6|7)=>version===5?legacyBackupSchemas:version===6?v6BackupSchemas:backupSchemas;
 export type BackupTable = keyof typeof backupSchemas;
 export const backupTables = Object.keys(backupSchemas) as BackupTable[];
 export const backupLimits = {
@@ -289,11 +292,11 @@ export async function rowBytes(table: BackupTable, row: unknown) {
 export interface BackupManifest {
   sourceOrigin?: string;
   format: "claudia-phone-backup";
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   codec: 1;
   backupId: string;
-  schemaVersion: 5 | 6;
-  nativeVersion: 50 | 60;
+  schemaVersion: 5 | 6 | 7;
+  nativeVersion: 50 | 60 | 70;
   createdAt: string;
   snapshotCompletedAt: string;
   coordination: string;

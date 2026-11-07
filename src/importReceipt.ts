@@ -17,7 +17,7 @@ export async function startupImportNotice(database:Dexie,loaded:{characters:any[
   if(r.version===1){try{canonicalHash=await sha(utf8(JSON.stringify(ordered)));}catch{return '导入启动复核未通过：旧复核格式无法读取扩展资料，请在备份页重新核对。';}}
   else for(const row of ordered)canonicalHash=await nextDigest(canonicalHash,await rowBytes('characters',row));
   const theme=await sha(await rowBytes('themes',loaded.theme));
-  const match=backupTables.every(t=>counts[t]===r.counts?.[t])&&canonicalHash===r.characters&&theme===r.theme;
+  const match=backupTables.every(t=>counts[t]===(r.counts?.[t]??(['storySessions','storyNodes'].includes(t)?0:undefined)))&&canonicalHash===r.characters&&theme===r.theme;
   if(!match)return `导入启动复核未通过：当前角色 ${loaded.characters.length}，预期 ${r.counts?.characters??'未知'}。可能导入未提交或数据已变化；请检查当前站点 ${location.origin} 与备份明细，不能将校验成功当作恢复成功。`;
   localStorage.removeItem(key);
   const visible=loaded.characters.filter(c=>!c.dailyFriendship||c.dailyFriendship.status==='friend').length;

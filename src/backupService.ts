@@ -1,3 +1,4 @@
+import {validateStoryDatabase,validateStoryPreferences} from './storyValidation';
 import {validateScriptConfig} from './scriptValidation';
 import {validateMemoryStore} from './memoryValidation';
 import {validateBubbleDeletion} from './messageBubbles';
@@ -14,7 +15,7 @@ import {
 } from "./backupGate";
 import {
   BackupError,
-  backupSchemas, legacyBackupSchemas,
+  backupSchemas, legacyBackupSchemas, schemasForVersion,
   backupTables,
   backupLimits,
   ensure,
@@ -43,12 +44,12 @@ export type BackupProgress = {
 };
 type Progress = (value: BackupProgress) => void;
 const owned = new Set<string>();
-async function temporary(prefix: "stage" | "candidate" | "validation", schemaVersion:5|6=6) {
+async function temporary(prefix: "stage" | "candidate" | "validation", schemaVersion:5|6|7=7) {
   const name = `claudia-backup-${prefix}-${crypto.randomUUID()}`;
   ensure(!(await Dexie.exists(name)), "临时数据库名称冲突，未覆盖任何数据库。");
   const d = new Dexie(name);
   if (prefix === "stage") d.version(1).stores({ parts: "index" });
-  else d.version(schemaVersion).stores(schemaVersion===5?legacyBackupSchemas:backupSchemas);
+  else d.version(schemaVersion).stores(schemasForVersion(schemaVersion));
   owned.add(name);
   try {
     await d.open();
@@ -170,20 +171,20 @@ export async function createBackup(options: {
     const coordination = await checkBackupClients();
     checkAbort(controller.signal);
     ensure(
-      db.verno === 6 &&
-        db.backendDB().version === 60 &&
+      db.verno === 7 &&
+        db.backendDB().version === 70 &&
         [...db.backendDB().objectStoreNames].sort().join() ===
           [...backupTables].sort().join(),
-      "正式库不是受支持的完整v6结构；不会自动升级或继续导出。",
+      "正式库不是受支持的完整v7结构；不会自动升级或继续导出。",
     );
     const m: BackupManifest = {
       format: "claudia-phone-backup",
-      version: 2,
+      version: 3,
       codec: 1,
       backupId: crypto.randomUUID(),
       sourceOrigin: location.origin,
-      schemaVersion: 6,
-      nativeVersion: 60,
+      schemaVersion: 7,
+      nativeVersion: 70,
       createdAt: new Date().toISOString(),
       snapshotCompletedAt: "",
       coordination,
@@ -391,7 +392,7 @@ export async function createBackup(options: {
 function validateManifest(input: any): asserts input is BackupManifest {
   ensure(
     input?.format === "claudia-phone-backup" &&
-      ((input.version === 1 && input.schemaVersion===5 && input.nativeVersion===50)||(input.version===2 && input.schemaVersion===6 && input.nativeVersion===60)) &&
+      ((input.version === 1 && input.schemaVersion===5 && input.nativeVersion===50)||(input.version===2 && input.schemaVersion===6 && input.nativeVersion===60)||(input.version===3 && input.schemaVersion===7 && input.nativeVersion===70)) &&
       input.codec === 1,
     "备份格式或数据库版本不受支持，未恢复任何正式数据。",
   );
@@ -417,11 +418,11 @@ function validateManifest(input: any): asserts input is BackupManifest {
   ensure(
     input.tables &&
       Object.keys(input.tables).sort().join() ===
-        Object.keys(input.schemaVersion===5?legacyBackupSchemas:backupSchemas).sort().join(),
+        Object.keys(schemasForVersion(input.schemaVersion)).sort().join(),
     "备份未覆盖该版本全部数据表。",
   );
   let total = 0;
-  const schemas=input.schemaVersion===5?legacyBackupSchemas:backupSchemas;
+  const schemas=schemasForVersion(input.schemaVersion);
   for (const table of Object.keys(schemas) as BackupTable[]) {
     const v = input.tables[table];
     ensure(
@@ -520,7 +521,7 @@ function validateManifest(input: any): asserts input is BackupManifest {
 }
 export interface IntegrityReport {
   status: "verified" | "rehearsed";
-  formatVersion: 1 | 2;
+  formatVersion: 1 | 2 | 3;
   sourceOrigin?: string;
   identities: number;
   dailyVisibleCharacters: number;
@@ -528,7 +529,7 @@ export interface IntegrityReport {
   snapshotCompletedAt: string;
   manifestDigest: string;
   candidateName?: string;
-  schemaVersion: 5 | 6;
+  schemaVersion: 5 | 6 | 7;
   counts: Record<string, number>;
   totalRecords: number;
   parts: number;
@@ -583,7 +584,7 @@ export async function readBackup(
   }
   validateManifest(parsed);
   const m = parsed;
-  const backupTables=Object.keys(m.schemaVersion===5?legacyBackupSchemas:backupSchemas) as BackupTable[];
+  const backupTables=Object.keys(schemasForVersion(m.schemaVersion)) as BackupTable[];
   ensure(
     files.length === m.parts.length + 1,
     "分卷缺失或混入了其他文件，请从文件App选择清单及全部分卷。",
@@ -801,7 +802,7 @@ export async function readBackup(
     }
     options.onProgress?.({ phase: "校验主键及引用关系", records, bytes });
     const warnings = await validateReferences(target, m, signal);
-    if(m.schemaVersion===6)await validateTimelineDatabase(target);
+    if(m.schemaVersion>=6)await validateTimelineDatabase(target);
     const report: IntegrityReport = {
       status: options.mode === "rehearse" ? "rehearsed" : "verified",
       formatVersion: m.version,
@@ -847,6 +848,7 @@ export async function validateReferences(
   m: BackupManifest,
   signal?: AbortSignal,
 ) {
+  await validateStoryDatabase(d);
   const errors = new Map<string, number>(),
     warnings = new Set<string>();
   const bad = (code: string) => errors.set(code, (errors.get(code) || 0) + 1);
@@ -856,6 +858,7 @@ export async function validateReferences(
     if (id !== undefined && id !== "" && !(await exists(table, id))) bad(code);
   };
   await eachBackupRow(d,"worlds",async x=>{
+    if(x.storyPreferences!==undefined){try{validateStoryPreferences(x.storyPreferences);}catch{bad('worlds.storyPreferences');}}
     if(x.script!==undefined){try{validateScriptConfig(x.script);}catch{bad("worlds.script");}}
   },signal);
   await eachBackupRow(

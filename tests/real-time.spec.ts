@@ -68,11 +68,11 @@ test('会话设置通过现有备份与候选恢复保留，不修改正式库�
   try{
    const m=exported.manifest,files=[new File([JSON.stringify(m)],m.backupId+'.manifest.json')];for(const part of m.parts)files.push(new File([await exported.readPart(part.index)],part.name));
    const restored=await readBackup(files,{mode:'rehearse'});
-   try{const D=Object.getPrototypeOf(db.constructor),candidate=new D(restored.report.candidateName!);candidate.version(6).stores(Object.fromEntries(db.tables.map(t=>[t.name,[t.schema.primKey.src,...t.schema.indexes.map(i=>i.src)].join(',')])));await candidate.open();try{return {copy:(await candidate.table('conversations').get(id)).chatSettings,original:(await db.conversations.get(id))!.chatSettings,version:db.verno,tables:db.tables.length,status:restored.report.status};}finally{candidate.close();}}
+   try{const D=Object.getPrototypeOf(db.constructor),candidate=new D(restored.report.candidateName!);candidate.version(7).stores(Object.fromEntries(db.tables.map(t=>[t.name,[t.schema.primKey.src,...t.schema.indexes.map(i=>i.src)].join(',')])));await candidate.open();try{return {copy:(await candidate.table('conversations').get(id)).chatSettings,original:(await db.conversations.get(id))!.chatSettings,version:db.verno,tables:db.tables.length,status:restored.report.status};}finally{candidate.close();}}
    finally{await restored.dispose();}
   }finally{await exported.dispose();}
  },ids.a);
- expect(result.copy).toEqual(result.original);expect(result.copy).toMatchObject({followRealTime:true,continuousSend:true});expect(result.version).toBe(6);expect(result.tables).toBe(18);expect(result.status).toBe('rehearsed');
+ expect(result.copy).toEqual(result.original);expect(result.copy).toMatchObject({followRealTime:true,continuousSend:true});expect(result.version).toBe(7);expect(result.tables).toBe(20);expect(result.status).toBe('rehearsed');
 });
 
 test('Gemini系统指令同时保留角色资料和独立时间区块，每次请求重新读取时钟',async({page})=>{

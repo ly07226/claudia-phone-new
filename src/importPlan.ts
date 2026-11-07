@@ -1,3 +1,4 @@
+import {storySchemas} from './storyTypes';
 import Dexie from 'dexie';
 import {db,defaultTheme,defaultItems} from './store';
 import {backupTables,ensure,checkAbort,rowBytes,sha,utf8,type BackupTable} from './backupFormat';
@@ -10,7 +11,7 @@ export interface ImportOptions {
   conflicts:'copy'|'skip';apiConflict:'copy'|'keep';identityConflict:'keep'|'replace';keys:'none'|'missing'|'replace';
 }
 export const defaultImportOptions:ImportOptions={mode:'overwrite',apiReplace:false,story:true,desktop:true,identities:true,api:true,conflicts:'copy',apiConflict:'copy',identityConflict:'keep',keys:'none'};
-export const storyTables:BackupTable[]=['worlds','characters','worldProfiles','conversations','messages','messageVariants','messageRevisions','conversationSnapshots','timelines','pathNodes','lorebooks','loreEntries'];
+export const storyTables:BackupTable[]=['worlds','characters','worldProfiles','conversations','messages','messageVariants','messageRevisions','conversationSnapshots','timelines','pathNodes','lorebooks','loreEntries','storySessions','storyNodes'];
 const ownedTables:BackupTable[]=['messages','messageVariants','messageRevisions','conversationSnapshots','timelines','pathNodes'];
 export interface DataCounts {characters:number;conversations:number;messages:number;worlds:number;lorebooks:number;identities:number;apiConfigs:number;timelines:number;assets:number}
 export interface ImportPreview {formatVersion:number;schemaVersion:number;createdAt:string;credentials:IntegrityReport['credentials'];incoming:DataCounts;current:DataCounts;result:DataCounts;added:DataCounts;duplicates:number;conflicts:number;changed:number;bytes:number;warnings:string[];options:ImportOptions;manifestDigest:string;credentialChanges:{added:number;replaced:number;removed:number;kept:number;names:string[]}}
@@ -19,7 +20,7 @@ interface Internal {database:Dexie;targetName:string;before:DatabaseDigest;after
 const plans=new WeakMap<ImportPlan,Internal>();
 export function getImportPlan(plan:ImportPlan,target:Dexie){const p=plans.get(plan);ensure(p&&p.database.isOpen()&&p.targetName===target.name,'导入预览已失效或目标手机不同，请重新预览。');return p;}
 export async function dataCounts(d:Dexie):Promise<DataCounts>{const t=await d.table('themes').get('global');return {characters:await d.table('characters').count(),conversations:await d.table('conversations').count(),messages:await d.table('messages').count(),worlds:await d.table('worlds').count(),lorebooks:await d.table('lorebooks').count(),identities:Object.keys(t?.userIdentities??{}).length,apiConfigs:await d.table('apiConfigs').count(),timelines:d.tables.some(t=>t.name==='timelines')?await d.table('timelines').count():0,assets:await d.table('assets').count()};}
-async function equal(table:BackupTable,a:any,b:any){if(table==='apiConfigs'&&b){a={...a,isDefault:false,createdAt:0,updatedAt:0};b={...b,isDefault:false,createdAt:0,updatedAt:0};}return !!b&&await sha(await rowBytes(table,a))===await sha(await rowBytes(table,b));}
+async function equal(table:BackupTable,a:any,b:any){if(table==='worlds'&&b){a={...a,storyPreferences:undefined};b={...b,storyPreferences:undefined};}if(table==='storySessions'&&b){a={...a,status:'ready',pending:undefined,error:undefined,actionDraft:undefined,updatedAt:0};b={...b,status:'ready',pending:undefined,error:undefined,actionDraft:undefined,updatedAt:0};}if(table==='apiConfigs'&&b){a={...a,isDefault:false,createdAt:0,updatedAt:0};b={...b,isDefault:false,createdAt:0,updatedAt:0};}return !!b&&await sha(await rowBytes(table,a))===await sha(await rowBytes(table,b));}
 /** Planning writes only a new isolated database. All accepted data and references
  * are revalidated before the existing atomic restore service may commit this plan. */
 export async function prepareImport(files:File[],options:ImportOptions,{database=db,password,signal}: {database?:Dexie;password?:string;signal?:AbortSignal}={}):Promise<ImportPlan>{
@@ -28,6 +29,7 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
   try{
   const checked=cleanup=await readBackup(files,{mode:'rehearse',password,signal:c.signal});const source=verifiedCandidate(checked)!;
   if(source.verno===5){source.close();source.version(6).stores({timelines:'id,conversationId,parentTimelineId',pathNodes:'id,conversationId,[conversationId+parentNodeId+fingerprint]'});await source.open();}
+  if(source.verno<7){source.close();source.version(7).stores(storySchemas);await source.open();}
 
     ensure(options.story||options.desktop||options.identities||options.api,'请至少选择一项导入范围。');
     ensure(options.keys==='none'||(options.api&&checked.report.credentials==='encrypted'),'导入密钥必须选择 API 范围且备份确实包含加密凭据。');
@@ -84,6 +86,22 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
       for(const id of await source.table(table).where('conversationId').equals(cid).primaryKeys()){checkAbort(c.signal);await visit(await source.table(table).get(id));}
     }
     if(graph&&options.mode==='merge'){
+      // A world has one mainline: conflicting progress clones the world graph,
+      // rather than splicing two independent stories into a single session.
+      await eachBackupRow(source,'worlds',async w=>{
+        const incoming=await source.table('storySessions').where('worldId').equals(w.id).first();
+        if(!incoming)return;
+        const existing=await result.table('storySessions').where('worldId').equals(await map('worlds',w.id)).first();
+        let identical=existing&&await equal('storySessions',incoming,existing);
+        for(const n of await source.table('storyNodes').where('worldId').equals(w.id).toArray())if(!await equal('storyNodes',n,await result.table('storyNodes').get(n.id)))identical=false;
+        if(await map('worlds',w.id)!==w.id||existing&&!identical){
+          maps.get('worlds')!.set(w.id,await fresh('worlds',w.id));
+          maps.get('storySessions')!.set(incoming.id,await fresh('storySessions',incoming.id));
+          for(const n of await source.table('storyNodes').where('worldId').equals(w.id).toArray())maps.get('storyNodes')!.set(n.id,await fresh('storyNodes',n.id));
+        }
+      },c.signal);
+    }
+    if(graph&&options.mode==='merge'){
       // An independently changed conversation must never be appended to an existing
       // (character,mode,world) scope. Clone its character when that unique scope collides.
       const force=new Set<string>();
@@ -102,7 +120,9 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
     }
     async function message(m:any){const r={...m,id:await map('messages',m.id),conversationId:await map('conversations',m.conversationId)};if(m.attachments)r.attachments=await Promise.all(m.attachments.map(async(a:any)=>({...a,assetId:await map('assets',a.assetId)})));if(m.activeVariantId)r.activeVariantId=await map('messageVariants',m.activeVariantId);if(m.bubbleDeletion)r.bubbleDeletion={...m.bubbleDeletion,variantId:await map('messageVariants',m.bubbleDeletion.variantId),images:await Promise.all(m.bubbleDeletion.images.map((id:string)=>map('assets',id)))};if(m.replyTo){const q=m.replyTo;r.replyTo={...q,conversationId:await map('conversations',q.conversationId),timelineId:await map('timelines',q.timelineId),messageId:await map('messages',q.messageId),variantId:await map('messageVariants',q.variantId),part:q.part.kind==='image'?{...q.part,assetId:await map('assets',q.part.assetId)}:q.part};}for(const k of ['regeneratedFrom','editedFrom'])if(m[k]&&maps.get('messages')!.has(m[k]))r[k]=await map('messages',m[k]);return r;}
     async function transform(table:BackupTable,a:any){const r:any={...a,id:await map(table,a.id)};
-      for(const [key,t] of [['worldId','worlds'],['characterId','characters'],['conversationId','conversations'],['messageId','messages'],['variantId','messageVariants'],['activeTimelineId','timelines'],['parentTimelineId','timelines'],['headNodeId','pathNodes'],['forkNodeId','pathNodes'],['parentNodeId','pathNodes'],['lorebookId','lorebooks'],['timelineId','timelines'],['apiConfigId','apiConfigs']] as [string,BackupTable][])if(a[key])r[key]=await map(t,a[key]);
+      for(const [key,t] of [['worldId','worlds'],['characterId','characters'],['conversationId','conversations'],['messageId','messages'],['variantId','messageVariants'],['activeTimelineId','timelines'],['parentTimelineId','timelines'],['headNodeId','pathNodes'],['forkNodeId','pathNodes'],['parentNodeId','pathNodes'],['lorebookId','lorebooks'],['timelineId','timelines'],['apiConfigId','apiConfigs']] as [string,BackupTable][])if(a[key]&&!(['storySessions','storyNodes'].includes(table)&&['headNodeId','parentNodeId'].includes(key)))r[key]=await map(t,a[key]);
+      if(table==='storySessions'){r.headNodeId=await map('storyNodes',a.headNodeId);if(a.actionDraft){const headNodeId=await map('storyNodes',a.actionDraft.headNodeId);r.actionDraft={...a.actionDraft,headNodeId,...(a.actionDraft.choiceId?{choiceId:`${headNodeId}:${a.actionDraft.choiceId.slice(-1)}`}:{})};}if(a.pending){delete r.pending;r.status='failed';r.error='cancelled';}}
+      if(table==='storyNodes'){r.sessionId=await map('storySessions',a.sessionId);if(a.parentNodeId)r.parentNodeId=await map('storyNodes',a.parentNodeId);if(a.fromChoiceId){const label=a.fromChoiceId.slice(-1);r.fromChoiceId=`${r.parentNodeId}:${label}`;}if(a.action?.kind==='choice')r.action={...a.action,choiceId:`${r.parentNodeId}:${a.action.choiceId.slice(-1)}`};r.choices=a.choices.map((c:any)=>({...c,id:`${r.id}:${c.label}`}));if(r.id!==a.id)r.requestId=await fresh('storyNodes','request:'+a.requestId);}
       if(a.avatar)r.avatar=await map('assets',a.avatar);
       if(table==='conversations'){r.scopeKey=JSON.stringify([r.characterId,r.mode,r.mode==='world'?r.worldId:'']);if(a.chatSettings?.background?.kind==='image')r.chatSettings={...a.chatSettings,background:{...a.chatSettings.background,assetId:await map('assets',a.chatSettings.background.assetId)}};}
       if(table==='conversations'&&a.memoryStore){const state=a.memoryStore;
@@ -162,7 +182,7 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
     if(!await result.table('pages').count()){await result.table('pages').add({id:'page-1',order:0});if(!await result.table('items').count())await result.table('items').bulkAdd(defaultItems());}
     await validate(result,c.signal);const after=await digest(result,c.signal),counts=await dataCounts(result);
     const added={...counts};for(const k of Object.keys(added) as (keyof DataCounts)[])added[k]=Math.max(0,counts[k]-current[k]);
-    const plan:ImportPlan={preview:{formatVersion:checked.report.schemaVersion===5?1:2,schemaVersion:checked.report.schemaVersion,createdAt:checked.report.snapshotCompletedAt,credentials:checked.report.credentials,incoming,current,result:counts,added,duplicates,conflicts,changed,bytes,warnings:[...new Set(warnings)],options:{...options},credentialChanges,manifestDigest:checked.report.manifestDigest},dispose:async()=>{if(plans.has(plan)){plans.delete(plan);result.close();await Dexie.delete(name);}}};
+    const plan:ImportPlan={preview:{formatVersion:checked.report.formatVersion,schemaVersion:checked.report.schemaVersion,createdAt:checked.report.snapshotCompletedAt,credentials:checked.report.credentials,incoming,current,result:counts,added,duplicates,conflicts,changed,bytes,warnings:[...new Set(warnings)],options:{...options},credentialChanges,manifestDigest:checked.report.manifestDigest},dispose:async()=>{if(plans.has(plan)){plans.delete(plan);result.close();await Dexie.delete(name);}}};
     plans.set(plan,{database:result,targetName:database.name,before,after});target=undefined;return plan;
   }finally{clearTimeout(timeout);document.removeEventListener('visibilitychange',hidden);signal?.removeEventListener('abort',abort);await cleanup?.dispose();if(target){target.close();await Dexie.delete(name);}}
 }
