@@ -23,7 +23,7 @@ export async function findWizardCreation(token:string){
 export async function createWizardWorld(input:Readonly<ScriptWizardDraft>):Promise<World>{
  const d=structuredClone(input);validateWizardDraft(d);
  if(!d.creationToken)throw Error('请先保存草稿创建标识，再确认创建。');
- const snapshot={title:d.title.trim(),synopsis:d.synopsis,rules:d.rules,direction:d.direction,pace:d.pace,customPace:d.pace==='custom'?d.customPace:'',identity:copyWizardIdentity({...d.identity}),characterIds:d.characterIds,customCharacters:d.customCharacters.map(c=>({...c,name:c.name.trim()})),opening:d.opening,length:d.length??'standard'};
+ const snapshot={...(d.background?{background:d.background}:{}),title:d.title.trim(),synopsis:d.synopsis,rules:d.rules,direction:d.direction,pace:d.pace,customPace:d.pace==='custom'?d.customPace:'',identity:copyWizardIdentity({...d.identity}),characterIds:d.characterIds,customCharacters:d.customCharacters.map(c=>({...c,name:c.name.trim()})),opening:d.opening,length:d.length??'standard'};
  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(snapshot))),fingerprint=Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,'0')).join('');
  return db.transaction('rw',tables(),async()=>{
   const existing=await findWizardCreation(d.creationToken!);
@@ -33,7 +33,7 @@ export async function createWizardWorld(input:Readonly<ScriptWizardDraft>):Promi
   for(let step=0;step<4;step++){const error=wizardStepError(d,step,new Set(selected.map(c=>c.id)));if(error)throw Error(error);}
   const theme=await db.themes.get('global');if(!theme)throw Error('无法读取身份配置，未创建世界。');
   if(snapshot.identity.avatar&&!await db.assets.get(snapshot.identity.avatar))throw Error('主控头像资源已失效，请重新选择身份或移除该引用。');
-  const id=`wizard-${d.creationToken}`,world:World={id,name:snapshot.title,description:d.synopsis,rules:d.rules,background:'',createdAt:Date.now(),script:{version:1,playMode:'story',opening:d.opening,direction:d.direction,definitionRevision:1,pace:d.pace,...(d.pace==='custom'?{customPace:d.customPace}:{}),creation:{version:1,token:d.creationToken!,fingerprint}},storyPreferences:{length:d.length??'standard'}};
+  const id=`wizard-${d.creationToken}`,world:World={id,name:snapshot.title,description:d.synopsis,rules:d.rules,background:d.background??'',createdAt:Date.now(),script:{version:1,playMode:'story',opening:d.opening,direction:d.direction,definitionRevision:1,pace:d.pace,...(d.pace==='custom'?{customPace:d.customPace}:{}),creation:{version:1,token:d.creationToken!,fingerprint}},storyPreferences:{length:d.length??'standard'}};
   validateScriptConfig(world.script);validateStoryPreferences(world.storyPreferences);
   await db.worlds.add(world);
   const newCharacters:Character[]=d.customCharacters.map((c,i)=>({id:`wizard-character-${d.creationToken}-${i}`,name:c.name.trim(),persona:c.persona,speakingStyle:c.speakingStyle}));

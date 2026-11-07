@@ -4,7 +4,7 @@ async function open(page:Page){await isolatedApp(page,'wizard-'+crypto.randomUUI
  const {db,usePhone}=await import('/src/store.ts');await db.characters.put({id:'existing',name:'已有角色',persona:'静态人设'});
  const theme=(await db.themes.get('global'))!;await db.themes.update('global',{userIdentities:{...theme.userIdentities,daily:{name:'原主控',bio:'身份简介',customSetting:'静态设定',gender:'女',age:26,occupation:'医生'}}});
  await usePhone.getState().reload();await(await import('/src/spaces.ts')).useSpaces.getState().openWorldEditor('create');
- });await page.getByRole('button',{name:'AI 生成',exact:true}).click();await expect(page.getByRole('heading',{name:'剧情设定',exact:true})).toBeVisible();}
+ });await expect(page.getByRole('heading',{name:'剧情设定',exact:true})).toBeVisible();}
 async function step1(page:Page){await page.getByLabel('故事标题',{exact:true}).fill('新的旅途');await page.getByLabel('整体剧情梗概',{exact:true}).fill('一个寻找真相的故事');await page.getByRole('button',{name:'下一步',exact:true}).click();}
 async function step2(page:Page){await page.getByLabel('主控资料来源').selectOption('daily');await page.getByRole('button',{name:'下一步',exact:true}).click();}
 async function step3(page:Page){await page.locator('.wizard-character input').check();await page.getByRole('button',{name:'下一步',exact:true}).click();}
@@ -58,4 +58,25 @@ test('World 身份仅复制静态字段，Daily/World 聊天及旧世界数据�
  await page.getByLabel('主控资料来源').selectOption('world:source');await expect(page.getByLabel('主控姓名')).toHaveValue('世界主控');await page.getByLabel('主控姓名').fill('新草稿身份');
  const after=await page.evaluate(async()=>{const {db}=await import('/src/store.ts');return {snapshot:JSON.stringify(await Promise.all(db.tables.map(async t=>[t.name,await t.toArray()]))),draft:localStorage.getItem((await import('/src/scriptWizardDraft.ts')).wizardDraftKey(db.name))!};});
  expect(after.snapshot).toBe(before);expect(after.draft).not.toContain('不复制的日常聊天');expect(after.draft).not.toContain('不复制的世界聊天');expect(after.draft).not.toContain('世界角色设定');
+});
+
+test('统一创建入口与旧链接进入同一向导，背景补充刷新及创建后保留',async({page})=>{
+ await open(page);
+ await page.getByRole('button',{name:'返回剧本列表',exact:true}).click();
+ await page.getByRole('button',{name:'创建新剧本',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'剧情设定',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'手动粘贴',exact:true})).toHaveCount(0);
+ await page.getByLabel('故事标题',{exact:true}).fill('统一入口');
+ await page.getByLabel('整体剧情梗概',{exact:true}).fill('已有世界梗概');
+ await page.getByLabel('世界背景',{exact:true}).fill('独立保留的原手动背景字段。');
+ await page.reload();await expect(page.getByLabel('世界背景',{exact:true})).toHaveValue('独立保留的原手动背景字段。');
+ await page.evaluate(async()=>{await(await import('/src/spaces.ts')).useSpaces.getState().openWorldEditor('manual');});
+ await expect(page.getByLabel('世界背景',{exact:true})).toBeVisible();
+ const r=await page.evaluate(async()=>{
+  const {db}=await import('/src/store.ts');const {loadWizardDraft,wizardDraftKey}=await import('/src/scriptWizardDraft.ts');
+  const draft=loadWizardDraft(localStorage,wizardDraftKey(db.name)).draft;draft.identity.name='主控';draft.characterIds=['existing'];draft.opening='自行填写的开局';
+  const {createWizardWorld}=await import('/src/scriptWizardCreation.ts');const w=await createWizardWorld(draft);const replay=await createWizardWorld(draft);
+  return {background:w.background,description:w.description,same:w.id===replay.id};
+ });
+ expect(r).toEqual({background:'独立保留的原手动背景字段。',description:'已有世界梗概',same:true});
 });

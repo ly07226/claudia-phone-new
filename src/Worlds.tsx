@@ -16,30 +16,23 @@ export function Worlds({
   const nav = useSpaces();
   const view = spaceList && nav.route.screen === "worlds" ? nav.route.view : undefined;
   const editId = nav.route.screen === "worlds" ? nav.route.worldId : undefined;
-  const formPage = spaceList && (view === "manual" || view === "edit");
+  const formPage = spaceList && view === "edit";
 
   const [form, setForm] = useState<Partial<World> | null>(() => formPage ? view === "edit" && nav.route.screen === "worlds" ? s.worlds.find(w=>w.id===editId) || null : {name:"",description:"",script:newScriptConfig()} : null);
   if (spaceList && view === "setup" && editId) return <WizardSetupStatus worldId={editId}/>;
-  if (spaceList && view === "wizard") return <ScriptWizard/>;
-  if (spaceList && view === "create") return <>
-    <div className="page-title"><h1>新建剧本</h1><p>选择创建方式</p></div>
-    <div className="script-creation-methods">
-      <button onClick={() => void nav.openWorldEditor("manual")}>手动粘贴</button>
-      <button onClick={() => void nav.openWorldEditor("wizard")}>AI 生成</button>
-    </div>
-  </>;
+  // Keep legacy creation URLs usable without a second creation form.
+  if (spaceList && (view === "wizard" || view === "create" || view === "manual")) return <ScriptWizard/>;
   if (formPage && !form) return <p role="alert">该剧本已不存在，请返回剧本列表。</p>;
   return (
     <>
       <div className="page-title">
         <span className="eyebrow">WHERE STORIES BEGIN</span>
-        {spaceList ? <h1>{formPage ? view === "edit" ? "编辑剧本" : "手动创建剧本" : "剧本世界"}</h1> : <h2>世界管理</h2>}
+        {spaceList ? <h1>{formPage ? "编辑剧本" : "剧本世界"}</h1> : <h2>世界管理</h2>}
         <p>每个世界，都有自己的故事。</p>
       </div>
       {!formPage && <button className="primary" onClick={() => {
-        if(spaceList) void nav.openWorldEditor("create");
-        else setForm({name:"",description:"",script:newScriptConfig()});
-      }}><Plus size={17}/>{spaceList ? "新建剧本" : "创建世界"}</button>}
+        void nav.openWorldEditor("wizard");
+      }}><Plus size={17}/>创建新剧本</button>}
       {form && (
         <form
           className="card form world-config-form"
@@ -53,7 +46,6 @@ export function Worlds({
           }}
         >
           <h3>{form.id ? "编辑世界" : "新世界"}</h3>
-          {spaceList && !form.id && <p className="hint">可直接粘贴到下方文本框。本版本沿用手动表单，暂不提供结构化剧本文件解析；点击保存才会创建剧本。</p>}
           <label>
             世界名称
             <input

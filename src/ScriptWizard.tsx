@@ -63,13 +63,14 @@ export function ScriptWizard(){
  if(createdId)return <WizardSetupStatus worldId={createdId} openingError={openingError} onNewDraft={()=>{try{const next=loadWizardDraft(localStorage,key);stored.current=next.raw;setDraft(next.draft);setCreatedId(undefined);setOpeningError('');setSaved(true);setError('');}catch{setError('新草稿读取失败。');}}}/>;
  if(recovering)return <p role="status">正在复核创作草稿与创建状态…</p>;
  return <section className="script-wizard" aria-label="AI 剧本创建向导" aria-busy={reading||creating||assisting}>
-  <header className="wizard-heading"><h1>{draft.title||'新建 AI 剧本'}</h1><p>第 {draft.step+1} 步 / 5 · {steps[draft.step]}</p><ol aria-label="创建进度">{steps.map((name,i)=><li key={name} aria-current={i===draft.step?'step':undefined}><span>{i+1}</span><small>{name}</small></li>)}</ol></header>
+  <header className="wizard-heading"><h1>{draft.title||'创建新剧本'}</h1><p>第 {draft.step+1} 步 / 5 · {steps[draft.step]}</p><ol aria-label="创建进度">{steps.map((name,i)=><li key={name} aria-current={i===draft.step?'step':undefined}><span>{i+1}</span><small>{name}</small></li>)}</ol></header>
   <div className="wizard-content" ref={content} inert={reading||creating||assisting}>
    <p className="wizard-note">创建前的草稿仅保存在当前浏览器，不包含在 ZIP 备份中；确认创建后，世界、身份和角色关联将写入数据库。仅主动点击推荐或确认开局时调用 AI。</p>
    {draft.step===0&&<div className="wizard-fields">
     <h2>剧情设定</h2>
     <label>故事标题<input aria-label="故事标题" maxLength={80} value={draft.title} onChange={e=>update({title:e.target.value})}/></label>
     <label>整体剧情梗概<textarea aria-label="整体剧情梗概" rows={7} maxLength={10000} value={draft.synopsis} onChange={e=>update({synopsis:e.target.value})}/></label>
+    <label>世界背景与补充（可选）<textarea aria-label="世界背景" rows={4} maxLength={6000} value={draft.background??''} onChange={e=>update({background:e.target.value})}/></label>
     <button type="button" disabled={reading||creating||assisting} onClick={()=>file.current?.click()}>导入剧情文件（TXT / MD / JSON）</button>
     <input hidden ref={file} type="file" accept=".txt,.md,.json,text/plain,text/markdown,application/json" aria-label="剧情文件" onChange={e=>{const selected=e.target.files?.[0];e.target.value='';void importFile(selected);}}/>
     {reading&&<p role="status">正在读取本地文件…</p>}

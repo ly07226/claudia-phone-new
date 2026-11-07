@@ -155,7 +155,7 @@ export const useSpaces = create<SpaceState>((set, get) => {
     exitSpace: () => {
       const r = get().route;
       return navigate(get().space?.type === "world" || (r.screen === "worlds" && r.view)
-        ? r.screen === "worlds" && (r.view === "manual" || r.view === "wizard") ? {screen:"worlds",view:"create"} : {screen:"worlds"}
+        ? {screen:"worlds"}
         : list, "push");
     },
     manageWorlds: (replace = false) => navigate({ screen: "worlds" }, replace ? "replace" : "push"),

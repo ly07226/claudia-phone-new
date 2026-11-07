@@ -23,7 +23,7 @@ export async function requestWizardAssistance<K extends WizardAssistanceKind>(ki
   if(!lock)throw Error('另一页面正在为此草稿请求推荐，请勿重复计费。');
   const characters=[];for(const id of draft.characterIds){const c=await db.characters.get(id);if(!c)throw Error('已选角色已不存在，请重新选择。');characters.push({name:c.name,persona:c.persona,speakingStyle:c.speakingStyle??''});}
   const protagonist=copyWizardIdentity({...draft.identity});delete protagonist.avatar;
-  const context=JSON.stringify({title:draft.title,synopsis:draft.synopsis,rules:draft.rules,pace:draft.pace,customPace:draft.customPace,direction:draft.direction,protagonist,characters:[...characters,...draft.customCharacters],opening:draft.opening,characterRequirements:draft.aiCharacterRequirements??''});
+  const context=JSON.stringify({title:draft.title,synopsis:draft.synopsis,background:draft.background??'',rules:draft.rules,pace:draft.pace,customPace:draft.customPace,direction:draft.direction,protagonist,characters:[...characters,...draft.customCharacters],opening:draft.opening,characterRequirements:draft.aiCharacterRequirements??''});
   if(new TextEncoder().encode(context).length>48000)throw Error('创作资料超过推荐输入预算，请缩短设定后主动重试。');
   const {config}=await reconcileApiDefault();if(!config)throw Error('没有可用的默认 API，请先检查 API 设置。');const key=(await db.apiCredentials.get(config.id))?.apiKey;if(!key)throw Error('默认 API 缺少凭据，请检查 API 设置。');
   const structured=storyJSONTransport(config,wizardAssistanceSchemas[kind],async()=>!controller.signal.aborted);
