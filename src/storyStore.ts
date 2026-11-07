@@ -3,8 +3,8 @@ import {normalizeStoryAction} from './storyActions';
 import {storyInput} from './storyContext';
 import {db,type World} from './store';
 import {validateScriptConfig} from './scriptValidation';
-import {validateStoryNode,validateStorySession,validateStoryPreferences} from './storyValidation';
-import {storyLimits,type StoryDefinition,type StoryNode,type StorySession,type StoryAction,type StoryDraft,type StoryLength,type StoryExpectedProgress} from './storyTypes';
+import {validateStoryNode,validateStorySession,validateStoryPreferences,validateStoryGuidance} from './storyValidation';
+import {storyLimits,type StoryDefinition,type StoryNode,type StorySession,type StoryAction,type StoryDraft,type StoryLength,type StoryExpectedProgress,type StoryGuidance} from './storyTypes';
 export function storyDefinition(w:World):StoryDefinition {
  validateScriptConfig(w.script);if(w.script.playMode!=='story')throw Error('此世界未开启剧情模式。');
  return {name:w.name,description:w.description,rules:w.rules??'',background:w.background??'',script:structuredClone(w.script)};
@@ -43,14 +43,15 @@ export async function claimStory(worldId:string,actionInput:string|StoryAction|u
   s={...s,status:'generating',error:undefined,updatedAt:now,pending:{token:crypto.randomUUID(),headNodeId:s.headNodeId,revision:s.revision,expiresAt:now+storyLimits.leaseMs}};
   if(action&&head)s.actionDraft=action.kind==='custom'?{headNodeId:head.id,mode:'custom',customText:action.text}:{headNodeId:head.id,mode:'choice',customText:'',choiceId:action.choiceId};
   const length=world.storyPreferences?.length??'standard';if(world.storyPreferences)validateStoryPreferences(world.storyPreferences);
-  let input:string;try{input=storyInput(s,path,action,length);}catch{throw Error('必要身份、规则、开场或当前剧情仍超过48000字节安全输入预算，无法完整纳入。本次未请求模型、未推进主线，全部原文保留；不会自动重试。');}
-  await db.storySessions.put(s);return {session:s,path,input,action,length,choice:head?.choices.find(c=>c.id===choiceId),worldSnapshot:JSON.stringify(currentDefinition)};
+  const guidance=world.storyPreferences?.guidance;if(guidance?.enabled&&guidance.mode==='once'&&guidance.revision===Number.MAX_SAFE_INTEGER)throw Error('指导版本已达上限，未请求模型。');
+  let input:string;try{input=storyInput(s,path,action,length,guidance?.enabled?guidance:undefined);}catch{throw Error('必要身份、规则、开场、剧情指导或当前剧情仍超过48000字节安全输入预算，无法完整纳入。本次未请求模型、未推进主线，全部原文保留；不会自动重试。');}
+  await db.storySessions.put(s);return {session:s,path,input,action,length,guidance,guidanceSnapshot:JSON.stringify(guidance??null),choice:head?.choices.find(c=>c.id===choiceId),worldSnapshot:JSON.stringify(currentDefinition)};
  });
 }
 
 export async function saveStoryLength(worldId:string,length:StoryLength){
  validateStoryPreferences({length});
- await db.transaction('rw',db.worlds,async()=>{const world=await db.worlds.get(worldId);if(!world)throw Error('世界已不存在。');storyDefinition(world);await db.worlds.update(worldId,{storyPreferences:{length}});});
+ await db.transaction('rw',db.worlds,async()=>{const world=await db.worlds.get(worldId);if(!world)throw Error('世界已不存在。');storyDefinition(world);await db.worlds.update(worldId,{storyPreferences:{...world.storyPreferences,length}});});
 }
 export async function saveStoryDraft(worldId:string,draft:StoryDraft){
  await db.transaction('rw',db.storySessions,db.storyNodes,async()=>{
@@ -59,5 +60,18 @@ export async function saveStoryDraft(worldId:string,draft:StoryDraft){
   const next={...s,actionDraft:structuredClone(draft)};validateStorySession(next);
   if(draft.choiceId){const head=await db.storyNodes.get(draft.headNodeId);if(!head?.choices.some(c=>c.id===draft.choiceId))throw Error('选项不属于当前节点。');}
   await db.storySessions.put(next);
+ });
+}
+
+/** Settings only; never advances the session or creates a generation lease. */
+export async function saveStoryGuidance(worldId:string,input:Omit<StoryGuidance,'revision'>,expectedRevision:number){
+ return db.transaction('rw',db.worlds,db.storySessions,async()=>{
+  const world=await db.worlds.get(worldId);if(!world)throw Error('世界已不存在，未保存指导。');storyDefinition(world);
+  const session=await db.storySessions.where('worldId').equals(worldId).first();
+  if(session?.pending&&session.pending.expiresAt>Date.now())throw Error('生成中不能修改指导，请等待完成。');
+  const previous=world.storyPreferences?.guidance;if((previous?.revision??0)!==expectedRevision)throw Error('指导已在其他页面更新，请关闭后重新打开编辑。');
+  const guidance={...input,revision:expectedRevision+1};validateStoryGuidance(guidance);
+  const preferences={...world.storyPreferences,length:world.storyPreferences?.length??'standard',guidance};validateStoryPreferences(preferences);
+  await db.worlds.update(worldId,{storyPreferences:preferences});return guidance;
  });
 }

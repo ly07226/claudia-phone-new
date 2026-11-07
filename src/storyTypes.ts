@@ -1,6 +1,7 @@
 import type {ScriptConfig} from './scriptTypes';
 export type StoryLength='brief'|'standard'|'detailed';
-export interface StoryPreferences {length:StoryLength}
+export interface StoryGuidance {text:string;mode:'once'|'persistent';enabled:boolean;revision:number}
+export interface StoryPreferences {length:StoryLength;guidance?:StoryGuidance}
 export type StoryAction={kind:'choice';choiceId:string}|{kind:'custom';text:string};
 /** Snapshot of the progress the user actually confirmed; not persisted. */
 export interface StoryExpectedProgress {sessionId?:string;headNodeId?:string;revision:number}

@@ -24,7 +24,7 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
   structured=storyJSONTransport(config,schema,async()=>{
    const admitted=await db.transaction('r',storyTables(),async()=>{
     const current=await db.storySessions.get(s.id),world=await db.worlds.get(worldId);
-    return !controller.signal.aborted&&current?.pending?.token===token&&current.pending.expiresAt>Date.now()&&current.revision===s.revision&&current.headNodeId===s.headNodeId&&world?.script?.playMode==='story'&&JSON.stringify(await resolveStoryDefinition(world))===claim.worldSnapshot;
+    return !controller.signal.aborted&&current?.pending?.token===token&&current.pending.expiresAt>Date.now()&&current.revision===s.revision&&current.headNodeId===s.headNodeId&&world?.script?.playMode==='story'&&JSON.stringify(await resolveStoryDefinition(world))===claim.worldSnapshot&&JSON.stringify(world.storyPreferences?.guidance??null)===claim.guidanceSnapshot;
    });
    if(!admitted)failure='stale';return admitted;
   });
@@ -36,7 +36,8 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
   try{await db.transaction('rw',storyTables(),async tx=>{
    abortCommit=()=>{try{tx.abort();}catch{/* Transaction already settled. */}};
    const current=await db.storySessions.get(s.id),world=await db.worlds.get(worldId);
-   if(controller.signal.aborted||!current||current.pending?.token!==token||current.revision!==s.revision||current.headNodeId!==s.headNodeId||Date.now()>=s.pending!.expiresAt||!world||JSON.stringify(await resolveStoryDefinition(world))!==claim.worldSnapshot)throw Error('stale');
+   if(controller.signal.aborted||!current||current.pending?.token!==token||current.revision!==s.revision||current.headNodeId!==s.headNodeId||Date.now()>=s.pending!.expiresAt||!world||JSON.stringify(await resolveStoryDefinition(world))!==claim.worldSnapshot||JSON.stringify(world.storyPreferences?.guidance??null)!==claim.guidanceSnapshot)throw Error('stale');
+   if(claim.guidance?.enabled&&claim.guidance.mode==='once')await db.worlds.update(worldId,{storyPreferences:{...world.storyPreferences!,guidance:{...claim.guidance,enabled:false,revision:claim.guidance.revision+1}}});
    await db.storyNodes.add(node);await db.storySessions.put({...current,headNodeId:node.id,revision:current.revision+1,status:'ready',pending:undefined,error:undefined,actionDraft:undefined,updatedAt:Date.now()});
   });}finally{controller.signal.removeEventListener('abort',cancelCommit);}
   return node;

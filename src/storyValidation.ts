@@ -1,11 +1,12 @@
 import {validateStoryParticipants} from './storyParticipants';
 import type Dexie from 'dexie';
 import {validateScriptConfig} from './scriptValidation';
-import {storyLimits,type StoryNode,type StorySession,type StoryPreferences} from './storyTypes';
+import {storyLimits,type StoryNode,type StorySession,type StoryPreferences,type StoryGuidance} from './storyTypes';
 const id=(s:unknown):s is string=>typeof s==='string'&&s.length>0&&s.length<=2000;
 const num=(n:unknown)=>Number.isSafeInteger(n)&&Number(n)>=0;
 function check(ok:unknown):asserts ok{if(!ok)throw Error('主线数据结构、路径或世界引用无效，未忽略数据。');}
-export function validateStoryPreferences(x:unknown):asserts x is StoryPreferences {check(x&&typeof x==='object'&&!Array.isArray(x)&&['brief','standard','detailed'].includes((x as StoryPreferences).length)&&Object.keys(x).every(k=>k==='length'));}
+export function validateStoryPreferences(x:unknown):asserts x is StoryPreferences {check(x&&typeof x==='object'&&!Array.isArray(x)&&['brief','standard','detailed'].includes((x as StoryPreferences).length)&&Object.keys(x).every(k=>['length','guidance'].includes(k)));if((x as StoryPreferences).guidance!==undefined)validateStoryGuidance((x as StoryPreferences).guidance);}
+export function validateStoryGuidance(x:unknown):asserts x is StoryGuidance {const g=x as StoryGuidance;check(g&&typeof g==='object'&&!Array.isArray(g)&&Object.keys(g).every(k=>['text','mode','enabled','revision'].includes(k))&&typeof g.text==='string'&&g.text.length<=2000&&['once','persistent'].includes(g.mode)&&typeof g.enabled==='boolean'&&(!g.enabled||!!g.text.trim())&&Number.isSafeInteger(g.revision)&&g.revision>0);}
 export function validateStoryNode(n:StoryNode){
  check(n&&id(n.id)&&id(n.worldId)&&id(n.sessionId)&&id(n.requestId)&&num(n.createdAt)&&num(n.sequence)&&n.sequence>0&&num(n.definitionRevision)&&n.definitionRevision>0);
  check(typeof n.body==='string'&&!!n.body.trim()&&n.body.length<=storyLimits.body&&Array.isArray(n.choices)&&n.choices.length===4);
