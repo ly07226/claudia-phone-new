@@ -1,0 +1,16 @@
+/* Keep text controls above Safari's focus-zoom threshold without scaling the UI. */
+@media (max-width: 767px), (any-pointer: coarse) {
+  .world-config-form.form input:not([type="range"]):not([type="color"]),
+  .world-config-form.form textarea,
+  .world-config-form.form select {
+    font-size: 16px;
+    max-width: 100%;
+  }
+  .world-config-form,
+  .world-config-form label {
+    min-width: 0;
+  }
+  .story-app .story-length select {
+    font-size: 16px;
+  }
+}

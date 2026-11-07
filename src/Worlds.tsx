@@ -1,3 +1,4 @@
+import './worldInputs.css';
 import {newScriptConfig} from './scriptTypes';
 import {saveScriptWorld} from './scriptWorlds';
 import { useState, type ReactNode } from "react";
@@ -37,7 +38,7 @@ export function Worlds({
       }}><Plus size={17}/>{spaceList ? "新建剧本" : "创建世界"}</button>}
       {form && (
         <form
-          className="card form"
+          className="card form world-config-form"
           onSubmit={(e) => {
             e.preventDefault();
             void safeWrite(() =>
