@@ -43,7 +43,7 @@ export async function claimStory(worldId:string,actionInput:string|StoryAction|u
   s={...s,status:'generating',error:undefined,updatedAt:now,pending:{token:crypto.randomUUID(),headNodeId:s.headNodeId,revision:s.revision,expiresAt:now+storyLimits.leaseMs}};
   if(action&&head)s.actionDraft=action.kind==='custom'?{headNodeId:head.id,mode:'custom',customText:action.text}:{headNodeId:head.id,mode:'choice',customText:'',choiceId:action.choiceId};
   const length=world.storyPreferences?.length??'standard';if(world.storyPreferences)validateStoryPreferences(world.storyPreferences);
-  let input:string;try{input=storyInput(s,path,action,length);}catch{throw Error('世界设定或当前节点超过48000字节输入预算，未请求模型、未推进主线。请缩短设定后重试。');}
+  let input:string;try{input=storyInput(s,path,action,length);}catch{throw Error('必要身份、规则、开场或当前剧情仍超过48000字节安全输入预算，无法完整纳入。本次未请求模型、未推进主线，全部原文保留；不会自动重试。');}
   await db.storySessions.put(s);return {session:s,path,input,action,length,choice:head?.choices.find(c=>c.id===choiceId),worldSnapshot:JSON.stringify(currentDefinition)};
  });
 }

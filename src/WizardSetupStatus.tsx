@@ -23,7 +23,7 @@ export function WizardSetupStatus({worldId,onNewDraft,openingError}:{worldId:str
  }
  async function newDraft(){if(!confirm('开始另一份创作草稿？已创建的世界和主线不会删除。'))return;try{localStorage.setItem(wizardDraftKey(db.name),JSON.stringify(newWizardDraft()));if(onNewDraft)onNewDraft();else await nav.openWorldEditor('wizard');}catch{setError('无法保存新草稿，请检查浏览器存储权限。');}}
  const status=ready?'生成成功，正文和 A/B/C/D 已保存。':waiting&&!localActive&&!busy?'已有生成请求记录，等待结果或租约到期。本页无法确认刷新前或其他窗口的请求是否仍在运行，不会重复请求。':running?'正在生成正式开场…':session?`生成失败或请求状态待确认。${session.error?errors[session.error]:'上次请求租约已过期，无法确认服务端是否计费。'}不会自动重试。`:'准备生成。世界和开局配置已保存；此页面不会自动调用模型。';
- return <section className="script-wizard" aria-label="已创建剧本配置"><header className="wizard-heading"><h1>{data?.world.name??'剧本配置'}</h1><p>第 5 步 / 5 · 正式开场</p></header><div className="wizard-content">
+ return <section className="script-wizard wizard-setup" aria-label="已创建剧本配置"><header className="wizard-heading"><h1>{data?.world.name??'剧本配置'}</h1><p>第 5 步 / 5 · 正式开场</p></header><div className="wizard-content">
   {!data&&!error&&<p role="status">正在读取已保存的配置…</p>}{error&&<p role="alert">{error}</p>}
   {data&&<><p role="status">{status}</p>
    {!ready&&<p className="wizard-note">使用当前默认 API，产生 Token 费用。篇幅是目标，实际受模型和输出上限限制；不会为凑字数自动重试。</p>}

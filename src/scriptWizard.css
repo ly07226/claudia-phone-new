@@ -5,3 +5,14 @@
 @media(prefers-color-scheme:dark){.script-wizard{--wizard-surface:var(--panel-background,#29372f);--input-background:#ffffff12;color:var(--text,#edf1e8)}}
 @media(max-height:540px){.script-wizard{min-height:240px;height:calc(100dvh - 100px)}.wizard-heading{padding-top:8px}.wizard-heading ol{display:none}}
 .wizard-ai{display:flex;flex-direction:column;gap:10px;min-width:0}.wizard-ai article{padding:8px 0;border-bottom:1px solid #82958035}.wizard-ai h3{font-size:16px;margin:4px 0}.wizard-ai article p{font-size:14px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}.wizard-ai fieldset{margin:0}.wizard-ai textarea{min-height:80px}
+
+/* The footer participates in the flex layout; it never covers scrolling content. */
+.script-wizard{box-sizing:border-box;min-height:0}
+.script-wizard .wizard-content{min-height:64px;padding-bottom:24px;scroll-padding-bottom:24px}
+.script-wizard .wizard-footer{position:static;min-width:0;flex:0 1 auto;max-height:45%;overflow-y:auto;box-sizing:border-box}
+.script-wizard .wizard-footer>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.script-wizard .wizard-footer button{min-width:0;width:100%;margin:0;white-space:normal;line-height:1.4;box-sizing:border-box}
+.script-wizard .wizard-footer .primary{grid-column:1/-1;order:-1}
+.script-wizard .wizard-footer [role=alert]{max-height:64px;overflow-y:auto}
+.wizard-setup .wizard-footer>div{display:flex;flex-direction:column;align-items:stretch}
+.wizard-setup .wizard-footer button:not(.primary){background:transparent;border-color:transparent}

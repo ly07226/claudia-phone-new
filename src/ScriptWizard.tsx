@@ -110,6 +110,7 @@ export function ScriptWizard(){
     <label>预设方向示例（非 AI）<select aria-label="开场示例" value="" onChange={e=>{if(e.target.value&&(!draft.opening||confirm('用示例替换当前开场草稿？')))update({opening:e.target.value});}}><option value="">选择示例填入，可继续修改</option>{['一次意外的初次相遇。','一封来历不明的邀请打破了平静。','重逢时，双方发现过去的问题仍未解决。'].map(text=><option key={text} value={text}>{text}</option>)}</select></label>
     <WizardAssistanceUI kind="opening" draft={draft} busy={assisting} onRequest={()=>void assist('opening')} onChange={update} onError={setError}/>
     <p className="wizard-note">开局方案是创作设定，不是正式正文或已发生事实。确认开局将创建世界并付费生成一次正式开场。</p>
+    <p className="wizard-note">较长梗概与背景会按请求预算选取原文片段，完整原文仍会保存；必要身份、规则与当前剧情无法完整纳入时，将在付费请求前停止并提示，不会自动重试。</p>
     <h3>开局前确认</h3><Summary draft={draft} names={draft.characterIds.map(id=>s.characters.find(c=>c.id===id)?.name??'角色已不可用')} roleSettings={draft.characterIds.map(id=>{const c=s.characters.find(x=>x.id===id);return c?[c.name,c.persona,c.speakingStyle].filter(Boolean).join('\n'):'角色已不可用';}).join('\n\n')}/>
    </div>}
    {draft.step===4&&<div className="wizard-fields"><h2>配置尚未创建世界</h2><p>这是第一批保留的确认草稿，请返回开局方向，确认后真实创建。不会自动调用 AI。</p><button onClick={()=>go(3)}>返回开局方向</button></div>}
