@@ -36,7 +36,7 @@ test('390px 第五步贴近底部、摘要独立滚动，小说排版与抽屉�
  await area.evaluate(el=>el.scrollTop=0);await page.screenshot({path:info.outputPath('step-five-390.png')});
  await page.getByRole('button',{name:'生成开场',exact:true}).click();await page.getByRole('button',{name:'进入故事',exact:true}).click();await expect(page.locator('.story-prose')).toHaveText(body);
  expect(await page.locator('.story-prose').evaluate(el=>el.textContent)).toBe(body);
- const styles=await page.locator('.story-paragraph').first().evaluate(el=>{const s=getComputedStyle(el),r=getComputedStyle(el.closest('.story-reader')!);return {font:s.fontSize,line:s.lineHeight,indent:s.textIndent,left:r.paddingLeft,right:r.paddingRight};});expect(styles).toEqual({font:'18px',line:'32.4px',indent:'36px',left:'20px',right:'20px'});
+ const styles=await page.locator('.story-paragraph').first().evaluate(el=>{const s=getComputedStyle(el),r=getComputedStyle(el.closest('.story-reader')!);return {font:s.fontSize,line:s.lineHeight,indent:s.textIndent,left:r.paddingLeft,right:r.paddingRight};});expect(styles).toEqual({font:'17px',line:'28.9px',indent:'0px',left:'12px',right:'12px'});
  const reader=page.getByLabel('连续剧情',{exact:true}),before=await reader.evaluate(el=>el.clientHeight);await page.getByRole('button',{name:'收起操作',exact:true}).click();await expect.poll(()=>reader.evaluate(el=>el.clientHeight)).toBeGreaterThan(before+100);expect(await page.locator('.story-prose').evaluate(el=>el.textContent)).toBe(body);expect(calls).toBe(1);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:info.outputPath('reader-collapsed-390.png')});
 });
