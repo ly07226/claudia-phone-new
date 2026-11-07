@@ -6,7 +6,8 @@ export type StoryAction={kind:'choice';choiceId:string}|{kind:'custom';text:stri
 export interface StoryExpectedProgress {sessionId?:string;headNodeId?:string;revision:number}
 export interface StoryDraft {headNodeId:string;mode:'choice'|'custom';customText:string;choiceId?:string}
 export const storyLengths={brief:{label:'精简',target:'400～800',tokens:4000},standard:{label:'标准',target:'800～1500',tokens:7000},detailed:{label:'详细',target:'1500～2500',tokens:11000}} as const;
-export interface StoryDefinition {name:string;description:string;rules:string;background:string;script:ScriptConfig}
+export interface StoryParticipants {protagonist:{name:string;bio:string;customSetting:string;gender:string;appearance:string;personality:string;occupation:string;experience:string;age?:string|number};characters:{name:string;persona:string;speakingStyle:string;setting:string}[]}
+export interface StoryDefinition {participants?:StoryParticipants;name:string;description:string;rules:string;background:string;script:ScriptConfig}
 export interface StoryChoice {id:string;label:'A'|'B'|'C'|'D';text:string}
 export interface StoryNode {action?:StoryAction;narrativeLength?:StoryLength;id:string;worldId:string;sessionId:string;parentNodeId?:string;fromChoiceId?:string;body:string;choices:StoryChoice[];createdAt:number;requestId:string;definitionRevision:number;sequence:number}
 export interface StorySession {actionDraft?:StoryDraft;id:string;worldId:string;headNodeId?:string;revision:number;status:'idle'|'generating'|'ready'|'failed';definitionRevision:number;definition:StoryDefinition;createdAt:number;updatedAt:number;pending?:{token:string;headNodeId?:string;revision:number;expiresAt:number};error?:'cancelled'|'request'|'invalid'|'stale'|'budget'}

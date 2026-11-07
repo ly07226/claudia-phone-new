@@ -1,3 +1,4 @@
+import {validateStoryParticipants} from './storyParticipants';
 import type Dexie from 'dexie';
 import {validateScriptConfig} from './scriptValidation';
 import {storyLimits,type StoryNode,type StorySession,type StoryPreferences} from './storyTypes';
@@ -15,7 +16,7 @@ export function validateStoryNode(n:StoryNode){
 }
 export function validateStorySession(s:StorySession){
  check(s&&id(s.id)&&id(s.worldId)&&num(s.revision)&&s.revision<=storyLimits.nodes&&num(s.definitionRevision)&&s.definitionRevision>0&&['idle','generating','ready','failed'].includes(s.status)&&num(s.createdAt)&&num(s.updatedAt));
- const d=s.definition;check(d&&[d.name,d.description,d.rules,d.background].every(x=>typeof x==='string')&&d.name.length<=80&&d.description.length<=10000&&d.rules.length<=4000&&d.background.length<=6000);validateScriptConfig(d.script);check(d.script.playMode==='story'&&d.script.definitionRevision===s.definitionRevision);
+ const d=s.definition;check(d&&[d.name,d.description,d.rules,d.background].every(x=>typeof x==='string')&&d.name.length<=80&&d.description.length<=10000&&d.rules.length<=4000&&d.background.length<=6000);validateScriptConfig(d.script);if(d.participants!==undefined)validateStoryParticipants(d.participants);check(d.script.playMode==='story'&&d.script.definitionRevision===s.definitionRevision);
  check(s.headNodeId===undefined||id(s.headNodeId));check(!!s.headNodeId===(s.revision>0));check(s.status!=='ready'||!!s.headNodeId);check(s.status!=='idle'||s.revision===0);
  if(s.pending)check(id(s.pending.token)&&num(s.pending.revision)&&s.pending.revision===s.revision&&s.pending.headNodeId===s.headNodeId&&num(s.pending.expiresAt));
  check((s.status==='generating')===!!s.pending);

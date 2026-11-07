@@ -909,6 +909,7 @@ export async function validateReferences(
         !(await exists("characters", x.characterId))
       )
         bad("worldProfiles.parents");
+      if(x.scriptOrder!==undefined&&(!Number.isInteger(x.scriptOrder)||x.scriptOrder<0||x.scriptOrder>29))bad("worldProfiles.scriptOrder");
     },
     signal,
   );

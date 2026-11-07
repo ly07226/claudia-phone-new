@@ -1,3 +1,4 @@
+import {readStoryParticipants} from './storyParticipants';
 import {normalizeStoryAction} from './storyActions';
 import {storyInput} from './storyContext';
 import {db,type World} from './store';
@@ -8,7 +9,8 @@ export function storyDefinition(w:World):StoryDefinition {
  validateScriptConfig(w.script);if(w.script.playMode!=='story')throw Error('此世界未开启剧情模式。');
  return {name:w.name,description:w.description,rules:w.rules??'',background:w.background??'',script:structuredClone(w.script)};
 }
-export const storyTables=()=>[db.worlds,db.storySessions,db.storyNodes];
+export async function resolveStoryDefinition(w:World):Promise<StoryDefinition>{const definition=storyDefinition(w),participants=await readStoryParticipants(w);return participants?{...definition,participants}:definition;}
+export const storyTables=()=>[db.worlds,db.storySessions,db.storyNodes,db.themes,db.characters,db.worldProfiles];
 export async function readStoryPath(s:StorySession){
  const path:StoryNode[]=[],seen=new Set<string>();let id=s.headNodeId;
  while(id){if(seen.has(id))throw Error('主线路径循环。');seen.add(id);const n=await db.storyNodes.get(id);if(!n||n.worldId!==s.worldId||n.sessionId!==s.id||n.sequence!==s.revision-path.length)throw Error('主线路径无效。');validateStoryNode(n);path.push(n);id=n.parentNodeId;}
@@ -22,13 +24,16 @@ export async function readStory(worldId:string,previous?:StoryReadResult):Promis
  const same=session&&previous?.world.id===worldId&&previous.session?.id===session.id&&previous.session.headNodeId===session.headNodeId&&previous.session.revision===session.revision;
  return {world,session,path:session?same?previous!.path:await readStoryPath(session):[]};
 });}
-export async function claimStory(worldId:string,actionInput:string|StoryAction|undefined,allowOldDefinition:boolean,expected?:StoryExpectedProgress){
+export async function claimStory(worldId:string,actionInput:string|StoryAction|undefined,allowOldDefinition:boolean,expected?:StoryExpectedProgress,firstAttemptOnly=false){
  return db.transaction('rw',storyTables(),async()=>{
-  const world=await db.worlds.get(worldId);if(!world)throw Error('世界已不存在。');const currentDefinition=storyDefinition(world);
+  const world=await db.worlds.get(worldId);if(!world)throw Error('世界已不存在。');const currentDefinition=await resolveStoryDefinition(world);
   let s=await db.storySessions.where('worldId').equals(worldId).first();
+  if(firstAttemptOnly&&s)throw Error('开场已有生成记录，不会自动重复调用；请检查状态并主动决定是否重试。');
   if(s?.pending&&s.pending.expiresAt>Date.now())throw Error('本世界主线正在生成，请勿重复请求。');
   if(s)validateStorySession(s);
   if(expected&&(expected.sessionId!==s?.id||expected.headNodeId!==s?.headNodeId||expected.revision!==(s?.revision??0)))throw Error('主线已在其他页面推进，请刷新并重新确认行动；未请求模型。');
+  // No immutable nodes exist yet: an explicit wizard retry uses the current saved setup.
+  if(s&&s.revision===0&&world.script?.creation)s={...s,definition:currentDefinition,definitionRevision:world.script.definitionRevision};
   if(s&&s.definitionRevision!==world.script!.definitionRevision&&!allowOldDefinition)throw Error('设定已变化，请确认继续使用主线开始时的设定。');
   const path=s?await readStoryPath(s):[];const head=path.at(-1),action=normalizeStoryAction(actionInput);
   const choiceId=action?.kind==='choice'?action.choiceId:undefined;

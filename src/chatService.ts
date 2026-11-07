@@ -289,7 +289,7 @@ export async function deleteConversation(id: string) {
 export async function deleteWorld(id: string) {
   await db.transaction(
     "rw",
-    [db.worlds, db.worldProfiles, db.storySessions, db.storyNodes, ...messageTables()],
+    [db.worlds, db.worldProfiles, db.storySessions, db.storyNodes, db.themes, ...messageTables()],
     async () => {
       const conversations = await db.conversations
         .where("worldId")
@@ -300,6 +300,10 @@ export async function deleteWorld(id: string) {
       await db.worldProfiles.where("worldId").equals(id).delete();
       await db.storyNodes.where('worldId').equals(id).delete();
       await db.storySessions.where('worldId').equals(id).delete();
+      for(const theme of await db.themes.toArray())if(theme.userIdentities?.[`world:${id}`]){
+        const identities={...theme.userIdentities};delete identities[`world:${id}`];
+        await db.themes.update(theme.id,{userIdentities:identities});
+      }
       await db.worlds.delete(id);
     },
   );

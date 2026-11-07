@@ -51,6 +51,8 @@ export interface Message {
   editedFrom?: string;
 }
 export interface WorldCharacterProfile {
+  /** Optional wizard cast order; zero denotes the primary role. */
+  scriptOrder?: number;
   id: string;
   worldId: string;
   characterId: string;

@@ -146,7 +146,7 @@ function ScriptSpaces() {
 
   return <>
     <button className="space-back" onClick={() => void nav.exitSpace()}>
-      <ChevronLeft size={18} />{nav.route.screen === "worlds" && nav.route.view ? nav.route.view === "manual" ? "返回创建方式" : "返回剧本列表" : "返回空间首页"}
+      <ChevronLeft size={18} />{nav.route.screen === "worlds" && nav.route.view ? (nav.route.view === "manual" || nav.route.view === "wizard") ? "返回创建方式" : "返回剧本列表" : "返回空间首页"}
     </button>
     {error && <p className="space-notice" role="alert">{error}</p>}
     <Worlds key={nav.route.screen === "worlds" ? `${nav.route.view || "list"}:${nav.route.worldId || ""}` : "list"} spaceList onEnterWorld={(id) => void nav.enterSpace(`world:${id}`)} onCharacters={(id) => {

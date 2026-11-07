@@ -1,3 +1,6 @@
+import {continueWizardStory} from './wizardOpening';
+import {WizardSetupStatus} from './WizardSetupStatus';
+import {ScriptWizard} from './ScriptWizard';
 import './worldInputs.css';
 import {newScriptConfig} from './scriptTypes';
 import {saveScriptWorld} from './scriptWorlds';
@@ -14,15 +17,16 @@ export function Worlds({
   const view = spaceList && nav.route.screen === "worlds" ? nav.route.view : undefined;
   const editId = nav.route.screen === "worlds" ? nav.route.worldId : undefined;
   const formPage = spaceList && (view === "manual" || view === "edit");
-  const [creationNotice, setCreationNotice] = useState("");
+
   const [form, setForm] = useState<Partial<World> | null>(() => formPage ? view === "edit" && nav.route.screen === "worlds" ? s.worlds.find(w=>w.id===editId) || null : {name:"",description:"",script:newScriptConfig()} : null);
+  if (spaceList && view === "setup" && editId) return <WizardSetupStatus worldId={editId}/>;
+  if (spaceList && view === "wizard") return <ScriptWizard/>;
   if (spaceList && view === "create") return <>
     <div className="page-title"><h1>新建剧本</h1><p>选择创建方式</p></div>
     <div className="script-creation-methods">
       <button onClick={() => void nav.openWorldEditor("manual")}>手动粘贴</button>
-      <button onClick={() => setCreationNotice("AI 剧本生成器即将开放")}>AI 生成</button>
+      <button onClick={() => void nav.openWorldEditor("wizard")}>AI 生成</button>
     </div>
-    {creationNotice && <p role="status" className="space-notice">{creationNotice}</p>}
   </>;
   if (formPage && !form) return <p role="alert">该剧本已不存在，请返回剧本列表。</p>;
   return (
@@ -139,6 +143,7 @@ export function Worlds({
           {renderSpaceInfo?.(w)}
           </div>
           <div className={spaceList ? "script-card-actions" : undefined} style={spaceList ? undefined : {display:"contents"}}>
+          {w.script?.creation && <button onClick={()=>void safeWrite(()=>continueWizardStory(w.id))}>继续开局配置</button>}
           {renderSpaceActions?.(w)}
           {spaceList && <details className="script-more"><summary aria-label={`更多 · ${w.name}`}>··· 更多</summary><div className="script-more-popup">
             <button onClick={() => onCharacters?.(w.id)}>查看角色</button>

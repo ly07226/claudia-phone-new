@@ -1,8 +1,8 @@
 import {db} from './store';
 import {reconcileApiDefault} from './apiSelection';
-import {browserTransport,type ApiTransport} from './api';
+import {storyJSONTransport} from './storyJSON';
 import {requestReply} from './chatProvider';
-import {claimStory,storyDefinition,storyTables} from './storyStore';
+import {claimStory,resolveStoryDefinition,storyTables} from './storyStore';
 import {validateStoryNode} from './storyValidation';
 import {storyLimits,storyLengths,type StoryNode,type StoryAction,type StoryExpectedProgress} from './storyTypes';
 import {storyPrompt} from './storyContext';
@@ -17,38 +17,30 @@ export function parseStoryReply(raw:string){
  if(new Set(value.choices.map((c:any)=>c.text.trim())).size!==4)throw Error('invalid');return value as {body:string;choices:{id:'A'|'B'|'C'|'D';text:string}[]};
 }
 
-export async function generateStory(worldId:string,actionInput?:string|StoryAction,options:{signal?:AbortSignal;allowOldDefinition?:boolean;expected?:StoryExpectedProgress}={}){
+export async function generateStory(worldId:string,actionInput?:string|StoryAction,options:{signal?:AbortSignal;allowOldDefinition?:boolean;expected?:StoryExpectedProgress;firstAttemptOnly?:boolean}={}){
  if(options.signal?.aborted)throw Error('生成已取消，原主线未改变。');
- const claim=await claimStory(worldId,actionInput,!!options.allowOldDefinition,options.expected),s=claim.session,token=s.pending!.token;
+ const claim=await claimStory(worldId,actionInput,!!options.allowOldDefinition,options.expected,!!options.firstAttemptOnly),s=claim.session,token=s.pending!.token;
  const controller=new AbortController(),abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
  const timer=setTimeout(abort,storyLimits.leaseMs);let failure:'cancelled'|'request'|'invalid'|'stale'|'budget'='request';
  try{
   const input=claim.input;
   const {config}=await reconcileApiDefault();if(!config)throw Error('request');const credential=await db.apiCredentials.get(config.id);if(!credential?.apiKey)throw Error('request');
   if(controller.signal.aborted)throw Error('cancelled');
-  const gemini=config.provider==='gemini'||(config.provider==='custom'&&config.protocol==='gemini');
-  let truncated=false;
-  const transport:ApiTransport={send:async(url,init)=>{
-   const body=JSON.parse(String(init.body));if(gemini)body.generationConfig={...body.generationConfig,responseMimeType:'application/json',responseSchema:schema};else body.response_format={type:'json_object'};
-   // Recheck admission immediately before the paid request, after async config
-   // reads. A suspended page must not send using an expired/replaced lease.
-   const admitted=await db.transaction('r',db.storySessions,db.worlds,async()=>{
+  const structured=storyJSONTransport(config,schema,async()=>{
+   const admitted=await db.transaction('r',storyTables(),async()=>{
     const current=await db.storySessions.get(s.id),world=await db.worlds.get(worldId);
-    return !controller.signal.aborted&&current?.pending?.token===token&&current.pending.expiresAt>Date.now()&&current.revision===s.revision&&current.headNodeId===s.headNodeId&&world?.script?.playMode==='story'&&JSON.stringify(storyDefinition(world))===claim.worldSnapshot;
+    return !controller.signal.aborted&&current?.pending?.token===token&&current.pending.expiresAt>Date.now()&&current.revision===s.revision&&current.headNodeId===s.headNodeId&&world?.script?.playMode==='story'&&JSON.stringify(await resolveStoryDefinition(world))===claim.worldSnapshot;
    });
-   if(!admitted){failure='stale';throw Error('stale');}
-   const r=await browserTransport.send(url,{...init,body:JSON.stringify(body)});
-   if(r.ok){const data=await r.clone().json();const finish=gemini?data?.candidates?.[0]?.finishReason:data?.choices?.[0]?.finish_reason;truncated=['length','MAX_TOKENS','max_tokens'].includes(finish);if(gemini&&Array.isArray(data?.candidates?.[0]?.content?.parts)){data.candidates[0].content.parts=data.candidates[0].content.parts.filter((p:any)=>!p.thought);return new Response(JSON.stringify(data),{status:r.status,headers:{'Content-Type':'application/json'}});}const m=data?.choices?.[0]?.message;if(!gemini&&Array.isArray(m?.content)&&m.content.every((p:any)=>['text','output_text'].includes(p.type)&&typeof p.text==='string')){m.content=m.content.map((p:any)=>p.text).join('');return new Response(JSON.stringify(data),{status:r.status,headers:{'Content-Type':'application/json'}});}}
-   return r;
-  }};
-  const raw=await requestReply({...config,maxTokens:Math.min(config.maxTokens,storyLengths[claim.length].tokens,storyLimits.outputTokens)},credential.apiKey,[{role:'system',content:storyPrompt},{role:'user',content:input}],controller.signal,transport,false);
-  failure='invalid';if(truncated)throw Error('invalid');const result=parseStoryReply(raw);const id=crypto.randomUUID();
+   if(!admitted)failure='stale';return admitted;
+  });
+  const raw=await requestReply({...config,maxTokens:Math.min(config.maxTokens,storyLengths[claim.length].tokens,storyLimits.outputTokens)},credential.apiKey,[{role:'system',content:storyPrompt},{role:'user',content:input}],controller.signal,structured.transport,false);
+  failure='invalid';if(structured.isTruncated())throw Error('invalid');const result=parseStoryReply(raw);const id=crypto.randomUUID();
   const node:StoryNode={id,worldId,sessionId:s.id,body:result.body,choices:result.choices.map(c=>({id:`${id}:${c.id}`,label:c.id,text:c.text})),...(s.headNodeId?{parentNodeId:s.headNodeId,action:claim.action,...(claim.action?.kind==='choice'?{fromChoiceId:claim.action.choiceId}:{})}:{}),narrativeLength:claim.length,requestId:token,createdAt:Date.now(),definitionRevision:s.definitionRevision,sequence:s.revision+1};validateStoryNode(node);
   failure='stale';let abortCommit=()=>{};const cancelCommit=()=>abortCommit();controller.signal.addEventListener('abort',cancelCommit,{once:true});
   try{await db.transaction('rw',storyTables(),async tx=>{
    abortCommit=()=>{try{tx.abort();}catch{/* Transaction already settled. */}};
    const current=await db.storySessions.get(s.id),world=await db.worlds.get(worldId);
-   if(controller.signal.aborted||!current||current.pending?.token!==token||current.revision!==s.revision||current.headNodeId!==s.headNodeId||Date.now()>=s.pending!.expiresAt||!world||JSON.stringify(storyDefinition(world))!==claim.worldSnapshot)throw Error('stale');
+   if(controller.signal.aborted||!current||current.pending?.token!==token||current.revision!==s.revision||current.headNodeId!==s.headNodeId||Date.now()>=s.pending!.expiresAt||!world||JSON.stringify(await resolveStoryDefinition(world))!==claim.worldSnapshot)throw Error('stale');
    await db.storyNodes.add(node);await db.storySessions.put({...current,headNodeId:node.id,revision:current.revision+1,status:'ready',pending:undefined,error:undefined,actionDraft:undefined,updatedAt:Date.now()});
   });}finally{controller.signal.removeEventListener('abort',cancelCommit);}
   return node;
