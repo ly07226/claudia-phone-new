@@ -24,7 +24,7 @@ for(const [width,provider] of [[390,'openai-compatible'],[430,'gemini']] as cons
  expect(await page.locator('.story-paragraph').first().evaluate(el=>{const s=getComputedStyle(el);return [s.fontSize,s.lineHeight,s.textIndent];})).toEqual(['17px','28.05px','0px']);
  expect(await page.locator('.story-dialogue').first().evaluate(el=>getComputedStyle(el).backgroundColor)).toBe('rgb(234, 242, 233)');
  const reader=page.getByLabel('连续剧情',{exact:true});await reader.evaluate(el=>el.scrollTop=0);await page.screenshot({path:info.outputPath(`structured-reader-${width}.png`)});
- await reader.evaluate(el=>{const o=el.querySelector('.story-options')!;el.scrollTop+=o.getBoundingClientRect().top-el.getBoundingClientRect().top-180;});await page.screenshot({path:info.outputPath(`structured-options-${width}.png`)});
+ await reader.evaluate(el=>el.scrollTop=el.scrollHeight);await page.screenshot({path:info.outputPath(`structured-options-${width}.png`)});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect(calls).toBe(1);
 });
 

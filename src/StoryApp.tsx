@@ -46,25 +46,19 @@ export function StoryApp({worldId}:{worldId:string}){
   {changed&&<p className="story-notice">设定已更新；主线仍使用开始时的版本 {s?.definitionRevision}，继续前需要确认。</p>}
   {busy&&<p className="story-notice" role="status">正在生成…已有剧情可继续阅读，离开本页将尝试取消。</p>}
   {data?.world.script?.playMode!=='story'&&data?<p>此世界未开启剧情模式，已有主线数据保留。</p>:data&&<>
-   <StoryReader key={worldId} inert={!!dialog} path={data.path} opening={data.world.script!.opening}>
-   {node&&<fieldset className="story-options" disabled={busy}><legend>接下来，你想怎么做？</legend>{node.choices.map(c=><label key={c.id} className={mode==='choice'&&selected===c.id?'story-selected':''}><input type="radio" name="story-choice" value={c.id} checked={mode==='choice'&&selected===c.id} onChange={()=>choose(c.id)}/><strong>{c.label}</strong><span>{c.text}</span></label>)}</fieldset>}
+   <StoryReader key={worldId} inert={!!dialog} path={data.path} opening={data.world.script!.opening}/>
    <footer className="story-drawer" inert={!!dialog} data-collapsed={collapsed}>
-    <button className="story-drawer-handle" aria-expanded={!collapsed} aria-controls="story-operation-panel" aria-label={collapsed?'展开操作':'收起操作'} onClick={()=>setCollapsed(x=>!x)}><span aria-hidden="true"/></button>
+    <button className="story-drawer-handle" aria-expanded={!collapsed} aria-controls="story-operation-panel" aria-label={collapsed?'展开操作':'收起操作'} onClick={()=>setCollapsed(x=>!x)}><span className="story-drawer-caption">接下来，你想怎么做？</span><span className="story-drawer-chevron" aria-hidden="true">{collapsed?'⌃':'⌄'}</span></button>
     <div className="story-drawer-panel" id="story-operation-panel" inert={collapsed} aria-hidden={collapsed}>
      <div className="story-drawer-content">
-
-      {node&&<>
-       <label className="story-custom-label">或自定义行动<textarea aria-label="自定义行动" rows={2} maxLength={storyLimits.action} value={custom} disabled={busy} onChange={e=>input(e.target.value)} placeholder="描述你尝试采取的行动…"/></label>
-       <p className="story-draft-hint">输入会取消选项；选择选项会清空输入。{custom.length}/{storyLimits.action}</p>
-      </>}
-     </div>
-     <div className="story-drawer-actions">
-      <div className="story-submit-row"><button className="story-guide-button" aria-label="剧情指导" data-active={!!data.world.storyPreferences?.guidance?.enabled} disabled={busy} onClick={()=>setDialog('guidance')}>剧情指导</button><button className="primary story-submit" onPointerDown={e=>{if(document.activeElement?.matches('.story-custom-label textarea'))e.preventDefault();}} disabled={busy||savingLength||!valid} onClick={()=>void advance()}>{busy?'正在生成…':node?'确认选择':'开始剧情'}</button></div>
-      <p className="story-cost">每次确认会调用当前默认模型并消耗 Token。篇幅为目标，受 API 输出上限影响；不足字数不会自动重试。</p>
+      {node&&<fieldset className="story-options" disabled={busy}><legend>接下来，你想怎么做？</legend>{node.choices.map(c=><label key={c.id} className={mode==='choice'&&selected===c.id?'story-selected':''}><input type="radio" name="story-choice" value={c.id} checked={mode==='choice'&&selected===c.id} onChange={()=>choose(c.id)}/><strong>{c.label}</strong><span>{c.text}</span></label>)}</fieldset>}
      </div>
     </div>
+     <div className="story-drawer-actions">
+      <div className={`story-submit-row${node?' story-has-action':''}`}><button className="story-guide-button" aria-label="剧情指导" data-active={!!data.world.storyPreferences?.guidance?.enabled} disabled={busy} onClick={()=>setDialog('guidance')}>剧情指导</button>{node&&<textarea className="story-custom-input" aria-label="自定义行动" rows={1} maxLength={storyLimits.action} value={custom} disabled={busy} onChange={e=>input(e.target.value)} placeholder="或自己写下想做的事…"/>}<button className="primary story-submit" onPointerDown={e=>{if(document.activeElement?.matches('.story-custom-input'))e.preventDefault();}} disabled={busy||savingLength||!valid} onClick={()=>void advance()}>{busy?'正在生成…':node?'确认选择':'开始剧情'}</button></div>
+      <p className="story-cost">每次确认会调用当前默认模型并消耗 Token。篇幅为目标，受 API 输出上限影响；不足字数不会自动重试。</p>
+     </div>
    </footer>
-   </StoryReader>
   </>}
   {dialog&&data&&<StoryControls key={`${worldId}:${dialog}`} kind={dialog} guidance={data.world.storyPreferences?.guidance} length={length} busy={busy} availableHeight={viewport.height??700} onClose={()=>setDialog(null)} onSave={(value,revision)=>saveStoryGuidance(worldId,value,revision)} onLength={changeLength} onRefresh={()=>setRefresh(x=>x+1)}/>}
  </article>;
