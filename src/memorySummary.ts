@@ -67,7 +67,7 @@ async function execute(scope:MemoryScope,manual:boolean){
   const {config,key:apiKey}=await resolveApi(c);
   const raw=await requestSummary(config,apiKey,claimed.input,controller.signal);
   if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
-  failure='format';let facts:SummaryFact[];try{facts=selectSummaryCandidates(parseSummary(raw),claimed.input).accepted;}catch(e){if((e as Error).message==='empty')failure='empty';if(e instanceof SummaryFormatError)diagnostic={...e.diagnostic,receivedChars:raw.length,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)};throw e;}
+  failure='format';let facts:SummaryFact[];try{const parsed=parseSummary(raw),selected=selectSummaryCandidates(parsed,claimed.input);facts=selected.accepted;job.selection={candidates:parsed.length,accepted:facts.length,rejected:selected.rejected.length,reasons:{}};for(const r of selected.rejected)job.selection.reasons[r.reason]=(job.selection.reasons[r.reason]??0)+1;}catch(e){if((e as Error).message==='empty')failure='empty';if(e instanceof SummaryFormatError)diagnostic={...e.diagnostic,receivedChars:raw.length,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)};throw e;}
   failure='stale-path';
   await db.transaction('rw',tables(),async()=>{
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
@@ -81,7 +81,7 @@ async function execute(scope:MemoryScope,manual:boolean){
    const known=summaryDuplicateIndex(all.map(e=>e.content));
    let added=0,duplicates=0;
    for(const fact of facts){if(known.has(fact)){duplicates++;continue;}failure='capacity';await createMemory(scope,{kind:'long',source:'auto',content:`【${labels[fact.type]}】${fact.content}`});known.add(fact);added++;}
-   state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,createdAt:Date.now(),added,duplicates});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
+   state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
   });
  }catch(error){if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;failure=diagnostic.code==='truncated'?'format':'provider';}if(diagnostic)diagnostic={...diagnostic,inputRounds:claimed.turns.length,inputTokenEstimate:memoryTokenCost(system)+memoryTokenCost(claimed.input)};await fail(job,failure,diagnostic).catch(()=>{});}finally{clearTimeout(timer);}
 }
