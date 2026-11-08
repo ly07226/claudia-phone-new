@@ -1,0 +1,4 @@
+.story-failure-details{flex:0 0 auto;margin:8px 0;padding:8px 12px;border:1px solid var(--theme-border,#dce4dc);border-radius:12px;color:var(--theme-text,#405249);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.story-failure-details summary{cursor:pointer;min-height:32px;display:flex;align-items:center;color:var(--theme-muted,#637667)}
+.story-failure-details dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;margin:8px 0 0}.story-failure-details dt{color:var(--theme-muted,#637667)}.story-failure-details dd{margin:0;min-width:0}
+.story-app>.story-failure-details{margin:4px 12px;max-height:25%;overflow-y:auto}

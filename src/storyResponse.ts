@@ -1,7 +1,7 @@
 import {resolveStorySegments} from './storySegments';
 import type {StorySegment} from './storyTypes';
 import {storyLimits} from './storyTypes';
-export type StoryResponseCode='response-too-long'|'empty-response'|'json-invalid'|'json-incomplete'|'json-ambiguous'|'root-shape'|'body-invalid'|'choice-count'|'choice-shape'|'choice-label'|'choice-text'|'choice-duplicate'|'truncated'|'blocked'|'envelope-invalid'|'segments-invalid';
+export type StoryResponseCode='response-too-long'|'empty-response'|'json-invalid'|'json-incomplete'|'json-ambiguous'|'root-shape'|'body-invalid'|'choice-count'|'choice-shape'|'choice-label'|'choice-text'|'choice-duplicate'|'truncated'|'blocked'|'envelope-invalid'|'envelope-shape'|'segments-invalid';
 type Detail={responseCharacters?:number;choiceCount?:number;missingBody?:boolean;missingChoices?:boolean;outputTokenLimit?:number};
 export class StoryResponseError extends Error {
  constructor(public readonly code:StoryResponseCode,public readonly detail:Detail={}){super('invalid');}

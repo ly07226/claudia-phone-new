@@ -1,4 +1,5 @@
 import {resolveStorySegments} from './storySegments';
+import {validStoryFailure} from './storyFailure';
 import {validateStoryParticipants} from './storyParticipants';
 import type Dexie from 'dexie';
 import {validateScriptConfig} from './scriptValidation';
@@ -25,6 +26,7 @@ export function validateStorySession(s:StorySession){
  check((s.status==='generating')===!!s.pending);
  if(s.actionDraft!==undefined){const d=s.actionDraft;check(d&&typeof d==='object'&&!Array.isArray(d)&&Object.keys(d).every(k=>['headNodeId','mode','customText','choiceId'].includes(k)));check(d.headNodeId===s.headNodeId&&id(d.headNodeId)&&['choice','custom'].includes(d.mode)&&typeof d.customText==='string'&&d.customText.length<=storyLimits.action);check(d.mode==='choice'?d.customText==='':d.choiceId===undefined);if(d.choiceId!==undefined)check(id(d.choiceId));}
  if(s.error!==undefined)check(['cancelled','request','invalid','stale','budget'].includes(s.error));
+ if(s.failureDetails!==undefined)check(validStoryFailure(s.failureDetails));
 }
 export async function validateStoryDatabase(d:Dexie){
  if(!d.tables.some(t=>t.name==='storySessions'))return;

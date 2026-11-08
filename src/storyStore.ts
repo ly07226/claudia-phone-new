@@ -40,7 +40,7 @@ export async function claimStory(worldId:string,actionInput:string|StoryAction|u
   if(head?!action||(action.kind==='choice'&&!head.choices.some(c=>c.id===action.choiceId)):action!==undefined)throw Error('选择已失效，请重新读取当前剧情。');
   if((s?.revision??0)>=storyLimits.nodes)throw Error('主线已达到安全容量上限，未删除旧节点。');
   const now=Date.now();s??={id:crypto.randomUUID(),worldId,revision:0,status:'idle',definitionRevision:world.script!.definitionRevision,definition:currentDefinition,createdAt:now,updatedAt:now};
-  s={...s,status:'generating',error:undefined,updatedAt:now,pending:{token:crypto.randomUUID(),headNodeId:s.headNodeId,revision:s.revision,expiresAt:now+storyLimits.leaseMs}};
+  s={...s,status:'generating',error:undefined,failureDetails:undefined,updatedAt:now,pending:{token:crypto.randomUUID(),headNodeId:s.headNodeId,revision:s.revision,expiresAt:now+storyLimits.leaseMs}};
   if(action&&head)s.actionDraft=action.kind==='custom'?{headNodeId:head.id,mode:'custom',customText:action.text}:{headNodeId:head.id,mode:'choice',customText:'',choiceId:action.choiceId};
   const length=world.storyPreferences?.length??'standard';if(world.storyPreferences)validateStoryPreferences(world.storyPreferences);
   const guidance=world.storyPreferences?.guidance;if(guidance?.enabled&&guidance.mode==='once'&&guidance.revision===Number.MAX_SAFE_INTEGER)throw Error('指导版本已达上限，未请求模型。');

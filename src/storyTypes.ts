@@ -1,4 +1,5 @@
 import type {ScriptConfig} from './scriptTypes';
+import type {StoryFailure} from './storyFailure';
 export type StoryLength='brief'|'standard'|'detailed';
 export interface StoryGuidance {text:string;mode:'once'|'persistent';enabled:boolean;revision:number}
 export interface StoryPreferences {length:StoryLength;guidance?:StoryGuidance}
@@ -12,6 +13,6 @@ export interface StoryDefinition {participants?:StoryParticipants;name:string;de
 export interface StoryChoice {id:string;label:'A'|'B'|'C'|'D';text:string}
 export type StorySegment = {type:"narration"|"action";text:string}|{type:"dialogue";speaker:string;text:string};
 export interface StoryNode {segments?:StorySegment[];action?:StoryAction;narrativeLength?:StoryLength;id:string;worldId:string;sessionId:string;parentNodeId?:string;fromChoiceId?:string;body:string;choices:StoryChoice[];createdAt:number;requestId:string;definitionRevision:number;sequence:number}
-export interface StorySession {actionDraft?:StoryDraft;id:string;worldId:string;headNodeId?:string;revision:number;status:'idle'|'generating'|'ready'|'failed';definitionRevision:number;definition:StoryDefinition;createdAt:number;updatedAt:number;pending?:{token:string;headNodeId?:string;revision:number;expiresAt:number};error?:'cancelled'|'request'|'invalid'|'stale'|'budget'}
+export interface StorySession {failureDetails?:StoryFailure;actionDraft?:StoryDraft;id:string;worldId:string;headNodeId?:string;revision:number;status:'idle'|'generating'|'ready'|'failed';definitionRevision:number;definition:StoryDefinition;createdAt:number;updatedAt:number;pending?:{token:string;headNodeId?:string;revision:number;expiresAt:number};error?:'cancelled'|'request'|'invalid'|'stale'|'budget'}
 export const storySchemas={storySessions:'id,&worldId',storyNodes:'id,worldId,sessionId,parentNodeId,&requestId'} as const;
 export const storyLimits={body:12000,choice:400,action:2000,inputBytes:48000,outputChars:42000,outputTokens:11000,leaseMs:120000,nodes:2000};
