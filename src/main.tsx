@@ -1,4 +1,5 @@
 import {ThemeEditor} from './ThemeEditor';
+import {openPhoneApp,editPhoneDesktop,backPhonePage,usePhonePageNavigation} from './phonePageNavigation';
 import {useEffectiveTheme,themeSafeMode} from './themeAppearance';
 import {StoryApp} from './StoryApp';
 import { MemoryApp } from "./MemoryApp";
@@ -70,6 +71,7 @@ const icons = [
 function App() {
   const environment = useDisplayEnvironment();
   const s = usePhone();
+  const phoneNavigation=usePhonePageNavigation();
   const appearance = useEffectiveTheme(s.theme);
   useEffect(()=>{if(s.ready&&themeSafeMode())s.set({activeApp:"主题编辑器"});},[s.ready]);
   const space = useSpaces((state) => state.space);
@@ -133,7 +135,7 @@ function App() {
       g.timer = setTimeout(() => {
         g.drag = true;
         suppress.current = true;
-        s.set({ editing: true });
+        editPhoneDesktop();
         setDrag(id);
         navigator.vibrate?.(20);
       }, 550);
@@ -285,11 +287,11 @@ function App() {
           <section className={`app-panel${s.activeApp==='剧本'?' story-panel':''}`} key={s.activeApp}>
             <header>
               <button
-                aria-label="返回桌面"
-                onClick={() => s.set({ activeApp: null })}
+                aria-label={`返回${phoneNavigation.parentName}`}
+                onClick={phoneNavigation.back}
               >
                 <ChevronLeft />
-                桌面
+                {phoneNavigation.parentName}
               </button>
               <span>{s.activeApp}</span>
               <Flower2 size={20} />
@@ -305,7 +307,7 @@ function App() {
                   <IdentityCard spaceId={space?.spaceId || "daily"}/>
                   <button
                     className="list-row"
-                    onClick={() => s.set({ activeApp: "数据备份与恢复" })}
+                    onClick={() => openPhoneApp("数据备份与恢复")}
                   >
                     <NotebookPen />
                     数据备份与恢复
@@ -313,7 +315,7 @@ function App() {
                   </button>
                   <button
                     className="list-row"
-                    onClick={() => s.set({ activeApp: "世界书 / Lorebook" })}
+                    onClick={() => openPhoneApp("世界书 / Lorebook")}
                   >
                     <BookOpen />
                     世界书 / Lorebook
@@ -321,7 +323,7 @@ function App() {
                   </button>
                   <button
                     className="list-row"
-                    onClick={() => s.set({ activeApp: "AI / API 设置" })}
+                    onClick={() => openPhoneApp("AI / API 设置")}
                   >
                     <Settings />
                     AI / API 设置
@@ -329,7 +331,7 @@ function App() {
                   </button>
                   <button
                     className="list-row"
-                    onClick={() => s.set({ activeApp: "主题编辑器" })}
+                    onClick={() => openPhoneApp("主题编辑器")}
                   >
                     <Palette />
                     主题与桌面
@@ -337,7 +339,7 @@ function App() {
                   </button>
                   <button
                     className="list-row"
-                    onClick={() => s.set({ activeApp: null, editing: true })}
+                    onClick={editPhoneDesktop}
                   >
                     <Grip />
                     编辑桌面
@@ -608,7 +610,7 @@ function App() {
                   <Plus size={14} />
                   小组件
                 </button>
-                <button onClick={() => s.set({ editing: false })}>
+                <button onClick={backPhonePage}>
                   <Check size={14} />
                   完成
                 </button>
@@ -644,7 +646,7 @@ function App() {
                           return;
                         }
                         if (!s.editing && item.app)
-                          s.set({ activeApp: item.app });
+                          openPhoneApp(item.app);
                       }}
                     >
                       {item.kind === "widget" ? (
@@ -772,7 +774,7 @@ function App() {
                     key={index}
                     aria-label={`Dock ${apps[index]}`}
                     onClick={() => {
-                      if (!s.editing) s.set({ activeApp: apps[index] });
+                      if (!s.editing) openPhoneApp(apps[index]);
                     }}
                   >
                     <Icon size={27} strokeWidth={1.4} />

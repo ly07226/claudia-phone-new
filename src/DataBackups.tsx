@@ -1,4 +1,5 @@
 import { RestoreActions } from "./RestoreActions";
+import {usePhonePageNavigation} from './phonePageNavigation';
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, Download, FileCheck, ShieldCheck } from "lucide-react";
 import { usePhone } from "./store";
@@ -8,6 +9,7 @@ import { readBackup, type IntegrityReport } from "./backupService";
 import { checkAbort, publicBackupError } from "./backupFormat";
 export function DataBackups() {
   const s=usePhone();
+  const navigation=usePhonePageNavigation();
   const [legacy,setLegacy]=useState(false),[encrypt,setEncrypt]=useState(false),[includeKeys,setIncludeKeys]=useState(false);
   const [password,setPassword]=useState(''),[repeat,setRepeat]=useState(''),[restorePassword,setRestorePassword]=useState('');
   const [busy,setBusy]=useState(false),[progress,setProgress]=useState(''),[error,setError]=useState('');
@@ -40,7 +42,7 @@ export function DataBackups() {
   function selectFile(file:File){run(async signal=>{resetOutput();setSelected(file);setLocked(false);await clearIncoming();const header=await inspectBackupZip(file,signal);checkAbort(signal);if(!mounted.current)return;setLocked(header.encrypted);setArchiveVersion(header.version);if(header.encrypted)setProgress('这份备份已加密，请输入密码验证。');else await verify(file,undefined,signal);});}
   if(legacy)return <LegacyBackups onBack={()=>{setLegacy(false);setProgress('');setError('');}}/>;
   return <main className="space-selection"><div className="space-select-shell backup-page backup-simple">
-    <button className="space-back" onClick={()=>{control.current?.abort();s.set({activeApp:'设置'});}}><ChevronLeft size={18}/>返回设置</button>
+    <button className="space-back" onClick={()=>{control.current?.abort();navigation.back();}}><ChevronLeft size={18}/>返回{navigation.parentName}</button>
     <div className="page-title"><h1>数据备份与恢复</h1><p>一份文件，妥善保存你的 Claudia Phone。</p></div>
     <section className="card form" aria-label="导出备份设置">
       <label className="backup-check"><input type="checkbox" role="switch" aria-label="加密保护" checked={encrypt} disabled={busy||includeKeys} onChange={e=>{setEncrypt(e.target.checked);resetOutput();setPassword('');setRepeat('');}}/>加密保护</label>
