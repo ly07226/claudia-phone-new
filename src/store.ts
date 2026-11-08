@@ -1,3 +1,4 @@
+import type {ThemePalette,ThemeCSS} from './themePalette';
 import {storySchemas,type StorySession,type StoryNode,type StoryPreferences} from './storyTypes';
 import type {ScriptConfig} from './scriptTypes';
 import { startupImportNotice } from "./importReceipt";
@@ -54,6 +55,8 @@ export interface DesktopItem {
   icon?: string;
 }
 export interface Theme {
+  palette?: ThemePalette;
+  customCss?: ThemeCSS;
   /** Scoped user metadata in the existing global configuration; not appearance inheritance. */
   userIdentities?: Record<string, UserIdentity>;
   id: string;
@@ -224,7 +227,7 @@ interface State {
   set: (s: Partial<State>) => void;
   init: () => Promise<void>;
   saveDesktop: (items: DesktopItem[], pages?: DesktopPage[]) => Promise<void>;
-  saveTheme: (theme: Theme) => Promise<void>;
+  saveTheme: (theme: Pick<Theme,"id"> & Partial<Theme>) => Promise<void>;
   reload: () => Promise<void>;
 }
 export const usePhone = create<State>((set, get) => ({
@@ -302,7 +305,9 @@ export const usePhone = create<State>((set, get) => ({
     try {
       const saved = await db.transaction("rw", db.themes, async () => {
         const current = await db.themes.get(theme.id);
-        const saved = {...theme, userIdentities: current?.userIdentities ?? theme.userIdentities};
+        const saved:Theme = {...(current??defaultTheme),...theme, userIdentities: current?.userIdentities ?? theme.userIdentities};
+        if(!saved.palette)delete saved.palette;
+        if(!saved.customCss)delete saved.customCss;
         await db.themes.put(saved);
         return saved;
       });

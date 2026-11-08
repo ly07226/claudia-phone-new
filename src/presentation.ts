@@ -27,11 +27,11 @@ export function usePageCanvas(phone: boolean, activeApp: string | null, theme: T
   useLayoutEffect(() => {
     const root = document.documentElement;
     const desktop = phone && (!activeApp || activeApp === "主题编辑器");
-    const color = desktop ? theme.color : phone ? "#f3f5ec" : "#f4f5eb";
+    const color = desktop ? theme.color : phone ? theme.palette?.colors.page ?? "#f3f5ec" : theme.palette?.colors.page ?? "#f4f5eb";
     root.dataset.ios = String(environment.ios);
     root.dataset.standalone = String(environment.standalone);
     root.dataset.screen = desktop ? activeApp ? "preview" : "desktop" : phone ? "app" : "spaces";
-    root.style.setProperty("--page-background", desktop ? wallpaper ? `url(${JSON.stringify(wallpaper)}) ${color}` : `${defaultWallpaperOverlay}, ${color}` : phone ? color : spaceBackground);
+    root.style.setProperty("--page-background", desktop ? wallpaper ? `url(${JSON.stringify(wallpaper)}) ${color}` : theme.palette ? color : `${defaultWallpaperOverlay}, ${color}` : phone || theme.palette ? color : spaceBackground);
     const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
     if(meta) meta.content = color;
     return () => {
@@ -39,5 +39,5 @@ export function usePageCanvas(phone: boolean, activeApp: string | null, theme: T
       delete root.dataset.ios; delete root.dataset.standalone; delete root.dataset.screen;
       if(meta) meta.content = "#c5d1c3";
     };
-  }, [phone, activeApp, theme.color, wallpaper, environment.ios, environment.standalone]);
+  }, [phone, activeApp, theme.color, theme.palette, wallpaper, environment.ios, environment.standalone]);
 }

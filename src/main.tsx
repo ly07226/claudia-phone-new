@@ -1,3 +1,5 @@
+import {ThemeEditor} from './ThemeEditor';
+import {useEffectiveTheme,themeSafeMode} from './themeAppearance';
 import {StoryApp} from './StoryApp';
 import { MemoryApp } from "./MemoryApp";
 import { IdentityCard, IdentityEditor } from "./IdentitySettings";
@@ -49,6 +51,7 @@ import {
   type DesktopItem,
 } from "./store";
 import "./style.css";
+import "./themeGlobal.css";
 const icons = [
   MessageCircle,
   NotebookPen,
@@ -67,6 +70,8 @@ const icons = [
 function App() {
   const environment = useDisplayEnvironment();
   const s = usePhone();
+  const appearance = useEffectiveTheme(s.theme);
+  useEffect(()=>{if(s.ready&&themeSafeMode())s.set({activeApp:"主题编辑器"});},[s.ready]);
   const space = useSpaces((state) => state.space);
   const [now, setNow] = useState(new Date());
   const [drag, setDrag] = useState<string | null>(null);
@@ -227,25 +232,26 @@ function App() {
       </aside>
       <main
         className={`phone ${s.editing ? "editing" : ""}`}
+        data-theme-editing={String(s.activeApp === "主题编辑器")}
         style={
           {
-            "--accent": s.theme.color,
-            "--glass": s.theme.opacity,
-            "--blur": `${s.theme.blur}px`,
+            "--accent": appearance.color,
+            "--glass": appearance.opacity,
+            "--blur": `${appearance.blur}px`,
             fontFamily:
-              s.theme.font === "serif"
+              appearance.font === "serif"
                 ? 'Georgia, "Songti SC", serif'
                 : undefined,
-            backgroundColor: wallpaperSurface ? s.theme.color : "#f3f5ec",
-            backgroundImage: wallpaperSurface && asset(s.theme.wallpaper)
-              ? `url(${asset(s.theme.wallpaper)})`
+            backgroundColor: wallpaperSurface ? appearance.color : appearance.palette?.colors.page ?? "#f3f5ec",
+            backgroundImage: wallpaperSurface && asset(appearance.wallpaper)
+              ? `url(${asset(appearance.wallpaper)})`
               : undefined,
           } as React.CSSProperties
         }
       >
         <div
           className="wallpaper-art"
-          style={{ display: !wallpaperSurface || asset(s.theme.wallpaper) ? "none" : undefined }}
+          style={{ display: !wallpaperSurface || asset(appearance.wallpaper) || appearance.palette ? "none" : undefined }}
         />
         <div className="status" aria-label={environment.ios ? "空间导航" : "模拟手机状态栏"}>
           {!environment.ios && <span className="simulated-time">
@@ -358,7 +364,7 @@ function App() {
                           ])
                           .then(() => {
                             s.set({ pageId: "page-1" });
-                            return s.saveTheme(defaultTheme);
+                            return s.saveTheme({...defaultTheme,palette:undefined,customCss:undefined});
                           });
                     }}
                   >
@@ -375,31 +381,9 @@ function App() {
                 <ApiSettings />
               ) : s.activeApp === "主题编辑器" ? (
                 <>
-                  <div className="page-title">
-                    <span className="eyebrow">A SOFTER EVERYDAY</span>
-                    <h2>主题编辑器</h2>
-                    <p>微调一点点，就很不一样。</p>
-                  </div>
-                  <div className="theme-preview">
-                    <Flower2 size={32} />
-                    <span>属于你的 Claudia</span>
-                    <small>全局主题 · 实时保存</small>
-                  </div>
+                  <ThemeEditor theme={s.theme}/>
+                  <section className="theme-personalization"><h3>其他个性化设置</h3><p>以下字体、玻璃效果、壁纸和图标沿用独立即时保存，不受上方配色与 CSS 的取消操作影响。</p>
                   <div className="card form">
-                    <label>
-                      主题色{" "}
-                      <input
-                        aria-label="主题色"
-                        type="color"
-                        value={s.theme.color}
-                        onChange={(e) =>
-                          void s.saveTheme({
-                            ...s.theme,
-                            color: e.target.value,
-                          })
-                        }
-                      />
-                    </label>
                     <label>
                       玻璃透明度{" "}
                       <output>{Math.round(s.theme.opacity * 100)}%</output>
@@ -412,7 +396,7 @@ function App() {
                         value={s.theme.opacity}
                         onChange={(e) =>
                           void s.saveTheme({
-                            ...s.theme,
+                            id:s.theme.id,
                             opacity: +e.target.value,
                           })
                         }
@@ -428,7 +412,7 @@ function App() {
                         value={s.theme.blur}
                         onChange={(e) =>
                           void s.saveTheme({
-                            ...s.theme,
+                            id:s.theme.id,
                             blur: +e.target.value,
                           })
                         }
@@ -439,7 +423,7 @@ function App() {
                       <select
                         value={s.theme.font}
                         onChange={(e) =>
-                          void s.saveTheme({ ...s.theme, font: e.target.value })
+                          void s.saveTheme({ id:s.theme.id, font: e.target.value })
                         }
                       >
                         <option value="sans">清晰无衬线</option>
@@ -452,7 +436,7 @@ function App() {
                         value={s.theme.iconStyle}
                         onChange={(e) =>
                           void s.saveTheme({
-                            ...s.theme,
+                            id:s.theme.id,
                             iconStyle: e.target.value as "rounded" | "squircle",
                           })
                         }
@@ -474,7 +458,7 @@ function App() {
                         void fileChange(
                           e.target.files?.[0],
                           "wallpaper",
-                          (id) => s.saveTheme({ ...s.theme, wallpaper: id }),
+                          (id) => s.saveTheme({ id:s.theme.id, wallpaper: id }),
                         )
                       }
                     />
@@ -483,7 +467,7 @@ function App() {
                     <button
                       className="text-button"
                       onClick={() =>
-                        void s.saveTheme({ ...s.theme, wallpaper: undefined })
+                        void s.saveTheme({ id:s.theme.id, wallpaper: undefined })
                       }
                     >
                       使用默认壁纸
@@ -517,6 +501,7 @@ function App() {
                     图片上限 20
                     MB，上传后自动压缩。世界独立主题接口已预留，当前使用全局主题。
                   </p>
+                  </section>
                 </>
               ) : s.activeApp === "世界管理" ? (
                 <Worlds />
@@ -670,7 +655,7 @@ function App() {
                             className="app-icon glass"
                             style={{
                               borderRadius:
-                                s.theme.iconStyle === "squircle"
+                                appearance.iconStyle === "squircle"
                                   ? "50%"
                                   : undefined,
                             }}

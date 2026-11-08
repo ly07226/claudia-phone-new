@@ -1,0 +1,18 @@
+/* Only color adapters. Geometry, typography, viewport and interaction rules stay in their modules. */
+html[data-theme-mode=light]{color-scheme:light}
+html[data-theme-mode=dark]{color-scheme:dark}
+/* Space lists, world creation and backups can render outside the phone wrapper. */
+html[data-theme-palette] .space-selection{background:var(--theme-page);color:var(--theme-text)}
+html[data-theme-palette] .phone .card p{color:inherit}
+html[data-theme-palette] :is(.phone,.space-selection,.message-sheet,.message-popover,.memory-delete-dialog) :is(.hint,.space-scope-note,.chat-world-caption,.chat-list-preview,.wizard-note,.memory-meta){color:var(--theme-muted);opacity:1}
+html[data-theme-palette] :is(.lore-filter button[aria-pressed=true],.memory-tabs button[aria-selected=true],.chat-feedback,.toast){color:var(--theme-buttonText)}
+html[data-theme-palette] .lore-switch.is-on .lore-switch-track>span{background:var(--theme-buttonText)}
+html[data-theme-palette] :is(.chat-message-images,.chat-attachment-thumb) {color:var(--theme-text)}
+/* Header/footer controls inherit foregrounds, even when they live outside a card. */
+html[data-theme-palette] :is(.script-wizard,.memory-app,.story-app,.message-sheet,.message-popover,.memory-delete-dialog){color:var(--theme-text)}
+html[data-theme-palette] :is(input,textarea,select)::placeholder{color:var(--theme-muted);opacity:1}
+html[data-theme-palette] .theme-editor input::placeholder,html[data-theme-palette] .theme-editor textarea::placeholder{color:#637068}
+/* Glass remains independent of wallpaper; palette only provides its tint. */
+html[data-theme-palette] .phone .dock{color:var(--theme-text)}
+/* The remark editor is outside .form; use the same semantic input colors. */
+html[data-theme-palette] .chat-remark-label input{background:var(--theme-input);color:var(--theme-text)}

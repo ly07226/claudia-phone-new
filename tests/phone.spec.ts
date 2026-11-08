@@ -1,6 +1,26 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import {isolatedApp} from './backupBrowser';
+// Follow the current five-step creation UI; no API is configured in this isolated test.
+async function createWorld(page:Page,name:string,description:string){
+  await page.getByRole('button',{name:'创建新剧本',exact:true}).click();
+  const another=page.getByRole('button',{name:'开始另一份草稿',exact:true});
+  await expect(page.getByLabel('故事标题',{exact:true}).or(another)).toBeVisible();
+  if(await another.isVisible()){page.once('dialog',d=>d.accept());await another.click();}
+  await page.getByLabel('故事标题',{exact:true}).fill(name);
+  await page.getByLabel('整体剧情梗概',{exact:true}).fill(description);
+  await page.getByRole('button',{name:'下一步',exact:true}).click();
+  await page.getByLabel('主控姓名',{exact:true}).fill('测试主控');
+  await page.getByRole('button',{name:'下一步',exact:true}).click();
+  await page.getByRole('button',{name:'＋ 自定义角色',exact:true}).click();
+  await page.getByLabel('角色1姓名',{exact:true}).fill(name+'同行者');
+  await page.getByRole('button',{name:'下一步',exact:true}).click();
+  await page.getByLabel('开场场景',{exact:true}).fill('旅程开始。');
+  await page.getByRole('button',{name:'确认开局',exact:true}).click();
+  await expect(page.getByRole('button',{name:'返回剧本世界列表',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'返回剧本世界列表',exact:true}).click();
+}
 test("全部入口可点击，主题与壁纸持久化，世界角色隔离", async ({ page }) => {
-  await page.goto("/");
+  await isolatedApp(page,"phone-theme-regression-"+crypto.randomUUID());
   await expect(
     page.getByRole("button", { name: "聊天", exact: true }),
   ).toBeVisible();
@@ -23,7 +43,9 @@ test("全部入口可点击，主题与壁纸持久化，世界角色隔离", as
     await page.getByRole("button", { name: "返回桌面" }).click();
   }
   await page.getByRole("button", { name: "主题编辑器", exact: true }).click();
-  await page.getByLabel("主题色", { exact: true }).fill("#c4b7ce");
+  await page.getByLabel("页面背景 HEX", { exact: true }).fill("#c4b7ce");
+  await page.getByRole("button", {name:"保存配色与 CSS",exact:true}).click();
+  await expect(page.locator(".theme-editor [role=status]")).toContainText("已保存");
   await page
     .getByLabel("上传桌面壁纸", { exact: true })
     .setInputFiles({
@@ -48,14 +70,13 @@ test("全部入口可点击，主题与壁纸持久化，世界角色隔离", as
   );
   await expect(page.locator(".phone")).toHaveAttribute("style", /data:image/);
   await page.getByRole("button", { name: "世界管理", exact: true }).click();
-  await page.getByRole("button", { name: "创建世界", exact: true }).click();
-  await page.getByLabel("世界名称").fill("晨雾");
-  await page.getByLabel("世界描述").fill("第一个世界");
-  await page.getByRole("button", { name: "保存世界" }).click();
-  await expect(page.getByRole("heading", { name: "晨雾" })).toBeVisible();
-  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await createWorld(page,'晨雾','第一个世界');
+  await expect(page.getByRole("heading", {name:'晨雾',exact:true})).toBeVisible();
+  await page.getByLabel('更多 · 晨雾',{exact:true}).click();
+  await page.getByRole('button',{name:'编辑',exact:true}).click();
   await page.getByLabel("世界名称").fill("晨雾森林");
   await page.getByRole("button", { name: "保存世界" }).click();
+  await page.getByLabel('更多 · 晨雾森林',{exact:true}).click();
   await page.getByRole("button", { name: "查看角色" }).click();
   await page.getByRole("button", { name: "创建角色", exact: true }).click();
   await page.getByLabel("角色姓名").fill("Claudia");
@@ -66,14 +87,9 @@ test("全部入口可点击，主题与壁纸持久化，世界角色隔离", as
   ).toBeVisible();
   await page.getByRole("button", { name: "返回桌面" }).click();
   await page.getByRole("button", { name: "世界管理", exact: true }).click();
-  await page.getByRole("button", { name: "创建世界", exact: true }).click();
-  await page.getByLabel("世界名称").fill("海边");
-  await page.getByRole("button", { name: "保存世界" }).click();
-  await page
-    .locator(".card")
-    .filter({ has: page.getByRole("heading", { name: "海边", exact: true }) })
-    .getByRole("button", { name: "查看角色" })
-    .click();
+  await createWorld(page,'海边','第二个世界');
+  await page.getByLabel('更多 · 海边',{exact:true}).click();
+  await page.getByRole('button',{name:'查看角色',exact:true}).click();
   await expect(
     page.getByRole("heading", { name: "Claudia", exact: true }),
   ).toHaveCount(0);
@@ -182,6 +198,7 @@ test("真实触摸事件排序、小组件及存储故障提示", async ({ page 
     db.close();
   });
   await page.getByRole("button", { name: "主题编辑器", exact: true }).click();
-  await page.getByLabel("主题色", { exact: true }).fill("#abcdef");
-  await expect(page.getByRole("alert")).toContainText("主题保存失败");
+  await page.getByLabel("页面背景 HEX", { exact: true }).fill("#abcdef");
+  await page.getByRole("button", {name:"保存配色与 CSS",exact:true}).click();
+  await expect(page.getByRole("alert")).toContainText("保存失败");
 });

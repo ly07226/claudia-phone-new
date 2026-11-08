@@ -1,3 +1,4 @@
+import {useEffectiveTheme,useThemeAppearance} from './themeAppearance';
 import { usePageCanvas } from "./presentation";
 import appleLeopardUrl from "./assets/apple-leopard.png";
 import { startBackupPresence } from "./backupGate";
@@ -16,7 +17,9 @@ import { Worlds } from "./Worlds";
 export function SpaceRoot({ phone }: { phone: ReactNode }) {
   const s = usePhone();
   const nav = useSpaces();
-  usePageCanvas(!!nav.space && !nav.transitioning && s.activeApp !== "数据备份与恢复", s.activeApp, s.theme, s.assets);
+  const appearance=useEffectiveTheme(s.theme);
+  useThemeAppearance(appearance);
+  usePageCanvas(!!nav.space && !nav.transitioning && s.activeApp !== "数据备份与恢复", s.activeApp, appearance, s.assets);
   useEffect(() => {
     const stopPresence = startBackupPresence();
     let alive = true;

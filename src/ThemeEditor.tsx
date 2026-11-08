@@ -1,0 +1,35 @@
+import {useEffect,useRef,useState,type CSSProperties} from 'react';
+import {defaultTheme,type Theme} from './store';
+import {colorLabels,themePresets,legacyColors,themeVariables,hexColor,contrast,storedPalette,type ThemeColors,type ThemeColor,type PresetId,type ThemePalette} from './themePalette';
+import {compileThemeCSS} from './themeCSS';
+import {appearanceFingerprint,saveThemeAppearance,useThemePreview,themeSafeMode} from './themeAppearance';
+import './themeEditor.css';
+export function ThemeEditor({theme}:{theme:Theme}){
+ const savedPalette=storedPalette(theme.palette);
+ const [colors,setColors]=useState<ThemeColors>(()=>({...savedPalette?.colors??legacyColors(theme.color)})),[enabled,setEnabled]=useState(!!savedPalette),[preset,setPreset]=useState<PresetId|undefined>(savedPalette?.presetId),[source,setSource]=useState(theme.customCss?.source??''),[hex,setHex]=useState<Partial<Record<ThemeColor,string>>>({}),[error,setError]=useState(''),[status,setStatus]=useState(''),[saving,setSaving]=useState(false);
+ const owner=useRef(Symbol('theme-preview')),base=useRef(appearanceFingerprint(theme)),lock=useRef(false),alive=useRef(true),legacyColor=useRef(theme.color);
+ const palette:ThemePalette|undefined=enabled?{version:1,...(preset?{presetId:preset}:{}),colors}:undefined;
+ let cssError='',previewCSS='';try{previewCSS=compileThemeCSS(source,true);}catch(e){cssError=(e as Error).message;}
+ const invalid=Object.values(hex).some(v=>!hexColor(v));
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;useThemePreview.getState().clear(owner.current);};},[]);
+ useEffect(()=>{useThemePreview.getState().set(owner.current,{color:enabled?colors.page:legacyColor.current,palette,customCss:cssError?undefined:source.trim()?{version:1,source}:undefined});},[colors,enabled,preset,source,cssError]);
+ function color(key:ThemeColor,value:string){setEnabled(true);setColors(c=>({...c,[key]:value}));setHex(h=>({...h,[key]:value}));setStatus('');}
+ function cancel(){setColors({...savedPalette?.colors??legacyColors(theme.color)});setEnabled(!!savedPalette);setPreset(savedPalette?.presetId);setSource(theme.customCss?.source??'');setHex({});setError('');setStatus('已取消未保存的配色和 CSS 修改。');legacyColor.current=theme.color;base.current=appearanceFingerprint(theme);}
+ async function save(){if(lock.current||invalid||cssError)return;lock.current=true;setSaving(true);setError('');try{const saved=await saveThemeAppearance({color:enabled?colors.page:legacyColor.current,palette,customCss:source.trim()?{version:1,source}:undefined},base.current);base.current=appearanceFingerprint(saved);if(alive.current)setStatus('配色与 CSS 已保存。');}catch{if(alive.current)setError('保存失败：可能是空间不足、存储不可用或配色已在其他窗口修改。草稿仍保留，请取消后重新打开以检查当前配置。');}finally{lock.current=false;if(alive.current)setSaving(false);}}
+ const lowContrast=contrast(colors.text,colors.card)<4.5||contrast(colors.buttonText,colors.button)<4.5||contrast(colors.userBubbleText,colors.userBubble)<4.5||contrast(colors.assistantBubbleText,colors.assistantBubble)<4.5;
+ return <section className="theme-editor" aria-label="主题配色编辑器">
+  <h2>主题与配色</h2><p>实时预览，点击保存后才会写入。取消或离开页面会放弃未保存的配色与 CSS。</p>
+  {themeSafeMode()&&<p role="status">安全模式：手机暂不应用已保存的配色和 CSS，数据未被删除，可在此修改后保存。<a href={(()=>{const url=new URL(location.href);url.searchParams.delete("themeSafe");return url.pathname+url.search+url.hash;})()}>退出安全模式</a></p>}
+  <fieldset disabled={saving}><legend>A. 预设主题</legend><div className="theme-preset-list">{themePresets.map(t=><button key={t.id} type="button" aria-pressed={enabled&&preset===t.id} onClick={()=>{setColors({...t.colors});setEnabled(true);setPreset(t.id);setHex({});setStatus('');}}><span style={{background:t.base}} aria-hidden="true"/>{t.name}</button>)}</div><p>预设只是起点，下方所有颜色都可以继续修改。</p></fieldset>
+  <div className="theme-live-preview" data-theme-preview style={themeVariables(colors) as CSSProperties} aria-label="主题实时预览">
+   <div className="card"><strong>属于你的 Claudia</strong><p>正文与卡片预览</p><small>次要文字</small><small className="theme-accent-sample">强调色预览</small><input aria-label="预览输入框" readOnly value="输入框预览"/><button type="button" className="primary" tabIndex={-1}>按钮预览</button></div>
+   <div className="chat-user"><div className="chat-bubble-surface">你的消息</div></div><div className="chat-assistant"><div className="chat-bubble-surface">角色回复</div></div>
+   <p className="story-action-description">动作与环境描写</p><blockquote className="story-dialogue"><span className="story-speaker">人物署名示例</span>对话区域预览</blockquote><small className="theme-danger-sample">危险操作提示</small>
+   {previewCSS&&<style>{previewCSS}</style>}
+  </div>
+  <fieldset disabled={saving}><legend>B. 自定义颜色</legend><div className="theme-color-list">{(Object.keys(colorLabels) as ThemeColor[]).map(key=><div className="theme-color-row" key={key}><label htmlFor={`theme-hex-${key}`}>{colorLabels[key]}</label><input type="color" aria-label={`${colorLabels[key]}取色器`} value={colors[key]} onChange={e=>color(key,e.target.value.toUpperCase())}/><input id={`theme-hex-${key}`} aria-label={`${colorLabels[key]} HEX`} value={hex[key]??colors[key]} maxLength={7} spellCheck={false} autoCapitalize="characters" autoCorrect="off" aria-invalid={!!hex[key]&&!hexColor(hex[key])} onChange={e=>{const value=e.target.value;setHex(h=>({...h,[key]:value}));const valid=hexColor(value);if(valid)color(key,valid);}}/></div>)}</div><p>HEX 格式：#RRGGBB。可使用任意有效颜色，不限于预设。</p>{invalid&&<p role="alert">请补全无效的 HEX 色号，预览保留最近有效颜色。</p>}{lowContrast&&<p className="theme-warning">部分文字对比度偏低，建议调整。你的自定义颜色不会被自动替换。</p>}<button type="button" onClick={()=>{setColors(legacyColors(defaultTheme.color));setEnabled(false);setPreset(undefined);setHex({});legacyColor.current=defaultTheme.color;setStatus('已预览原系统默认配色，保存后生效；其他个性化设置保持不变。');}}>恢复默认配色</button></fieldset>
+  <fieldset disabled={saving}><legend>C. 高级设置 · 自定义 CSS</legend><p>高级样式可能覆盖主题颜色。仅支持下列语义选择器，不支持任意 CSS、外部资源、脚本或布局控制；不会影响主题编辑器和手机外部。</p><code>.theme-page / .theme-card / .theme-button / .theme-user-bubble / .theme-role-bubble / .theme-dialogue / .theme-action / .theme-speaker</code><p>属性：color、background-color、border-color、outline-color（六位 HEX）；border-radius（0–28px）、font-size（16–20px）、line-height（1.2–2）。</p><textarea aria-label="自定义 CSS" rows={6} maxLength={8000} spellCheck={false} value={source} onChange={e=>{setSource(e.target.value);setStatus('');}} placeholder={'.theme-card { border-radius: 20px; }'}/>{cssError&&<p role="alert">{cssError}</p>}<div className="theme-editor-buttons"><button type="button" onClick={()=>setSource('')}>清空 CSS</button><button type="button" onClick={()=>setSource(theme.customCss?.source??'')}>恢复已保存 CSS</button></div><a href="?themeSafe=1">无法正常显示时，使用安全模式打开</a></fieldset>
+  <div className="theme-editor-buttons"><button type="button" disabled={saving} onClick={cancel}>取消修改</button><button type="button" className="theme-save" disabled={saving||invalid||!!cssError} onClick={()=>void save()}>{saving?'正在保存…':'保存配色与 CSS'}</button></div>
+  {error&&<p role="alert">{error}</p>}{status&&<p role="status">{status}</p>}
+ </section>;
+}

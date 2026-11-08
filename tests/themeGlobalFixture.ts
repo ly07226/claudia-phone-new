@@ -1,0 +1,13 @@
+import {expect,type Page} from '@playwright/test';
+import {isolatedApp} from './backupBrowser';
+export async function globalThemeSeed(page:Page){
+ await isolatedApp(page,'theme-global-'+crypto.randomUUID());let calls=0;
+ await page.route('https://theme-matrix.test/**',r=>{calls++;const segments=[{type:'narration',text:'雨后，林安带着一封旧信来到门口。\n'},{type:'action',text:'他微微挑眉，等待你的回应。\n'},{type:'dialogue',speaker:'林安',text:'“要先看看信上的日期吗？”\n'},{type:'narration',text:'窗外的脚步声渐渐远去。\n'.repeat(10)}];return r.fulfill({json:{choices:[{message:{content:JSON.stringify({body:segments.map(s=>s.text).join(''),segments,choices:['观察信封','询问来人','暂时等候','查看窗外'].map((text,i)=>({id:'ABCD'[i],text}))})},finish_reason:'stop'}]}});});
+ await page.evaluate(async()=>{await(await import('/tests/backupAppFixture.ts')).richBackupData();const {db,usePhone}=await import('/src/store.ts');const w=(await db.worlds.get('rich-world'))!;await db.worlds.put({...w,script:{version:1,playMode:'story',opening:'雨后收到一封信',definitionRevision:1}});await db.apiConfigs.update('rich-api',{provider:'openai-compatible',baseUrl:'https://theme-matrix.test/v1',maxTokens:5000});await(await import('/src/storyGeneration.ts')).generateStory('rich-world');const c=await(await import('/src/chatService.ts')).getConversation('rich-a');const m=await import('/src/memoryStore.ts');await m.createMemory(await m.getMemoryScope(c.id),{kind:'core',content:'这条记忆不应被主题更改。'});await usePhone.getState().reload();});
+ return {calls:()=>calls};
+}
+export async function app(page:Page,name:string){await page.evaluate(async name=>(await import('/src/store.ts')).usePhone.getState().set({activeApp:name==='桌面'?null:name}),name);if(name==='桌面')await expect(page.locator('.desktop')).toBeVisible();}
+export async function space(page:Page,world=false){await page.evaluate(async world=>{await(await import('/src/spaces.ts')).useSpaces.getState().enterSpace(world?'world:rich-world':'daily');},world);await expect(page.locator('.desktop')).toBeVisible();}
+export async function theme(page:Page,id:string){return page.evaluate(async id=>{const {themePresets}=await import('/src/themePalette.ts');const p=themePresets.find(p=>p.id===id)!;await(await import('/src/themeAppearance.ts')).saveThemeAppearance({color:p.colors.page,palette:{version:1,presetId:p.id,colors:{...p.colors}}});return p.colors;},id);}
+export const rgb=(s:string)=>'rgb('+s.slice(1).match(/../g)!.map(v=>parseInt(v,16)).join(', ')+')';
+export async function dataSnapshot(page:Page){return page.evaluate(async()=>{const {db}=await import('/src/store.ts');return JSON.stringify({data:await Promise.all(db.tables.filter(t=>t.name!=='themes').map(async t=>[t.name,await t.orderBy(':id').toArray()])),identities:(await db.themes.get('global'))?.userIdentities});});}

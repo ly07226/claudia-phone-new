@@ -1,3 +1,4 @@
+import {validateThemeAppearance} from './themeCSS';
 import {validateStoryDatabase,validateStoryPreferences} from './storyValidation';
 import {validateScriptConfig} from './scriptValidation';
 import {validateMemoryStore} from './memoryValidation';
@@ -875,6 +876,7 @@ export async function validateReferences(
     "themes",
     async (x) => {
       await optional("assets", x.wallpaper, "themes.wallpaper");
+      try{validateThemeAppearance(x);}catch{bad("themes.appearance");}
       if (x.userIdentities !== undefined) {
         if (!x.userIdentities || typeof x.userIdentities !== "object" || Array.isArray(x.userIdentities)) bad("themes.userIdentities");
         else for (const identity of Object.values(x.userIdentities)) {
