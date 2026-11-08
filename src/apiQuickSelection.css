@@ -1,0 +1,10 @@
+/* List-only addition: the existing editor, connection test and theme stay intact. */
+.api-settings .api-quick-card{grid-template-columns:minmax(0,1fr) auto;padding:0;gap:0;cursor:default}
+.api-settings .api-config-edit{display:grid;grid-template-columns:minmax(0,1fr) 20px;align-items:center;gap:14px;min-width:0;width:100%;min-height:76px;padding:16px;text-align:left;border-radius:inherit}
+.api-settings .api-quick-choice{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;align-self:stretch;min-width:64px;min-height:44px;padding:8px 12px;cursor:pointer}
+.api-settings .api-quick-choice input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.api-settings .api-choice-circle{display:flex;align-items:center;justify-content:center;width:22px;height:22px;flex:none;border:1.5px solid var(--theme-muted,#637667);border-radius:50%;color:var(--theme-muted,#637667);pointer-events:none}
+.api-settings .api-quick-choice input:checked+.api-choice-circle{background:var(--theme-button,#59745d);border-color:var(--theme-button,#59745d);color:var(--theme-buttonText,#fff)}
+.api-settings .api-quick-choice input:focus-visible+.api-choice-circle{outline:2px solid var(--theme-focus,#59745d);outline-offset:3px}
+.api-settings .api-quick-choice input:disabled~span{opacity:.5}
+.api-settings .api-choice-caption{font-size:11px;line-height:1.3;color:var(--theme-muted,#637667);pointer-events:none}

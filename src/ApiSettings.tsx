@@ -1,7 +1,9 @@
-import { reconcileApiDefault } from "./apiSelection";
+import { reconcileApiDefault, selectApiDefault } from "./apiSelection";
+import {liveQuery} from 'dexie';
+import './apiQuickSelection.css';
 import { apiBase, fetchModels } from "./apiModels";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronRight, Eye, EyeOff, Plus } from "lucide-react";
+import { Check, ChevronRight, Eye, EyeOff, Plus } from "lucide-react";
 import { db, usePhone } from "./store";
 import {
   providers,
@@ -30,6 +32,7 @@ export function ApiSettings() {
   const [notice, setNotice] = useState("");
   const panel = useRef<HTMLDivElement>(null);
   const editorSequence = useRef(0);
+  const selectionBusy = useRef(false);
   const [form, setForm] = useState<ApiConfig | null>(null);
   const [key, setKey] = useState("");
   const [visible, setVisible] = useState(false);
@@ -56,9 +59,11 @@ export function ApiSettings() {
   };
   useEffect(() => {
     mounted.current = true;
+    const subscription=liveQuery(()=>db.apiConfigs.toCollection().sortBy('createdAt')).subscribe({next:rows=>{if(mounted.current)setConfigs(rows);},error:report});
     void reload().catch(report);
     return () => {
       mounted.current = false;
+      subscription.unsubscribe();
     };
   }, []);
   useEffect(() => {
@@ -227,6 +232,13 @@ export function ApiSettings() {
     } finally {
       setSaving(false);
     }
+  }
+  async function selectCurrent(c:ApiConfig){
+    if(selectionBusy.current||saving)return;
+    selectionBusy.current=true;setSaving(true);setError('');
+    try{const rows=await selectApiDefault(c.id);if(mounted.current)setConfigs(rows);}
+    catch(e){if(mounted.current)setError(e instanceof Error&&e.message.startsWith('无法切换：')?e.message:'切换失败，请检查配置及浏览器存储后重试；原选择未改变。');}
+    finally{selectionBusy.current=false;if(mounted.current)setSaving(false);}
   }
   return (
     <div className="api-settings" ref={panel}>
@@ -554,12 +566,20 @@ export function ApiSettings() {
       {!configs.length && !form && (
         <p className="empty">尚未配置 API。添加第一个连接后，完整且启用的配置将自动成为默认。</p>
       )}
-      {!form && configs.map(c => (
-        <button className="card api-config-card api-minimal-card" key={c.id} data-api-id={c.id} aria-label={`编辑 ${c.name}`} disabled={saving} onClick={() => void edit(c)}>
+      {!form && configs.length>0&&<p className="hint api-selection-scope">勾选切换全局默认 API；单独指定 API 的角色或会话仍使用其绑定。</p>}
+      {!form && <div role="radiogroup" aria-label="全局默认 API">{configs.map(c => (
+        <div className="card api-config-card api-minimal-card api-quick-card" key={c.id} data-api-id={c.id}>
+         <button type="button" className="api-config-edit" aria-label={`编辑 ${c.name}`} disabled={saving} onClick={() => void edit(c)}>
           <span className="api-minimal-info"><h3>{c.name}</h3><span className="api-card-model">{c.model}</span></span>
           <ChevronRight size={20} aria-hidden="true"/>
-        </button>
-      ))}
+         </button>
+         <label className="api-quick-choice">
+          <input type="radio" name="current-api" aria-label={`全局默认：${c.name}`} checked={!!c.isDefault} disabled={saving} onChange={()=>void selectCurrent(c)}/>
+          <span className="api-choice-circle" aria-hidden="true">{c.isDefault&&<Check size={14}/>}</span>
+          {c.isDefault&&<span className="api-choice-caption">使用中</span>}
+         </label>
+        </div>
+      ))}</div>}
       {!form && <button className="primary api-add" aria-label="＋ 添加 API 配置" disabled={saving} onClick={fresh}><Plus size={17}/>添加 API 配置</button>}
       {form && <details className="card api-security">
         <summary>本地凭据与隐私说明</summary>

@@ -8,6 +8,21 @@ export function usableApi(config: ApiConfig, key: string) {
   return config.enabled && supported && !validateConfig({ ...config, isDefault: false }, key);
 }
 
+/** Select an existing complete connection atomically; never rewrite credentials
+ * or alter in-flight requests / explicit character and conversation bindings. */
+export async function selectApiDefault(id: string) {
+  return db.transaction("rw", [db.apiConfigs, db.apiCredentials], async () => {
+    const config = await db.apiConfigs.get(id);
+    if (!config) throw Error("该 API 配置已不存在，请刷新列表后重试。");
+    const credential = await db.apiCredentials.get(id);
+    if (!usableApi(config, credential?.apiKey || ""))
+      throw Error("无法切换：配置需启用，且 API Key、HTTPS 地址、模型、参数和协议必须完整有效。请编辑检查；原选择未改变。");
+    await db.apiConfigs.filter(c => !!c.isDefault && c.id !== id).modify({ isDefault: false });
+    await db.apiConfigs.update(id, { isDefault: true });
+    return db.apiConfigs.toCollection().sortBy('createdAt');
+  });
+}
+
 export async function reconcileApiDefault() {
   return db.transaction("rw", [db.apiConfigs, db.apiCredentials], async () => {
     const rows = await db.apiConfigs.toArray();

@@ -87,7 +87,7 @@ test("旧配置缺默认可修复、字段完整不等于验证、无密钥/协�
 });
 
 for (const width of [375, 390, 430]) {
-  test(`API 卡片与独立编辑界面 ${width}px，无明文泄露且错误可读`, async ({ page }) => {
+  test(`API 卡片与独立编辑界面 ${width}px，无明文泄露且错误可读`, async ({ page }, info) => {
     const logged: string[] = []; page.on("console", msg => logged.push(msg.text()));
     await page.setViewportSize({ width, height: 844 }); await open(page);
     const id = await create(page, "我的长名称 API 连接与备用供应商配置".repeat(3), "provider/" + "very-long-model-".repeat(12));
@@ -96,10 +96,11 @@ for (const width of [375, 390, 430]) {
     await expect(card(page, id)).not.toContainText("https://selection.example.test");
     await expect(card(page, id)).not.toContainText("连接成功");
     await expect(page.getByLabel("当前默认 API", { exact: true })).toHaveCount(0);
-    await expect(card(page, id).getByRole("button")).toHaveCount(0);
+    await expect(card(page, id).getByRole("button",{name:`编辑 ${"我的长名称 API 连接与备用供应商配置".repeat(3)}`})).toHaveCount(1);
+    await expect(card(page,id).getByRole("radio")).toBeChecked();
     await expect(card(page, id)).not.toContainText("OpenAI Compatible");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({ path: `artifacts/api-cards-${width}.png` });
+    await page.screenshot({ path: info.outputPath(`api-cards-${width}.png`) });
     await card(page, id).click();
     await expect(page.locator(".api-config-card")).toHaveCount(0);
     await expect(page.getByLabel("API Key", { exact: true })).toHaveAttribute("type", "password");
@@ -111,7 +112,7 @@ for (const width of [375, 390, 430]) {
     await expect(page.locator(".api-draft-result")).toContainText("认证失败");
     await expect(page.locator("body")).not.toContainText(syntheticKey);
     await page.getByLabel("API Key", { exact: true }).scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `artifacts/api-editor-${width}.png` });
+    await page.screenshot({ path: info.outputPath(`api-editor-${width}.png`) });
     await page.setViewportSize({ width, height: 460 });
     await page.getByRole("button", { name: "保存 API 配置", exact: true }).scrollIntoViewIfNeeded();
     await expect(page.getByRole("button", { name: "保存 API 配置", exact: true })).toBeInViewport();
