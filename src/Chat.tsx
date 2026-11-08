@@ -1,3 +1,5 @@
+import {ReplyPending,ReplyFailureNotice} from './ReplyStatus';
+import {describeReplyFailure} from './replyFailure';
 import {prepareQuote,quoteSummary} from './messageReferences';
 import {partKey,type BubblePart} from './messageBubbles';
 import type {MessageSelection} from './MessagePopover';
@@ -53,6 +55,8 @@ export function Chat({ worldId }: { worldId?: string }) {
   const [leaseClock,setLeaseClock]=useState(Date.now());
   const remotePending=!!conversation?.sendingToken&&!runningTask(generationTask)&&(conversation.sendingUntil??0)>leaseClock;
   const busy=localBusy||runningTask(generationTask)||remotePending;
+  const taskMatches=!!conversation&&generationTask?.timelineId===conversation.activeTimelineId&&generationTask?.epoch===(conversation.timelineEpoch??0);
+  const replyFailure=!busy&&taskMatches&&generationTask?.status==='failed'&&(!error||error===generationTask.error)?generationTask.failure??describeReplyFailure(new Error(generationTask.error)):undefined;
   useEffect(()=>{setLeaseClock(Date.now());const until=conversation?.sendingUntil;if(!until)return;const timer=setTimeout(()=>setLeaseClock(Date.now()),Math.max(0,until-Date.now()+1));return()=>clearTimeout(timer);},[conversation?.id,conversation?.sendingToken,conversation?.sendingUntil]);
   const [savingMessage, setSavingMessage] = useState(false);
   const [attachmentOpen,setAttachmentOpen]=useState(false);
@@ -441,14 +445,14 @@ export function Chat({ worldId }: { worldId?: string }) {
             <button aria-label="返回角色列表" onClick={leaveConversation}>
               <ChevronLeft size={24} />
             </button>
-            <span
+            <div className="chat-nav-heading"><span
               className="chat-nav-title"
               role="heading"
               aria-level={1}
               title={displayName}
             >
               {displayName}
-            </span>
+            </span>{busy&&<ReplyPending/>}</div>
             <button aria-label="会话管理" onClick={() => {setReplyPresentation(null);savedScroll.current=historyRef.current?.scrollTop ?? 0;setManagement(true);}}>
               <MoreHorizontal size={23} />
             </button>
@@ -493,9 +497,10 @@ export function Chat({ worldId }: { worldId?: string }) {
               />
               </Fragment>
             ))}
-            {busy && <p role="status">{remotePending?"请求状态待确认：可能仍在其他窗口处理中。可等待，或停止后手动重试；不会自动重复请求。":"正在回复…"}</p>}
+            {remotePending&&<p role="status">请求状态待确认：可能仍在其他窗口处理中。可等待，或停止后手动重试；不会自动重复请求。</p>}
             {!busy&&conversation.sendingToken&&!runningTask(generationTask)&&<p role="status">上次请求尚未确认完成，可能已中断；不会自动重发。请确认后手动重试。</p>}
-            {!busy&&!error&&generationTask?.error&&generationTask.timelineId===conversation.activeTimelineId&&generationTask.epoch===(conversation.timelineEpoch??0)&&<p role="status">{generationTask.error}</p>}
+            {replyFailure&&<ReplyFailureNotice key={`${conversation.id}:${generationTask?.id}`} details={replyFailure}/>}
+            {!busy&&!error&&taskMatches&&generationTask?.status==='stopped'&&<p role="status">{generationTask.error}</p>}
             <div ref={bottom} />
           </div>
           <div className="chat-footer">
@@ -504,7 +509,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 {feedback}
               </p>
             )}
-            {error && (
+            {error && !busy && !replyFailure && (
               <div className="chat-error" role="alert">
                 <button
                   className="chat-error-dismiss"

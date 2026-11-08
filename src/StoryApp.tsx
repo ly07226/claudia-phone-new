@@ -1,3 +1,5 @@
+import {ReplyPending,ReplyFailureNotice} from './ReplyStatus';
+import {describeReplyFailure,type ReplyFailureDetails} from './replyFailure';
 import {StoryControls} from './StoryControls';
 import {useEffect,useRef,useState,type CSSProperties} from 'react';
 import {liveQuery} from 'dexie';
@@ -10,6 +12,7 @@ import {useStoryViewport} from './useStoryViewport';
 import './storyApp.css';
 export function StoryApp({worldId}:{worldId:string}){
  const [data,setData]=useState<Awaited<ReturnType<typeof readStory>>>(),[error,setError]=useState(''),[selected,setSelected]=useState(''),[custom,setCustom]=useState(''),[mode,setMode]=useState<'choice'|'custom'>('choice'),[collapsed,setCollapsed]=useState(false),[running,setRunning]=useState(false),[refresh,setRefresh]=useState(0),[savingLength,setSavingLength]=useState(false);
+ const [generationFailure,setGenerationFailure]=useState<{message:string;details:ReplyFailureDetails}>();
  const [dialog,setDialog]=useState<'settings'|'guidance'|null>(null);
  const controller=useRef<AbortController|null>(null),alive=useRef(false),drafts=useRef(Promise.resolve()),hydrated=useRef('');
  const viewport=useStoryViewport();
@@ -20,6 +23,10 @@ export function StoryApp({worldId}:{worldId:string}){
  },[worldId,refresh]);
  const s=data?.session,node=data?.path.at(-1),busy=running||!!(s?.pending&&s.pending.expiresAt>Date.now()),length=data?.world.storyPreferences?.length??'standard';
  const changed=!!s&&s.definitionRevision!==data?.world.script?.definitionRevision;
+ const pastFailure=describeReplyFailure(undefined);
+ if(s?.error==='invalid')pastFailure.reason='上次模型响应未通过格式校验，原进度未改变。';
+ else if(s?.error==='budget')pastFailure.reason='上次输入超过安全预算，未调用模型。';
+ else if(s?.error==='stale')pastFailure.reason='设定或主线进度发生变化，旧响应未保存。';
  const draftKey=s?`${s.id}:${s.headNodeId??''}`:'';
  useEffect(()=>{if(draftKey&&hydrated.current!==draftKey){hydrated.current=draftKey;const draft=s?.actionDraft;setSelected(draft?.choiceId??'');setCustom(draft?.customText??'');setMode(draft?.mode??'choice');}},[draftKey,s?.actionDraft]);
  function persist(draft:StoryDraft){
@@ -31,9 +38,9 @@ export function StoryApp({worldId}:{worldId:string}){
  async function advance(){
   if(controller.current||busy||!data||savingLength)return;
   if(changed&&!confirm('世界设定已变化。已有主线不会重写，本次仍按主线开始时的原设定继续。是否确认？'))return;
-  const c=controller.current=new AbortController();setRunning(true);setError('');
+  const c=controller.current=new AbortController();setRunning(true);setError('');setGenerationFailure(undefined);
   try{await drafts.current;await generateStory(worldId,node?(mode==='custom'?{kind:'custom',text:custom}:selected):undefined,{signal:c.signal,allowOldDefinition:changed,expected:{sessionId:s?.id,headNodeId:s?.headNodeId,revision:s?.revision??0}});if(alive.current){setSelected('');setCustom('');setMode('choice');}}
-  catch(e){if(alive.current)setError(e instanceof Error?e.message:'生成未完成，原进度保留。');}
+  catch(e){if(alive.current){setError(e instanceof Error?e.message:'生成未完成，原进度保留。');if(!c.signal.aborted)setGenerationFailure({message:e instanceof Error?e.message:'生成未完成，原进度保留。',details:describeReplyFailure(e)});}}
   finally{if(controller.current===c)controller.current=null;if(alive.current)setRunning(false);}
  }
  const valid=!node||(mode==='custom'?!!custom.trim()&&custom.length<=storyLimits.action:node.choices.some(c=>c.id===selected));
@@ -41,10 +48,11 @@ export function StoryApp({worldId}:{worldId:string}){
  return <article ref={viewport.ref} style={style} className={`story-app${(viewport.height??700)<440?' story-compact':''}`} aria-label="剧本主线">
   <header className="story-heading" inert={!!dialog}><button aria-label="返回手机桌面" onClick={()=>usePhone.getState().set({activeApp:null})}>‹ 返回</button><div><h1>{data?.world.name??'剧本'}</h1><p>主线剧情 · {s?.revision??0} 段</p></div><button aria-label="剧本设置" onClick={()=>setDialog('settings')}>设置</button></header>
   {!data&&!error&&<p className="story-notice" role="status">正在读取主线…</p>}
-  {error&&<p className="story-notice" role="alert">{error}</p>}
-  {s?.status==='failed'&&!error&&<p className="story-notice" role="alert">上次主线生成未完成，已有剧情和行动保留，不会自动重试；主动重试可能再次计费。</p>}
+  {!busy&&error&&(!generationFailure||generationFailure.message!==error)&&<p className="story-notice" role="alert">{error}</p>}
+  {!busy&&generationFailure&&generationFailure.message===error&&<ReplyFailureNotice className="story-reply-failure" details={generationFailure.details}/>}
+  {!busy&&s?.status==='failed'&&!error&&!generationFailure&&(s.error==='cancelled'?<p className="story-notice" role="status">上次生成已中断，原进度保留；不会自动重试。</p>:<ReplyFailureNotice className="story-reply-failure" details={pastFailure}/>)}
   {changed&&<p className="story-notice">设定已更新；主线仍使用开始时的版本 {s?.definitionRevision}，继续前需要确认。</p>}
-  {busy&&<p className="story-notice" role="status">正在生成…已有剧情可继续阅读，离开本页将尝试取消。</p>}
+  {busy&&<ReplyPending className="story-reply-pending"/>}
   {data?.world.script?.playMode!=='story'&&data?<p>此世界未开启剧情模式，已有主线数据保留。</p>:data&&<>
    <StoryReader key={worldId} inert={!!dialog} path={data.path} opening={data.world.script!.opening}/>
    <footer className="story-drawer" inert={!!dialog} data-collapsed={collapsed}>

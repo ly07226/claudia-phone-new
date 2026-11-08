@@ -1,3 +1,4 @@
+import {ReplyRequestError,describeReplyFailure,replyFailureDetails} from './replyFailure';
 import {parseStoryReply,StoryResponseError,recordStoryResponseFailure} from './storyResponse';
 export {parseStoryReply,getStoryResponseDiagnostics} from './storyResponse';
 import {db} from './store';
@@ -49,6 +50,8 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
   }
   if(controller.signal.aborted)failure='cancelled';else if(error instanceof Error&&error.message==='budget')failure='budget';
   await db.transaction('rw',db.storySessions,async()=>{const current=await db.storySessions.get(s.id);if(current?.pending?.token===token)await db.storySessions.put({...current,status:'failed',pending:undefined,error:failure,updatedAt:Date.now()});}).catch(()=>{});
-  throw Error(failure==='budget'?'世界设定或当前节点超过安全输入预算，未调用模型。':failure==='invalid'?'模型未返回有效正文及四个选项，原进度未改变。':failure==='stale'?'世界设定或主线进度已变化，过期结果未保存。':failure==='cancelled'?'生成已中断，原进度保留；不会自动重试。':'主线请求失败，请检查默认 API 配置和网络；原进度保留，手动重试可能再次计费。');
+  const publicMessage=failure==='budget'?'世界设定或当前节点超过安全输入预算，未调用模型。':failure==='invalid'?'模型未返回有效正文及四个选项，原进度未改变。':failure==='stale'?'世界设定或主线进度已变化，过期结果未保存。':failure==='cancelled'?'生成已中断，原进度保留；不会自动重试。':'主线请求失败，请检查默认 API 配置和网络；原进度保留，手动重试可能再次计费。';
+  const details=structured?.getResponseInfo().blocked?replyFailureDetails({blocked:true}):describeReplyFailure(error);
+  throw new ReplyRequestError(publicMessage,failure==='request'||details.kind!=='unknown'?details:{...details,reason:publicMessage});
  }finally{clearTimeout(timer);options.signal?.removeEventListener('abort',abort);}
 }

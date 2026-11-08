@@ -1,3 +1,4 @@
+import {describeReplyFailure,type ReplyFailureDetails} from './replyFailure';
 import {useSyncExternalStore} from 'react';
 import {db} from './store';
 import {sendMessage,regenerateMessage,type ExpectedPath} from './chatService';
@@ -7,7 +8,7 @@ import type {Conversation,MessageQuote} from './chatTypes';
 type Status='saving'|'generating'|'completed'|'failed'|'stopped';
 export interface GenerationTask {
  id:string; conversationId:string; characterId:string; worldId?:string;
- timelineId?:string; epoch:number; startedAt:number; status:Status; saved:boolean; error?:string;
+ timelineId?:string; epoch:number; startedAt:number; status:Status; saved:boolean; error?:string; failure?:ReplyFailureDetails;
 }
 interface Request {
  conversation:Conversation; expectedPath:ExpectedPath; text:string; retry:boolean;
@@ -45,7 +46,7 @@ export function startGenerationTask(request:Request,onSaved?:()=>void){
    else await sendMessage(c.id,request.text,controller.signal,request.retry,saved,expectedPath,request.images,request.replyTo);
    update({status:'completed',saved:true});
   }catch(error){
-   update({status:controller.signal.aborted?'stopped':'failed',error:controller.signal.aborted?'回复已停止或当前路径已变化，已保存的消息和版本保留。':error instanceof Error?error.message:'回复未完成，已保存的消息保留。'});
+   update({status:controller.signal.aborted?'stopped':'failed',failure:controller.signal.aborted?undefined:describeReplyFailure(error),error:controller.signal.aborted?'回复已停止或当前路径已变化，已保存的消息和版本保留。':error instanceof Error?error.message:'回复未完成，已保存的消息保留。'});
    throw error;
   }
  });

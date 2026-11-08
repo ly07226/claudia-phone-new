@@ -63,7 +63,7 @@ test('分支切换取消旧路径任务，迟到回复不能进入新路径或�
 
 test('离开页面时网络失败保留已存消息，返回显示失败并仅手动重试',async({page})=>{
  const {ids,calls}=await setup(page);await send(page,'网络失败仍保留');await expect.poll(()=>calls.length).toBe(1);await page.getByRole('button',{name:'返回角色列表',exact:true}).click();calls[0].release('',true);
- await expect.poll(async()=>page.evaluate(async id=>(await import('/src/generationTasks.ts')).getGenerationTask(id)?.status,ids.a)).toBe('failed');await open(page,'任务甲');await expect(page.locator('.chat-history')).toContainText('网络请求失败');expect((await messages(page,ids.a)).map(m=>m.content)).toEqual(['网络失败仍保留']);expect(calls.length).toBe(1);
+ await expect.poll(async()=>page.evaluate(async id=>(await import('/src/generationTasks.ts')).getGenerationTask(id)?.status,ids.a)).toBe('failed');await open(page,'任务甲');await page.getByRole('button',{name:'回复失败，查看详情',exact:true}).click();await expect(page.getByRole('dialog',{name:'回复失败详情'})).toContainText('网络连接失败');await page.getByRole('button',{name:'关闭消息面板',exact:true}).click();expect((await messages(page,ids.a)).map(m=>m.content)).toEqual(['网络失败仍保留']);expect(calls.length).toBe(1);
  await page.getByRole('button',{name:'重试最后一条消息',exact:true}).click();await expect.poll(()=>calls.length).toBe(2);calls[1].release('用户确认重试后完成。');await expect(page.locator('.chat-history')).toContainText('用户确认重试后完成。');expect((await messages(page,ids.a)).filter(m=>m.role==='user')).toHaveLength(1);
 });
 
@@ -90,7 +90,7 @@ test('遗留请求租约到期后明确显示中断可能性，保持消息且�
 test('保存事务交出的路径身份稳定；后台超时保留用户消息且不重试、不伪报完成',async({page})=>{
  const {ids,calls}=await setup(page);await page.clock.install();await page.clock.pauseAt(new Date(Date.now()+1000));await send(page,'超时请求');await expect.poll(()=>calls.length).toBe(1);
  const scope=await page.evaluate(async id=>{const {db}=await import('/src/store.ts');const c=(await db.conversations.get(id))!,task=(await import('/src/generationTasks.ts')).getGenerationTask(id)!;return {same:task.timelineId===c.activeTimelineId&&task.epoch===c.timelineEpoch,worldId:task.worldId,characterId:task.characterId};},ids.a);expect(scope).toEqual({same:true,worldId:undefined,characterId:'a'});
- await page.getByRole('button',{name:'返回角色列表',exact:true}).click();await page.clock.runFor(60001);await expect.poll(async()=>page.evaluate(async id=>(await import('/src/generationTasks.ts')).getGenerationTask(id)?.status,ids.a)).toBe('failed');calls[0].release('超时后迟到结果');await open(page,'任务甲');await expect(page.locator('.chat-history')).toContainText('已取消或超时');expect((await messages(page,ids.a)).map(m=>m.content)).toEqual(['超时请求']);expect(calls.length).toBe(1);
+ await page.getByRole('button',{name:'返回角色列表',exact:true}).click();await page.clock.runFor(60001);await expect.poll(async()=>page.evaluate(async id=>(await import('/src/generationTasks.ts')).getGenerationTask(id)?.status,ids.a)).toBe('failed');calls[0].release('超时后迟到结果');await open(page,'任务甲');await page.getByRole('button',{name:'回复失败，查看详情',exact:true}).click();await expect(page.getByRole('dialog',{name:'回复失败详情'})).toContainText('请求超时');await page.getByRole('button',{name:'关闭消息面板',exact:true}).click();expect((await messages(page,ids.a)).map(m=>m.content)).toEqual(['超时请求']);expect(calls.length).toBe(1);
 });
 
 test('聊天UI重新生成使用共享任务，停止后仍保留未发送的图片与文字草稿',async({page})=>{
@@ -101,8 +101,8 @@ test('聊天UI重新生成使用共享任务，停止后仍保留未发送的图
 
 test('重新生成离开后失败只更新原任务状态，不把旧页面错误显示到另一聊天',async({page})=>{
  const {ids,calls}=await setup(page);await send(page,'原问题');await expect.poll(()=>calls.length).toBe(1);calls[0].release('原答案。');await expect(page.locator('.chat-history')).toContainText('原答案。');await page.getByRole('button',{name:'AI 消息操作',exact:true}).press('Enter');await page.getByRole('button',{name:'重新生成',exact:true}).click();await expect.poll(()=>calls.length).toBe(2);
- await page.getByRole('button',{name:'返回角色列表',exact:true}).click();await open(page,'任务乙');calls[1].release('',true);await expect.poll(async()=>page.evaluate(async id=>(await import('/src/generationTasks.ts')).getGenerationTask(id)?.status,ids.a)).toBe('failed');await expect(page.getByRole('alert')).toHaveCount(0);await expect(page.locator('.chat-history')).not.toContainText('网络请求失败');expect(await messages(page,ids.b)).toEqual([]);
- await page.getByRole('button',{name:'返回角色列表',exact:true}).click();await open(page,'任务甲');await expect(page.locator('.chat-history')).toContainText('网络请求失败');await expect(page.locator('.chat-history')).toContainText('原答案。');expect(calls.length).toBe(2);
+ await page.getByRole('button',{name:'返回角色列表',exact:true}).click();await open(page,'任务乙');calls[1].release('',true);await expect.poll(async()=>page.evaluate(async id=>(await import('/src/generationTasks.ts')).getGenerationTask(id)?.status,ids.a)).toBe('failed');await expect(page.getByRole('alert')).toHaveCount(0);await expect(page.getByRole('button',{name:'回复失败，查看详情',exact:true})).toHaveCount(0);await expect(page.locator('.chat-history')).not.toContainText('网络请求失败');expect(await messages(page,ids.b)).toEqual([]);
+ await page.getByRole('button',{name:'返回角色列表',exact:true}).click();await open(page,'任务甲');await page.getByRole('button',{name:'回复失败，查看详情',exact:true}).click();await expect(page.getByRole('dialog',{name:'回复失败详情'})).toContainText('网络连接失败');await page.getByRole('button',{name:'关闭消息面板',exact:true}).click();await expect(page.locator('.chat-history')).toContainText('原答案。');expect(calls.length).toBe(2);
 });
 
 test('连续发送保存尚未完成时切换聊天，迟到保存回调不刷新或覆盖新聊天状态',async({page})=>{

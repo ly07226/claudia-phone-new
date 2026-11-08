@@ -191,10 +191,12 @@ export function ChatMessage({
 }
 export function MessageSheet({
   title,
+  className = "",
   onClose,
   children,
 }: {
   title: string;
+  className?: string;
   onClose: () => void;
   children: React.ReactNode;
 }) {
@@ -267,7 +269,7 @@ export function MessageSheet({
       }}
     >
       <section
-        className="message-sheet"
+        className={`message-sheet ${className}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}

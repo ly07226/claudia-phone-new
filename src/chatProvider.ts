@@ -1,3 +1,4 @@
+import {ReplyRequestError,replyFailureDetails} from './replyFailure';
 import {
   validateConfig,
   type ApiConfig,
@@ -105,17 +106,18 @@ export async function requestReply(
       referrerPolicy: "no-referrer",
     });
   } catch {
-    throw Error(
+    throw new ReplyRequestError(
       signal.aborted
         ? "请求已取消或超时，已保存的消息不会丢失。"
         : "网络请求失败，可能是网络、CORS、TLS 或重定向限制。服务必须支持浏览器直连；请勿使用不可信公共代理。",
+      replyFailureDetails({network:true}),
     );
   }
   let data;
   try {
     data = await response.json();
   } catch {
-    throw Error("服务响应不是有效 JSON，请检查接口地址。");
+    throw new ReplyRequestError("服务响应不是有效 JSON，请检查接口地址。",replyFailureDetails({httpStatus:response.status}));
   }
   const roleError =
     String(data?.error?.code || "") +
@@ -143,7 +145,7 @@ export async function requestReply(
     return requestReply(c, key, fallback, signal, transport, false);
   }
   if (!response.ok || data?.error)
-    throw Error(
+    throw new ReplyRequestError(
       response.status === 401 || response.status === 403
         ? "API 认证失败，请检查 Key 和权限。"
         : response.status === 429
@@ -151,6 +153,7 @@ export async function requestReply(
           : response.status === 404
             ? "模型或接口不存在，请检查 Model 和 Base URL。"
             : `模型请求失败（HTTP ${response.status}），请检查参数和服务状态。`,
+      replyFailureDetails({httpStatus:response.status,code:data?.error?.code??data?.error?.status,message:data?.error?.message},[key]),
     );
   const content = gemini
     ? data?.candidates?.[0]?.content?.parts
@@ -159,7 +162,7 @@ export async function requestReply(
         .join("")
     : data?.choices?.[0]?.message?.content;
   if (typeof content !== "string" || !content.trim())
-    throw Error("模型未返回文本，可能达到输出限制或被安全策略拦截。");
+    throw new ReplyRequestError("模型未返回文本，可能达到输出限制或被安全策略拦截。",replyFailureDetails({httpStatus:response.status,blocked:["SAFETY","RECITATION","PROHIBITED_CONTENT","BLOCKLIST","content_filter"].includes(gemini?data?.candidates?.[0]?.finishReason:data?.choices?.[0]?.finish_reason)||!!data?.promptFeedback?.blockReason}));
   if (content.length > 100000) throw Error("模型响应过长，未保存回复。");
   // Never display credential echoes even from a misconfigured upstream.
   return key ? content.split(key).join("[凭据已隐藏]") : content;

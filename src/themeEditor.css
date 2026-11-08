@@ -18,3 +18,16 @@ html[data-theme-palette] .phone .chat-user .chat-bubble-surface{background:var(-
 .phone .theme-editor .theme-live-preview .card p{color:var(--theme-text)}
 .phone .theme-editor .theme-live-preview .card small{display:block;color:var(--theme-muted)}
 .phone .theme-editor .theme-live-preview .card .theme-accent-sample{color:var(--theme-accent)}
+/* Protected editor chrome for the Midnight preset; never writes palette values.
+   Safe mode and other presets keep the original light recovery surface. */
+.theme-editor[data-midnight=true],.phone:has(.theme-editor[data-midnight=true]) .theme-personalization{background:#282a2f;color:#f1f0ed;color-scheme:dark}
+.theme-editor[data-midnight=true]>p,.theme-editor[data-midnight=true]>fieldset>p,.phone:has(.theme-editor[data-midnight=true]) .theme-personalization>p{color:#b7b8bd}
+.theme-editor[data-midnight=true]>fieldset{border-color:#484b52}
+.theme-editor[data-midnight=true]>fieldset button,.theme-editor[data-midnight=true]>.theme-editor-buttons button{background:#303239;color:#f1f0ed;border-color:#484b52}
+.theme-editor[data-midnight=true] .theme-preset-list [aria-pressed=true]{border-color:#c3c5cc;box-shadow:inset 0 0 0 1px #c3c5cc}
+.theme-editor[data-midnight=true] .theme-color-row input,.theme-editor[data-midnight=true]>fieldset>textarea,.phone:has(.theme-editor[data-midnight=true]) .theme-personalization :is(input,select){background:#202226;color:#f1f0ed;border-color:#484b52}
+.theme-editor[data-midnight=true]>.theme-editor-buttons .theme-save{background:#bdc0c7;color:#202226}
+.theme-editor[data-midnight=true]>fieldset a{color:#cdd0d6}.theme-editor[data-midnight=true]>fieldset [role=alert],.theme-editor[data-midnight=true] .theme-warning,.theme-editor[data-midnight=true]>[role=alert]{color:#f0aaa4}
+.theme-editor[data-midnight=true]>fieldset :focus-visible,.theme-editor[data-midnight=true]>.theme-editor-buttons :focus-visible{outline-color:#d3d6dd}
+.phone:has(.theme-editor[data-midnight=true]) .theme-personalization .card{background:#303239;color:#f1f0ed;border-color:#484b52}
+.phone .theme-editor[data-midnight=true]>fieldset>textarea::placeholder{color:#b7b8bd}
