@@ -1,4 +1,5 @@
-import {memoryContext} from './memoryContext';
+import {memoryContext,lastMemoryContextTrace} from './memoryContext';
+import {requestDebugEnabled,registerRequestDiagnostics,type SourceInput} from './chatRequestDiagnostics';
 import {visibleMessage} from './messageBubbles';
 import {quotedMessage} from './messageReferences';
 import { attachmentImages, imageLimits } from "./imageAttachments";
@@ -6,6 +7,7 @@ import { realTimeContext, realTimeSession, sessionHistory, sessionMarkerChars } 
 import { recordLoreTrace } from "./loreDiagnostics";
 import { activeMessages } from "./messagePath";
 import { loreForConversation, injectLore } from "./loreEngine";
+import {loreLimits} from './loreTypes';
 import { db } from "./store";
 import type { ContextMessage, Conversation, Message } from "./chatTypes";
 export const contextLimits = {
@@ -24,6 +26,7 @@ export async function buildContext(
   if (conversation.mode === "daily" && conversation.worldId)
     throw Error("日常会话关联异常。");
   let system = `你正在进行角色扮演。遵循角色资料回应用户。只使用本会话提供的资料，不声称知道其他聊天空间的经历。\n角色：${c.name}\n基础人格与设定：${c.persona}\n说话方式：${c.speakingStyle || "按基础人格自然回应"}`;
+  const profileChars=system.length;
   if (conversation.mode === "world") {
     if (!conversation.worldId) throw Error("世界会话缺少世界。");
     const w = await db.worlds.get(conversation.worldId);
@@ -99,5 +102,13 @@ export async function buildContext(
   const available=contextLimits.systemChars-timed.filter(m=>m.role==='system').reduce((n,m)=>n+m.content.length,0);
   const memory=await memoryContext(conversation,originalPath,available);
   // Keep memory data in the first systemInstruction for Gemini as well as OpenAI.
-  return memory ? [{...timed[0],content:timed[0].content+memory},...timed.slice(1)] : timed;
+  const result=memory ? [{...timed[0],content:timed[0].content+memory},...timed.slice(1)] : timed;
+  if(requestDebugEnabled()){
+    const sources:SourceInput[]=[{source:'persona',text:system.slice(0,profileChars),role:'system'},{source:conversation.mode==='world'?'world':'mode',text:system.slice(profileChars),role:'system'},...lore.entries.map(e=>({source:'lore' as const,text:e.content,role:e.role,position:e.insertionPosition,depth:e.insertionDepth,scope:lore.entryScopes[e.id]})),...requestHistory.map(m=>({source:'history' as const,text:m.content,role:m.role}))];
+    if(time)sources.push({source:'time',text:time.content,role:'system'});
+    if(memory)sources.push({source:'memory',text:memory,role:'system'});
+    const trace=lastMemoryContextTrace(conversation.id);
+    registerRequestDiagnostics(conversation.mode,result,sources,{history:{available:path.length,included:history.length},budget:{systemLimit:contextLimits.systemChars,historyLimit:historyBudget,loreAllowance:Math.max(0,Math.min(loreLimits.promptChars,contextLimits.systemChars-system.length-(time?.content.length??0)-4)),systemUsed:result.filter(m=>m.role==='system').reduce((n,m)=>n+m.content.length,0),historyUsed:requestHistory.reduce((n,m)=>n+m.content.length,0)},memory:trace??undefined,lore:lore.diagnostics.map(d=>({trigger:d.triggerMode,outcome:d.outcome,reason:d.reason,scanned:d.scannedMessageCount,matchedUser:d.matchedMessages.filter(m=>m.role==='user').length,matchedAssistant:d.matchedMessages.filter(m=>m.role==='assistant').length,crossMessage:d.crossMessageMatch})),skippedBooks:{disabled:lore.skippedBooks.filter(b=>b.reason==='book-disabled').length,outOfScope:lore.skippedBooks.filter(b=>b.reason==='out-of-scope').length}});
+  }
+  return result;
 }

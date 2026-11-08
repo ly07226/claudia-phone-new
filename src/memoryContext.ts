@@ -4,12 +4,12 @@ import {timelineTables,nodesForHead,messageFingerprint} from './timelines';
 import type {Conversation,Message} from './chatTypes';
 import type {EffectiveMemory} from './memoryTypes';
 /** Provider-independent conservative token proxy: one UTF-8 byte per token.
- * Includes wrapper, JSON escaping and truncation markers. Not a model tokenizer.
+ * Includes wrapper and JSON escaping. Facts are included whole or omitted. Not a model tokenizer.
  * Existing profile/lore/time/history budgets are allocated FIRST and unchanged.
  */
 export const memoryContextLimits={tokens:2000,entryTokens:640,entries:12,queryChars:1200};
 export const memoryTokenCost=(text:string)=>new TextEncoder().encode(text).length;
-export interface MemoryContextTrace {status:'injected'|'empty'|'budget'|'read-failed'|'scope-changed';eligible:number;selected:number;truncated:number;estimatedTokens:number}
+export interface MemoryContextTrace {status:'injected'|'empty'|'budget'|'read-failed'|'scope-changed'|'irrelevant';eligible:number;selected:number;truncated:number;estimatedTokens:number;skippedIrrelevant:number;skippedBudget:number}
 const traces=new Map<string,MemoryContextTrace>();
 function trace(id:string,value:MemoryContextTrace){traces.delete(id);traces.set(id,{...value});while(traces.size>10)traces.delete(traces.keys().next().value!);}
 /** Bounded, volatile metadata only: no memory/message text, raw errors or secrets. */
@@ -22,20 +22,22 @@ function relevance(entry:EffectiveMemory,query:Set<string>){const tokens=words(e
 /** Pure, deterministic local selection; no vector service or model call. */
 export function selectMemoryContext(entries:EffectiveMemory[],query:string,remainingChars:number){
  const terms=words(query.slice(-memoryContextLimits.queryChars));
- const ranked=entries.filter(e=>!e.deleted&&(e.kind==='core'||e.kind==='long')).map(entry=>({entry,score:relevance(entry,terms)})).sort((a,b)=>Number(b.entry.kind==='core')-Number(a.entry.kind==='core')||b.score-a.score||Number(b.entry.source==='manual')-Number(a.entry.source==='manual')||b.entry.revision-a.entry.revision||a.entry.id.localeCompare(b.entry.id));
- const facts:{kind:string;source:string;fact:string;truncated?:true}[]=[];
+ const candidates=entries.filter(e=>!e.deleted&&(e.kind==='core'||e.kind==='long')&&e.content.trim());
+ const scored=candidates.map(entry=>({entry,score:relevance(entry,terms)}));
+ const ranked=scored.filter(({entry,score})=>entry.kind==='core'||score>0).sort((a,b)=>Number(b.entry.kind==='core')-Number(a.entry.kind==='core')||b.score-a.score||Number(b.entry.source==='manual')-Number(a.entry.source==='manual')||b.entry.revision-a.entry.revision||a.entry.id.localeCompare(b.entry.id));
+ const facts:{kind:string;source:string;fact:string}[]=[];
  const render=()=>intro+json(facts)+outro;
+ let skippedBudget=0;
  for(const {entry} of ranked){
-  if(facts.length>=memoryContextLimits.entries)break;
-  const chars=Array.from(entry.content);let low=0,high=chars.length,best=0;
-  const row=(n:number)=>({kind:entry.kind,source:entry.source,fact:chars.slice(0,n).join(''),...(n<chars.length?{truncated:true as const}:{})});
-  while(low<=high){const n=Math.floor((low+high)/2),candidate=row(n),text=intro+json([...facts,candidate])+outro;
-   if(memoryTokenCost(json(candidate))<=memoryContextLimits.entryTokens&&memoryTokenCost(text)<=memoryContextLimits.tokens&&text.length<=Math.max(0,remainingChars)){best=n;low=n+1;}else high=n-1;
-  }
-  if(best)facts.push(row(best));
+  const row={kind:entry.kind,source:entry.source,fact:entry.content};
+  const text=intro+json([...facts,row])+outro;
+  // A prefix can invert a fact by losing its trailing negation, condition or date.
+  // Never split either core or long-term facts; stored memory is untouched.
+  if(facts.length>=memoryContextLimits.entries||memoryTokenCost(json(row))>memoryContextLimits.entryTokens||memoryTokenCost(text)>memoryContextLimits.tokens||text.length>Math.max(0,remainingChars)){skippedBudget++;continue;}
+  facts.push(row);
  }
  const text=facts.length?render():'';
- return {text,selected:facts.length,truncated:facts.filter(f=>f.truncated).length,estimatedTokens:memoryTokenCost(text)};
+ return {text,selected:facts.length,truncated:0,estimatedTokens:memoryTokenCost(text),skippedIrrelevant:scored.length-ranked.length,skippedBudget};
 }
 /** Reuse storage ownership/ancestor/tombstone rules. No cross-scope fallback.
  * For historical regeneration, an anchored fact must also exist in the request
@@ -61,9 +63,9 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   const pending=requestPath.slice(lastAssistant+1).filter(m=>m.role==='user');
   const query=(pending.length?pending:requestPath.filter(m=>m.role==='user').slice(-1)).map(m=>m.content).join('\n');
   const selected=selectMemoryContext(entries,query,remainingChars);
-  trace(c.id,{status:selected.text?'injected':entries.length?'budget':'empty',eligible:entries.length,selected:selected.selected,truncated:selected.truncated,estimatedTokens:selected.estimatedTokens});
+  trace(c.id,{status:selected.text?'injected':selected.skippedBudget?'budget':selected.skippedIrrelevant?'irrelevant':'empty',eligible:entries.length,selected:selected.selected,truncated:selected.truncated,estimatedTokens:selected.estimatedTokens,skippedIrrelevant:selected.skippedIrrelevant,skippedBudget:selected.skippedBudget});
   return selected.text;
  }catch{
-  trace(c.id,{status,eligible:0,selected:0,truncated:0,estimatedTokens:0});return '';
+  trace(c.id,{status,eligible:0,selected:0,truncated:0,estimatedTokens:0,skippedIrrelevant:0,skippedBudget:0});return '';
  }
 }

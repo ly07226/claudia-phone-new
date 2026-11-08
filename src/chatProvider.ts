@@ -1,4 +1,5 @@
 import {ReplyRequestError,replyFailureDetails} from './replyFailure';
+import {linkRequestDiagnostics,recordRequestAttempt,recordRequestResponse,recordRequestFailure} from './chatRequestDiagnostics';
 import {
   validateConfig,
   type ApiConfig,
@@ -89,6 +90,7 @@ export async function requestReply(
         stream: false,
       };
   let response: Response;
+  recordRequestAttempt(messages,gemini?'gemini':'openai',gemini?['system',...body.contents!.map(m=>m.role==='model'?'assistant' as const:'user' as const)]:messages.map(m=>m.role));
   try {
     response = await transport.send(url, {
       method: "POST",
@@ -106,6 +108,7 @@ export async function requestReply(
       referrerPolicy: "no-referrer",
     });
   } catch {
+    recordRequestFailure(messages,'network-error');
     throw new ReplyRequestError(
       signal.aborted
         ? "请求已取消或超时，已保存的消息不会丢失。"
@@ -117,6 +120,7 @@ export async function requestReply(
   try {
     data = await response.json();
   } catch {
+    recordRequestFailure(messages,'invalid-response',response.status);
     throw new ReplyRequestError("服务响应不是有效 JSON，请检查接口地址。",replyFailureDetails({httpStatus:response.status}));
   }
   const roleError =
@@ -142,9 +146,11 @@ export async function requestReply(
           ? m.content
           : `[${m.role === "system" ? "系统资料" : "角色历史或设定"}]\n${m.content}`,
     }));
+    linkRequestDiagnostics(messages,fallback);
     return requestReply(c, key, fallback, signal, transport, false);
   }
-  if (!response.ok || data?.error)
+  if (!response.ok || data?.error) {
+    recordRequestFailure(messages,'http-error',response.status);
     throw new ReplyRequestError(
       response.status === 401 || response.status === 403
         ? "API 认证失败，请检查 Key 和权限。"
@@ -155,15 +161,19 @@ export async function requestReply(
             : `模型请求失败（HTTP ${response.status}），请检查参数和服务状态。`,
       replyFailureDetails({httpStatus:response.status,code:data?.error?.code??data?.error?.status,message:data?.error?.message},[key]),
     );
+  }
   const content = gemini
     ? data?.candidates?.[0]?.content?.parts
         ?.filter((p: { text?: string; thought?: boolean }) => !p.thought)
         .map((p: { text?: string }) => p.text || "")
         .join("")
     : data?.choices?.[0]?.message?.content;
-  if (typeof content !== "string" || !content.trim())
+  if (typeof content !== "string" || !content.trim()) {
+    recordRequestFailure(messages,'invalid-response',response.status);
     throw new ReplyRequestError("模型未返回文本，可能达到输出限制或被安全策略拦截。",replyFailureDetails({httpStatus:response.status,blocked:["SAFETY","RECITATION","PROHIBITED_CONTENT","BLOCKLIST","content_filter"].includes(gemini?data?.candidates?.[0]?.finishReason:data?.choices?.[0]?.finish_reason)||!!data?.promptFeedback?.blockReason}));
+  }
   if (content.length > 100000) throw Error("模型响应过长，未保存回复。");
+  recordRequestResponse(messages,content);
   // Never display credential echoes even from a misconfigured upstream.
   return key ? content.split(key).join("[凭据已隐藏]") : content;
 }

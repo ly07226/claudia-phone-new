@@ -1,4 +1,5 @@
 import {useEffectiveTheme,useThemeAppearance} from './themeAppearance';
+import {ChatRequestDiagnosticsPanel} from './ChatRequestDiagnosticsPanel';
 import { usePageCanvas } from "./presentation";
 import appleLeopardUrl from "./assets/apple-leopard.png";
 import { startBackupPresence } from "./backupGate";
@@ -51,6 +52,7 @@ export function SpaceRoot({ phone }: { phone: ReactNode }) {
     return (
       <Fragment key={nav.space.spaceId}>
         {s.activeApp === "数据备份与恢复" ? <DataBackups /> : phone}
+        <ChatRequestDiagnosticsPanel/>
       </Fragment>
     );
   return (

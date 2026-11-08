@@ -199,7 +199,10 @@ test("无世界创建基础角色、无 API 引导、失败保留消息和重试
     });
   });
   await page.getByRole("button", { name: "重试最后一条消息" }).click();
-  await expect(page.getByRole("alert")).toContainText("认证失败");
+  await expect(page.getByRole("alert")).toContainText("回复失败");
+  await page.getByRole("button", {name:"回复失败，查看详情"}).click();
+  await expect(page.getByRole("dialog",{name:"回复失败详情"})).toContainText("API 认证失败或访问权限不足");
+  await page.getByRole("dialog",{name:"回复失败详情"}).getByRole("button",{name:"关闭消息面板"}).click();
   await expect(page.locator(".chat-bubble")).toHaveCount(1);
   await expect(page.locator("body")).not.toContainText("synthetic-test-key");
   await page.unroute("https://gemini.example.test/**");

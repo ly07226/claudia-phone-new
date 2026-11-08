@@ -211,5 +211,5 @@ export async function loreForConversation(
     remainingBudget,
     random,
     await evaluateRegex(jobs),
-  ), skippedBooks};
+  ), skippedBooks, entryScopes:Object.fromEntries(candidates.map(({entry,book})=>[entry.id,book.global?'global' as const:'world' as const]))};
 }
