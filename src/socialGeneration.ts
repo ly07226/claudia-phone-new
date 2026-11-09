@@ -10,9 +10,9 @@ import {activeMessages} from './messagePath';
 import {visibleMessage} from './messageBubbles';
 import type {Conversation,Message,ContextMessage} from './chatTypes';
 import {changeChatHub} from './chatHubStore';
-import {defaultChatHub,type ChatHubData,type SocialAuthor} from './chatHubTypes';
+import {defaultChatHub,type ChatHubData,type SocialAuthor,type SocialReaction} from './chatHubTypes';
 const dailyFingerprint=(c?:Conversation)=>JSON.stringify(c?{id:c.id,timeline:c.activeTimelineId,epoch:c.timelineEpoch??0,updatedAt:c.updatedAt,memory:c.memoryStore?.revision}:null);
-export type SocialRequest={characterId:string;kind:'post'|'comment'|'reply';postId?:string;parentId?:string;automatic?:boolean};
+export type SocialRequest={characterId:string;kind:'post'|'comment'|'reply';postId?:string;parentId?:string;automatic?:boolean;reactionToken?:string};
 export async function socialContext(r:SocialRequest){
  const character=await db.characters.get(r.characterId);if(!character||!isDailyFriend(character))throw Error('该角色不属于当前日常联系人。');
  const found=await db.conversations.where('scopeKey').equals(JSON.stringify([character.id,'daily',''])).first();
@@ -44,7 +44,7 @@ export function generateSocial(r:SocialRequest){
  const task=(async()=>{
   const token=crypto.randomUUID();let claimed=false;
   try{
-   await changeChatHub(h=>{if(h.job)throw Error('朋友圈已有请求或待确认任务，不会重复调用。');if(r.automatic&&(!h.auto.enabled||(h.auto.nextAt??Infinity)>Date.now()))throw Error('尚未到发布时间。');h.job={token,kind:r.kind,characterId:r.characterId,postId:r.postId,parentId:r.parentId,expiresAt:Date.now()+120000};h.error=undefined;if(r.automatic){h.auto.nextAt=Date.now()+h.auto.hours*3600000;h.auto.cursor++;}});claimed=true;
+   await changeChatHub(h=>{if(r.reactionToken){const event=reactionEvent(h,r);if(event?.reaction?.token!==r.reactionToken||event.reaction.status!=='queued')throw Error('该互动已处理或状态待确认，不会重复请求。');event.reaction.status='running';}if(h.job)throw Error('朋友圈已有请求或待确认任务，不会重复调用。');if(r.automatic&&(!h.auto.enabled||(h.auto.nextAt??Infinity)>Date.now()))throw Error('尚未到发布时间。');h.job={token,kind:r.kind,characterId:r.characterId,postId:r.postId,parentId:r.parentId,expiresAt:Date.now()+120000,...(r.reactionToken?{reactionToken:r.reactionToken}:{})};h.error=undefined;if(r.automatic){h.auto.nextAt=Date.now()+h.auto.hours*3600000;h.auto.cursor++;}});claimed=true;
    const context=await socialContext(r);if(dailyFingerprint(await db.conversations.where('scopeKey').equals(context.c.scopeKey).first())!==context.dailyFingerprint)throw Error('日常资料已更新，未发出过期请求。');const {config,key}=await resolveApi(context.c);const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),120000);let text:string;
    try{let interrupted=false;text=await requestReply(config,key,context.messages,controller.signal,undefined,false,reason=>{interrupted=!!reason;});if(interrupted)throw Error('朋友圈回复未完整结束，原动态和评论保留；不会自动重试。');}finally{clearTimeout(timer);}
    if(!text.trim()||text.length>(r.kind==='post'?3000:1000))throw Error('朋友圈返回内容为空或超过本机容量，未改写原内容。');
@@ -53,13 +53,36 @@ export function generateSocial(r:SocialRequest){
     if(JSON.stringify(await db.characters.get(r.characterId))!==context.fingerprint)throw Error('角色资料已变化，未写入过期结果。');
     await changeChatHub(h=>{if(h.job?.token!==token||h.job.expiresAt<=Date.now())throw Error('任务已失效，未写入迟到结果。');
      if(r.kind==='post')h.posts.unshift({id:crypto.randomUUID(),author:context.author,text,images:[],liked:false,createdAt:Date.now(),comments:[]});
-     else {const p=h.posts.find(p=>p.id===r.postId),parent=r.parentId?p?.comments.find(c=>c.id===r.parentId):undefined;if(!p||p.text!==context.postText||(r.parentId&&parent?.text!==context.parentText))throw Error('原动态或评论已变化。');p.comments.push({id:crypto.randomUUID(),author:context.author,text,parentId:r.parentId,createdAt:Date.now()});}h.job=undefined;h.error=undefined;});
+     else {const p=h.posts.find(p=>p.id===r.postId),parent=r.parentId?p?.comments.find(c=>c.id===r.parentId):undefined;if(!p||p.text!==context.postText||(r.parentId&&parent?.text!==context.parentText))throw Error('原动态或评论已变化。');p.comments.push({id:crypto.randomUUID(),author:context.author,text,parentId:r.parentId,createdAt:Date.now()});}if(r.reactionToken){const event=reactionEvent(h,r);if(event?.reaction?.token!==r.reactionToken)throw Error('互动记录已变化，未写入过期结果。');event.reaction.status='done';}h.job=undefined;h.error=undefined;});
    });
-  }catch(e){if(claimed)await changeChatHub(h=>{if(h.job?.token===token){h.job=undefined;h.error=e instanceof Error?e.message.slice(0,500):'朋友圈请求失败，原内容保留。';if(r.automatic)h.auto.enabled=false;}}).catch(()=>{});throw e;}
+  }catch(e){if(claimed)await changeChatHub(h=>{if(h.job?.token===token){if(r.reactionToken){const event=reactionEvent(h,r);if(event?.reaction?.token===r.reactionToken)event.reaction.status='failed';}h.job=undefined;h.error=e instanceof Error?e.message.slice(0,500):'朋友圈请求失败，原内容保留。';if(r.automatic)h.auto.enabled=false;}}).catch(()=>{});throw e;}
  })();running.set(r.characterId,task);void task.finally(()=>{if(running.get(r.characterId)===task)running.delete(r.characterId);}).catch(()=>{});return task;
 }
 let checking=false;
 export async function runSocialSchedule(now=Date.now()){
  if(checking||document.visibilityState!=='visible')return;checking=true;
  try{const h=(await db.themes.get('global'))?.chatHub;if(!h?.auto.enabled||h.job||(h.auto.nextAt??Infinity)>now)return;const roles=(await db.characters.toArray()).filter(isDailyFriend).sort((a,b)=>a.id.localeCompare(b.id));if(!roles.length)return;await generateSocial({kind:'post',characterId:roles[h.auto.cursor%roles.length].id,automatic:true});}catch{/* Persisted error; explicit re-enable, never an automatic retry loop. */}finally{checking=false;}
+}
+
+/** Only explicit successful user writes call this; mounting, refresh, imports and AI writes never do. */
+function reactionEvent(h:ChatHubData,r:Pick<SocialRequest,'kind'|'postId'|'parentId'>){const post=h.posts.find(p=>p.id===r.postId);return r.kind==='comment'?post:post?.comments.find(c=>c.id===r.parentId);}
+let reactionTail:Promise<unknown>=Promise.resolve(),queuedReactions=0;
+export async function reactToUserSocialEvent(postId:string,commentId?:string){
+ const hub=(await db.themes.get('global'))?.chatHub,post=hub?.posts.find(p=>p.id===postId),comment=commentId?post?.comments.find(c=>c.id===commentId):undefined;
+ if(!post||(commentId?comment?.author.kind!=='user':post.author.kind!=='user'))return;
+ const kind=commentId?'reply':'comment',request={kind,postId,parentId:commentId} as const;
+ if(reactionEvent(hub!,request)?.reaction)return;
+ const roles=(await db.characters.toArray()).filter(isDailyFriend);let characterId:string|undefined;
+ if(comment){const parent=comment.parentId?post.comments.find(c=>c.id===comment.parentId):undefined;characterId=parent?.author.kind==='character'?parent.author.id:!comment.parentId&&post.author.kind==='character'?post.author.id:undefined;if(!characterId||!roles.some(c=>c.id===characterId))return;}
+ else {const conversations=await db.conversations.filter(c=>c.mode==='daily'&&!c.worldId&&roles.some(r=>r.id===c.characterId)).toArray();conversations.sort((a,b)=>b.updatedAt-a.updatedAt||a.characterId.localeCompare(b.characterId));characterId=conversations[0]?.characterId??roles.sort((a,b)=>a.id.localeCompare(b.id))[0]?.id;}
+ const token=crypto.randomUUID();let accepted=false;
+ await changeChatHub(h=>{const target=reactionEvent(h,request),current=h.posts.find(p=>p.id===postId);if(!target||target.author.kind!=='user'||target.reaction||!current)return;
+  const count=[current.reaction,...current.comments.map(c=>c.reaction)].filter(r=>r&&r.status!=='skipped').length;
+  const reason:SocialReaction['reason']=!characterId?'no-role':count>=3?'limit':queuedReactions>=4?'busy':undefined;
+  target.reaction={token,...(characterId?{characterId}:{}),status:reason?'skipped':'queued',...(reason?{reason}:{})};accepted=!reason;
+ });
+ if(!accepted)return;
+ queuedReactions++;
+ const task=reactionTail.then(async()=>{await Promise.allSettled([...running.values()]);try{await generateSocial({...request,characterId:characterId!,reactionToken:token});}catch(e){await changeChatHub(h=>{const event=reactionEvent(h,request);if(event?.reaction?.token===token&&event.reaction.status!=='done'){event.reaction.status='failed';h.error=e instanceof Error?e.message.slice(0,500):'自动互动失败，原内容已保留。';}}).catch(()=>{});throw e;}finally{queuedReactions--;}});
+ reactionTail=task.catch(()=>{});return task;
 }
