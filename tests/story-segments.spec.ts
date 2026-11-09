@@ -20,7 +20,7 @@ for(const [width,provider] of [[390,'openai-compatible'],[430,'gemini']] as cons
  expect(saved!.segments).toEqual(parts);expect(saved!.body).toBe(body);expect(JSON.stringify(request)).toContain('segments');
  await page.getByRole('button',{name:'剧本',exact:true}).click();await expect(page.locator('.story-speaker')).toHaveText(['夏以昼','夏以昼']);await expect(page.locator('.story-action-description')).toHaveCount(4);
  expect(await page.locator('.story-prose').evaluate(el=>Array.from(el.childNodes).map(n=>{const copy=n.cloneNode(true) as HTMLElement;copy.querySelectorAll?.('.story-speaker').forEach(e=>e.remove());return copy.textContent;}).join(''))).toBe(body);
- expect(await page.locator('.story-action-description').first().evaluate(el=>{const s=getComputedStyle(el);return [s.fontSize,s.color];})).toEqual(['14px','rgb(137, 154, 140)']);
+ expect(await page.locator('.story-action-description').first().evaluate(el=>{const s=getComputedStyle(el);return [s.fontSize,s.color];})).toEqual(['17px','rgb(64, 82, 73)']);
  expect(await page.locator('.story-paragraph').first().evaluate(el=>{const s=getComputedStyle(el);return [s.fontSize,s.lineHeight,s.textIndent];})).toEqual(['17px','28.05px','0px']);
  expect(await page.locator('.story-dialogue').first().evaluate(el=>getComputedStyle(el).backgroundColor)).toBe('rgb(234, 242, 233)');
  const reader=page.getByLabel('连续剧情',{exact:true});await reader.evaluate(el=>el.scrollTop=0);await page.screenshot({path:info.outputPath(`structured-reader-${width}.png`)});
