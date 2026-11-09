@@ -1,5 +1,5 @@
 /** Display-only, lossless slices. Never write these fragments to Message or context. */
-export function splitAssistantBubbles(content: string): string[] {
+export function legacyAssistantBubbles(content: string): string[] {
   if (!content.trim()) return [];
   // Complex Markdown is intentionally left intact; this is not a Markdown/RP parser.
   if (/`|~~~|\*\*|__|^\s*(?:#{1,6}\s|[-+]\s|\d+\.\s|\|)/m.test(content))
@@ -116,4 +116,55 @@ export function splitAssistantBubbles(content: string): string[] {
   }
   // An entirely punctuation-only reply has no visible bubble; Message stays intact.
   return bubbles;
+}
+
+/** Recognize complete roleplay wrappers only, never infer a fault from an open bracket.
+ * Returned slices retain every character including inter-bubble whitespace. */
+export function splitAssistantBubbles(content: string): string[] {
+  if (/`|~~~|\*\*|__|^\s*(?:#{1,6}\s|[-+]\s|\d+\.\s|\|)/m.test(content)) return legacyAssistantBubbles(content);
+  const spans: {start:number;end:number}[] = [];
+  const stack:string[]=[];
+  let start=0;
+  for(let i=0;i<content.length;i++) {
+    const c=content[i];
+    if(c==='\\'){i++;continue;}
+    const quoteEnd:Record<string,string>={'“':'”','「':'」','『':'』','"':'"'};
+    if(!stack.length&&quoteEnd[c]){
+      let end=i+1;while(end<content.length&&(content[end]!==quoteEnd[c]||content[end-1]==='\\'))end++;
+      if(end===content.length)return legacyAssistantBubbles(content);
+      i=end;continue;
+    }
+    if(c==='（'||c==='('){if(!stack.length)start=i;stack.push(c==='（'?'）':')');}
+    else if(c==='）'||c===')') {
+      if(stack.pop()!==c)return legacyAssistantBubbles(content);
+      if(!stack.length){
+        const inner=content.slice(start+1,i).trim();
+        // A subject + observable action/state is required. Explanations and
+        // quoted conditions are deliberately left as speech, not classified.
+        const roleplay=/^(?:我|他|她|你|我们|他们|她们|\*?I\b|he\b|she\b|you\b|看你|看着|低头|抬头|伸手|轻笑|微笑|转身|叹了|抓着|握住|心里|心想|窗外|屋里|房间里|四周|周围|空气中)/i.test(inner)
+          && /抬|低头|点头|摇头|看|望|走|笑|伸手|握|转身|叹|轻声|坐|站|呼吸|眨眼|抓|凑|皱|靠|心想|心里|沉默|smil|nod|whisper|turn|sigh|look|reach|walk|think|wonder|传来|响起|弥漫|安静|心跳/i.test(inner)
+          && !/^(?:比如|例如|也就是|即|注|备注|也许|如果|假如|要是)/.test(inner)
+          && !/看过这|仅作说明|补充说明|不是动作/.test(inner);
+        if(roleplay)spans.push({start,end:i+1});
+      }
+    }
+  }
+  if(!spans.length||(spans.length===1&&content.slice(0,spans[0].start).trim()===''&&content.slice(spans[0].end).trim()===''))return legacyAssistantBubbles(content);
+  const cuts=new Set<number>([0,content.length]);
+  for(const span of spans){cuts.add(span.start);cuts.add(span.end);}
+  const points=[...cuts].sort((a,b)=>a-b),out:string[]=[];
+  let pending='';
+  for(let i=1;i<points.length;i++){
+    const piece=content.slice(points[i-1],points[i]);
+    if(!piece.trim()){if(out.length)out[out.length-1]+=piece;else pending+=piece;}
+    else {
+      const completeAction=spans.some(s=>s.start===points[i-1]&&s.end===points[i]);
+      const fragments=completeAction?[pending+piece]:legacyAssistantBubbles(pending+piece);
+      if(fragments.length){out.push(...fragments);pending='';}
+      else if(out.length){out[out.length-1]+=pending+piece;pending='';}
+      else pending+=piece;
+    }
+  }
+  if(pending&&out.length)out[out.length-1]+=pending;
+  return out.join('')===content?out:[content];
 }

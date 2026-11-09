@@ -9,7 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "playwright test",
     "typecheck": "tsc -b",
-    "test:chat-regression": "playwright test tests/memory-integrity.spec.ts tests/chat-context-regression.spec.ts tests/request-diagnostics.spec.ts tests/memory-context.spec.ts tests/chat.spec.ts tests/lore-trigger.spec.ts tests/timelines.spec.ts tests/story-response.spec.ts tests/generation-tasks.spec.ts"
+    "test:chat-regression": "playwright test tests/daily-reply-integrity.spec.ts tests/bubbles.spec.ts tests/memory-integrity.spec.ts tests/chat-context-regression.spec.ts tests/request-diagnostics.spec.ts tests/memory-context.spec.ts tests/chat.spec.ts tests/lore-trigger.spec.ts tests/timelines.spec.ts tests/story-response.spec.ts tests/generation-tasks.spec.ts"
   },
   "dependencies": {
     "react": "^19.0.0",

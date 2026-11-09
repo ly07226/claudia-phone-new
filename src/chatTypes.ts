@@ -36,6 +36,7 @@ export interface MessageQuote {
   messageId:string; variantId?:string; role:"user"|"assistant"; part:BubblePart;
 }
 export interface Message {
+  replyInterruption?: import("./chatCompletion").ReplyInterruption;
   replyTo?: MessageQuote;
   bubbleDeletion?: BubbleDeletion;
   id: string;
@@ -65,6 +66,7 @@ export interface ContextMessage {
   content: string;
 }
 export interface MessageVariant {
+  replyInterruption?: import("./chatCompletion").ReplyInterruption;
   id: string;
   conversationId: string;
   messageId: string;

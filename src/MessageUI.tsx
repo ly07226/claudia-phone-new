@@ -107,7 +107,7 @@ export function ChatMessage({
   onLocate: (id:string,part:BubblePart)=>void;
 }) {
   const root=useRef<HTMLDivElement>(null);
-  const bubbles=useMemo(()=>messageBubbles(m),[m]);
+  const bubbles=useMemo(()=>messageBubbles(m,conversation.mode!=='daily'),[m,conversation.mode]);
   const fragments=bubbles.filter((p):p is Extract<BubblePart,{kind:'text'}>=>p.kind==='text');
   const openMenu=(target?:HTMLElement)=>{
     const element=target?.closest<HTMLElement>('[data-bubble-key]');

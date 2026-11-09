@@ -65,7 +65,7 @@ async function projectTimeline(id:string,t:MemoryTimeline) {
   const rows=await resolveTimelinePath(id,t.id);
   await db.messages.where("conversationId").equals(id).modify({archived:true});
   for(const row of rows){const old=await db.messages.get(row.id);if(old&&old.conversationId!==id)throw Error("消息 ID 跨会话冲突。");
-    if(row.activeVariantId){const v=await db.messageVariants.get(row.activeVariantId);if(v&&(v.conversationId!==id||v.messageId!==row.id))throw Error("版本 ID 跨会话冲突。");await db.messageVariants.put({...v,id:row.activeVariantId,conversationId:id,messageId:row.id,content:row.content,source:v?.source??"legacy",createdAt:v?.createdAt??row.createdAt,userEdited:row.userEdited});}
+    if(row.activeVariantId){const v=await db.messageVariants.get(row.activeVariantId);if(v&&(v.conversationId!==id||v.messageId!==row.id))throw Error("版本 ID 跨会话冲突。");await db.messageVariants.put({...v,id:row.activeVariantId,conversationId:id,messageId:row.id,content:row.content,source:v?.source??"legacy",createdAt:v?.createdAt??row.createdAt,userEdited:row.userEdited,replyInterruption:row.replyInterruption});}
     await db.messages.put({...row,archived:false});
   }
 }

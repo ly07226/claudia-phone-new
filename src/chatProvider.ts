@@ -1,3 +1,4 @@
+import {readChatResponse,completionReason,type ReplyInterruption} from './chatCompletion';
 import {ReplyRequestError,replyFailureDetails} from './replyFailure';
 import {linkRequestDiagnostics,recordRequestAttempt,recordRequestResponse,recordRequestFailure} from './chatRequestDiagnostics';
 import {
@@ -52,6 +53,7 @@ export async function requestReply(
   signal: AbortSignal,
   transport: ApiTransport = browserTransport,
   allowRoleFallback = true,
+  onCompletion?: (reason:ReplyInterruption|undefined)=>void,
 ): Promise<string> {
   const hasImages=messages.some(m=>m.images?.length);
   if(hasImages)assertImageProvider(c);
@@ -117,9 +119,15 @@ export async function requestReply(
     );
   }
   let data;
+  let interruption:ReplyInterruption|undefined;
   try {
-    data = await response.json();
-  } catch {
+    if(onCompletion){const result=await readChatResponse(response,gemini,signal);data=result.data;interruption=result.interruption;}
+    else data = await response.json();
+  } catch (error) {
+    if(onCompletion&&!(error instanceof SyntaxError)){
+      recordRequestFailure(messages,'network-error');
+      throw new ReplyRequestError(signal.aborted?"请求已取消或超时，已保存的消息不会丢失。":"回复传输中断，已保存的消息不会丢失。",replyFailureDetails({network:true}));
+    }
     recordRequestFailure(messages,'invalid-response',response.status);
     throw new ReplyRequestError("服务响应不是有效 JSON，请检查接口地址。",replyFailureDetails({httpStatus:response.status}));
   }
@@ -147,7 +155,7 @@ export async function requestReply(
           : `[${m.role === "system" ? "系统资料" : "角色历史或设定"}]\n${m.content}`,
     }));
     linkRequestDiagnostics(messages,fallback);
-    return requestReply(c, key, fallback, signal, transport, false);
+    return requestReply(c, key, fallback, signal, transport, false, onCompletion);
   }
   if (!response.ok || data?.error) {
     recordRequestFailure(messages,'http-error',response.status);
@@ -170,10 +178,18 @@ export async function requestReply(
     : data?.choices?.[0]?.message?.content;
   if (typeof content !== "string" || !content.trim()) {
     recordRequestFailure(messages,'invalid-response',response.status);
-    throw new ReplyRequestError("模型未返回文本，可能达到输出限制或被安全策略拦截。",replyFailureDetails({httpStatus:response.status,blocked:["SAFETY","RECITATION","PROHIBITED_CONTENT","BLOCKLIST","content_filter"].includes(gemini?data?.candidates?.[0]?.finishReason:data?.choices?.[0]?.finish_reason)||!!data?.promptFeedback?.blockReason}));
+    throw new ReplyRequestError(onCompletion&&completionReason(gemini?data?.candidates?.[0]?.finishReason:data?.choices?.[0]?.finish_reason)==='length'?"模型达到输出长度限制，但未返回可保存的文本。":onCompletion?"模型未返回文本，无法确认是否为输出限制或安全拦截。":"模型未返回文本，可能达到输出限制或被安全策略拦截。",replyFailureDetails({httpStatus:response.status,blocked:["SAFETY","RECITATION","PROHIBITED_CONTENT","BLOCKLIST","content_filter"].includes(gemini?data?.candidates?.[0]?.finishReason:data?.choices?.[0]?.finish_reason)||!!data?.promptFeedback?.blockReason}));
   }
   if (content.length > 100000) throw Error("模型响应过长，未保存回复。");
+  onCompletion?.(interruption??completionReason(gemini?data?.candidates?.[0]?.finishReason:data?.choices?.[0]?.finish_reason));
   recordRequestResponse(messages,content);
   // Never display credential echoes even from a misconfigured upstream.
   return key ? content.split(key).join("[凭据已隐藏]") : content;
+}
+
+/** Opt-in metadata for chat; existing Story/summary string contracts are unchanged. */
+export async function requestChatReply(c:ApiConfig,key:string,messages:ContextMessage[],signal:AbortSignal,transport:ApiTransport=browserTransport){
+ let interruption:ReplyInterruption|undefined;
+ const text=await requestReply(c,key,messages,signal,transport,true,reason=>{interruption=reason;});
+ return {text,interruption};
 }

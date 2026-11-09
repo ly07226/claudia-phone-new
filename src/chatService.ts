@@ -1,3 +1,5 @@
+import {appendContinuation,validInterruption} from './chatCompletion';
+import type {Message} from './chatTypes';
 import {assertQuoteForSend} from './messageReferences';
 import { attachmentImages, attachmentIds } from "./imageAttachments";
 import { assertImageProvider } from "./chatProvider";
@@ -15,7 +17,7 @@ import {
 import { db } from "./store";
 import type { Conversation, MessageQuote } from "./chatTypes";
 import { buildContext, contextLimits } from "./chatContext";
-import { requestReply } from "./chatProvider";
+import { requestReply,requestChatReply } from "./chatProvider";
 export async function getConversation(characterId: string, worldId?: string) {
   return db.transaction(
     "rw",
@@ -125,7 +127,11 @@ async function storeImageReferences(c:Conversation,images:string[]){
   const drafts={...c.imageDrafts};delete drafts[c.activeTimelineId||''];
   await db.conversations.update(c.id,{imageDrafts:drafts});
 }
+export async function continueMessage(id:string,messageId:string,signal?:AbortSignal,expectedPath?:ExpectedPath,onSaved?:(path:ExpectedPath)=>Promise<void>){
+ return generate(id,{messageId,continuation:true,expectedPath,onSaved},signal);
+}
 interface GenerateOptions {
+  continuation?:boolean;
   replyTo?: MessageQuote;
   images?: string[];
   expectedPath?: ExpectedPath;
@@ -152,6 +158,8 @@ async function generate(
   signal?.addEventListener("abort", abort, { once: true });
   if (signal?.aborted) abort();
   const timeout = setTimeout(abort, 60000);
+  let target:Message|undefined;
+  let interruption:import("./chatCompletion").ReplyInterruption|undefined;
   let acquired = false;
   let release = () => {};
   try {
@@ -174,6 +182,10 @@ async function generate(
             (m) => m.id === options.messageId && m.role === "assistant",
           );
           if (index < 0) throw Error("目标 AI 回复不在当前有效路径。");
+          if(options.continuation){
+            target=rows[index];
+            if(c.mode!=='daily'||index!==rows.length-1||!validInterruption(target.replyInterruption)||target.bubbleDeletion||target.userEdited)throw Error('仅可续接当前日常聊天末尾未编辑、未删除的中断回复。');
+          }
           if (index < rows.length - 1 && !options.allowArchive)
             throw Error("重新生成历史回复前请确认归档后续剧情。");
         } else {
@@ -209,8 +221,17 @@ async function generate(
       (await db.conversations.get(id))?.sendingToken !== token
     )
       throw Error("请求已取消，原消息和版本已保留。");
-    const reply = await requestReply(config, key, context, controller.signal);
-    if (controller.signal.aborted)
+    if(options.continuation&&target){
+      if(context.reduce((n,m)=>n+m.content.length,0)+target.content.length+300>contextLimits.historyChars+contextLimits.systemChars)throw Error('续接上下文超出安全预算，原回复已保留；未发出额外请求。');
+      context[0]={...context[0],content:context[0].content+'\n本次是用户主动要求续接已中断的同一条回复。仅返回接在原文末尾的新内容，不重述前文，不另起一个无关回复；原文未闭合的句子从断点继续。'};
+      context.push({role:'assistant',content:target.content},{role:'user',content:'[续接操作：请从上条角色回复的断点继续，仅输出后续文字。此操作不是新的剧情行动。]'});
+      if(context[0].content.length>contextLimits.systemChars)throw Error('续接系统上下文超出安全预算，原回复已保留；未发出额外请求。');
+    }
+    const result=c.mode==='daily'?await requestChatReply(config,key,context,controller.signal):{text:await requestReply(config,key,context,controller.signal),interruption:undefined};
+    interruption=result.interruption;
+    const reply=options.continuation&&target?appendContinuation(target.content,result.text):result.text;
+    const preserveTimeout=interruption==='timeout'&&!signal?.aborted;
+    if (controller.signal.aborted&&!preserveTimeout)
       throw Error("请求已取消，原消息和版本已保留。");
     const committed=await db.transaction("rw", messageTables(), async () => {
       const current = await db.conversations.get(id);
@@ -218,7 +239,7 @@ async function generate(
         !current ||
         current.sendingToken !== token ||
         current.activeTimelineId !== c.activeTimelineId || current.timelineEpoch !== c.timelineEpoch ||
-        controller.signal.aborted
+        (controller.signal.aborted&&!preserveTimeout)
       )
         return;
       const rows = await activeMessages(id);
@@ -228,6 +249,7 @@ async function generate(
         );
         if (index < 0) return;
         const m = rows[index];
+        if(options.continuation&&(!target||m.content!==target.content||m.activeVariantId!==target.activeVariantId||m.bubbleDeletion||m.userEdited||index!==rows.length-1))throw Error('回复或分支已变化，续接未覆盖原文。');
         if (index < rows.length - 1) {
           if (!options.allowArchive)
             throw Error("后续剧情已变化，请重新确认。");
@@ -236,7 +258,7 @@ async function generate(
             await db.messages.update(later.id, { archived: true });
         }
         await ensureVariant(m);
-        await addGeneratedVariant(m, reply);
+        await addGeneratedVariant(m, reply,interruption);
       } else {
         const last = rows.at(-1);
         const m = {
@@ -247,9 +269,13 @@ async function generate(
           createdAt: Math.max(Date.now(), (last?.createdAt || 0) + 1),
         };
         await db.messages.add(m);
-        await addGeneratedVariant(m, reply);
+        await addGeneratedVariant(m, reply,interruption);
       }
-      await commitTimelineProjection(id,options.messageId?"regenerate":"append");
+      const nextPath=await commitTimelineProjection(id,options.messageId?"regenerate":"append");
+      // Continuation changes only the assistant version. Carry an unsent image
+      // draft onto that new projection without consuming it or changing its source.
+      const draft=current.imageDrafts?.[current.activeTimelineId||''];
+      if(options.continuation&&draft&&nextPath.id!==current.activeTimelineId)await db.conversations.update(id,{imageDrafts:{...current.imageDrafts,[nextPath.id]:draft}});
       await db.conversations.update(id, { updatedAt: Date.now() });
       return true;
     });
@@ -269,7 +295,8 @@ async function generate(
       });
   }
   // Detached from views and from normal reply completion. No auto retry on failure.
-  if(!options.messageId)void import('./memorySummary').then(m=>m.tryAutoSummary(id)).catch(()=>{});
+  if(!options.messageId&&!interruption)void import('./memorySummary').then(m=>m.tryAutoSummary(id)).catch(()=>{});
+  return {interruption};
 }
 async function purgeRecords(id: string) {
   cancelGeneration(id);

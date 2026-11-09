@@ -3,7 +3,7 @@ import {db} from './store';
 import {ensureTimelineInTransaction,timelineTables} from './timelines';
 import {activeMessages} from './messagePath';
 import type {Conversation,Message,MessageQuote} from './chatTypes';
-import {messageBubbles,samePart,validPart,type BubblePart} from './messageBubbles';
+import {hasVisiblePart,validPart,type BubblePart} from './messageBubbles';
 import type {ExpectedPath} from './chatService';
 export function quoteShape(q:unknown):q is MessageQuote{
  if(!q||typeof q!=='object')return false;const x=q as MessageQuote;
@@ -12,7 +12,7 @@ export function quoteShape(q:unknown):q is MessageQuote{
 export function quotedMessage(q:MessageQuote,rows:Message[],c:Pick<Conversation,'id'|'timelineEpoch'>){
  if(!quoteShape(q)||q.conversationId!==c.id||q.epoch!==(c.timelineEpoch??0))return undefined;
  const source=rows.find(m=>m.id===q.messageId&&m.role===q.role&&m.activeVariantId===q.variantId);
- return source&&messageBubbles(source).some(p=>samePart(p,q.part))?source:undefined;
+ return source&&hasVisiblePart(source,q.part)?source:undefined;
 }
 export function quoteSummary(q:MessageQuote){return q.part.kind==='image'?'图片':q.part.text.trim().slice(0,180);}
 export async function assertQuoteForSend(q:MessageQuote,c:Conversation,rows:Message[]){
@@ -24,7 +24,7 @@ export async function prepareQuote(id:string,messageId:string,part:BubblePart,ex
  return db.transaction('rw',timelineTables(),async()=>{
   const c=await db.conversations.get(id);if(!c||c.activeTimelineId!==expected.timelineId||(c.timelineEpoch??0)!==expected.epoch)throw Error('聊天分支已变化，请重新长按消息。');
   const t=await ensureTimelineInTransaction(id),rows=await activeMessages(id),m=rows.find(m=>m.id===messageId);
-  if(!m||!['user','assistant'].includes(m.role)||m.content!==base.content||m.activeVariantId!==base.activeVariantId||!messageBubbles(m).some(p=>samePart(p,part)))throw Error('消息或气泡已变化，请重新选择引用。');
+  if(!m||!['user','assistant'].includes(m.role)||m.content!==base.content||m.activeVariantId!==base.activeVariantId||!hasVisiblePart(m,part))throw Error('消息或气泡已变化，请重新选择引用。');
   return {version:1,conversationId:id,timelineId:t.id,epoch:t.epoch,messageId:m.id,variantId:m.activeVariantId,role:m.role as 'user'|'assistant',part:structuredClone(part)} satisfies MessageQuote;
  });
 }
@@ -36,7 +36,7 @@ export async function validateQuoteReference(d:Dexie,m:Message){
  if(!c||!t||t.conversationId!==c.id||t.characterId!==c.characterId||t.worldId!==c.worldId||t.epoch!==q.epoch)throw Error('引用跨会话、世界或时间线。');
  const seen=new Set<string>();let id=t.headNodeId;
  while(id){if(seen.has(id))throw Error('引用来源路径有环。');seen.add(id);const node=await d.table('pathNodes').get(id);if(!node||node.conversationId!==c.id)throw Error('引用来源路径断裂。');const source=node.message as Message;
-  if(source.id===q.messageId&&source.role===q.role&&source.activeVariantId===q.variantId&&messageBubbles(source).some(p=>samePart(p,q.part)))return;
+  if(source.id===q.messageId&&source.role===q.role&&source.activeVariantId===q.variantId&&hasVisiblePart(source,q.part))return;
   id=node.parentNodeId;
  }
  throw Error('引用来源消息或版本不存在于声明的历史路径。');

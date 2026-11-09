@@ -1,3 +1,4 @@
+import {interruptionLabel,validInterruption} from './chatCompletion';
 import {ReplyPending,ReplyFailureNotice} from './ReplyStatus';
 import {describeReplyFailure} from './replyFailure';
 import {prepareQuote,quoteSummary} from './messageReferences';
@@ -495,6 +496,14 @@ export function Chat({ worldId }: { worldId?: string }) {
                 }}
                 onVersion={(v) => void chooseVariant(m, v)}
               />
+              {m.role==='assistant'&&conversation.mode==='daily'&&validInterruption(m.replyInterruption)&&<p role="status" className="hint">
+                {interruptionLabel(m.replyInterruption)}
+                {m.id===messages.at(-1)?.id&&!m.userEdited&&!m.bubbleDeletion&&<button type="button" className="text-button" title="会额外调用一次 API，原文保留。" disabled={busy} onClick={()=>{
+                  if(busy)return;
+                  setError('');
+                  try{const task=startGenerationTask({conversation,expectedPath:{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0},text:'',retry:false,continuationId:m.id,images:[]});void task.done.catch(e=>{if(activeConversation.current===conversation.id)setError(e instanceof Error?e.message:'续接失败，原文已保留。');});}catch(e){setError(e instanceof Error?e.message:'续接未发起。');}
+                }}>继续生成</button>}
+              </p>}
               </Fragment>
             ))}
             {remotePending&&<p role="status">请求状态待确认：可能仍在其他窗口处理中。可等待，或停止后手动重试；不会自动重复请求。</p>}

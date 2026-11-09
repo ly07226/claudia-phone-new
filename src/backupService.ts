@@ -1,3 +1,4 @@
+import {validInterruption} from './chatCompletion';
 import {validateThemeAppearance} from './themeCSS';
 import {validateStoryDatabase,validateStoryPreferences} from './storyValidation';
 import {validateScriptConfig} from './scriptValidation';
@@ -972,6 +973,7 @@ export async function validateReferences(
       bad("messages.shape/parent");
       return;
     }
+    if(x.replyInterruption!==undefined&&(x.role!=="assistant"||!validInterruption(x.replyInterruption)))bad("messages.replyInterruption");
     try{validateBubbleDeletion(x);await validateQuoteReference(d,x);}catch{bad("messages.bubbles/quote");}
     try{await attachmentImages(d,x);}catch{bad("messages.attachments");}
     if (x.activeVariantId) {
@@ -998,6 +1000,7 @@ export async function validateReferences(
         typeof x.content !== "string"
       )
         bad("messageVariants.parent");
+      if(x.replyInterruption!==undefined&&!validInterruption(x.replyInterruption))bad("messageVariants.replyInterruption");
     },
     signal,
   );

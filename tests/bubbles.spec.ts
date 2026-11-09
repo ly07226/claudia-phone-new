@@ -38,7 +38,8 @@ test("纯函数：自然句、换行、动作与混合语言分段且逐字保�
   expect(results[1].pieces.every((p) => p.length <= 100)).toBe(true);
   expect(results[2].pieces).toHaveLength(1); // Never cut a long sentence at commas.
   expect(results[3].pieces).toHaveLength(3);
-  expect(results[4].pieces[0]).toContain("“今天要一起出去吗？”");
+  expect(results[4].pieces[0]).toBe("（他抬起头，轻轻笑了笑。）");
+  expect(results[4].pieces[1]).toContain("“今天要一起出去吗？”");
   expect(results[5].pieces.length).toBeGreaterThan(1);
   expect(results[5].pieces.every((p) => p.length <= 180)).toBe(true);
   expect(results[6].pieces.length).toBeGreaterThan(1);
@@ -99,7 +100,7 @@ test("旧消息分组显示、用户不拆、单版本隐藏，多版本整组�
 }) => {
   const { original, conversationId } = await openLegacy(page);
   const ai = page.locator(".chat-assistant");
-  await expect(ai.locator(".chat-bubble-surface")).toHaveCount(3);
+  await expect(ai.locator(".chat-bubble-surface")).toHaveCount(4);
   await expect(page.locator(".chat-user .chat-bubble-surface")).toHaveCount(1);
   await expect(
     page.locator(".chat-message-row-assistant .chat-avatar"),
@@ -147,7 +148,7 @@ test("旧消息分组显示、用户不拆、单版本隐藏，多版本整组�
   expect(state.variants.find((v) => v.id === "bubble-v1")?.content).toBe(
     original,
   );
-  expect(state.version).toBe(6);
+  expect(state.version).toBe(7);
 });
 
 test("长按任意片段复制和编辑完整消息，删除仅作用于所选气泡并保留历史原文", async ({
@@ -193,7 +194,7 @@ test("长按任意片段复制和编辑完整消息，删除仅作用于所选�
   const edited = original + "\n编辑后的完整第四段。";
   await page.getByLabel("编辑消息内容").fill(edited);
   await page.getByRole("button", { name: "仅保存修改" }).click();
-  await expect(surfaces).toHaveCount(4);
+  await expect(surfaces).toHaveCount(5);
   expect((await surfaces.locator("p").allTextContents()).join("")).toBe(edited);
   await page
     .locator(".chat-assistant")
@@ -210,7 +211,7 @@ test("长按任意片段复制和编辑完整消息，删除仅作用于所选�
   page.once("dialog", (d) => {expect(d.message()).toContain("仅删除这条消息");return d.accept();});
   await page.getByRole("button", { name: "删除", exact: true }).click();
   await expect(page.locator(".chat-assistant")).toHaveCount(1);
-  await expect(surfaces).toHaveCount(3);
+  await expect(surfaces).toHaveCount(4);
   await expect(surfaces.locator("p")).toHaveText(beforeDelete.slice(1));
   const stored=await page.evaluate(async()=>{const {db}=await import("/src/store.ts");const m=(await db.messages.get("bubble-ai"))!;return {content:m.content,variant:(await db.messageVariants.get(m.activeVariantId!))?.content};});
   expect(stored.content).toBe(edited);expect(stored.variant).toBe(edited);
@@ -252,7 +253,7 @@ test("2.3.4.3 短句直接分泡、连续标点闭合引号、动作及空白保
     ["“先走吧。”“明天见！”", ["“先走吧。”", "“明天见！”"]],
     [
       "（他抬起头，笑了笑。）“我在这里。”",
-      ["（他抬起头，笑了笑。）“我在这里。”"],
+      ["（他抬起头，笑了笑。）", "“我在这里。”"],
     ],
     ["*他轻声笑了笑。*“别担心！”", ["*他轻声笑了笑。*“别担心！”"]],
     [

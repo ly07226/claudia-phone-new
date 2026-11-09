@@ -103,8 +103,14 @@ export async function buildContext(
   const memory=await memoryContext(conversation,originalPath,available);
   // Keep memory data in the first systemInstruction for Gemini as well as OpenAI.
   const result=memory ? [{...timed[0],content:timed[0].content+memory},...timed.slice(1)] : timed;
+  // This optional default must never reject/truncate a previously valid persona,
+  // displace lore, time, or scoped memories, or change World's request contract.
+  const guidance="\n日常交流默认采用即时通讯的自然节奏，一次回应当前这轮消息，留出对方回应的空间；避免不必要的长篇动作、心理描写和连续独白，不替用户连续推进多个回合。角色资料、用户自定义要求及当前明确要求详细说明或长篇内容时，按其实际需要完整回应，不设固定字数。";
+  const addGuidance=conversation.mode==='daily'&&result.filter(m=>m.role==='system').reduce((n,m)=>n+m.content.length,0)+guidance.length<=contextLimits.systemChars;
+  if(addGuidance)result[0]={...result[0],content:result[0].content+guidance};
   if(requestDebugEnabled()){
     const sources:SourceInput[]=[{source:'persona',text:system.slice(0,profileChars),role:'system'},{source:conversation.mode==='world'?'world':'mode',text:system.slice(profileChars),role:'system'},...lore.entries.map(e=>({source:'lore' as const,text:e.content,role:e.role,position:e.insertionPosition,depth:e.insertionDepth,scope:lore.entryScopes[e.id]})),...requestHistory.map(m=>({source:'history' as const,text:m.content,role:m.role}))];
+    if(addGuidance)sources.push({source:'mode',text:guidance,role:'system'});
     if(time)sources.push({source:'time',text:time.content,role:'system'});
     if(memory)sources.push({source:'memory',text:memory,role:'system'});
     const trace=lastMemoryContextTrace(conversation.id);
