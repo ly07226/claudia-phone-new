@@ -56,6 +56,7 @@ export interface DesktopItem {
   icon?: string;
 }
 export interface Theme {
+  chatHub?: import("./chatHubTypes").ChatHubData;
   storyReading?: StoryReadingPreferences;
   palette?: ThemePalette;
   customCss?: ThemeCSS;
@@ -307,7 +308,7 @@ export const usePhone = create<State>((set, get) => ({
     try {
       const saved = await db.transaction("rw", db.themes, async () => {
         const current = await db.themes.get(theme.id);
-        const saved:Theme = {...(current??defaultTheme),...theme, userIdentities: current?.userIdentities ?? theme.userIdentities, storyReading: current ? current.storyReading : theme.storyReading};
+        const saved:Theme = {...(current??defaultTheme),...theme, userIdentities: current?.userIdentities ?? theme.userIdentities, storyReading: current ? current.storyReading : theme.storyReading, chatHub: current ? current.chatHub : theme.chatHub};
         if(!saved.palette)delete saved.palette;
         if(!saved.customCss)delete saved.customCss;
         await db.themes.put(saved);

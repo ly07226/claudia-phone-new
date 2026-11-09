@@ -1,3 +1,4 @@
+import {remapChatHub} from './chatHubTypes';
 import {storySchemas} from './storyTypes';
 import Dexie from 'dexie';
 import {db,defaultTheme,defaultItems} from './store';
@@ -167,7 +168,7 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
     let theme={...(localTheme??defaultTheme)};
     if(options.desktop&&options.mode==='overwrite'){
       await result.table('pages').clear();await result.table('items').clear();for(const table of ['pages','items'] as const)await eachBackupRow(source,table,async a=>{const row={...a};if(row.icon)row.icon=await map('assets',row.icon);await put(table,row);},c.signal);
-      if(sourceTheme){theme={...sourceTheme,userIdentities:localTheme?.userIdentities};if(theme.wallpaper)theme.wallpaper=await map('assets',theme.wallpaper);}
+      if(sourceTheme){theme={...sourceTheme,userIdentities:localTheme?.userIdentities,chatHub:localTheme?.chatHub};if(theme.wallpaper)theme.wallpaper=await map('assets',theme.wallpaper);}
       await eachBackupRow(source,'themes',async a=>{if(a.id!=='global'){const row={...a};if(row.wallpaper)row.wallpaper=await map('assets',row.wallpaper);if(row.worldId)row.worldId=await map('worlds',row.worldId);if(options.identities&&row.userIdentities){const ids:Record<string,any>=Object.create(null);for(const [k,v] of Object.entries(row.userIdentities) as [string,any][]){const key=k.startsWith('world:')?'world:'+await map('worlds',k.slice(6)):k;ensure(key==='daily'||key.startsWith('world:'),'用户身份作用域不受支持，未省略未知资料。');ids[key]={...v,...(v.avatar?{avatar:await map('assets',v.avatar)}:{})};}row.userIdentities=ids;}else row.userIdentities=(await result.table('themes').get(row.id))?.userIdentities;await put('themes',row);}},c.signal);
     }else if(options.desktop&&options.mode==='merge')warnings.push('合并保留当前桌面、布局和外观；若要替换外观，请另选覆盖恢复及外观范围。');
     if(options.identities&&sourceTheme?.userIdentities){let identities:Record<string,any>=options.mode==='overwrite'?Object.create(null):{...theme.userIdentities};
@@ -175,6 +176,11 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
         ensure(key==='daily'||(key.startsWith('world:')&&await result.table('worlds').get(key.slice(6))),'用户身份依赖未导入的世界，请同时导入剧情内容。');const identity={...original};if(identity.avatar)identity.avatar=await map('assets',identity.avatar);
         if(options.mode==='merge'&&identities[key]&&options.identityConflict==='keep'){if(JSON.stringify(identities[key])!==JSON.stringify(identity))warnings.push(`${key==='daily'?'日常':'世界'}身份冲突：按选择保留当前身份。`);continue;}identities[key]=identity;
       }theme.userIdentities=identities;
+    }
+    if(sourceTheme?.chatHub&&graph){
+      const incoming=await remapChatHub(sourceTheme.chatHub,id=>map('assets',id),async id=>{if(await source.table('characters').get(id))return map('characters',id);let missing='social-deleted:'+id;while(await result.table('characters').get(missing))missing+=':deleted';return missing;});
+      if(options.mode==='merge'&&localTheme?.chatHub){const existing=structuredClone(localTheme.chatHub);const known=new Map(existing.posts.map((p:any)=>[p.id,p]));for(const p of incoming.posts){let local=known.get(p.id) as typeof p|undefined;const owner=(a:any)=>JSON.stringify([a.kind,a.id??'']);if(local&&(owner(local.author)!==owner(p.author)||p.comments.some(c=>{const old=local!.comments.find(x=>x.id===c.id);return old&&owner(old.author)!==owner(c.author);} ))){p.id='social-import-'+(await sha(utf8(ns+':'+p.id+':'+JSON.stringify([p.author,...p.comments.map(c=>c.author)])))).slice(0,48);local=known.get(p.id) as typeof p|undefined;}if(!local){existing.posts.push(p);continue;}ensure(local.text===p.text&&local.author.kind===p.author.kind&&local.author.id===p.author.id&&local.author.name===p.author.name&&local.author.avatar===p.author.avatar,'朋友圈动态ID冲突，未覆盖原内容。');const comments=new Map(local.comments.map(c=>[c.id,c]));for(const c of p.comments){const prior=comments.get(c.id);if(prior)ensure(prior.text===c.text&&prior.author.kind===c.author.kind&&prior.author.id===c.author.id&&prior.author.name===c.author.name&&prior.author.avatar===c.author.avatar,'朋友圈评论ID冲突，未覆盖原内容。');else local.comments.push(c);}}existing.posts.sort((a:any,b:any)=>b.createdAt-a.createdAt);existing.job=undefined;existing.auto.enabled=false;theme.chatHub=existing;}
+      else theme.chatHub=incoming;
     }
     await put('themes',theme);
     // Preserved identity scopes must still refer to retained worlds.

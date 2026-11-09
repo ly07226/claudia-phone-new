@@ -1,3 +1,4 @@
+import {openChatFeatures,returnToChat,chatTab} from './chatHubNavigation';
 import {test,expect,type Page} from '@playwright/test';
 import {isolatedApp} from './backupBrowser';
 async function setup(page:Page){
@@ -14,8 +15,8 @@ async function setup(page:Page){
 test('设置独立持久化；三条即时保存零请求，手动回复一次读取全部；失焦不误触',async({page})=>{
   const {a,b}=await setup(page);let requests:any[]=[];
   await page.route('https://continuous.test/**',async r=>{requests.push(r.request().postDataJSON());await r.fulfill({json:{choices:[{message:{content:'收到全部消息'}}]}});});
-  await page.getByRole('button',{name:'聊天',exact:true}).click();await page.getByRole('button',{name:'连续角色 开始 / 继续聊天'}).click();
-  await page.getByRole('button',{name:'会话管理',exact:true}).click();await page.getByRole('switch',{name:'连续发送模式'}).click();await expect(page.getByRole('switch',{name:'连续发送模式'})).toBeChecked();await page.getByRole('button',{name:'返回聊天',exact:true}).click();
+  await page.getByRole('button',{name:'聊天',exact:true}).click();await chatTab(page);await page.getByRole('button',{name:'连续角色 开始 / 继续聊天'}).click();
+  await openChatFeatures(page);await page.getByRole('switch',{name:'连续发送模式'}).click();await expect(page.getByRole('switch',{name:'连续发送模式'})).toBeChecked();await returnToChat(page);
   for(const text of ['第一条','第二条','第三条']){await page.getByLabel('聊天消息',{exact:true}).fill(text);await page.getByRole('button',{name:'发送',exact:true}).click();await expect(page.getByLabel('聊天消息',{exact:true})).toBeEnabled();await expect(page.locator('.chat-history')).toContainText(text);}
   await page.getByLabel('聊天消息',{exact:true}).blur();expect(requests).toHaveLength(0);
   await page.getByRole('button',{name:'AI 回复',exact:true}).evaluate(el=>{(el as HTMLButtonElement).click();(el as HTMLButtonElement).click();});
@@ -40,7 +41,7 @@ test('连续点击及触屏发送保持同一输入框焦点；IME、换行和�
   const {a}=await setup(page);let calls=0;
   await page.route('https://continuous.test/**',async r=>{calls++;await r.fulfill({json:{choices:[{message:{content:'手动回复'}}]}});});
   await page.evaluate(async id=>{await(await import('/src/chatPreferences.ts')).saveChatSettings(id,{continuousSend:true});},a.id);
-  await page.getByRole('button',{name:'聊天',exact:true}).click();await page.getByRole('button',{name:'连续角色 开始 / 继续聊天'}).click();
+  await page.getByRole('button',{name:'聊天',exact:true}).click();await chatTab(page);await page.getByRole('button',{name:'连续角色 开始 / 继续聊天'}).click();
   const input=page.getByLabel('聊天消息',{exact:true});
   await input.evaluate(el=>{(window as any).__composer=el;(window as any).__composerBlur=0;el.addEventListener('blur',()=>{(window as any).__composerBlur++;});});
   for(const [i,text] of ['一','二','三'].entries()){
@@ -66,7 +67,7 @@ test('连续模式软键盘发送提示、双闪光保持原按钮尺寸及反�
   const {a}=await setup(page);let calls=0;
   await page.route('https://continuous.test/**',async r=>{calls++;await r.fulfill({json:{choices:[{message:{content:'星星回复'}}]}});});
   await page.evaluate(async id=>{await(await import('/src/chatPreferences.ts')).saveChatSettings(id,{continuousSend:true});},a.id);
-  await page.getByRole('button',{name:'聊天',exact:true}).click();await page.getByRole('button',{name:'连续角色 开始 / 继续聊天'}).click();
+  await page.getByRole('button',{name:'聊天',exact:true}).click();await chatTab(page);await page.getByRole('button',{name:'连续角色 开始 / 继续聊天'}).click();
   const input=page.getByLabel('聊天消息',{exact:true}),star=page.getByRole('button',{name:'AI 回复',exact:true});
   await expect(input).toHaveAttribute('enterkeyhint','send');await expect(star.locator('svg')).toHaveAttribute('data-icon','double-sparkle');await expect(star.locator('svg')).toHaveAttribute('width','24');await expect(star.locator('svg path').first()).toHaveAttribute('fill','none');await expect(star.locator('svg path').first()).toHaveAttribute('stroke-width','1.4');await expect(star.locator('svg path').last()).toHaveAttribute('fill','currentColor');await expect(star).toHaveCSS('background-color','rgba(0, 0, 0, 0)');await expect(star).toHaveCSS('box-shadow','none');await expect(star.locator('svg path')).toHaveCount(2);await expect(star.locator('span')).toHaveCSS('visibility','hidden');
   const dimensions=await star.evaluate(el=>{const current=el.getBoundingClientRect();const copy=el.cloneNode(true) as HTMLElement;copy.removeAttribute('class');copy.removeAttribute('title');copy.querySelector('svg')?.remove();copy.textContent='AI 回复';el.parentElement!.append(copy);const old=copy.getBoundingClientRect();copy.remove();return {width:current.width,height:current.height,oldWidth:old.width,oldHeight:old.height};});expect(dimensions.width).toBe(dimensions.oldWidth);expect(dimensions.height).toBe(dimensions.oldHeight);
@@ -78,5 +79,5 @@ test('连续模式软键盘发送提示、双闪光保持原按钮尺寸及反�
 
   await input.fill('键盘发送');await input.press('Enter');await expect(page.locator('.chat-history')).toContainText('键盘发送');await expect(input).toHaveValue('');await expect(input).toBeFocused();expect(calls).toBe(0);
   await star.hover();await page.mouse.down();await expect(star.locator('svg')).toHaveCSS('opacity','0.65');await expect(star).toHaveCSS('background-color','rgba(0, 0, 0, 0)');await page.mouse.up();await expect(page.locator('.chat-history')).toContainText('星星回复');expect(calls).toBe(1);
-  await page.getByRole('button',{name:'会话管理',exact:true}).click();await page.getByRole('switch',{name:'连续发送模式'}).click();await expect(page.getByRole('switch',{name:'连续发送模式'})).not.toBeChecked();await page.getByRole('button',{name:'返回聊天',exact:true}).click();await expect(input).not.toHaveAttribute('enterkeyhint','send');await expect(star).toHaveCount(0);
+  await openChatFeatures(page);await page.getByRole('switch',{name:'连续发送模式'}).click();await expect(page.getByRole('switch',{name:'连续发送模式'})).not.toBeChecked();await returnToChat(page);await expect(input).not.toHaveAttribute('enterkeyhint','send');await expect(star).toHaveCount(0);
 });

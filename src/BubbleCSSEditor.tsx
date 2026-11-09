@@ -1,0 +1,21 @@
+import {useEffect,useRef,useState} from 'react';
+import {createPortal} from 'react-dom';
+import {ChevronLeft} from 'lucide-react';
+import {ChatMessage} from './MessageUI';
+import {usePhone} from './store';
+import {splitBubbleCSS,checkBubbleCSS,saveBubbleCSS} from './bubbleCSS';
+import {compileThemeCSS} from './themeCSS';
+function BubblePreview({source}:{source:string}){
+ const host=useRef<HTMLDivElement>(null),[root,setRoot]=useState<ShadowRoot|null>(null);const s=usePhone();
+ useEffect(()=>{if(host.current)setRoot(host.current.shadowRoot??host.current.attachShadow({mode:'open'}));},[]);
+ const styles=Array.from(document.styleSheets).flatMap(sheet=>{try{if((sheet.ownerNode as HTMLElement)?.dataset?.themeCustom)return [];return Array.from(sheet.cssRules).filter(r=>r.type!==CSSRule.IMPORT_RULE).map(r=>r.cssText.replace(/html\[data-theme-palette\]\s*/g,''));}catch{return [];}}).join('\n');
+ const rows=[{id:'preview-user',role:'user' as const,content:'这是用户的气泡预览。'},{id:'preview-ai',role:'assistant' as const,content:'这是角色的气泡预览。'}].map(m=>({...m,conversationId:'bubble-preview',createdAt:1}));const c={id:'bubble-preview',characterId:'preview-character',mode:'daily' as const,scopeKey:'preview',createdAt:1,updatedAt:1};
+ return <div ref={host} aria-label="气泡效果预览">{root&&createPortal(<><style>{styles+'\n.phone.bubble-preview-frame{position:static!important;display:block!important;width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;transform:none!important;margin:0!important;padding:12px!important;border:0!important;box-shadow:none!important;overflow:hidden!important}.bubble-preview-frame .chat-message-row{margin:12px 0;}'+compileThemeCSS(source)}</style><div className="phone bubble-preview-frame" data-theme-editing="false">{rows.map(m=><ChatMessage key={m.id} message={m} conversation={c} messages={rows} variants={[]} characterName="角色" userName="你" onMenu={()=>{}} onVersion={()=>{}} onLocate={()=>{}}/>)}</div></>,root)}</div>;
+}
+export function BubbleCSSEditor({onBack}:{onBack:()=>void}){
+ const theme=usePhone(s=>s.theme),initial=splitBubbleCSS(theme.customCss?.source??'').bubble;
+ const [source,setSource]=useState(initial),[base,setBase]=useState(initial),[preview,setPreview]=useState(initial),[error,setError]=useState(''),[notice,setNotice]=useState(''),[working,setWorking]=useState(false),[confirm,setConfirm]=useState(false);const dialog=useRef<HTMLDialogElement>(null);
+ useEffect(()=>{if(confirm)dialog.current?.showModal();},[confirm]);
+ async function save(value:string){setWorking(true);setError('');try{const saved=await saveBubbleCSS(value,base);setBase(saved);setSource(saved);setPreview(saved);setNotice(value?'气泡样式已保存。':'已恢复当前主题下项目原本的气泡样式。');setConfirm(false);}catch(e){setError(e instanceof Error?e.message:'保存失败。');}finally{setWorking(false);}}
+ return <section className="hub-editor"><nav className="hub-subnav"><button onClick={onBack} aria-label="返回聊天模块设置"><ChevronLeft/>返回</button><strong>自定义气泡 CSS</strong></nav><p className="hub-note">仅接受现有受限 CSS：.theme-user-bubble、.theme-role-bubble；支持 HEX 颜色、背景、边框和焦点颜色，圆角 0～28px、字号 16～20px、行高 1.2～2。不支持外部资源、脚本或布局规则。</p><label>CSS 编辑框<textarea aria-label="气泡 CSS" value={source} maxLength={8000} onChange={e=>setSource(e.target.value)} spellCheck={false}/></label><div className="hub-actions"><button onClick={()=>{try{checkBubbleCSS(source);setPreview(source);setError('');setNotice('仅预览，尚未修改真实聊天。');}catch(e){setError((e as Error).message);}}}>预览</button><button disabled={working} onClick={()=>void save(source)}>保存</button><button disabled={working} onClick={()=>setConfirm(true)}>恢复默认</button></div><BubblePreview source={splitBubbleCSS(theme.customCss?.source??'').other+preview}/>{error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}{confirm&&<dialog className="hub-dialog" ref={dialog} aria-label="恢复默认气泡样式" onCancel={()=>setConfirm(false)}><p>恢复默认气泡样式？</p><p className="hub-note">只清除气泡自定义 CSS，保留主题与其他个性化设置。</p><div className="hub-actions"><button disabled={working} onClick={()=>setConfirm(false)}>取消</button><button disabled={working} onClick={()=>void save('')}>确认恢复</button></div>{error&&<p role="alert">{error}</p>}</dialog>}</section>;
+}

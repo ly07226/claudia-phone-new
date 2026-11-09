@@ -1,3 +1,4 @@
+import {validateChatHub,hubAssetIds} from './chatHubTypes';
 import {validInterruption} from './chatCompletion';
 import {validateThemeAppearance} from './themeCSS';
 import {validateStoryDatabase,validateStoryPreferences} from './storyValidation';
@@ -877,6 +878,7 @@ export async function validateReferences(
     "themes",
     async (x) => {
       await optional("assets", x.wallpaper, "themes.wallpaper");
+      if(x.chatHub!==undefined){try{validateChatHub(x.chatHub);for(const id of hubAssetIds(x.chatHub))await optional("assets",id,"themes.chatHub.images");}catch{bad("themes.chatHub");}}
       try{validateThemeAppearance(x);}catch{bad("themes.appearance");}
       if (x.userIdentities !== undefined) {
         if (!x.userIdentities || typeof x.userIdentities !== "object" || Array.isArray(x.userIdentities)) bad("themes.userIdentities");

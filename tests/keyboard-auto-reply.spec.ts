@@ -1,3 +1,4 @@
+import {openChatFeatures,returnToChat,chatTab} from './chatHubNavigation';
 import {test,expect,type Page} from '@playwright/test';
 import {isolatedApp} from './backupBrowser';
 
@@ -30,11 +31,11 @@ test('三条连续发送后无blur收键盘，稳定400ms只回复一次且读�
 });
 
 test('开关依赖、默认关闭、角色隔离及重新打开后持久化；关闭连续模式不清偏好',async({page})=>{
-  const {ids}=await setup(page);await page.getByRole('button',{name:'会话管理',exact:true}).click();
+  const {ids}=await setup(page);await page.clock.resume();await openChatFeatures(page);
   const continuous=page.getByRole('switch',{name:'连续发送模式',exact:true}),auto=page.getByRole('switch',{name:'收起键盘自动回复',exact:true});
   await expect(auto).toBeChecked();await continuous.click();await expect(continuous).not.toBeChecked();await expect(auto).toBeChecked();await expect(auto).toBeDisabled();await continuous.click();await expect(auto).toBeEnabled();await expect(auto).toBeChecked();
-  await page.reload();await expect(page.locator('.desktop')).toBeVisible();await page.getByRole('button',{name:'聊天',exact:true}).click();await page.getByRole('button',{name:'自动角色 开始 / 继续聊天'}).click();await page.getByRole('button',{name:'会话管理',exact:true}).click();await expect(auto).toBeChecked();
-  await page.getByRole('button',{name:'返回聊天',exact:true}).click();await page.getByRole('button',{name:'返回角色列表',exact:true}).click();await page.getByRole('button',{name:'另一角色 开始 / 继续聊天'}).click();await page.getByRole('button',{name:'会话管理',exact:true}).click();await expect(auto).not.toBeChecked();await expect(auto).toBeDisabled();
+  await page.reload();await expect(page.locator('.desktop')).toBeVisible();await page.getByRole('button',{name:'聊天',exact:true}).click();await chatTab(page);await page.getByRole('button',{name:'自动角色 开始 / 继续聊天'}).click();await openChatFeatures(page);await expect(auto).toBeChecked();
+  await returnToChat(page);await page.getByRole('button',{name:'返回角色列表',exact:true}).click();await page.getByRole('button',{name:'另一角色 开始 / 继续聊天'}).click();await openChatFeatures(page);await expect(auto).not.toBeChecked();await expect(auto).toBeDisabled();
   const saved=await page.evaluate(async({a,b})=>{const {db}=await import('/src/store.ts');return [(await db.conversations.get(a))?.chatSettings?.keyboardAutoReply,(await db.conversations.get(b))?.chatSettings?.keyboardAutoReply];},ids);expect(saved).toEqual([true,undefined]);
 });
 
@@ -186,10 +187,12 @@ test('关闭稳定时保存仍未完成，等待保存完成再尝试一次，�
 for(const auto of [true,false])test(`发送全流程监测：保存延迟、三次触屏发送无失焦/禁用/DOM替换，auto=${auto}`,async({page})=>{
   const {requests}=await setup(page);
   if(!auto){
-    await page.getByRole('button',{name:'会话管理',exact:true}).click();
+    await page.clock.resume();
+    await openChatFeatures(page);
     await page.getByRole('switch',{name:'收起键盘自动回复',exact:true}).click();
     await expect(page.getByRole('switch',{name:'收起键盘自动回复',exact:true})).not.toBeChecked();
-    await page.getByRole('button',{name:'返回聊天',exact:true}).click();
+    await returnToChat(page);
+    await page.clock.pauseAt(new Date(Date.now()+1000));
   }
   await openKeyboard(page);
   const input=page.getByLabel('聊天消息',{exact:true});

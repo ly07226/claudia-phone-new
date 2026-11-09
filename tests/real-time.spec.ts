@@ -1,3 +1,4 @@
+import {openChatFeatures,returnToChat,chatTab} from './chatHubNavigation';
 import {test,expect,type Page} from '@playwright/test';
 import {isolatedApp} from './backupBrowser';
 test.use({timezoneId:'Asia/Shanghai'});
@@ -17,17 +18,17 @@ async function seed(page:Page){
 test('默认关闭、按聊天独立保存、刷新保留，真实请求随开关动态包含日期分钟与设备时区',async({page})=>{
  const ids=await seed(page);await page.clock.setFixedTime(now);
  const requests:any[]=[];await page.route('https://real-time.test/**',async r=>{requests.push(r.request().postDataJSON());await r.fulfill({json:{choices:[{message:{content:'模拟回复'}}]}});});
- const open=async()=>{await page.getByRole('button',{name:'聊天',exact:true}).click();await page.getByRole('button',{name:'时间角色 开始 / 继续聊天'}).click();};
- await open();await page.getByRole('button',{name:'会话管理',exact:true}).click();
+ const open=async()=>{await page.getByRole('button',{name:'聊天',exact:true}).click();await chatTab(page);await page.getByRole('button',{name:'时间角色 开始 / 继续聊天'}).click();};
+ await open();await openChatFeatures(page);
  const toggle=page.getByRole('switch',{name:'跟随真实时间',exact:true});await expect(toggle).not.toBeChecked();await toggle.click();await expect(toggle).toBeChecked();
  expect(await page.evaluate(async ids=>{const {db}=await import('/src/store.ts');return Promise.all([ids.a,ids.b,ids.wa,ids.wb].map(async id=>(await db.conversations.get(id))?.chatSettings?.followRealTime??false));},ids)).toEqual([true,false,false,false]);
- await page.reload();await expect(page.locator('.desktop')).toBeVisible();await open();await page.getByRole('button',{name:'会话管理',exact:true}).click();await expect(toggle).toBeChecked();await page.getByRole('button',{name:'返回聊天',exact:true}).click();
+ await page.reload();await expect(page.locator('.desktop')).toBeVisible();await open();await openChatFeatures(page);await expect(toggle).toBeChecked();await returnToChat(page);
  await page.getByLabel('聊天消息',{exact:true}).fill('首次请求');await page.getByRole('button',{name:'发送',exact:true}).click();await expect(page.locator('.chat-history')).toContainText('模拟回复');
  const timed=requests[0].messages.filter((m:any)=>m.content.includes('[真实时间上下文]'));expect(timed).toHaveLength(1);expect(timed[0].role).toBe('system');expect(timed[0].content).toContain('2026-11-03 20:34');expect(timed[0].content).toContain('Asia/Shanghai');
- await page.getByRole('button',{name:'会话管理',exact:true}).click();await toggle.click();await expect(toggle).not.toBeChecked();await page.getByRole('button',{name:'返回聊天',exact:true}).click();
+ await openChatFeatures(page);await toggle.click();await expect(toggle).not.toBeChecked();await returnToChat(page);
  await page.getByLabel('聊天消息',{exact:true}).fill('关闭后请求');await page.getByRole('button',{name:'发送',exact:true}).click();await expect.poll(()=>requests.length).toBe(2);await expect(page.getByRole('button',{name:'取消请求',exact:true})).toHaveCount(0);
  expect(JSON.stringify(requests[1].messages)).not.toContain('[真实时间上下文]');
- expect(await page.evaluate(async()=>{const {db}=await import('/src/store.ts');return [(await db.characters.get('time-a'))!.persona,db.verno];})).toEqual(['保持原始设定',6]);
+ expect(await page.evaluate(async()=>{const {db}=await import('/src/store.ts');return [(await db.characters.get('time-a'))!.persona,db.verno];})).toEqual(['保持原始设定',7]);
 });
 
 test('原始时间戳、明确的本轮前间隔与无效时间安全降级，不读取版本生成时间',async({page})=>{
@@ -96,7 +97,7 @@ test('跨夜/页面后台停留：本轮消息先保存，08:00请求仍使用�
   const {db}=await import('/src/store.ts');await(await import('/src/chatPreferences.ts')).saveChatSettings(id,{followRealTime:true});
   await db.messages.bulkAdd([{id:'night-u',conversationId:id,role:'user',content:'晚安',createdAt:night-60000},{id:'night-a',conversationId:id,role:'assistant',content:'晚安回复',createdAt:night}]);
  },{id:ids.a,night});
- await page.getByRole('button',{name:'聊天',exact:true}).click();await page.getByRole('button',{name:'时间角色 开始 / 继续聊天'}).click();
+ await page.getByRole('button',{name:'聊天',exact:true}).click();await chatTab(page);await page.getByRole('button',{name:'时间角色 开始 / 继续聊天'}).click();
  // Keep the same mounted page; advance wall time without reloading the app or module.
  await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
  await page.clock.setFixedTime(morning);
