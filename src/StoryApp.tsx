@@ -1,3 +1,5 @@
+import {StorySettingsPage} from './StorySettingsPage';
+import {useStoryReading} from './useStoryReading';
 import {ReplyPending,ReplyFailureNotice} from './ReplyStatus';
 import {describeReplyFailure,type ReplyFailureDetails} from './replyFailure';
 import {StoryControls} from './StoryControls';
@@ -18,6 +20,9 @@ export function StoryApp({worldId}:{worldId:string}){
  const [dialog,setDialog]=useState<'settings'|'guidance'|null>(null);
  const controller=useRef<AbortController|null>(null),alive=useRef(false),drafts=useRef(Promise.resolve()),hydrated=useRef('');
  const viewport=useStoryViewport();
+ const reading=useStoryReading();
+ const [settingsOpen,setSettingsOpen]=useState(false);
+ function closeSettings(){setSettingsOpen(false);requestAnimationFrame(()=>viewport.ref.current?.querySelector<HTMLButtonElement>('[aria-label="剧本设置"]')?.focus({preventScroll:true}));}
  useEffect(()=>{alive.current=true;const hide=()=>controller.current?.abort();window.addEventListener('pagehide',hide);
   let previous:Awaited<ReturnType<typeof readStory>>|undefined;
   const sub=liveQuery(async()=>{const next=await readStory(worldId,previous);previous=next;return next;}).subscribe({next:d=>{if(alive.current)setData(d);},error:()=>{if(alive.current)setError('主线暂时无法读取，请重新打开；未重置进度。');}});
@@ -48,8 +53,8 @@ export function StoryApp({worldId}:{worldId:string}){
  }
  const valid=!node||(mode==='custom'?!!custom.trim()&&custom.length<=storyLimits.action:node.choices.some(c=>c.id===selected));
  const style={height:viewport.height??'100%','--story-available-height':`${viewport.height??700}px`,'--story-drawer-height':`${Math.max(80,(viewport.height??700)*.6-44)}px`} as CSSProperties;
- return <article ref={viewport.ref} style={style} className={`story-app${(viewport.height??700)<440?' story-compact':''}`} aria-label="剧本主线">
-  <header className="story-heading" inert={!!dialog}><button aria-label="返回手机桌面" onClick={()=>usePhone.getState().set({activeApp:null})}>‹ 返回</button><div><h1>{data?.world.name??'剧本'}</h1><p>主线剧情 · {s?.revision??0} 段</p></div><button aria-label="剧本设置" onClick={()=>setDialog('settings')}>设置</button></header>
+ return <article ref={viewport.ref} style={style} data-settings={settingsOpen} className={`story-app${(viewport.height??700)<440?' story-compact':''}`} aria-label="剧本主线">
+  <header className="story-heading" inert={!!dialog||settingsOpen}><button aria-label="返回手机桌面" onClick={()=>usePhone.getState().set({activeApp:null})}>‹ 返回</button><div><h1>{data?.world.name??'剧本'}</h1><p>主线剧情 · {s?.revision??0} 段</p></div><button aria-label="剧本设置" disabled={!data} onClick={()=>setSettingsOpen(true)}>设置</button></header>
   {!data&&!error&&<p className="story-notice" role="status">正在读取主线…</p>}
   {!busy&&error&&(!generationFailure||generationFailure.message!==error)&&<p className="story-notice" role="alert">{error}</p>}
   {!busy&&generationFailure&&generationFailure.message===error&&<ReplyFailureNotice className="story-reply-failure" details={generationFailure.details}/>}
@@ -58,8 +63,8 @@ export function StoryApp({worldId}:{worldId:string}){
   {changed&&<p className="story-notice">设定已更新；主线仍使用开始时的版本 {s?.definitionRevision}，继续前需要确认。</p>}
   {busy&&<ReplyPending className="story-reply-pending"/>}
   {data?.world.script?.playMode!=='story'&&data?<p>此世界未开启剧情模式，已有主线数据保留。</p>:data&&<>
-   <StoryReader key={worldId} inert={!!dialog} path={data.path} opening={data.world.script!.opening}/>
-   <footer className="story-drawer" inert={!!dialog} data-collapsed={collapsed}>
+   <StoryReader key={worldId} inert={!!dialog||settingsOpen} path={data.path} opening={data.world.script!.opening} preferences={reading.preferences}/>
+   <footer className="story-drawer" inert={!!dialog||settingsOpen} data-collapsed={collapsed}>
     <button className="story-drawer-handle" aria-expanded={!collapsed} aria-controls="story-operation-panel" aria-label={collapsed?'展开操作':'收起操作'} onClick={()=>setCollapsed(x=>!x)}><span className="story-drawer-caption">接下来，你想怎么做？</span><span className="story-drawer-chevron" aria-hidden="true">{collapsed?'⌃':'⌄'}</span></button>
     <div className="story-drawer-panel" id="story-operation-panel" inert={collapsed} aria-hidden={collapsed}>
      <div className="story-drawer-content">
@@ -72,6 +77,7 @@ export function StoryApp({worldId}:{worldId:string}){
      </div>
    </footer>
   </>}
+  {settingsOpen&&data&&<StorySettingsPage preferences={reading.preferences} loaded={reading.loaded} saving={reading.saving} error={reading.error} onChange={reading.change} busy={busy} length={length} onLength={changeLength} onRefresh={()=>setRefresh(x=>x+1)} onBack={closeSettings}/>}
   {dialog&&data&&<StoryControls key={`${worldId}:${dialog}`} kind={dialog} guidance={data.world.storyPreferences?.guidance} length={length} busy={busy} availableHeight={viewport.height??700} onClose={()=>setDialog(null)} onSave={(value,revision)=>saveStoryGuidance(worldId,value,revision)} onLength={changeLength} onRefresh={()=>setRefresh(x=>x+1)}/>}
  </article>;
 }

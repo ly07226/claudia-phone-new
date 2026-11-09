@@ -51,7 +51,7 @@ test('390px 单一导航、长选项抽屉、指导编辑及键盘安全区域',
  await page.getByRole('button',{name:'收起操作',exact:true}).click();await expect.poll(()=>page.locator('.story-drawer-panel').evaluate(el=>el.getBoundingClientRect().height)).toBe(0);await expect.poll(()=>reader.evaluate(el=>el.clientHeight)).toBeGreaterThan(150);await page.getByRole('button',{name:'展开操作',exact:true}).click();await expect(page.getByLabel('自定义行动',{exact:true})).toHaveValue('先观察现场。');
  fail=true;await page.getByRole('button',{name:'确认选择',exact:true}).click();await expect(page.getByRole('alert')).toBeVisible();await expect(page.getByLabel('自定义行动',{exact:true})).toHaveValue('先观察现场。');
  fail=false;await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'确认选择',exact:true}).click();await expect.poll(()=>page.evaluate(async()=>{const {db}=await import('/src/store.ts');return (await db.storySessions.toArray())[0].revision;})).toBe(2);expect(calls).toBe(3);
- await page.getByRole('button',{name:'剧本设置',exact:true}).click();await page.getByLabel('剧情篇幅',{exact:true}).selectOption('detailed');await page.getByRole('button',{name:'关闭',exact:true}).click();await page.screenshot({path:info.outputPath('reader-expanded-390.png')});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await page.getByRole('button',{name:'剧本设置',exact:true}).click();await page.getByLabel('剧情篇幅',{exact:true}).selectOption('detailed');await page.getByRole('button',{name:'返回剧本阅读',exact:true}).click();await page.screenshot({path:info.outputPath('reader-expanded-390.png')});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 
 test('指导编辑捕获旧版本，不静默覆盖其他窗口的新设置',async({page})=>{

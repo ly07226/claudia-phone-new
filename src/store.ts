@@ -1,3 +1,4 @@
+import type {StoryReadingPreferences} from './storyReadingPreferences';
 import type {ThemePalette,ThemeCSS} from './themePalette';
 import {storySchemas,type StorySession,type StoryNode,type StoryPreferences} from './storyTypes';
 import type {ScriptConfig} from './scriptTypes';
@@ -55,6 +56,7 @@ export interface DesktopItem {
   icon?: string;
 }
 export interface Theme {
+  storyReading?: StoryReadingPreferences;
   palette?: ThemePalette;
   customCss?: ThemeCSS;
   /** Scoped user metadata in the existing global configuration; not appearance inheritance. */
@@ -305,7 +307,7 @@ export const usePhone = create<State>((set, get) => ({
     try {
       const saved = await db.transaction("rw", db.themes, async () => {
         const current = await db.themes.get(theme.id);
-        const saved:Theme = {...(current??defaultTheme),...theme, userIdentities: current?.userIdentities ?? theme.userIdentities};
+        const saved:Theme = {...(current??defaultTheme),...theme, userIdentities: current?.userIdentities ?? theme.userIdentities, storyReading: current ? current.storyReading : theme.storyReading};
         if(!saved.palette)delete saved.palette;
         if(!saved.customCss)delete saved.customCss;
         await db.themes.put(saved);

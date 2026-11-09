@@ -1,10 +1,11 @@
+import {storyReadingStyle,defaultStoryReading,type StoryReadingPreferences} from './storyReadingPreferences';
 import {resolveStorySegments} from './storySegments';
 import {formatStoryProse} from './storyProse';
 import {memo,useLayoutEffect,useRef,useState,useMemo,type ReactNode} from 'react';
 import type {StoryNode} from './storyTypes';
 import {storyActionText} from './storyActions';
 /** Earlier nodes prepend automatically on scroll; the persisted path remains complete. */
-export const StoryReader=memo(function StoryReader({path,opening,inert=false,children}:{path:StoryNode[];opening:string;inert?:boolean;children?:ReactNode}){
+export const StoryReader=memo(function StoryReader({path,opening,inert=false,children,preferences=defaultStoryReading}:{path:StoryNode[];opening:string;inert?:boolean;children?:ReactNode;preferences?:StoryReadingPreferences}){
  const reader=useRef<HTMLDivElement>(null),head=useRef<string|undefined>(undefined),nearBottom=useRef(true),anchor=useRef<{height:number;top:number}|null>(null);
  const [start,setStart]=useState<number|null>(null),from=start??Math.max(0,path.length-12),current=path.at(-1)?.id;
  useLayoutEffect(()=>{
@@ -19,9 +20,9 @@ export const StoryReader=memo(function StoryReader({path,opening,inert=false,chi
    {action&&<p className="story-action-record">{action.kind==='custom'?'自定义行动':`已选择 ${action.label}`} · {action.text}</p>}
    <div className="story-prose">{(resolveStorySegments(node.body,node.segments)??formatStoryProse(node.body)).map((part,i)=>('kind' in part&&part.kind==='break')?part.text:(('type' in part&&part.type==='dialogue')||('kind' in part&&part.kind==='dialogue'))?<blockquote className="story-dialogue" key={i} aria-label={'speaker' in part?`${part.speaker}的台词`:'无署名引语'}>{'speaker' in part&&<span className="story-speaker">{part.speaker}</span>}<span className="story-dialogue-text">{part.text}</span></blockquote>:<p className={'type' in part&&part.type==='action'?'story-action-description':'story-paragraph'} key={i}>{part.text}</p>)}</div>
   </section>;}),[path,from]);
- return <div ref={reader} inert={inert} className="story-reader" aria-label="连续剧情" tabIndex={0} onScroll={e=>{const el=e.currentTarget;nearBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<80;if(el.scrollTop<80&&from>0&&!anchor.current){anchor.current={height:el.scrollHeight,top:el.scrollTop};setStart(Math.max(0,from-12));}}}>
+ return <div ref={reader} inert={inert} className="story-reader" style={storyReadingStyle(preferences)} aria-label="连续剧情" tabIndex={0} onScroll={e=>{const el=e.currentTarget;nearBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<80;if(el.scrollTop<80&&from>0&&!anchor.current){anchor.current={height:el.scrollHeight,top:el.scrollTop};setStart(Math.max(0,from-12));}}}>
   {!path.length&&<section className="story-opening"><h2>开场情境</h2><p>{opening||'尚未填写开场情境。'}</p><p className="hint">点击开始后才会生成正文，使用当前默认 API 并消耗 Token。</p></section>}
-  {!!path.length&&<section className="story-reading-card" aria-label="连续剧情正文">{entries}
+  {!!path.length&&<section className="story-reading-card story-reading-surface" aria-label="连续剧情正文">{entries}
 </section>}
   {children&&<div className="story-next-actions">{children}</div>}
  </div>;

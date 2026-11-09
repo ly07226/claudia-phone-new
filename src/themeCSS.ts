@@ -1,3 +1,4 @@
+import {validateStoryReading} from './storyReadingPreferences';
 import {validatePalette} from './themePalette';
 /** A small CSS grammar, not arbitrary CSS. Output contains only fixed selectors,
  * enumerated properties and canonical colors/bounded numbers. No raw selector/value is emitted. */
@@ -30,7 +31,8 @@ export function compileThemeCSS(source:string,preview=false):string{
  return rules.join('\n');
 }
 export function validateThemeAppearance(value:unknown){
- const x=value as {palette?:unknown;customCss?:{version:number;source:string}};
+ const x=value as {storyReading?:unknown;palette?:unknown;customCss?:{version:number;source:string}};
+ if(x?.storyReading!==undefined)validateStoryReading(x.storyReading);
  if(x?.palette!==undefined)validatePalette(x.palette);
  if(x?.customCss!==undefined){const c=x.customCss;if(!c||typeof c!=='object'||Array.isArray(c)||c.version!==1||Object.keys(c).some(k=>!['version','source'].includes(k)))throw Error('自定义 CSS 格式无效。');compileThemeCSS(c.source);}
 }
