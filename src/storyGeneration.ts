@@ -15,9 +15,9 @@ import {storyPrompt} from './storyContext';
 export {storyPrompt,storyInput} from './storyContext';
 const schema={type:'OBJECT',properties:{segments:{type:'ARRAY',maxItems:256,items:{type:'OBJECT',properties:{type:{type:'STRING',enum:['narration','action','dialogue']},text:{type:'STRING'},speaker:{type:'STRING'}},required:['type','text']}},body:{type:'STRING'},choices:{type:'ARRAY',minItems:4,maxItems:4,items:{type:'OBJECT',properties:{id:{type:'STRING',enum:['A','B','C','D']},text:{type:'STRING'}},required:['id','text']}}},required:['body','choices']};
 
-export async function generateStory(worldId:string,actionInput?:string|StoryAction,options:{signal?:AbortSignal;allowOldDefinition?:boolean;expected?:StoryExpectedProgress;firstAttemptOnly?:boolean}={}){
+export async function generateStory(worldId:string,actionInput?:string|StoryAction,options:{signal?:AbortSignal;allowOldDefinition?:boolean;expected?:StoryExpectedProgress;firstAttemptOnly?:boolean;operation?:'advance'|'regenerate'}={}){
  if(options.signal?.aborted)throw Error('生成已取消，原主线未改变。');
- const claim=await claimStory(worldId,actionInput,!!options.allowOldDefinition,options.expected,!!options.firstAttemptOnly),s=claim.session,token=s.pending!.token;
+ const claim=await claimStory(worldId,actionInput,!!options.allowOldDefinition,options.expected,!!options.firstAttemptOnly,options.operation),s=claim.session,token=s.pending!.token;
  const controller=new AbortController(),abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
  let timedOut=false;const timer=setTimeout(()=>{timedOut=true;abort();},storyLimits.leaseMs);let failure:'cancelled'|'request'|'invalid'|'stale'|'budget'='request',phase:StoryFailureStage='configuration';
  let structured:ReturnType<typeof storyJSONTransport>|undefined,outputTokenLimit:number|undefined;
@@ -28,7 +28,7 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
   structured=storyJSONTransport(config,schema,async()=>{
    const admitted=await db.transaction('r',storyTables(),async()=>{
     const current=await db.storySessions.get(s.id),world=await db.worlds.get(worldId);
-    return !controller.signal.aborted&&current?.pending?.token===token&&current.pending.expiresAt>Date.now()&&current.revision===s.revision&&current.headNodeId===s.headNodeId&&world?.script?.playMode==='story'&&JSON.stringify(await resolveStoryDefinition(world))===claim.worldSnapshot&&JSON.stringify(world.storyPreferences?.guidance??null)===claim.guidanceSnapshot;
+    return !controller.signal.aborted&&current?.pending?.token===token&&current.pending.expiresAt>Date.now()&&current.revision===s.revision&&current.headNodeId===s.headNodeId&&world?.script?.playMode==='story'&&JSON.stringify(await resolveStoryDefinition(world))===claim.worldSnapshot&&JSON.stringify(world.storyPreferences?.guidance??null)===claim.guidanceSnapshot&&(!claim.replacement||JSON.stringify(await db.storyNodes.get(claim.replacement.id))===JSON.stringify(claim.replacement));
    });
    if(!admitted)failure='stale';return admitted;
   });
@@ -37,14 +37,15 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
   if(requestDebugEnabled())registerRequestDiagnostics('story',messages,[{source:'story-instruction',text:storyPrompt,role:'system'},{source:'story-input',text:input,role:'user'}]);
   phase='request';const raw=await requestReply({...config,maxTokens:outputTokenLimit},credential.apiKey,messages,controller.signal,structured.transport,false);
   failure='invalid';phase='parse';if(structured.getResponseInfo().blocked)throw new StoryResponseError('blocked');if(structured.isTruncated())throw new StoryResponseError('truncated',{responseCharacters:raw.length});const participants=s.definition.participants;const result=parseStoryReply(raw,participants?[participants.protagonist.name,...participants.characters.map(c=>c.name)]:[]);const id=crypto.randomUUID();phase='validation';
-  const node:StoryNode={id,worldId,sessionId:s.id,body:result.body,...(result.segments?{segments:result.segments}:{}),choices:result.choices.map(c=>({id:`${id}:${c.id}`,label:c.id,text:c.text})),...(s.headNodeId?{parentNodeId:s.headNodeId,action:claim.action,...(claim.action?.kind==='choice'?{fromChoiceId:claim.action.choiceId}:{})}:{}),narrativeLength:claim.length,requestId:token,createdAt:Date.now(),definitionRevision:s.definitionRevision,sequence:s.revision+1};validateStoryNode(node);
+  const node:StoryNode={id,worldId,sessionId:s.id,body:result.body,...(result.segments?{segments:result.segments}:{}),choices:result.choices.map(c=>({id:`${id}:${c.id}`,label:c.id,text:c.text})),...(claim.parentNodeId?{parentNodeId:claim.parentNodeId,action:claim.action,...(claim.action?.kind==='choice'?{fromChoiceId:claim.action.choiceId}:{})}:{}),narrativeLength:claim.length,requestId:token,createdAt:Date.now(),definitionRevision:s.definitionRevision,sequence:claim.nextRevision};validateStoryNode(node);
   failure='stale';phase='commit';let abortCommit=()=>{};const cancelCommit=()=>abortCommit();controller.signal.addEventListener('abort',cancelCommit,{once:true});
   try{await db.transaction('rw',storyTables(),async tx=>{
    abortCommit=()=>{try{tx.abort();}catch{/* Transaction already settled. */}};
    const current=await db.storySessions.get(s.id),world=await db.worlds.get(worldId);
    if(controller.signal.aborted||!current||current.pending?.token!==token||current.revision!==s.revision||current.headNodeId!==s.headNodeId||Date.now()>=s.pending!.expiresAt||!world||JSON.stringify(await resolveStoryDefinition(world))!==claim.worldSnapshot||JSON.stringify(world.storyPreferences?.guidance??null)!==claim.guidanceSnapshot)throw Error('stale');
+   if(claim.replacement){const old=await db.storyNodes.get(claim.replacement.id);if(JSON.stringify(old)!==JSON.stringify(claim.replacement)||await db.storyNodes.where('parentNodeId').equals(claim.replacement.id).count())throw Error('stale');await db.storyNodes.delete(claim.replacement.id);}
    if(claim.guidance?.enabled&&claim.guidance.mode==='once')await db.worlds.update(worldId,{storyPreferences:{...world.storyPreferences!,guidance:{...claim.guidance,enabled:false,revision:claim.guidance.revision+1}}});
-   await db.storyNodes.add(node);await db.storySessions.put({...current,headNodeId:node.id,revision:current.revision+1,status:'ready',pending:undefined,error:undefined,failureDetails:undefined,actionDraft:undefined,updatedAt:Date.now()});
+   await db.storyNodes.add(node);await db.storySessions.put({...current,headNodeId:node.id,revision:claim.nextRevision,status:'ready',pending:undefined,error:undefined,failureDetails:undefined,actionDraft:undefined,updatedAt:Date.now()});
   });}finally{controller.signal.removeEventListener('abort',cancelCommit);}
   return node;
  }catch(error){

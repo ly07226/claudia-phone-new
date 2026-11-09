@@ -1,0 +1,5 @@
+/* Latest prose card only; never inherits the adjustable prose font size. */
+.story-reader .story-card-operations{position:static;display:flex;flex-wrap:nowrap;justify-content:space-between;align-items:center;gap:12px;margin-top:16px;padding:4px 0 0;border:0;border-top:1px solid var(--theme-border,#E3EAF0);border-radius:0;background:transparent;box-shadow:none;color:var(--theme-muted,#899AA8)}
+.story-reader .story-card-operations button{display:inline-flex;align-items:center;justify-content:flex-start;min-width:44px;min-height:44px;margin:0;padding:8px 0;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:12px;line-height:1.4;font-weight:400;color:inherit;white-space:nowrap}
+.story-reader .story-card-operations button:last-child{justify-content:flex-end}
+.story-reader .story-card-operations button:disabled{opacity:.5}

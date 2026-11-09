@@ -24,7 +24,8 @@ export async function readStory(worldId:string,previous?:StoryReadResult):Promis
  const same=session&&previous?.world.id===worldId&&previous.session?.id===session.id&&previous.session.headNodeId===session.headNodeId&&previous.session.revision===session.revision;
  return {world,session,path:session?same?previous!.path:await readStoryPath(session):[]};
 });}
-export async function claimStory(worldId:string,actionInput:string|StoryAction|undefined,allowOldDefinition:boolean,expected?:StoryExpectedProgress,firstAttemptOnly=false){
+export async function claimStory(worldId:string,actionInput:string|StoryAction|undefined,allowOldDefinition:boolean,expected?:StoryExpectedProgress,firstAttemptOnly=false,operation:'advance'|'regenerate'='advance'){
+ if(!['advance','regenerate'].includes(operation))throw Error('主线操作无效，未修改进度。');
  return db.transaction('rw',storyTables(),async()=>{
   const world=await db.worlds.get(worldId);if(!world)throw Error('世界已不存在。');const currentDefinition=await resolveStoryDefinition(world);
   let s=await db.storySessions.where('worldId').equals(worldId).first();
@@ -35,17 +36,19 @@ export async function claimStory(worldId:string,actionInput:string|StoryAction|u
   // No immutable nodes exist yet: an explicit wizard retry uses the current saved setup.
   if(s&&s.revision===0&&world.script?.creation)s={...s,definition:currentDefinition,definitionRevision:world.script.definitionRevision};
   if(s&&s.definitionRevision!==world.script!.definitionRevision&&!allowOldDefinition)throw Error('设定已变化，请确认继续使用主线开始时的设定。');
-  const path=s?await readStoryPath(s):[];const head=path.at(-1),action=normalizeStoryAction(actionInput);
+  let path=s?await readStoryPath(s):[];const replacement=operation==='regenerate'?path.at(-1):undefined;
+  if(operation==='regenerate'){if(!replacement||actionInput!==undefined)throw Error('没有可重新生成的已完成回合。');if(await db.storyNodes.where('parentNodeId').equals(replacement.id).count())throw Error('末节点存在后续引用，请先检查主线状态。');path=path.slice(0,-1);}
+  const head=path.at(-1),action=normalizeStoryAction(replacement?(replacement.action??replacement.fromChoiceId):actionInput);
   const choiceId=action?.kind==='choice'?action.choiceId:undefined;
   if(head?!action||(action.kind==='choice'&&!head.choices.some(c=>c.id===action.choiceId)):action!==undefined)throw Error('选择已失效，请重新读取当前剧情。');
-  if((s?.revision??0)>=storyLimits.nodes)throw Error('主线已达到安全容量上限，未删除旧节点。');
+  if(operation==='advance'&&(s?.revision??0)>=storyLimits.nodes)throw Error('主线已达到安全容量上限，未删除旧节点。');
   const now=Date.now();s??={id:crypto.randomUUID(),worldId,revision:0,status:'idle',definitionRevision:world.script!.definitionRevision,definition:currentDefinition,createdAt:now,updatedAt:now};
   s={...s,status:'generating',error:undefined,failureDetails:undefined,updatedAt:now,pending:{token:crypto.randomUUID(),headNodeId:s.headNodeId,revision:s.revision,expiresAt:now+storyLimits.leaseMs}};
-  if(action&&head)s.actionDraft=action.kind==='custom'?{headNodeId:head.id,mode:'custom',customText:action.text}:{headNodeId:head.id,mode:'choice',customText:'',choiceId:action.choiceId};
+  if(operation==='advance'&&action&&head)s.actionDraft=action.kind==='custom'?{headNodeId:head.id,mode:'custom',customText:action.text}:{headNodeId:head.id,mode:'choice',customText:'',choiceId:action.choiceId};
   const length=world.storyPreferences?.length??'standard';if(world.storyPreferences)validateStoryPreferences(world.storyPreferences);
   const guidance=world.storyPreferences?.guidance;if(guidance?.enabled&&guidance.mode==='once'&&guidance.revision===Number.MAX_SAFE_INTEGER)throw Error('指导版本已达上限，未请求模型。');
   let input:string;try{input=storyInput(s,path,action,length,guidance?.enabled?guidance:undefined);}catch{throw Error('必要身份、规则、开场、剧情指导或当前剧情仍超过48000字节安全输入预算，无法完整纳入。本次未请求模型、未推进主线，全部原文保留；不会自动重试。');}
-  await db.storySessions.put(s);return {session:s,path,input,action,length,guidance,guidanceSnapshot:JSON.stringify(guidance??null),choice:head?.choices.find(c=>c.id===choiceId),worldSnapshot:JSON.stringify(currentDefinition)};
+  await db.storySessions.put(s);return {session:s,path,input,action,length,replacement,parentNodeId:head?.id,nextRevision:path.length+1,guidance,guidanceSnapshot:JSON.stringify(guidance??null),choice:head?.choices.find(c=>c.id===choiceId),worldSnapshot:JSON.stringify(currentDefinition)};
  });
 }
 
@@ -73,5 +76,23 @@ export async function saveStoryGuidance(worldId:string,input:Omit<StoryGuidance,
   const guidance={...input,revision:expectedRevision+1};validateStoryGuidance(guidance);
   const preferences={...world.storyPreferences,length:world.storyPreferences?.length??'standard',guidance};validateStoryPreferences(preferences);
   await db.worlds.update(worldId,{storyPreferences:preferences});return guidance;
+ });
+}
+
+/** Remove only the current completed leaf. Expected progress and the active lease
+ * protect other tabs; clearing an expired lease invalidates its delayed response. */
+export async function withdrawStory(worldId:string,expected:StoryExpectedProgress){
+ return db.transaction('rw',storyTables(),async()=>{
+  const world=await db.worlds.get(worldId);if(!world)throw Error('世界已不存在。');storyDefinition(world);
+  const s=await db.storySessions.where('worldId').equals(worldId).first();
+  if(!s||s.id!==expected.sessionId||s.headNodeId!==expected.headNodeId||s.revision!==expected.revision)throw Error('主线已变化，请刷新后再撤回。');
+  validateStorySession(s);if(s.pending&&s.pending.expiresAt>Date.now())throw Error('正在生成，不能撤回当前回合。');
+  const path=await readStoryPath(s),head=path.at(-1),parent=path.at(-2);if(!head||!parent)throw Error('首回合没有上一轮可撤回，未清空开场。');
+  if(await db.storyNodes.where('parentNodeId').equals(head.id).count())throw Error('末节点存在后续引用，未删除任何剧情。');
+  const action=normalizeStoryAction(head.action??head.fromChoiceId);
+  const draft:StoryDraft|undefined=action?.kind==='custom'?{headNodeId:parent.id,mode:'custom',customText:action.text}:action?.kind==='choice'?{headNodeId:parent.id,mode:'choice',customText:'',choiceId:action.choiceId}:undefined;
+  if(draft?.choiceId&&!parent.choices.some(c=>c.id===draft.choiceId))throw Error('原行动与上一回合不匹配，未撤回。');
+  const next:StorySession={...s,headNodeId:parent.id,revision:s.revision-1,status:'ready',pending:undefined,error:undefined,failureDetails:undefined,actionDraft:draft,updatedAt:Date.now()};validateStorySession(next);
+  await db.storyNodes.delete(head.id);await db.storySessions.put(next);return next;
  });
 }
