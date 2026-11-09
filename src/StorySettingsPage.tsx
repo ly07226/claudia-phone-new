@@ -19,6 +19,7 @@ export function StorySettingsPage({preferences:p,loaded,saving,error,busy,length
   <fieldset disabled={!loaded}><legend>阅读背景</legend><p>图片仅保存在本机。支持 JPEG、PNG、WebP，原图上限 15MB；必要时压缩并提示。请注意背景与文字的对比度。</p>
    <input ref={file} type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" aria-label="选择阅读背景图片" hidden onChange={e=>{void selectImage(e.target.files?.[0]);e.target.value='';}}/>
    <div className="story-settings-buttons"><button disabled={imageBusy} onClick={()=>file.current?.click()}>{imageBusy?'正在处理图片…':p.background?'更换背景图片':'选择背景图片'}</button><button disabled={!p.background||imageBusy} onClick={()=>{upload.current++;onChange({background:undefined});setNotice('');}}>移除背景图片</button></div>
+   <label>图片适配模式<select aria-label="图片适配模式" value={p.fit??'contain'} onChange={e=>onChange({fit:e.target.value as 'contain'|'cover'})}><option value="contain">完整显示</option><option value="cover">铺满裁切</option></select></label>
    {notice&&<p role="status">{notice}</p>}<label>背景图片透明度 <output>{p.opacity}%</output><input aria-label="背景图片透明度" type="range" min="0" max="100" step="5" disabled={!p.background} value={p.opacity} onChange={e=>onChange({opacity:Number(e.target.value)})}/></label>
   </fieldset>
   <section aria-label="效果预览"><h2>效果预览</h2><div className="story-reading-surface story-reading-preview story-reading-card" style={storyReadingStyle(p)}><div className="story-prose"><p className="story-paragraph">晨光穿过窗帘，落在桌边。你翻开书页，故事在此刻继续。</p><p className="story-paragraph">街道渐渐热闹起来。远处传来轻轻的脚步声，一封尚未拆开的信静静躺在手边。</p></div></div></section>

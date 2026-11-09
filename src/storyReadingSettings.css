@@ -1,6 +1,6 @@
 /* Scoped to Story prose; navigation, action drawer and other Apps do not inherit. */
 .story-reader .story-reading-card.story-reading-surface,.story-reading-preview.story-reading-surface{position:relative;isolation:isolate;padding-left:var(--reader-margin,32px);padding-right:var(--reader-margin,32px)}
-.story-reading-surface::before{content:"";position:absolute;inset:0;border-radius:inherit;z-index:-1;pointer-events:none;background-image:var(--reader-image,none);background-position:center;background-size:cover;background-repeat:no-repeat;opacity:var(--reader-opacity,.5)}
+.story-reading-surface::before{content:"";position:absolute;inset:0;border-radius:inherit;z-index:-1;pointer-events:none;background-image:var(--reader-image,none);background-position:center;background-size:var(--reader-fit,contain);background-repeat:no-repeat;opacity:var(--reader-opacity,.5)}
 .story-reading-surface .story-prose{font-size:var(--reader-font,17px);line-height:var(--reader-line,1.65);color:var(--reader-color,var(--theme-text,#405249))}
 .story-reading-surface .story-paragraph,.story-reading-surface .story-dialogue-text{color:var(--reader-color,inherit)}
 .story-reading-surface .story-dialogue-text{font-size:var(--reader-font,17px);line-height:var(--reader-line,1.65)}
@@ -14,3 +14,11 @@
 .story-settings-page button{min-height:44px;font-size:14px;white-space:normal}.story-settings-page select{box-sizing:border-box;display:block;margin-top:8px;width:100%;min-height:44px;font-size:16px;padding:8px;border:1px solid var(--theme-border,#dce4dc);border-radius:10px;background:var(--theme-input,#fffdf8);color:inherit}.story-settings-page p:not(.story-paragraph){font-size:12px;line-height:1.6;overflow-wrap:anywhere}.story-settings-page [role=alert]{color:var(--theme-danger,#a23f3b)}
 .story-reading-swatches{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px}.story-reading-swatches button{display:flex;gap:8px;align-items:center;border:1px solid var(--theme-border,#dce4dc);border-radius:10px;padding:8px}.story-reading-swatches button[aria-pressed=true]{outline:2px solid var(--theme-focus,#607b66);outline-offset:-2px}.story-reading-swatches i{width:20px;height:20px;border-radius:50%;flex:none;border:1px solid var(--theme-border,#dce4dc)}
 .story-settings-buttons{display:flex;flex-wrap:wrap;gap:8px}.story-reading-preview{margin-bottom:20px!important;overflow-wrap:anywhere}.story-reading-preview .story-paragraph:last-child{margin-bottom:0}
+
+/* Each persisted turn is a prose card; only committed parent actions get a separate card. */
+.story-reader .story-entry+.story-entry{margin-top:20px;padding-top:0;border-top:0}
+.story-reader .story-entry>.story-reading-card{margin-bottom:0}
+.story-reading-history{margin:0 0 22px;min-width:0}
+.story-action-card{box-sizing:border-box;margin:0 0 16px;padding:14px 20px;border:1px solid var(--theme-border,#dce4dc);border-radius:16px;background:var(--theme-input,#f3f6ef);color:var(--theme-text,#405249)}
+.story-action-card .story-action-record{margin:0;font-size:14px;line-height:1.65;color:inherit}
+.story-action-card .story-action-record strong{display:block;margin-bottom:6px;font-size:12px;font-weight:500;color:var(--theme-muted,#637667)}

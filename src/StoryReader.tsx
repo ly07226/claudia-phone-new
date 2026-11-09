@@ -17,12 +17,13 @@ export const StoryReader=memo(function StoryReader({path,opening,inert=false,chi
   if(from>0&&el.scrollHeight<=el.clientHeight+80&&!anchor.current){anchor.current={height:el.scrollHeight,top:el.scrollTop};setStart(Math.max(0,from-12));}
  },[current,start,from,path.length]);
  const entries=useMemo(()=>path.slice(from).map((node,index)=>{const absolute=from+index,action=absolute?storyActionText(path[absolute-1],node):undefined;return <section className="story-entry" key={node.id} data-story-sequence={node.sequence} aria-label={`第 ${node.sequence} 段剧情`}>
-   {action&&<p className="story-action-record">{action.kind==='custom'?'自定义行动':`已选择 ${action.label}`} · {action.text}</p>}
+   {action&&<aside className="story-action-card" data-story-action={path[absolute-1].sequence} aria-label={`第 ${path[absolute-1].sequence} 回合玩家行动`}><p className="story-action-record"><strong>{action.kind==='custom'?'自定义行动':`已选择 ${action.label}`}</strong><span>{action.text}</span></p></aside>}
+   <section className="story-reading-card story-reading-surface" data-story-model={node.sequence} aria-label={`第 ${node.sequence} 回合正文`}>
    <div className="story-prose">{(resolveStorySegments(node.body,node.segments)??formatStoryProse(node.body)).map((part,i)=>('kind' in part&&part.kind==='break')?part.text:(('type' in part&&part.type==='dialogue')||('kind' in part&&part.kind==='dialogue'))?<blockquote className="story-dialogue" key={i} aria-label={'speaker' in part?`${part.speaker}的台词`:'无署名引语'}>{'speaker' in part&&<span className="story-speaker">{part.speaker}</span>}<span className="story-dialogue-text">{part.text}</span></blockquote>:<p className={'type' in part&&part.type==='action'?'story-action-description':'story-paragraph'} key={i}>{part.text}</p>)}</div>
-  </section>;}),[path,from]);
+  </section></section>;}),[path,from]);
  return <div ref={reader} inert={inert} className="story-reader" style={storyReadingStyle(preferences)} aria-label="连续剧情" tabIndex={0} onScroll={e=>{const el=e.currentTarget;nearBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<80;if(el.scrollTop<80&&from>0&&!anchor.current){anchor.current={height:el.scrollHeight,top:el.scrollTop};setStart(Math.max(0,from-12));}}}>
   {!path.length&&<section className="story-opening"><h2>开场情境</h2><p>{opening||'尚未填写开场情境。'}</p><p className="hint">点击开始后才会生成正文，使用当前默认 API 并消耗 Token。</p></section>}
-  {!!path.length&&<section className="story-reading-card story-reading-surface" aria-label="连续剧情正文">{entries}
+  {!!path.length&&<section className="story-reading-history" aria-label="连续剧情正文">{entries}
 </section>}
   {children&&<div className="story-next-actions">{children}</div>}
  </div>;
