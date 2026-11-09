@@ -92,7 +92,7 @@ export async function withdrawStory(worldId:string,expected:StoryExpectedProgres
   const action=normalizeStoryAction(head.action??head.fromChoiceId);
   const draft:StoryDraft|undefined=action?.kind==='custom'?{headNodeId:parent.id,mode:'custom',customText:action.text}:action?.kind==='choice'?{headNodeId:parent.id,mode:'choice',customText:'',choiceId:action.choiceId}:undefined;
   if(draft?.choiceId&&!parent.choices.some(c=>c.id===draft.choiceId))throw Error('原行动与上一回合不匹配，未撤回。');
-  const next:StorySession={...s,headNodeId:parent.id,revision:s.revision-1,status:'ready',pending:undefined,error:undefined,failureDetails:undefined,actionDraft:draft,updatedAt:Date.now()};validateStorySession(next);
+  const next:StorySession={...s,headNodeId:parent.id,revision:s.revision-1,interruptedOutput:undefined,status:'ready',pending:undefined,error:undefined,failureDetails:undefined,actionDraft:draft,updatedAt:Date.now()};validateStorySession(next);
   await db.storyNodes.delete(head.id);await db.storySessions.put(next);return next;
  });
 }

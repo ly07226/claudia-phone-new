@@ -35,7 +35,7 @@ export function storyFailureReason(f:StoryFailure):string {
  switch(f.code){
  case 'config-missing':return '未配置可用的全局默认 API，未发送模型请求。';
  case 'config-invalid':return 'API 配置缺失或无效，请检查启用状态、密钥、地址、模型及协议；未发送模型请求。';
- case 'network':return '网络连接失败，未收到可确认的 HTTP 响应。';
+ case 'network':return f.stage==='response'&&f.httpStatus?'回复传输中断，未确认收到完整剧情。':'网络连接失败，未收到可确认的 HTTP 响应。';
  case 'timeout':return '请求超时，无法确认服务端是否已完成或计费。';
  case 'auth':return 'API 认证失败或访问权限不足。';
  case 'quota':return '服务商明确返回余额或配额不足。';

@@ -25,6 +25,7 @@ export function validateStorySession(s:StorySession){
  if(s.pending)check(id(s.pending.token)&&num(s.pending.revision)&&s.pending.revision===s.revision&&s.pending.headNodeId===s.headNodeId&&num(s.pending.expiresAt));
  check((s.status==='generating')===!!s.pending);
  if(s.actionDraft!==undefined){const d=s.actionDraft;check(d&&typeof d==='object'&&!Array.isArray(d)&&Object.keys(d).every(k=>['headNodeId','mode','customText','choiceId'].includes(k)));check(d.headNodeId===s.headNodeId&&id(d.headNodeId)&&['choice','custom'].includes(d.mode)&&typeof d.customText==='string'&&d.customText.length<=storyLimits.action);check(d.mode==='choice'?d.customText==='':d.choiceId===undefined);if(d.choiceId!==undefined)check(id(d.choiceId));}
+ if(s.interruptedOutput!==undefined){const r=s.interruptedOutput;check(r&&typeof r==='object'&&!Array.isArray(r)&&Object.keys(r).every(k=>['text','reason','baseRevision','createdAt'].includes(k))&&typeof r.text==='string'&&!!r.text.trim()&&r.text.length<=100000&&['truncated','transport'].includes(r.reason)&&num(r.baseRevision)&&r.baseRevision<=storyLimits.nodes&&num(r.createdAt));}
  if(s.error!==undefined)check(['cancelled','request','invalid','stale','budget'].includes(s.error));
  if(s.failureDetails!==undefined)check(validStoryFailure(s.failureDetails));
 }
