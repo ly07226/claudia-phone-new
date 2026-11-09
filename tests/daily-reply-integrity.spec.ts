@@ -81,11 +81,11 @@ test('SSE 跨 UTF8/括号边界、网络中断、未确认结束及输出限制�
  });
  for(const value of result)expect(value.text).toBe('（他看着你，轻轻笑了）你怎么了？');expect(result.map(v=>v.interruption)).toEqual([undefined,'length','network','stream']);
 });
-test('日常默认节奏只进入 Daily、明确长内容请求保留、World/Story 不受新指令影响',async({page})=>{
+test('Daily 恢复原有回复长度请求：无新增简洁指导，人设与用户长内容要求完整保留',async({page})=>{
  const {daily,world}=await setup(page),requests:any[]=[];
  await page.route('https://daily.test/**',route=>{requests.push(route.request().postDataJSON());return route.fulfill({json:{choices:[{message:{content:'完整的详细说明。'.repeat(500)},finish_reason:'stop'}]}});});
  await send(page,daily,'请详细解释并写长篇内容，不要省略。');await send(page,world,'继续世界内的事情');
- expect(requests[0].messages[0].content).toContain('即时通讯');expect(requests[0].messages[0].content).toContain('不设固定字数');expect(requests[0].messages[0].content).toContain('完整人格');expect(requests[0].messages.at(-1).content).toBe('请详细解释并写长篇内容，不要省略。');expect(requests[1].messages[0].content).not.toContain('即时通讯');
+ for(const phrase of ['日常交流默认采用即时通讯','避免不必要的长篇动作','留出对方回应的空间','不替用户连续推进多个回合','不设固定字数'])expect(JSON.stringify(requests[0])).not.toContain(phrase);expect(requests[0].messages[0].content).toContain('保留我的个性');expect(requests[0].messages[0].content).toContain('完整人格');expect(requests[0].messages.at(-1).content).toBe('请详细解释并写长篇内容，不要省略。');expect(requests[1].messages[0].content).not.toContain('即时通讯');
  expect(requests.every(b=>b.max_tokens===2000&&b.stream===false)).toBe(true);expect((await rows(page,daily)).at(-1)?.content).toHaveLength('完整的详细说明。'.length*500);
 });
 test('正常未闭合括号不推断中断；HTTP/网络失败保留用户消息且不自动重试',async({page})=>{
@@ -140,7 +140,7 @@ test('动作之间的纯标点、环境和心理片段逐字保留；说明括�
  await setup(page);const result=await page.evaluate(async()=>{const {splitAssistantBubbles}=await import('/src/splitAssistantBubbles.ts');const values=['（他笑了）——（我点头）','（窗外传来雨声）你带伞了吗？（心里有些担心）','这本书（我看过这本书）值得推荐','他说：“（我笑了）只是括号示例。”'];return values.map(text=>({text,pieces:splitAssistantBubbles(text)}));});
  for(const r of result){expect(r.pieces.join('')).toBe(r.text);expect(r.pieces.every(t=>t.trim())).toBe(true);}expect(result[0].pieces).toEqual(['（他笑了）——','（我点头）']);expect(result[1].pieces).toHaveLength(3);expect(result[2].pieces).toEqual([result[2].text]);expect(result[3].pieces).toEqual([result[3].text]);
 });
-test('默认简洁指导不挤掉接近预算上限的原有人设、记忆或当前消息',async({page})=>{
+test('恢复原有篇幅行为仍保留预算安全：接近上限的人设与当前消息完整保留',async({page})=>{
  const {daily}=await setup(page);const result=await page.evaluate(async id=>{const {db}=await import('/src/store.ts');const persona='必要设定'.repeat(5950);await db.characters.update('actor',{persona});await db.messages.add({id:'budget-user',conversationId:id,role:'user',content:'当前消息不能丢失',createdAt:1});const context=await(await import('/src/chatContext.ts')).buildContext((await db.conversations.get(id))!);return {persona,context};},daily);
  expect(result.context[0].content).toContain(result.persona);expect(result.context[0].content.length).toBeLessThanOrEqual(24000);expect(result.context[0].content).not.toContain('日常交流默认采用即时通讯');expect(result.context.at(-1)?.content).toBe('当前消息不能丢失');
 });
