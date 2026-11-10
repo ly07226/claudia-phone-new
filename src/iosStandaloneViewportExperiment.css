@@ -48,3 +48,15 @@
     }
   }
 }
+
+/* All inner apps in both daily and world spaces: only the phone desktop
+   displays the space-list breadcrumb. Preserve iOS status-bar safe inset,
+   while allowing each app's own title/header to move into the freed row. */
+.stage[data-ios] > .phone[data-inner-app="true"]:not(.chat-conversation) {
+  --status-height: var(--safe-top);
+}
+.stage[data-ios] > .phone[data-inner-app="true"]:not(.chat-conversation) > .status {
+  height: var(--safe-top);
+  padding: 0;
+  pointer-events: none;
+}
