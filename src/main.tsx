@@ -1,4 +1,3 @@
-import {ViewportDiagnosticsPanel} from './ViewportDiagnosticsPanel';
 import {ChatHubScheduler} from './ChatHubScheduler';
 import {ThemeEditor} from './ThemeEditor';
 import {openPhoneApp,editPhoneDesktop,backPhonePage,usePhonePageNavigation} from './phonePageNavigation';
@@ -73,6 +72,38 @@ const icons = [
 function App() {
   const environment = useDisplayEnvironment();
   const s = usePhone();
+  // iOS standalone first-paint experiment: emulate the smallest possible scroll
+  // transaction on the existing scrollable element. Restore its position before
+  // paint, and never touch focused inputs or the document scroll position.
+  useEffect(() => {
+    if (!environment.ios || !environment.standalone || !s.ready) return;
+    let frame = 0, second = 0, third = 0;
+    const settle = () => {
+      cancelAnimationFrame(frame); cancelAnimationFrame(second); cancelAnimationFrame(third);
+      frame = requestAnimationFrame(() => {
+        second = requestAnimationFrame(() => {
+          const phone = document.querySelector<HTMLElement>('.stage > .phone');
+          if (!phone || document.activeElement?.matches('input,textarea,select')) return;
+          const scrollable = [phone.querySelector<HTMLElement>('[role=tabpanel]:not([hidden])'),phone.querySelector<HTMLElement>('.app-scroll'),phone.querySelector<HTMLElement>('.desktop')]
+            .find(el => el && el.scrollHeight > el.clientHeight + 2);
+          if (!scrollable) return;
+          const original = scrollable.scrollTop;
+          const next = original > 0 ? original - 1 : original + 1;
+          scrollable.scrollTop = next;
+          third = requestAnimationFrame(() => { if (scrollable.isConnected) scrollable.scrollTop = original; });
+        });
+      });
+    };
+    settle();
+    window.addEventListener('pageshow', settle);
+    document.addEventListener('visibilitychange', settle);
+    return () => {
+      cancelAnimationFrame(frame); cancelAnimationFrame(second); cancelAnimationFrame(third);
+      window.removeEventListener('pageshow', settle);
+      document.removeEventListener('visibilitychange', settle);
+    };
+  }, [environment.ios, environment.standalone, s.ready, s.activeApp]);
+
   const phoneNavigation=usePhonePageNavigation();
   const appearance = useEffectiveTheme(s.theme);
   useEffect(()=>{if(s.ready&&themeSafeMode())s.set({activeApp:"主题编辑器"});},[s.ready]);
@@ -802,7 +833,6 @@ function App() {
           </div>
         )}
       </main>
-      <ViewportDiagnosticsPanel/>
       <aside className="side-note">
         <span>01 / YOUR EVERYDAY ESCAPE</span>
         <p>
