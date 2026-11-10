@@ -1,11 +1,11 @@
 import { BackupError, backupLimits, checkAbort, ensure, withBackupPhase } from "./backupFormat";
 import { createBackup, readBackup, type BackupExport, type BackupProgress } from "./backupService";
 import type { Entry, FileEntry } from "@zip.js/zip.js";
-export const zipLimits = { archiveBytes:32*1024*1024, unpackedBytes:128*1024*1024, entryBytes:8*1024*1024, entries:256, directoryBytes:256*1024, chunkBytes:256*1024, ratio:100 } as const;
+export const zipLimits = { archiveBytes:64*1024*1024, unpackedBytes:128*1024*1024, entryBytes:8*1024*1024, entries:256, directoryBytes:256*1024, chunkBytes:256*1024, ratio:100 } as const;
 const infoName="backup-info.json";
 const options={useWebWorkers:false,useCompressionStream:false,chunkSize:zipLimits.chunkBytes};
 interface ZipInfo { format:"claudia-phone-zip"; version:1|2; encryption:"none"|"winzip-aes-256"|"aes-gcm-backup"; payloadFormat:"claudia-phone-backup"; encryptionParameters?: {cipher:string;kdf:string;iterations:number;authentication:string} }
-export function checkZipSize(size:number) {ensure(Number.isSafeInteger(size)&&size>0&&size<=zipLimits.archiveBytes,"单个 ZIP 最大支持32 MiB。较大备份请使用高级选项中的原格式工具；没有生成不完整文件。");}
+export function checkZipSize(size:number) {ensure(Number.isSafeInteger(size)&&size>0&&size<=zipLimits.archiveBytes,"单个 ZIP 最大支持64 MiB。较大备份请使用高级选项中的原格式工具；没有生成不完整文件。");}
 function safeName(name:string) {return name.length>0&&name.length<=180&&/^[a-zA-Z0-9_.-]+$/.test(name)&&!name.includes("..");}
 /** Bound central directory allocation before invoking a standards-compliant ZIP parser. */
 async function preflight(file:File,signal?:AbortSignal) {
