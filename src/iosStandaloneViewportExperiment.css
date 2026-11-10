@@ -28,3 +28,17 @@
   padding: 0;
   pointer-events: none;
 }
+
+/* Conversation: the measured dynamic viewport can remain 62px short after
+   entering from the full-height hub. Use the same large viewport baseline
+   while the keyboard is closed, but yield to the visual viewport as soon as
+   the keyboard opens. The composer remains in normal flex flow. */
+@supports (height: 100lvh) {
+  html[data-ios="true"][data-standalone="true"] .stage.chat-stage:has(> .phone.chat-conversation:not(.chat-keyboard)) {
+    top: 0;
+    height: 100lvh;
+  }
+  html[data-ios="true"][data-standalone="true"] .stage.chat-stage:has(> .phone.chat-conversation.chat-keyboard) {
+    height: var(--chat-height, 100dvh);
+  }
+}
