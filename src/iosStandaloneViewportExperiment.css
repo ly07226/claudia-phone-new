@@ -28,25 +28,3 @@
   padding: 0;
   pointer-events: none;
 }
-
-/* Conversation viewport: stage and phone MUST share the same containing
-   block. Previously the stage grew to lvh while .phone.chat-open retained
-   --chat-height:100dvh, leaving a short inner flex column and a gap.
-   When the keyboard opens, the measured visual viewport wins. */
-@supports (height: 100lvh) {
-  html[data-ios="true"][data-standalone="true"] .stage.chat-stage:has(> .phone.chat-conversation:not(.chat-keyboard)) {
-    top: 0;
-    height: 100lvh;
-  }
-  html[data-ios="true"][data-standalone="true"] .stage.chat-stage > .phone.chat-conversation:not(.chat-keyboard) {
-    height: 100%;
-    min-height: 0;
-  }
-  html[data-ios="true"][data-standalone="true"] .stage.chat-stage:has(> .phone.chat-conversation.chat-keyboard) {
-    height: var(--chat-height, 100dvh);
-  }
-  html[data-ios="true"][data-standalone="true"] .stage.chat-stage > .phone.chat-conversation.chat-keyboard {
-    height: 100%;
-    min-height: 0;
-  }
-}
