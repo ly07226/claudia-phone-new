@@ -2339,3 +2339,24 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
   height: calc(100% - var(--safe-top));
 }
 .phone.daily-chat-shell:not(.chat-conversation) > .status:empty { height: 0; padding: 0; }
+
+/* iOS standalone daily chat: anchor the app to the full viewport rather than
+   relying on 100dvh, which may leave a visible strip after viewport changes. */
+.stage[data-ios][data-standalone] > .phone.daily-chat-shell:not(.chat-conversation) {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.stage[data-ios][data-standalone] > .phone.daily-chat-shell:not(.chat-conversation) > .status {
+  flex: 0 0 var(--safe-top);
+  height: var(--safe-top);
+}
+.stage[data-ios][data-standalone] > .phone.daily-chat-shell:not(.chat-conversation) > .app-panel {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+}
