@@ -1,11 +1,11 @@
 import { BackupError, backupLimits, checkAbort, ensure, withBackupPhase } from "./backupFormat";
 import { createBackup, readBackup, type BackupExport, type BackupProgress } from "./backupService";
 import type { Entry, FileEntry } from "@zip.js/zip.js";
-export const zipLimits = { archiveBytes:32*1024*1024, unpackedBytes:32*1024*1024, entryBytes:8*1024*1024, entries:256, directoryBytes:256*1024, chunkBytes:256*1024, ratio:100 } as const;
+export const zipLimits = { archiveBytes:64*1024*1024, unpackedBytes:128*1024*1024, entryBytes:8*1024*1024, entries:256, directoryBytes:256*1024, chunkBytes:256*1024, ratio:100 } as const;
 const infoName="backup-info.json";
 const options={useWebWorkers:false,useCompressionStream:false,chunkSize:zipLimits.chunkBytes};
 interface ZipInfo { format:"claudia-phone-zip"; version:1|2; encryption:"none"|"winzip-aes-256"|"aes-gcm-backup"; payloadFormat:"claudia-phone-backup"; encryptionParameters?: {cipher:string;kdf:string;iterations:number;authentication:string} }
-export function checkZipSize(size:number) {ensure(Number.isSafeInteger(size)&&size>0&&size<=zipLimits.archiveBytes,"单个 ZIP 最大支持32 MiB。较大备份请使用高级选项中的原格式工具；没有生成不完整文件。");}
+export function checkZipSize(size:number) {ensure(Number.isSafeInteger(size)&&size>0&&size<=zipLimits.archiveBytes,"单个 ZIP 最大支持64 MiB。较大备份请使用高级选项中的原格式工具；没有生成不完整文件。");}
 function safeName(name:string) {return name.length>0&&name.length<=180&&/^[a-zA-Z0-9_.-]+$/.test(name)&&!name.includes("..");}
 /** Bound central directory allocation before invoking a standards-compliant ZIP parser. */
 async function preflight(file:File,signal?:AbortSignal) {
@@ -35,7 +35,7 @@ async function open(file:File,signal?:AbortSignal) {
   await preflight(file,signal);const {ZipReader,BlobReader}=await import('@zip.js/zip.js');
   const reader=new ZipReader(new BlobReader(file),options);const entries:FileEntry[]=[];let total=0;
   try{
-    for await(const e of reader.getEntriesGenerator()){checkAbort(signal);checkEntry(e);ensure(entries.length<zipLimits.entries&&!entries.some(x=>x.filename===e.filename),"ZIP 文件过多或文件名重复。");total+=e.uncompressedSize;ensure(total<=zipLimits.unpackedBytes,"ZIP 解压总量超过32 MiB，已停止。");entries.push(e as FileEntry);}
+    for await(const e of reader.getEntriesGenerator()){checkAbort(signal);checkEntry(e);ensure(entries.length<zipLimits.entries&&!entries.some(x=>x.filename===e.filename),"ZIP 文件过多或文件名重复。");total+=e.uncompressedSize;ensure(total<=zipLimits.unpackedBytes,"ZIP 解压总量超过128 MiB，已停止。");entries.push(e as FileEntry);}
     const meta=entries.find(e=>e.filename===infoName);ensure(meta&&!meta.encrypted&&meta.uncompressedSize<=4096,"ZIP 缺少有效的备份格式说明。");
     let info:ZipInfo;try{info=JSON.parse(await(await extract(meta,undefined,signal)).text());}catch(e){if(e instanceof BackupError)throw e;throw new BackupError("ZIP 备份格式说明已损坏。");}
     ensure(info.format==='claudia-phone-zip'&&info.payloadFormat==='claudia-phone-backup'&&((info.version===1&&['none','winzip-aes-256'].includes(info.encryption))||(info.version===2&&info.encryption==='aes-gcm-backup')),"ZIP 备份版本暂不支持，未丢弃未知数据。");
@@ -70,10 +70,14 @@ export async function packBackupZip(snapshot:BackupExport,password?:string,signa
   ensure(snapshot.manifest.credentials==='excluded'||(!!password&&!!snapshot.manifest.encryption),"包含 API 密钥必须使用加密备份，拒绝生成明文 ZIP。");
   const manifest=new Blob([JSON.stringify(snapshot.manifest)],{type:'application/json'});
   ensure(manifest.size<=backupLimits.manifestBytes&&snapshot.manifest.parts.length+2<=zipLimits.entries,"备份信息超过单文件安全限制，请使用原格式工具。");
-  const estimated=manifest.size+snapshot.manifest.parts.reduce((s,p)=>s+p.bytes,0)+65536;checkZipSize(estimated);checkAbort(signal);
+  // Compression can shrink the archive substantially: check the actual output
+  // in the streaming sink, not an uncompressed-size estimate.
+  const unpacked=manifest.size+snapshot.manifest.parts.reduce((s,p)=>s+p.bytes,0);
+  ensure(unpacked<=zipLimits.unpackedBytes,"备份原始数据超过128 MiB，请使用高级选项中的分文件备份。");
+  checkAbort(signal);
   const {ZipWriter,BlobReader}=await import('@zip.js/zip.js');const chunks:Blob[]=[];let size=0;
   const sink=new WritableStream<Uint8Array>({write(chunk){checkAbort(signal);size+=chunk.byteLength;checkZipSize(size);chunks.push(new Blob([chunk as Uint8Array<ArrayBuffer>]));}});
-  const writer=new ZipWriter(sink,{...options,level:0,zip64:false});
+  const writer=new ZipWriter(sink,{...options,level:6,zip64:false});
   const inner=snapshot.manifest.credentials==='encrypted';
   const info:ZipInfo={format:'claudia-phone-zip',version:inner?2:1,encryption:inner?'aes-gcm-backup':password?'winzip-aes-256':'none',payloadFormat:'claudia-phone-backup',...(inner?{encryptionParameters:{cipher:'AES-256-GCM',kdf:'PBKDF2-SHA256',iterations:600000,authentication:'GCM-128 + HMAC-SHA256'}}:password?{encryptionParameters:{cipher:'AES-256-CTR',kdf:'PBKDF2-HMAC-SHA1',iterations:1000,authentication:'HMAC-SHA1-80'}}:{})};
   try{
@@ -84,9 +88,16 @@ export async function packBackupZip(snapshot:BackupExport,password?:string,signa
     await writer.close();checkAbort(signal);checkZipSize(size);return new File(chunks,`Claudia-Phone-Backup-${new Date().toISOString().slice(0,10)}.zip`,{type:'application/zip'});
   }catch(e){chunks.length=0;checkAbort(signal);if(e instanceof BackupError)throw e;throw withBackupPhase(e,'zip-pack');}
 }
-export async function createZipBackup(options:{closedOtherClients:boolean;includeCredentials?:boolean;credentialConsent?:boolean;database?:import("dexie").default;password?:string;signal?:AbortSignal;onProgress?:(p:BackupProgress)=>void;onWarning?:(message:string)=>void}) {
+export async function createZipBackup(options:{closedOtherClients:boolean;includeCredentials?:boolean;credentialConsent?:boolean;database?:import("dexie").default;password?:string;signal?:AbortSignal;onProgress?:(p:BackupProgress)=>void;onWarning?:(message:string)=>void;onSummary?:(summary:{rawBytes:number;imageBytes:number;imageCount:number;records:number;parts:number})=>void}) {
   if(typeof WritableStream!=='function'||typeof File!=='function'||typeof Blob!=='function')throw new BackupError('当前浏览器缺少 ZIP 所需的文件或流能力，请使用支持的 Safari 版本；没有省略任何数据。','CAPABILITY');
   const snapshot=await createBackup({database:options.database,closedOtherClients:options.closedOtherClients,includeCredentials:options.includeCredentials,credentialConsent:options.credentialConsent,password:options.password,signal:options.signal,onProgress:options.onProgress});
+  options.onSummary?.({
+    rawBytes:snapshot.manifest.parts.reduce((total,part)=>total+part.bytes,0),
+    imageBytes:snapshot.manifest.resources.reduce((total,resource)=>total+resource.bytes,0),
+    imageCount:snapshot.manifest.resources.length,
+    records:Object.values(snapshot.manifest.tables).reduce((total,table)=>total+table.count,0),
+    parts:snapshot.manifest.parts.length,
+  });
   let completed:File|undefined;
   try{try{completed=await packBackupZip(snapshot,options.password,options.signal,options.onProgress);return completed;}catch(e){throw withBackupPhase(e,'zip-pack');}}
   finally{try{await snapshot.dispose();}catch(e){if(completed)options.onWarning?.(withBackupPhase(e,'export-cleanup').message);/* Never replace a primary failure or discard a complete ZIP because temp cleanup failed. */}}
