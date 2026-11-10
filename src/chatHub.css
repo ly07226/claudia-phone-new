@@ -118,19 +118,3 @@
 [data-chat-hub] .hub-post .hub-failure{margin:4px 0}
 [data-chat-hub] .hub-failure>button{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;padding:4px 0;color:inherit;font-size:12px}
 [data-chat-hub] .hub-failure>button>span{display:inline-grid;place-items:center;border:1px solid currentColor;border-radius:50%;width:15px;height:15px;font-size:11px}
-
-/* Standalone iOS experiment: position the tab bar independently of the
-   height of the chat pane. Keyboard mode stays in normal flex flow. */
-@media (max-width: 760px), (hover: none) and (pointer: coarse) {
-  .stage[data-ios][data-standalone] [data-chat-hub]:not([data-chat-keyboard]) .hub-tabs {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 20;
-    width: 100%;
-  }
-  .stage[data-ios][data-standalone] [data-chat-hub]:not([data-chat-keyboard]) .hub-panes {
-    padding-bottom: calc(60px + var(--safe-bottom, 0px));
-  }
-}
