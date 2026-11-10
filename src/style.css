@@ -2327,35 +2327,3 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
 .restore-actions p{overflow-wrap:anywhere}
 .import-counts{display:grid;gap:8px;margin:12px 0}.import-counts>div{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.import-counts dd{margin:0;overflow-wrap:anywhere}.restore-actions fieldset{min-width:0;border:1px solid var(--theme-border, #d9e2d3);border-radius:14px;padding:12px}.restore-actions select{max-width:100%}
 .restore-actions fieldset .backup-check{min-height:44px;gap:12px;align-items:center}.restore-actions fieldset input[type=checkbox]{flex:none}
-
-/* iOS standalone: pin the chat shell to the viewport edges instead of
-   relying on dvh alone. Do not override the keyboard's measured geometry. */
-@media (max-width: 760px), (hover: none) and (pointer: coarse) {
-  .stage[data-ios][data-standalone]:has(> .phone > .app-panel > .app-scroll > [data-chat-hub]:not([data-chat-keyboard])) {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: auto;
-    min-height: 0;
-  }
-  .stage[data-ios][data-standalone]:has(> .phone > .app-panel > .app-scroll > [data-chat-hub]:not([data-chat-keyboard])) > .phone {
-    height: 100%;
-    min-height: 0;
-  }
-  .stage[data-ios][data-standalone].chat-stage:not(:has(> .phone.chat-keyboard)) {
-    top: 0;
-    bottom: 0;
-    height: auto;
-    min-height: 0;
-  }
-}
-
-/* A backdrop-filter establishes a containing block for position:fixed.
-   Disable it only for the standalone chat hub so the tab bar can attach
-   to the actual viewport instead of the app panel. */
-@media (max-width: 760px), (hover: none) and (pointer: coarse) {
-  .stage[data-ios][data-standalone] > .phone > .app-panel:has(> .app-scroll > [data-chat-hub]) {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
