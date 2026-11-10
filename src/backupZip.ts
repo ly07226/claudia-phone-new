@@ -88,9 +88,16 @@ export async function packBackupZip(snapshot:BackupExport,password?:string,signa
     await writer.close();checkAbort(signal);checkZipSize(size);return new File(chunks,`Claudia-Phone-Backup-${new Date().toISOString().slice(0,10)}.zip`,{type:'application/zip'});
   }catch(e){chunks.length=0;checkAbort(signal);if(e instanceof BackupError)throw e;throw withBackupPhase(e,'zip-pack');}
 }
-export async function createZipBackup(options:{closedOtherClients:boolean;includeCredentials?:boolean;credentialConsent?:boolean;database?:import("dexie").default;password?:string;signal?:AbortSignal;onProgress?:(p:BackupProgress)=>void;onWarning?:(message:string)=>void}) {
+export async function createZipBackup(options:{closedOtherClients:boolean;includeCredentials?:boolean;credentialConsent?:boolean;database?:import("dexie").default;password?:string;signal?:AbortSignal;onProgress?:(p:BackupProgress)=>void;onWarning?:(message:string)=>void;onSummary?:(summary:{rawBytes:number;imageBytes:number;imageCount:number;records:number;parts:number})=>void}) {
   if(typeof WritableStream!=='function'||typeof File!=='function'||typeof Blob!=='function')throw new BackupError('当前浏览器缺少 ZIP 所需的文件或流能力，请使用支持的 Safari 版本；没有省略任何数据。','CAPABILITY');
   const snapshot=await createBackup({database:options.database,closedOtherClients:options.closedOtherClients,includeCredentials:options.includeCredentials,credentialConsent:options.credentialConsent,password:options.password,signal:options.signal,onProgress:options.onProgress});
+  options.onSummary?.({
+    rawBytes:snapshot.manifest.parts.reduce((total,part)=>total+part.bytes,0),
+    imageBytes:snapshot.manifest.resources.reduce((total,resource)=>total+resource.bytes,0),
+    imageCount:snapshot.manifest.resources.length,
+    records:Object.values(snapshot.manifest.tables).reduce((total,table)=>total+table.count,0),
+    parts:snapshot.manifest.parts.length,
+  });
   let completed:File|undefined;
   try{try{completed=await packBackupZip(snapshot,options.password,options.signal,options.onProgress);return completed;}catch(e){throw withBackupPhase(e,'zip-pack');}}
   finally{try{await snapshot.dispose();}catch(e){if(completed)options.onWarning?.(withBackupPhase(e,'export-cleanup').message);/* Never replace a primary failure or discard a complete ZIP because temp cleanup failed. */}}
