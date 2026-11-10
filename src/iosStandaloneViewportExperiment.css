@@ -16,3 +16,15 @@
     height: var(--chat-shell-height, 100lvh);
   }
 }
+
+/* Chat hub only: reclaim the empty breadcrumb row for the real app header.
+   All four tabs share this app-panel; keep the bottom tab bar anchored by
+   allowing the flex content area to grow, not by moving the footer. */
+.stage[data-ios] > .phone:has(> .app-panel > .app-scroll > [data-chat-hub]) {
+  --status-height: var(--safe-top);
+}
+.stage[data-ios] > .phone:has(> .app-panel > .app-scroll > [data-chat-hub]) > .status {
+  height: var(--safe-top);
+  padding: 0;
+  pointer-events: none;
+}
