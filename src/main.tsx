@@ -54,6 +54,7 @@ import {
 } from "./store";
 import "./style.css";
 import "./themeGlobal.css";
+import "./iosStandaloneViewportExperiment.css";
 const icons = [
   MessageCircle,
   NotebookPen,
