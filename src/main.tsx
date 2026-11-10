@@ -84,13 +84,26 @@ function App() {
         second = requestAnimationFrame(() => {
           const phone = document.querySelector<HTMLElement>('.stage > .phone');
           if (!phone || document.activeElement?.matches('input,textarea,select')) return;
-          const scrollable = [phone.querySelector<HTMLElement>('[role=tabpanel]:not([hidden])'),phone.querySelector<HTMLElement>('.app-scroll'),phone.querySelector<HTMLElement>('.desktop')]
-            .find(el => el && el.scrollHeight > el.clientHeight + 2);
-          if (!scrollable) return;
-          const original = scrollable.scrollTop;
+          const candidates = [phone.querySelector<HTMLElement>('[role=tabpanel]:not([hidden])'),phone.querySelector<HTMLElement>('.app-scroll'),phone.querySelector<HTMLElement>('.desktop')];
+          const scrollable = candidates.find(el => el && el.scrollHeight > el.clientHeight + 2);
+          // The original first-paint correction skipped empty/short chat lists.
+          // Create one temporary scroll pixel inside the chat pane only, then
+          // restore the exact original inline style and scroll position.
+          const fallback = !scrollable && s.activeApp === '聊天'
+            ? phone.querySelector<HTMLElement>('[role=tabpanel]:not([hidden])')
+            : null;
+          const target = scrollable || fallback;
+          if (!target) return;
+          const original = target.scrollTop;
+          const previousPadding = target.style.paddingBottom;
+          if (fallback) target.style.paddingBottom = `calc(${getComputedStyle(target).paddingBottom} + 3px)`;
           const next = original > 0 ? original - 1 : original + 1;
-          scrollable.scrollTop = next;
-          third = requestAnimationFrame(() => { if (scrollable.isConnected) scrollable.scrollTop = original; });
+          target.scrollTop = next;
+          third = requestAnimationFrame(() => {
+            if (!target.isConnected) return;
+            target.scrollTop = original;
+            if (fallback) target.style.paddingBottom = previousPadding;
+          });
         });
       });
     };
@@ -296,7 +309,7 @@ function App() {
               minute: "2-digit",
             })}
           </span>}
-          <button
+          {s.activeApp !== "聊天" && <button
             className="space-return"
             aria-label="返回空间列表"
             onClick={() => void useSpaces.getState().exitSpace()}
@@ -308,7 +321,7 @@ function App() {
                 : "日常手机"}{" "}
               · {space?.type === "world" ? "剧本列表" : "空间列表"}
             </span>
-          </button>
+          </button>}
           {!environment.ios && <span className="status-icons">
             <Signal size={14} />
             <Wifi size={15} />
