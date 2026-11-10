@@ -1,3 +1,4 @@
+import {ViewportDiagnosticsPanel} from './ViewportDiagnosticsPanel';
 import {ChatHubScheduler} from './ChatHubScheduler';
 import {ThemeEditor} from './ThemeEditor';
 import {openPhoneApp,editPhoneDesktop,backPhonePage,usePhonePageNavigation} from './phonePageNavigation';
@@ -801,6 +802,7 @@ function App() {
           </div>
         )}
       </main>
+      <ViewportDiagnosticsPanel/>
       <aside className="side-note">
         <span>01 / YOUR EVERYDAY ESCAPE</span>
         <p>

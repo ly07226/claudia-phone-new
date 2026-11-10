@@ -170,6 +170,16 @@ test("无世界创建基础角色、无 API 引导、失败保留消息和重试
     page.getByRole("button", { name: "重试最后一条消息" }),
   ).toBeVisible();
   await expect(page.locator(".chat-bubble")).toHaveCount(1);
+  const firstFailure = await page.evaluate(async () => {
+    const { db } = await import("/src/store.ts");
+    const c = (await db.conversations.toArray())[0];
+    const task = (await import("/src/generationTasks.ts")).getGenerationTask(c.id)!;
+    return { conversationId: c.id, taskId: task.id };
+  });
+  await expect.poll(() => page.evaluate(async id =>
+    (await import("/src/generationTasks.ts")).getGenerationTask(id)?.status,
+    firstFailure.conversationId)).toBe("failed");
+  await expect(page.getByRole("button", { name: "重试最后一条消息" })).toBeEnabled();
   await page.evaluate(async () => {
     const { db } = await import("/src/store.ts");
     await db.apiConfigs.put({
@@ -190,18 +200,37 @@ test("无世界创建基础角色、无 API 引导、失败保留消息和重试
       apiKey: "synthetic-test-key",
     });
   });
-  let body: any;
+  let body: any, authRequests = 0, releaseAuth!: () => void;
+  const authResponse = new Promise<void>(resolve => { releaseAuth = resolve; });
   await page.route("https://gemini.example.test/**", async (r) => {
+    authRequests++;
     body = r.request().postDataJSON();
+    await authResponse;
     await r.fulfill({
       status: 403,
       json: { error: { message: "synthetic-test-key" } },
     });
   });
   await page.getByRole("button", { name: "重试最后一条消息" }).click();
+  await expect.poll(() => authRequests).toBe(1);
+  // This is deliberately still the previous attempt's failure while the retry is pending.
+  await page.getByRole("button", {name:"回复失败，查看详情"}).click();
+  await expect(page.getByRole("dialog",{name:"回复失败详情"})).toContainText("没有可用 API");
+  await page.getByRole("dialog",{name:"回复失败详情"}).getByRole("button",{name:"关闭消息面板"}).click();
+  releaseAuth();
+  await expect.poll(() => page.evaluate(async ({ conversationId, taskId }) => {
+    const task = (await import("/src/generationTasks.ts")).getGenerationTask(conversationId);
+    return { newAttempt: task?.id !== taskId, status: task?.status, kind: task?.failure?.kind, httpStatus: task?.failure?.httpStatus };
+  }, firstFailure)).toEqual({ newAttempt: true, status: "failed", kind: "auth", httpStatus: 403 });
+  // The owner completes its error bookkeeping before the retry control is re-enabled.
+  await expect(page.getByRole("button", { name: "重试最后一条消息" })).toBeEnabled();
   await expect(page.getByRole("alert")).toContainText("回复失败");
+  await expect(page.getByRole("button", {name:"回复失败，查看详情"})).toHaveCount(1);
   await page.getByRole("button", {name:"回复失败，查看详情"}).click();
   await expect(page.getByRole("dialog",{name:"回复失败详情"})).toContainText("API 认证失败或访问权限不足");
+  await expect(page.getByRole("dialog",{name:"回复失败详情"})).toContainText("HTTP 403");
+  await expect(page.getByRole("dialog",{name:"回复失败详情"})).not.toContainText("没有可用 API");
+  expect(authRequests).toBe(1);
   await page.getByRole("dialog",{name:"回复失败详情"}).getByRole("button",{name:"关闭消息面板"}).click();
   await expect(page.locator(".chat-bubble")).toHaveCount(1);
   await expect(page.locator("body")).not.toContainText("synthetic-test-key");
