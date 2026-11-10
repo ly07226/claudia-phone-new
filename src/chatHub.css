@@ -111,3 +111,10 @@
 [data-chat-hub] [data-hub-page=chats] .chat-list-row{column-gap:13px;align-items:center;border-bottom-color:color-mix(in srgb,var(--theme-border,#ced8c7) 42%,transparent)}
 [data-chat-hub] [data-hub-page=chats] .chat-list-info strong{color:var(--theme-text,CanvasText);font-weight:500}
 [data-chat-hub] [data-hub-page=chats] .chat-list-preview,[data-chat-hub] [data-hub-page=chats] .chat-list-row time{color:var(--theme-muted,GrayText)}
+/* Operation-scoped failure affordances; overlays never resize the four-tab layout. */
+[data-chat-hub]{position:relative}
+[data-chat-hub] .hub-toast{position:absolute;z-index:8;left:50%;bottom:calc(72px + var(--safe-bottom,0px));transform:translateX(-50%);max-width:calc(100% - 32px);padding:8px 14px;border-radius:12px;background:var(--theme-text,#303c34);color:var(--theme-card,#fff);font-size:13px;pointer-events:none;overflow-wrap:anywhere}
+[data-chat-hub] .hub-failure{margin:6px 16px;font-size:12px;color:var(--theme-muted,#718075)}
+[data-chat-hub] .hub-post .hub-failure{margin:4px 0}
+[data-chat-hub] .hub-failure>button{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;padding:4px 0;color:inherit;font-size:12px}
+[data-chat-hub] .hub-failure>button>span{display:inline-grid;place-items:center;border:1px solid currentColor;border-radius:50%;width:15px;height:15px;font-size:11px}

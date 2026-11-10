@@ -1,3 +1,4 @@
+import {makeSocialFailure,putSocialFailure,announceSocialFailure,recordSocialFailure} from './socialFailures';
 import {attachmentImages} from './imageAttachments';
 import {db} from './store';
 import {isDailyFriend} from './chatRelationships';
@@ -55,7 +56,7 @@ export function generateSocial(r:SocialRequest){
      if(r.kind==='post')h.posts.unshift({id:crypto.randomUUID(),author:context.author,text,images:[],liked:false,createdAt:Date.now(),comments:[]});
      else {const p=h.posts.find(p=>p.id===r.postId),parent=r.parentId?p?.comments.find(c=>c.id===r.parentId):undefined;if(!p||p.text!==context.postText||(r.parentId&&parent?.text!==context.parentText))throw Error('原动态或评论已变化。');p.comments.push({id:crypto.randomUUID(),author:context.author,text,parentId:r.parentId,createdAt:Date.now()});}if(r.reactionToken){const event=reactionEvent(h,r);if(event?.reaction?.token!==r.reactionToken)throw Error('互动记录已变化，未写入过期结果。');event.reaction.status='done';}h.job=undefined;h.error=undefined;});
    });
-  }catch(e){if(claimed)await changeChatHub(h=>{if(h.job?.token===token){if(r.reactionToken){const event=reactionEvent(h,r);if(event?.reaction?.token===r.reactionToken)event.reaction.status='failed';}h.job=undefined;h.error=e instanceof Error?e.message.slice(0,500):'朋友圈请求失败，原内容保留。';if(r.automatic)h.auto.enabled=false;}}).catch(()=>{});throw e;}
+  }catch(e){const failure=makeSocialFailure(e,{id:token,kind:r.kind,characterId:r.characterId,postId:r.postId,parentId:r.parentId});if(claimed){announceSocialFailure(failure);await changeChatHub(h=>{if(h.job?.token===token){if(r.reactionToken){const event=reactionEvent(h,r);if(event?.reaction?.token===r.reactionToken)event.reaction.status='failed';}putSocialFailure(h,failure);h.job=undefined;h.error=failure.details.reason;if(r.automatic)h.auto.enabled=false;}}).catch(()=>{});}else await recordSocialFailure(failure);throw e;}
  })();running.set(r.characterId,task);void task.finally(()=>{if(running.get(r.characterId)===task)running.delete(r.characterId);}).catch(()=>{});return task;
 }
 let checking=false;
@@ -83,6 +84,6 @@ export async function reactToUserSocialEvent(postId:string,commentId?:string){
  });
  if(!accepted)return;
  queuedReactions++;
- const task=reactionTail.then(async()=>{await Promise.allSettled([...running.values()]);try{await generateSocial({...request,characterId:characterId!,reactionToken:token});}catch(e){await changeChatHub(h=>{const event=reactionEvent(h,request);if(event?.reaction?.token===token&&event.reaction.status!=='done'){event.reaction.status='failed';h.error=e instanceof Error?e.message.slice(0,500):'自动互动失败，原内容已保留。';}}).catch(()=>{});throw e;}finally{queuedReactions--;}});
+ const task=reactionTail.then(async()=>{await Promise.allSettled([...running.values()]);try{await generateSocial({...request,characterId:characterId!,reactionToken:token});}catch(e){await changeChatHub(h=>{const event=reactionEvent(h,request);if(event?.reaction?.token===token&&event.reaction.status!=='done'){event.reaction.status='failed';const failure=makeSocialFailure(e,{id:token,kind,postId,parentId:commentId,characterId});if(!h.failures?.some(f=>f.postId===postId&&f.parentId===commentId&&f.characterId===characterId&&f.kind===kind)){putSocialFailure(h,failure);announceSocialFailure(failure);}h.error=failure.details.reason;}}).catch(()=>{});throw e;}finally{queuedReactions--;}});
  reactionTail=task.catch(()=>{});return task;
 }

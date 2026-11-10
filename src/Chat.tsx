@@ -1,11 +1,10 @@
 import {ChatHub} from './ChatHub';
 import {interruptionLabel,validInterruption} from './chatCompletion';
 import {ReplyPending,ReplyFailureNotice} from './ReplyStatus';
-import {describeReplyFailure} from './replyFailure';
 import {prepareQuote,quoteSummary} from './messageReferences';
 import {partKey,type BubblePart} from './messageBubbles';
 import type {MessageSelection} from './MessagePopover';
-import {useGenerationTask, startGenerationTask, stopGenerationTask, runningTask} from "./generationTasks";
+import {useGenerationTask, useGenerationFailures, getGenerationTask, retainGenerationFailure, startGenerationTask, stopGenerationTask, runningTask} from "./generationTasks";
 import { AttachmentMenu, StoredImage, useImageDraft } from "./ImageAttachments";
 import { FriendRequests } from "./FriendRequests";
 import { isDailyFriend, checkDailyFriendApplications, clearChatHistory, deleteDailyFriend } from "./chatRelationships";
@@ -58,7 +57,8 @@ export function Chat({ worldId }: { worldId?: string }) {
   const remotePending=!!conversation?.sendingToken&&!runningTask(generationTask)&&(conversation.sendingUntil??0)>leaseClock;
   const busy=localBusy||runningTask(generationTask)||remotePending;
   const taskMatches=!!conversation&&generationTask?.timelineId===conversation.activeTimelineId&&generationTask?.epoch===(conversation.timelineEpoch??0);
-  const replyFailure=!busy&&taskMatches&&generationTask?.status==='failed'&&(!error||error===generationTask.error)?generationTask.failure??describeReplyFailure(new Error(generationTask.error)):undefined;
+  const failedTasks=useGenerationFailures(conversation?.id);
+  const visibleFailures=failedTasks.filter(f=>f.timelineId===conversation?.activeTimelineId&&f.epoch===(conversation?.timelineEpoch??0)&&(!f.messageId||messages.some(m=>m.id===f.messageId)));
   useEffect(()=>{setLeaseClock(Date.now());const until=conversation?.sendingUntil;if(!until)return;const timer=setTimeout(()=>setLeaseClock(Date.now()),Math.max(0,until-Date.now()+1));return()=>clearTimeout(timer);},[conversation?.id,conversation?.sendingToken,conversation?.sendingUntil]);
   const [savingMessage, setSavingMessage] = useState(false);
   const [attachmentOpen,setAttachmentOpen]=useState(false);
@@ -198,7 +198,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   useEffect(()=>{
     const id=conversation?.id;if(!id)return;
     const subscription=liveQuery(async()=>{const c=await db.conversations.get(id);return {c,t:c?.activeTimelineId?await db.timelines.get(c.activeTimelineId):undefined};}).subscribe({
-      next:({c})=>{if(activeConversation.current!==id)return;if(!c){leaveConversation();return;}void refresh(id,followBottom.current).catch(()=>setError("时间线路径读取失败，请检查本地数据。"));},
+      next:({c})=>{if(activeConversation.current!==id)return;if(!c){leaveConversation();return;}void refresh(id,followBottom.current).catch(()=>{if(activeConversation.current===id)setError("时间线路径读取失败，请检查本地数据。");});},
       error:()=>setError("无法订阅当前时间线，请刷新后重试。"),
     });return()=>subscription.unsubscribe();
   },[conversation?.id]);
@@ -320,9 +320,8 @@ export function Chat({ worldId }: { worldId?: string }) {
       if(retry&&keyboardDebugEnabled())recordKeyboardDebug('reply-returned',{success:false,reason:e instanceof Error&&e.message==='此会话正在回复中，请稍候。'?'service-lock':e instanceof Error&&e.message==='剧情已在其他窗口切换，请确认当前消息后重试。'?'service-path':e instanceof Error&&e.message==='没有可重试的用户消息。'?'service-no-pending':'generation-failed'});
       if (ownsView()) {
         if (!stored && !retry && !target) setText(draft);
-        setError(
-          e instanceof Error ? e.message : "请求失败，已保存消息仍保留。",
-        );
+        if(getGenerationTask(id)?.status!=='failed')await retainGenerationFailure({id:crypto.randomUUID(),conversationId:id,characterId:conversation.characterId,worldId:conversation.worldId,timelineId:expectedPath.timelineId,epoch:expectedPath.epoch,startedAt:Date.now(),status:'failed',saved:stored},e);
+
       }
       if (force&&ownsView()) throw e;
     } finally {
@@ -502,19 +501,20 @@ export function Chat({ worldId }: { worldId?: string }) {
                 }}
                 onVersion={(v) => void chooseVariant(m, v)}
               />
-              {m.role==='assistant'&&conversation.mode==='daily'&&validInterruption(m.replyInterruption)&&<p role="status" className="hint">
+              {visibleFailures.filter(f=>f.messageId===m.id).map(f=><ReplyFailureNotice key={f.id} details={f.failure}/>)}
+              {m.role==='assistant'&&conversation.mode==='daily' &&validInterruption(m.replyInterruption)&&<p role="status" className="hint">
                 {interruptionLabel(m.replyInterruption)}
                 {m.id===messages.at(-1)?.id&&!m.userEdited&&!m.bubbleDeletion&&<button type="button" className="text-button" title="会额外调用一次 API，原文保留。" disabled={busy} onClick={()=>{
                   if(busy)return;
                   setError('');
-                  try{const task=startGenerationTask({conversation,expectedPath:{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0},text:'',retry:false,continuationId:m.id,images:[]});void task.done.catch(e=>{if(activeConversation.current===conversation.id)setError(e instanceof Error?e.message:'续接失败，原文已保留。');});}catch(e){setError(e instanceof Error?e.message:'续接未发起。');}
+                  try{const task=startGenerationTask({conversation,expectedPath:{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0},text:'',retry:false,continuationId:m.id,images:[]});void task.done.catch(()=>{});}catch(e){setError(e instanceof Error?e.message:'续接未发起。');}
                 }}>继续生成</button>}
               </p>}
               </Fragment>
             ))}
             {remotePending&&<p role="status">请求状态待确认：可能仍在其他窗口处理中。可等待，或停止后手动重试；不会自动重复请求。</p>}
             {!busy&&conversation.sendingToken&&!runningTask(generationTask)&&<p role="status">上次请求尚未确认完成，可能已中断；不会自动重发。请确认后手动重试。</p>}
-            {replyFailure&&<ReplyFailureNotice key={`${conversation.id}:${generationTask?.id}`} details={replyFailure}/>}
+            {visibleFailures.filter(f=>!f.messageId).map(f=><ReplyFailureNotice key={f.id} details={f.failure}/>)}
             {!busy&&!error&&taskMatches&&generationTask?.status==='stopped'&&<p role="status">{generationTask.error}</p>}
             <div ref={bottom} />
           </div>
@@ -524,7 +524,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 {feedback}
               </p>
             )}
-            {error && !busy && !replyFailure && (
+            {error && !busy && (
               <div className="chat-error" role="alert">
                 <button
                   className="chat-error-dismiss"

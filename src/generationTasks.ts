@@ -1,3 +1,5 @@
+import {activeMessages} from './messagePath';
+import {resolveTimelinePath} from './timelines';
 import {describeReplyFailure,type ReplyFailureDetails} from './replyFailure';
 import {useSyncExternalStore} from 'react';
 import {db} from './store';
@@ -15,6 +17,9 @@ interface Request {
  continuationId?:string; messageId?:string; allowArchive?:boolean; images:string[]; replyTo?:MessageQuote;
 }
 interface Entry {state:GenerationTask;controller:AbortController;done:Promise<void>}
+export interface FailedGeneration extends GenerationTask {failure:ReplyFailureDetails;messageId?:string}
+const failures=new Map<string,readonly FailedGeneration[]>();
+const noFailures:readonly FailedGeneration[]=[];
 const tasks=new Map<string,Entry>();
 const listeners=new Set<()=>void>();
 const emit=()=>listeners.forEach(listener=>listener());
@@ -22,6 +27,12 @@ export const runningTask=(task?:GenerationTask)=>task?.status==='saving'||task?.
 export const getGenerationTask=(id?:string)=>id?tasks.get(id)?.state:undefined;
 export function useGenerationTask(id?:string){
  return useSyncExternalStore(listener=>{listeners.add(listener);return()=>{listeners.delete(listener);};},()=>getGenerationTask(id),()=>undefined);
+}
+export function useGenerationFailures(id?:string){return useSyncExternalStore(listener=>{listeners.add(listener);return()=>{listeners.delete(listener);};},()=>id?failures.get(id)??noFailures:noFailures,()=>noFailures);}
+export async function retainGenerationFailure(state:GenerationTask,error:unknown,messageId?:string){
+ if(!messageId&&state.saved){try{messageId=(state.timelineId?await resolveTimelinePath(state.conversationId,state.timelineId):await activeMessages(state.conversationId)).at(-1)?.id;}catch{/* Keep a task placeholder if the message cannot be read. */}}
+ const failed:FailedGeneration={...state,status:'failed',failure:describeReplyFailure(error),messageId};
+ failures.set(state.conversationId,[...(failures.get(state.conversationId)??[]).filter(f=>f.id!==state.id&&!(messageId&&f.messageId===messageId&&f.timelineId===state.timelineId&&f.epoch===state.epoch)),failed]);emit();
 }
 /** Owns the controller and promise for the lifetime of this application, not a view.
  * No background retry, no visibility-triggered request, no credentials in task state.
@@ -44,8 +55,10 @@ export function startGenerationTask(request:Request,onSaved?:()=>void){
   try{
    const result=request.continuationId?await continueMessage(c.id,request.continuationId,controller.signal,expectedPath,saved):request.messageId?await regenerateMessage(c.id,request.messageId,controller.signal,request.allowArchive,expectedPath,saved):await sendMessage(c.id,request.text,controller.signal,request.retry,saved,expectedPath,request.images,request.replyTo);
    update({status:result?.interruption?'interrupted':'completed',saved:true});
+   if(request.retry||request.messageId||request.continuationId){try{const target=request.messageId??request.continuationId??(await activeMessages(c.id)).filter(m=>m.role==='user').at(-1)?.id;if(target){failures.set(c.id,(failures.get(c.id)??[]).filter(f=>f.messageId!==target||f.timelineId!==entry.state.timelineId||f.epoch!==entry.state.epoch));emit();}}catch{/* Failure-display cleanup cannot turn a saved reply into a failed generation. */}}
   }catch(error){
    update({status:controller.signal.aborted?'stopped':'failed',failure:controller.signal.aborted?undefined:describeReplyFailure(error),error:controller.signal.aborted?'回复已停止或当前路径已变化，已保存的消息和版本保留。':error instanceof Error?error.message:'回复未完成，已保存的消息保留。'});
+   if(!controller.signal.aborted)await retainGenerationFailure(entry.state,error,request.messageId??request.continuationId);
    throw error;
   }
  });
