@@ -2327,15 +2327,3 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
 .restore-actions p{overflow-wrap:anywhere}
 .import-counts{display:grid;gap:8px;margin:12px 0}.import-counts>div{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.import-counts dd{margin:0;overflow-wrap:anywhere}.restore-actions fieldset{min-width:0;border:1px solid var(--theme-border, #d9e2d3);border-radius:14px;padding:12px}.restore-actions select{max-width:100%}
 .restore-actions fieldset .backup-check{min-height:44px;gap:12px;align-items:center}.restore-actions fieldset input[type=checkbox]{flex:none}
-
-/* Daily chat owns its page header; keep only the iOS safe-area spacer,
-   not a second breadcrumb row above the chat title. */
-.stage[data-ios] .phone.daily-chat-shell:not(.chat-conversation) > .status {
-  height: var(--safe-top);
-  min-height: var(--safe-top);
-  padding: 0;
-}
-.stage[data-ios] .phone.daily-chat-shell:not(.chat-conversation) > .app-panel {
-  height: calc(100% - var(--safe-top));
-}
-.phone.daily-chat-shell:not(.chat-conversation) > .status:empty { height: 0; padding: 0; }
