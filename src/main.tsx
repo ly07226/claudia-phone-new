@@ -98,6 +98,21 @@ function App() {
   }, [environment.ios, environment.standalone]);
 
   const s = usePhone();
+  useEffect(() => {
+    if (!environment.ios || !environment.standalone || !s.ready) return;
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      const phone = document.querySelector<HTMLElement>('.stage > .phone');
+      if (!phone) return;
+      phone.classList.add('ios-paint-refresh');
+      second = requestAnimationFrame(() => phone.classList.remove('ios-paint-refresh'));
+    });
+    return () => {
+      cancelAnimationFrame(first); cancelAnimationFrame(second);
+      document.querySelector('.stage > .phone')?.classList.remove('ios-paint-refresh');
+    };
+  }, [environment.ios, environment.standalone, s.ready, s.activeApp]);
+
   const phoneNavigation=usePhonePageNavigation();
   const appearance = useEffectiveTheme(s.theme);
   useEffect(()=>{if(s.ready&&themeSafeMode())s.set({activeApp:"主题编辑器"});},[s.ready]);
