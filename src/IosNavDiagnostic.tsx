@@ -1,55 +1,50 @@
 import {useEffect,useState} from 'react';
-
-type Reading={name:string;bottom:number;gap:number;top:number;viewport:number;inner:number;scrollY:number};
+type Reading={name:string;bottom:number;top:number;height:number;gap:number;viewport:number;inner:number;safe:number;paddingBottom:number;scrollY:number;shell:number;standalone:boolean;inputBottom:number|null};
 function measure():Reading|null{
- const targets=[
-  ['聊天底栏',document.querySelector<HTMLElement>('[data-chat-hub] .hub-tabs')],
-  ['桌面 Dock',document.querySelector<HTMLElement>('.desktop .dock')],
-  ['其他底栏',document.querySelector<HTMLElement>('.app-panel .dock')],
- ] as const;
- const found=targets.find(([,el])=>el&&el.getClientRects().length>0);
- if(!found||!found[1])return null;
- const rect=found[1].getBoundingClientRect();
- const viewport=window.visualViewport?.height??window.innerHeight;
- const offset=window.visualViewport?.offsetTop??0;
- return {name:found[0],bottom:rect.bottom,top:rect.top,gap:viewport+offset-rect.bottom,viewport,inner:window.innerHeight,scrollY:window.scrollY};
+ const targets:[string,string][]=[['聊天底栏','[data-chat-hub] .hub-tabs'],['角色输入区','.chat-conversation .chat-composer'],['角色输入区','.chat-conversation form'],['桌面 Dock','.desktop .dock']];
+ const found=targets.map(([name,selector])=>({name,el:document.querySelector<HTMLElement>(selector)})).find(x=>x.el&&x.el.getClientRects().length>0);
+ if(!found?.el)return null;
+ const el=found.el,rect=el.getBoundingClientRect(),viewport=window.visualViewport?.height??window.innerHeight,offset=window.visualViewport?.offsetTop??0;
+ const probe=document.createElement('div');probe.style.cssText='position:fixed;visibility:hidden;pointer-events:none;padding-bottom:env(safe-area-inset-bottom, 0px)';document.body.appendChild(probe);const safe=parseFloat(getComputedStyle(probe).paddingBottom)||0;probe.remove();
+ const shell=document.querySelector<HTMLElement>('.stage > .phone')?.getBoundingClientRect().height??0;
+ const input=document.querySelector<HTMLElement>('.chat-conversation textarea, .chat-conversation input');
+ return {name:found.name,top:rect.top,bottom:rect.bottom,height:rect.height,gap:viewport+offset-rect.bottom,viewport,inner:window.innerHeight,safe,paddingBottom:parseFloat(getComputedStyle(el).paddingBottom)||0,scrollY:window.scrollY,shell,standalone:matchMedia('(display-mode: standalone)').matches||('standalone' in navigator&&Boolean((navigator as Navigator&{standalone?:boolean}).standalone)),inputBottom:input?.getBoundingClientRect().bottom??null};
 }
-const fmt=(n:number)=>Number.isFinite(n)?n.toFixed(1):'—';
+const fmt=(v:number|null|undefined)=>v==null?'—':v.toFixed(1);
 export function IosNavDiagnostic(){
- const [first,setFirst]=useState<Reading|null>(null);
- const [after,setAfter]=useState<Reading|null>(null);
- const [stage,setStage]=useState('等待首次测量');
+ const [first,setFirst]=useState<Reading|null>(null),[after,setAfter]=useState<Reading|null>(null),[stage,setStage]=useState('等待测量');
  useEffect(()=>{
   if(!/iPad|iPhone|iPod/.test(navigator.userAgent))return;
-  let timer=0,initial=0;
+  let current='',timer=0,interval=0;
   const snapshot=()=>{
    const m=measure();if(!m)return;
-   setFirst(prev=>prev??m);setStage('首次测量完成，手动滑动一次');
+   if(m.name!==current){current=m.name;setFirst(m);setAfter(null);setStage('已记录此页面首次位置');}
   };
-  const capture=()=>{
+  const afterSwipe=()=>{
    window.clearTimeout(timer);
-   timer=window.setTimeout(()=>{
-    requestAnimationFrame(()=>requestAnimationFrame(()=>{
-     const m=measure();if(m){setAfter(m);setStage('已记录滑动后位置');}
-    }));
-   },250);
+   timer=window.setTimeout(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    const m=measure();if(m&&m.name===current){setAfter(m);setStage('已记录滑动后位置');}
+   })),250);
   };
-  const start=()=>{initial=Date.now();};
-  const end=()=>{if(Date.now()-initial<3000)capture();};
-  window.addEventListener('touchstart',start,{passive:true});
-  window.addEventListener('touchend',end,{passive:true});
-  document.addEventListener('scroll',capture,true);
-  const initialTimer=window.setTimeout(snapshot,650);
-  return ()=>{window.clearTimeout(initialTimer);window.clearTimeout(timer);window.removeEventListener('touchstart',start);window.removeEventListener('touchend',end);document.removeEventListener('scroll',capture,true);};
+  const onTouchEnd=()=>afterSwipe();
+  const initial=window.setTimeout(snapshot,400);
+  interval=window.setInterval(snapshot,350);
+  window.addEventListener('touchend',onTouchEnd,{passive:true});
+  return ()=>{clearTimeout(initial);clearTimeout(timer);clearInterval(interval);window.removeEventListener('touchend',onTouchEnd);};
  },[]);
  const delta=first&&after&&first.name===after.name?after.bottom-first.bottom:null;
- return <aside aria-label="底部导航位置诊断" style={{position:'fixed',zIndex:2147483646,top:'calc(env(safe-area-inset-top, 0px) + 6px)',right:6,width:228,maxWidth:'65vw',padding:'8px 10px',borderRadius:10,background:'rgba(15,29,25,.92)',color:'#fff',fontSize:11,lineHeight:1.45,pointerEvents:'none',boxShadow:'0 2px 12px #0004'}}>
-  <strong>底栏诊断 · 仅测试版</strong><div>{stage}</div>
-  <div>首次：{first?first.name:'未找到底栏'} 底边 {first?fmt(first.bottom):'—'}px</div>
-  <div>首次距屏底：{first?fmt(first.gap):'—'}px</div>
-  <div>滑动后：{after?after.name+' '+fmt(after.bottom)+'px':'等待滑动'}</div>
-  <div>滑动后距屏底：{after?fmt(after.gap):'—'}px</div>
-  <div>底栏移动：{delta===null?'—':fmt(delta)+'px'}</div>
-  <div>视口：{after?fmt(after.viewport):first?fmt(first.viewport):'—'} / inner {after?fmt(after.inner):first?fmt(first.inner):'—'}</div>
+ return <aside aria-label="底部导航位置诊断" style={{position:'fixed',zIndex:2147483646,top:'calc(env(safe-area-inset-top, 0px) + 6px)',right:6,width:246,maxWidth:'70vw',padding:'8px 10px',borderRadius:10,background:'rgba(15,29,25,.92)',color:'#fff',fontSize:11,lineHeight:1.4,pointerEvents:'none',boxShadow:'0 2px 12px #0004'}}>
+  <strong>底栏诊断 v2 · 仅测试版</strong><div>{stage}</div>
+  <div>页面：{first?.name??'未找到底栏'} / {first?.standalone?'独立PWA':'浏览器'}</div>
+  <div>首次：底边 {fmt(first?.bottom)} / 高 {fmt(first?.height)}</div>
+  <div>滑后：底边 {fmt(after?.bottom)} / 高 {fmt(after?.height)}</div>
+  <div>底边移动：{fmt(delta)}px</div>
+  <div>距视口底：{fmt(first?.gap)} → {fmt(after?.gap)}</div>
+  <div>底部安全区：{fmt(first?.safe)} → {fmt(after?.safe)}</div>
+  <div>底栏下内边距：{fmt(first?.paddingBottom)} → {fmt(after?.paddingBottom)}</div>
+  <div>视口高度：{fmt(first?.viewport)} → {fmt(after?.viewport)}</div>
+  <div>inner：{fmt(first?.inner)} → {fmt(after?.inner)}</div>
+  <div>手机容器高：{fmt(first?.shell)} → {fmt(after?.shell)}</div>
+  {first?.inputBottom!=null&&<div>输入框底边：{fmt(first.inputBottom)} → {fmt(after?.inputBottom)}</div>}
  </aside>;
 }
