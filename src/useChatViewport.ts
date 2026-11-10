@@ -1,3 +1,4 @@
+import {readChatViewport,watchChatViewport,setChatViewportValue} from './chatViewport';
 import { useLayoutEffect, useRef, type RefObject } from "react";
 /** Only the conversation shell follows the visual viewport; all inner regions remain in normal flex flow. */
 export function useChatViewport(
@@ -25,55 +26,21 @@ export function useChatViewport(
     if (!active) return;
     const phone = document.querySelector<HTMLElement>(".phone");
     const stage = phone?.closest<HTMLElement>(".stage");
-    const viewport = window.visualViewport;
-    let frame = 0;
-    let baseline = Math.max(innerHeight, document.documentElement.clientHeight);
-    let width = innerWidth;
-    const update = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        if (viewport && Math.abs(viewport.scale - 1) > 0.02) return;
-        const focused = /^(INPUT|TEXTAREA)$/.test(
-          document.activeElement?.tagName || "",
-        );
-        if (width !== innerWidth || !focused) {
-          baseline = Math.max(
-            innerHeight,
-            document.documentElement.clientHeight,
-          );
-          width = innerWidth;
-        }
-        const height = viewport?.height || innerHeight;
-        const keyboard = focused && baseline - height > 100;
-        phone?.style.setProperty("--chat-height", `${height}px`);
-        stage?.style.setProperty("--chat-height", `${height}px`);
-        stage?.style.setProperty("--chat-top", `${viewport?.offsetTop || 0}px`);
-        phone?.classList.toggle("chat-keyboard", keyboard);
-        fit();
-        callback.current();
-      });
+    if(!phone)return;
+    const sync = () => {
+      const frame=readChatViewport(phone);if(!frame)return;
+      setChatViewportValue(phone,'--chat-height',frame.cssHeight);
+      setChatViewportValue(stage,'--chat-height',frame.cssHeight);
+      setChatViewportValue(stage,'--chat-top',`${frame.top}px`);
+      phone.classList.toggle('chat-keyboard',frame.keyboard);
+      fit();
+      callback.current();
     };
     phone?.classList.add("chat-open", "chat-conversation");
     stage?.classList.add("chat-stage");
-    if (phone) {
-      phone.scrollTop = 0;
-      phone.scrollLeft = 0;
-    }
-    update();
-    window.addEventListener("resize", update);
-    window.addEventListener("orientationchange", update);
-    viewport?.addEventListener("resize", update);
-    viewport?.addEventListener("scroll", update);
-    document.addEventListener("focusin", update);
-    document.addEventListener("focusout", update);
+    const stop=watchChatViewport(sync);
     return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("resize", update);
-      window.removeEventListener("orientationchange", update);
-      viewport?.removeEventListener("resize", update);
-      viewport?.removeEventListener("scroll", update);
-      document.removeEventListener("focusin", update);
-      document.removeEventListener("focusout", update);
+      stop();
       phone?.classList.remove(
         "chat-open",
         "chat-conversation",
