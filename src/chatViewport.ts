@@ -26,7 +26,14 @@ export function readChatViewport(scope:HTMLElement){
  const height=keyboard?visibleHeight:layoutHeight;
  // In standalone there is no Safari toolbar to reserve. Let CSS own the
  // closed viewport: an early/stale innerHeight must not pin a shorter px shell.
- const cssHeight=!keyboard&&standalone?(CSS.supports('height','100dvh')?'100dvh':'100vh'):`${height}px`;
+ // In installed iOS PWAs, first-paint dvh can be shorter than the physical
+ // screen. Use the screen's CSS-pixel height as a stable closed-keyboard
+ // ceiling; do not use unbounded lvh (which previously clipped the composer).
+ // Both the stage and phone consume this exact same --chat-height.
+ const screenHeight=window.screen?.height||0;
+ const cssHeight=!keyboard&&standalone&&screenHeight>0
+   ? `${screenHeight}px`
+   : !keyboard&&standalone?(CSS.supports('height','100dvh')?'100dvh':'100vh'):`${height}px`;
  return {top,height,bottom:top+height,keyboard,standalone,cssHeight};
 }
 const listeners=new Set<()=>void>();
