@@ -1,3 +1,4 @@
+import {IosNavDiagnostic} from './IosNavDiagnostic';
 import {ChatHubScheduler} from './ChatHubScheduler';
 import {ThemeEditor} from './ThemeEditor';
 import {openPhoneApp,editPhoneDesktop,backPhonePage,usePhonePageNavigation} from './phonePageNavigation';
@@ -255,6 +256,7 @@ function App() {
   return (
     <div className="stage" data-ios={environment.ios || undefined} data-standalone={environment.standalone || undefined}>
       <ChatHubScheduler/>
+      {environment.ios && <IosNavDiagnostic/>}
       <aside className="brand">
         <span className="brand-mark">c.</span>
         <h1>
