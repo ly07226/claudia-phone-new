@@ -1,0 +1,62 @@
+/* Experiment only: installed iOS PWA has no Safari toolbar.
+   Reserve the largest CSS viewport on initial paint, rather than waiting
+   for a swipe to grow 100dvh. Do not override keyboard-open conversations. */
+@supports (height: 100lvh) {
+  html[data-ios="true"][data-standalone="true"] .stage:not(.chat-stage) {
+    min-height: 100lvh;
+  }
+  html[data-ios="true"][data-standalone="true"] .stage:not(.chat-stage) > .phone:not(.chat-conversation) {
+    height: 100lvh;
+  }
+  html[data-ios="true"][data-standalone="true"] .stage:has(> .phone > .app-panel > .app-scroll > [data-chat-hub]) {
+    height: var(--chat-shell-height, 100lvh);
+    min-height: 0;
+  }
+  html[data-ios="true"][data-standalone="true"] .stage > .phone:has(> .app-panel > .app-scroll > [data-chat-hub]) {
+    height: var(--chat-shell-height, 100lvh);
+  }
+}
+
+/* Chat hub only: reclaim the empty breadcrumb row for the real app header.
+   All four tabs share this app-panel; keep the bottom tab bar anchored by
+   allowing the flex content area to grow, not by moving the footer. */
+.stage[data-ios] > .phone:has(> .app-panel > .app-scroll > [data-chat-hub]) {
+  --status-height: var(--safe-top);
+}
+.stage[data-ios] > .phone:has(> .app-panel > .app-scroll > [data-chat-hub]) > .status {
+  height: var(--safe-top);
+  padding: 0;
+  pointer-events: none;
+}
+
+/* Conversation only: allow the closed-keyboard document to participate in
+   normal scrolling, just like the working desktop and chat hub. The previous
+   position:fixed shell prevented iOS from expanding its initial viewport.
+   Keyboard-open state keeps the original fixed visual-viewport positioning. */
+@supports (height: 100lvh) {
+  @media (max-width: 760px), (hover: none) and (pointer: coarse) {
+    html[data-ios="true"][data-standalone="true"] .stage.chat-stage:has(> .phone.chat-conversation:not(.chat-keyboard)) {
+      position: relative;
+      inset: auto;
+      height: 100lvh;
+      min-height: 100lvh;
+      overflow: visible;
+    }
+    html[data-ios="true"][data-standalone="true"] .stage.chat-stage > .phone.chat-conversation:not(.chat-keyboard) {
+      height: 100lvh;
+      min-height: 0;
+    }
+  }
+}
+
+/* All inner apps in both daily and world spaces: only the phone desktop
+   displays the space-list breadcrumb. Preserve iOS status-bar safe inset,
+   while allowing each app's own title/header to move into the freed row. */
+.stage[data-ios] > .phone[data-inner-app="true"]:not(.chat-conversation) {
+  --status-height: var(--safe-top);
+}
+.stage[data-ios] > .phone[data-inner-app="true"]:not(.chat-conversation) > .status {
+  height: var(--safe-top);
+  padding: 0;
+  pointer-events: none;
+}

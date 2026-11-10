@@ -24,6 +24,7 @@ import { useChatViewport } from "./useChatViewport";
 import { useKeyboardAutoReply } from "./useKeyboardAutoReply";
 import { observeComposerDebug } from "./composerDebug";
 import { KeyboardDebugPanel } from "./KeyboardDebugPanel";
+import { ConversationLayoutDebug } from "./ConversationLayoutDebug";
 import { keyboardDebugEnabled, recordKeyboardDebug } from "./keyboardDebug";
 import { activeMessages } from "./messagePath";
 import {
@@ -676,6 +677,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       )}
       {error && !conversation && <p role="alert">{error}</p>}
       <KeyboardDebugPanel/>
+      {conversation && <ConversationLayoutDebug/>}
     </div>
   );
 }

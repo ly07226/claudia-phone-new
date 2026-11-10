@@ -54,6 +54,7 @@ import {
 } from "./store";
 import "./style.css";
 import "./themeGlobal.css";
+import "./iosStandaloneViewportExperiment.css";
 const icons = [
   MessageCircle,
   NotebookPen,
@@ -269,6 +270,7 @@ function App() {
       <main
         className={`phone ${s.editing ? "editing" : ""}`}
         data-theme-editing={String(s.activeApp === "主题编辑器")}
+        data-inner-app={String(!!s.activeApp)}
         style={
           {
             "--accent": appearance.color,
@@ -296,7 +298,7 @@ function App() {
               minute: "2-digit",
             })}
           </span>}
-          <button
+          {!s.activeApp && <button
             className="space-return"
             aria-label="返回空间列表"
             onClick={() => void useSpaces.getState().exitSpace()}
@@ -308,7 +310,7 @@ function App() {
                 : "日常手机"}{" "}
               · {space?.type === "world" ? "剧本列表" : "空间列表"}
             </span>
-          </button>
+          </button>}
           {!environment.ios && <span className="status-icons">
             <Signal size={14} />
             <Wifi size={15} />

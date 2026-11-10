@@ -9,7 +9,7 @@ export function useChatHubViewport(){
   const sync=()=>{
    const frame=readChatViewport(root);if(!frame)return;
    // The same frame drives the phone and its child, never a shorter child in a tall shell.
-   setChatViewportValue(stage,'--chat-shell-height',frame.keyboard?`${frame.bottom}px`:frame.cssHeight);
+   // Keep the standalone chat list on the same large-viewport baseline as the desktop.\n   // readChatViewport uses 100dvh for conversation safety; applying that value\n   // to the hub after returning from a conversation shrank the list again.\n   const hubHeight=frame.keyboard?`${frame.bottom}px`:frame.standalone&&CSS.supports('height','100lvh')?'100lvh':frame.cssHeight;\n   setChatViewportValue(stage,'--chat-shell-height',hubHeight);
    root.toggleAttribute('data-chat-keyboard',frame.keyboard);
    const height='100%';if(root.style.height!==height)root.style.height=height;
    cancelAnimationFrame(focusFrame);focusFrame=requestAnimationFrame(()=>{
