@@ -1,0 +1,18 @@
+/* Experiment only: installed iOS PWA has no Safari toolbar.
+   Reserve the largest CSS viewport on initial paint, rather than waiting
+   for a swipe to grow 100dvh. Do not override keyboard-open conversations. */
+@supports (height: 100lvh) {
+  html[data-ios="true"][data-standalone="true"] .stage:not(.chat-stage) {
+    min-height: 100lvh;
+  }
+  html[data-ios="true"][data-standalone="true"] .stage:not(.chat-stage) > .phone:not(.chat-conversation) {
+    height: 100lvh;
+  }
+  html[data-ios="true"][data-standalone="true"] .stage:has(> .phone > .app-panel > .app-scroll > [data-chat-hub]) {
+    height: var(--chat-shell-height, 100lvh);
+    min-height: 0;
+  }
+  html[data-ios="true"][data-standalone="true"] .stage > .phone:has(> .app-panel > .app-scroll > [data-chat-hub]) {
+    height: var(--chat-shell-height, 100lvh);
+  }
+}
