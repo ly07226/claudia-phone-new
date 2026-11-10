@@ -26,7 +26,7 @@ export function readChatViewport(scope:HTMLElement){
  const height=keyboard?visibleHeight:layoutHeight;
  // In standalone there is no Safari toolbar to reserve. Let CSS own the
  // closed viewport: an early/stale innerHeight must not pin a shorter px shell.
- const cssHeight=!keyboard&&standalone?(CSS.supports('height','100lvh')?'100lvh':CSS.supports('height','100dvh')?'100dvh':'100vh'):`${height}px`;
+ const cssHeight=!keyboard&&standalone?(CSS.supports('height','100dvh')?'100dvh':'100vh'):`${height}px`;
  return {top,height,bottom:top+height,keyboard,standalone,cssHeight};
 }
 const listeners=new Set<()=>void>();
