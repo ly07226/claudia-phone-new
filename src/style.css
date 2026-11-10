@@ -2327,3 +2327,9 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
 .restore-actions p{overflow-wrap:anywhere}
 .import-counts{display:grid;gap:8px;margin:12px 0}.import-counts>div{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.import-counts dd{margin:0;overflow-wrap:anywhere}.restore-actions fieldset{min-width:0;border:1px solid var(--theme-border, #d9e2d3);border-radius:14px;padding:12px}.restore-actions select{max-width:100%}
 .restore-actions fieldset .backup-check{min-height:44px;gap:12px;align-items:center}.restore-actions fieldset input[type=checkbox]{flex:none}
+
+/* Experimental iOS first-paint invalidation: no geometry or scroll changes. */
+.stage[data-ios][data-standalone] > .phone.ios-paint-refresh {
+  outline: 1px solid transparent;
+  outline-offset: -1px;
+}
