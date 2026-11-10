@@ -18,7 +18,7 @@ export function RestoreActions({files,report,password,disabled=false,database,en
     if(!report||disabled||!files.length){void old?.dispose();return;}
     if(report.credentials==='encrypted'&&!password&&!secret){void old?.dispose();setStatus('请输入备份密码并生成导入预览。');return;}
     setPlanning(true);setStatus('正在生成完整导入预览，当前手机未修改…');
-    void(async()=>{try{await old?.dispose();const p=await prepareImport(files,options,{database,password:secret||password,signal:c.signal});if(!alive){await p.dispose();return;}activePlan.current=p;setPlan(p);setStatus('预览已核对。尚未导入到当前手机。');}catch(e){if(alive){setError(publicBackupError(e));setStatus('预览失败，当前手机未修改。');}}finally{if(alive)setPlanning(false);}})();
+    void(async()=>{try{await old?.dispose();const p=await prepareImport(files,options,{database,password:secret||password,signal:c.signal});if(!alive){await p.dispose();return;}activePlan.current=p;setPlan(p);setStatus('预览已核对。尚未导入到当前手机。');}catch(e){if(alive){setError(publicBackupError(e,'restore-preview'));setStatus('预览失败，当前手机未修改。');}}finally{if(alive)setPlanning(false);}})();
     return()=>{alive=false;c.abort();void activePlan.current?.dispose();activePlan.current=null;};
   },[report?.manifestDigest,signature,disabled,refresh]);
   useEffect(()=>{if(!busy)return;const root=document.getElementById('root'),previous=root?.inert;if(root)root.inert=true;const prevent=(e:BeforeUnloadEvent)=>{if(!committedRef.current)e.preventDefault();};window.addEventListener('beforeunload',prevent);return()=>{if(root)root.inert=previous??false;window.removeEventListener('beforeunload',prevent);};},[busy]);
@@ -35,7 +35,7 @@ export function RestoreActions({files,report,password,disabled=false,database,en
     if(!confirm(text))return;
     committedRef.current=false;operation.current=new AbortController();setBusy(true);setError('');setStatus('等待其他窗口关闭');let committed=false;
     try{await restoreToCurrent(files,{confirmed:true,password:secret||password,rollback,database,plan:rollback?undefined:plan!,signal:operation.current.signal,onProgress:p=>setStatus(p.phase)});committed=true;committedRef.current=true;setDone(true);setStatus('数据写入并核对完成，正在重启应用复核实际列表…');history.replaceState(null,'','/#spaces');location.reload();}
-    catch(e){if(committed){setDone(true);setStatus('数据已提交，请重新打开应用完成启动复核。');return;}setSecret('');setError(publicBackupError(e));setStatus('导入未提交，当前数据保留。请重新生成预览后再试。');setBusy(false);}
+    catch(e){if(committed){setDone(true);setStatus('数据已提交，请重新打开应用完成启动复核。');return;}setSecret('');setError(publicBackupError(e,'restore-write'));setStatus('导入未提交，当前数据保留。请重新生成预览后再试。');setBusy(false);}
     finally{operation.current=null;}
   }
   if(!report&&!saved)return null;

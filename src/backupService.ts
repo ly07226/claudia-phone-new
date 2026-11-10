@@ -17,7 +17,7 @@ import {
   watchBackupArrivals,
 } from "./backupGate";
 import {
-  BackupError,
+  BackupError, withBackupPhase, type BackupPhase,
   backupSchemas, legacyBackupSchemas, schemasForVersion,
   backupTables,
   backupLimits,
@@ -166,6 +166,7 @@ export async function createBackup(options: {
   const stopArrivals = watchBackupArrivals(abort);
   const deadline = setTimeout(abort, 5 * 60 * 1000);
   let stage: Dexie | undefined;
+  let phase:BackupPhase='export-read';
   let pendingWork: Promise<unknown> | undefined;
   // Cooperative cancellation between bounded records avoids aborting Dexie.waitFor's
   // keepalive callback from outside its transaction scope.
@@ -200,6 +201,7 @@ export async function createBackup(options: {
     let key: CryptoKey | undefined;
     let integrityKey: CryptoKey | undefined;
     if (options.includeCredentials) {
+      phase='export-encrypt';
       const salt = crypto.getRandomValues(new Uint8Array(16));
       key = await deriveKey(options.password || "", salt);
       integrityKey = await deriveIntegrityKey(options.password || "", salt);
@@ -212,6 +214,7 @@ export async function createBackup(options: {
         authNonce: base64(crypto.getRandomValues(new Uint8Array(12))),
       };
     }
+    phase='export-temp';
     stage = await temporary("stage");
     const stageDb = stage;
     let buffer = new Uint8Array(backupLimits.partBytes),
@@ -229,7 +232,8 @@ export async function createBackup(options: {
       const nonce = key
         ? crypto.getRandomValues(new Uint8Array(12))
         : undefined;
-      const raw = buffer.slice(0, used);
+      const previous=phase;phase=key?'export-encrypt':'export-stage';
+      const raw = buffer.subarray(0, used);
       const data = key
         ? new Uint8Array(
             await crypto.subtle.encrypt(
@@ -251,9 +255,11 @@ export async function createBackup(options: {
         ...(nonce ? { nonce: base64(nonce) } : {}),
       };
       checkAbort(controller.signal);
+      phase='export-stage';
       await stageDb
         .table("parts")
         .add({ index, data: new Blob([data as BlobPart]) });
+      phase=previous;
       m.parts.push(part);
       bytes += data.length;
       used = 0;
@@ -269,6 +275,7 @@ export async function createBackup(options: {
       }
     };
     await db.transaction("r", backupTables, async () => {
+      phase='export-validate';
       await validateTimelineDatabase(db);
       for (const table of backupTables) {
         const sourceCount = await db.table(table).count();
@@ -295,6 +302,7 @@ export async function createBackup(options: {
                 table === "apiConfigs" && !key
                   ? sanitizeConfig(original, m.redactions)
                   : original;
+              phase='export-encode';
               const encoded = await rowBytes(table, row);
               ensure(
                 encoded.length <= backupLimits.recordBytes,
@@ -338,6 +346,7 @@ export async function createBackup(options: {
       checkAbort(controller.signal);
     });
     checkAbort(controller.signal);
+    phase=key?'export-encrypt':'export-encode';
     m.snapshotCompletedAt = new Date().toISOString();
     for (const table of backupTables) m.tables[table].digest = await protectDigest(m.tables[table].digest, integrityKey);
     for (const resource of m.resources) resource.digest = await protectDigest(resource.digest, integrityKey);
@@ -380,8 +389,8 @@ export async function createBackup(options: {
   } catch (error) {
     await pendingWork?.catch(() => {});
     if (stage && owned.has(stage.name)) await discard(stage).catch(() => {});
-    checkAbort(controller.signal);
-    throw error;
+    try{checkAbort(controller.signal);}catch(cancelled){throw withBackupPhase(cancelled,phase);}
+    throw withBackupPhase(error,phase);
   } finally {
     clearTimeout(deadline);
     stopArrivals();

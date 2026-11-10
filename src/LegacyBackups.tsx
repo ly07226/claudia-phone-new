@@ -9,7 +9,7 @@ import {
   type ReadbackResult,
   type IntegrityReport,
 } from "./backupService";
-import { publicBackupError, checkAbort } from "./backupFormat";
+import { publicBackupError, checkAbort, type BackupPhase } from "./backupFormat";
 export function LegacyBackups({onBack}:{onBack:()=>void}) {
   const s = usePhone();
   const [closed, setClosed] = useState(false);
@@ -64,7 +64,7 @@ export function LegacyBackups({onBack}:{onBack:()=>void}) {
       });
     };
   }, []);
-  function run(work: (signal: AbortSignal) => Promise<void>) {
+  function run(phase:BackupPhase,work: (signal: AbortSignal) => Promise<void>) {
     if (control.current) return;
     const controller = new AbortController();
     control.current = controller;
@@ -77,7 +77,7 @@ export function LegacyBackups({onBack}:{onBack:()=>void}) {
         await work(controller.signal);
       } catch (e) {
         if (mounted.current) {
-          setError(publicBackupError(e));
+          setError(publicBackupError(e,phase));
           setProgress("");
         }
       } finally {
@@ -124,7 +124,7 @@ export function LegacyBackups({onBack}:{onBack:()=>void}) {
       )
     )
       return;
-    run(async (signal) => {
+    run('export-read',async (signal) => {
       await outputRef.current?.dispose();
       outputRef.current = null;
       setOutput(null);
@@ -163,7 +163,7 @@ export function LegacyBackups({onBack}:{onBack:()=>void}) {
       )
     )
       return;
-    run(async (signal) => {
+    run('zip-verify',async (signal) => {
       setReport(null);
       await candidateRef.current?.dispose();
       candidateRef.current = null;

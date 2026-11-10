@@ -1,4 +1,4 @@
-import { BackupError, backupLimits, checkAbort, ensure } from "./backupFormat";
+import { BackupError, backupLimits, checkAbort, ensure, withBackupPhase } from "./backupFormat";
 import { createBackup, readBackup, type BackupExport, type BackupProgress } from "./backupService";
 import type { Entry, FileEntry } from "@zip.js/zip.js";
 export const zipLimits = { archiveBytes:32*1024*1024, unpackedBytes:32*1024*1024, entryBytes:8*1024*1024, entries:256, directoryBytes:256*1024, chunkBytes:256*1024, ratio:100 } as const;
@@ -47,7 +47,8 @@ export async function inspectBackupZip(file:File,signal?:AbortSignal) {
 }
 function zipError(e:unknown,signal?:AbortSignal):BackupError {
   checkAbort(signal);if(e instanceof BackupError)return e;
-  return new BackupError("ZIP 读取失败：文件可能损坏，或密码错误。请检查文件和密码后重试；当前数据未被覆盖。");
+  if(e instanceof Error&&['Invalid password','Invalid signature','Invalid CRC32'].includes(e.message))return new BackupError(e.message==='Invalid CRC32'?'ZIP 内容校验失败，文件可能不完整或已被修改；未执行恢复。':'加密 ZIP 密码校验或认证未通过，无法区分密码错误与文件损坏；未执行恢复。','ZIP_INTEGRITY');
+  return withBackupPhase(e,'zip-read');
 }
 export async function readBackupZip(file:File,password?:string,signal?:AbortSignal) {
   try{
@@ -81,11 +82,14 @@ export async function packBackupZip(snapshot:BackupExport,password?:string,signa
     await writer.add(`${snapshot.manifest.backupId}.manifest.json`,new BlobReader(manifest),settings);
     for(const p of snapshot.manifest.parts){checkAbort(signal);const blob=await snapshot.readPart(p.index);ensure(blob.size===p.bytes,"备份内部数据不完整，未生成 ZIP。");await writer.add(p.name,new BlobReader(blob),settings);onProgress?.({phase:'正在打包',bytes:size,records:p.index+1});}
     await writer.close();checkAbort(signal);checkZipSize(size);return new File(chunks,`Claudia-Phone-Backup-${new Date().toISOString().slice(0,10)}.zip`,{type:'application/zip'});
-  }catch(e){chunks.length=0;checkAbort(signal);if(e instanceof BackupError)throw e;throw new BackupError("ZIP 打包未完成，可能是内存或存储空间不足。没有生成不完整备份，请使用原格式工具重试。");}
+  }catch(e){chunks.length=0;checkAbort(signal);if(e instanceof BackupError)throw e;throw withBackupPhase(e,'zip-pack');}
 }
-export async function createZipBackup(options:{closedOtherClients:boolean;includeCredentials?:boolean;credentialConsent?:boolean;database?:import("dexie").default;password?:string;signal?:AbortSignal;onProgress?:(p:BackupProgress)=>void}) {
+export async function createZipBackup(options:{closedOtherClients:boolean;includeCredentials?:boolean;credentialConsent?:boolean;database?:import("dexie").default;password?:string;signal?:AbortSignal;onProgress?:(p:BackupProgress)=>void;onWarning?:(message:string)=>void}) {
+  if(typeof WritableStream!=='function'||typeof File!=='function'||typeof Blob!=='function')throw new BackupError('当前浏览器缺少 ZIP 所需的文件或流能力，请使用支持的 Safari 版本；没有省略任何数据。','CAPABILITY');
   const snapshot=await createBackup({database:options.database,closedOtherClients:options.closedOtherClients,includeCredentials:options.includeCredentials,credentialConsent:options.credentialConsent,password:options.password,signal:options.signal,onProgress:options.onProgress});
-  try{return await packBackupZip(snapshot,options.password,options.signal,options.onProgress);}finally{await snapshot.dispose();}
+  let completed:File|undefined;
+  try{try{completed=await packBackupZip(snapshot,options.password,options.signal,options.onProgress);return completed;}catch(e){throw withBackupPhase(e,'zip-pack');}}
+  finally{try{await snapshot.dispose();}catch(e){if(completed)options.onWarning?.(withBackupPhase(e,'export-cleanup').message);/* Never replace a primary failure or discard a complete ZIP because temp cleanup failed. */}}
 }
 export async function verifyZipBackup(file:File,password?:string,signal?:AbortSignal) {
   const files=await readBackupZip(file,password,signal);const result=await readBackup(files,{mode:'verify',password,signal});return {files,result};

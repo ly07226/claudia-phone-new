@@ -30,21 +30,40 @@ export const backupLimits = {
   maxRecords: 500000,
   depth: 64,
 };
-export class BackupError extends Error {}
+export class BackupError extends Error {constructor(message:string,readonly code='CHECK'){super(message);this.name='BackupError';}}
+export type BackupPhase='operation'|'export-read'|'export-validate'|'export-temp'|'export-encode'|'export-encrypt'|'export-stage'|'export-cleanup'|'zip-pack'|'zip-read'|'zip-verify'|'download'|'share'|'restore-preview'|'restore-write';
+const phaseLabels:Record<BackupPhase,string>={operation:'备份操作','export-read':'读取备份数据','export-validate':'校验聊天时间线','export-temp':'创建临时分卷','export-encode':'编码及校验数据','export-encrypt':'加密备份数据','export-stage':'写入临时分卷','export-cleanup':'清理本次临时分卷','zip-pack':'打包 ZIP','zip-read':'读取 ZIP','zip-verify':'校验备份内容',download:'准备下载文件',share:'保存或分享文件','restore-preview':'生成恢复预览','restore-write':'提交恢复'};
+const knownNames=new Set(['TimelineValidationError','BackupError','QuotaExceededError','TransactionInactiveError','PrematureCommitError','DatabaseClosedError','OpenFailedError','TimeoutError','AbortError','NotReadableError','SecurityError','NotAllowedError','DataCloneError','InvalidStateError','UnknownError','OperationError','NotSupportedError','TypeError','RangeError','Error']);
+export interface BackupDiagnostic {phase:BackupPhase;code:string;errorType:string}
+export class BackupFailure extends BackupError {constructor(message:string,readonly diagnostic:BackupDiagnostic){super(message,diagnostic.code);}}
+export function backupDiagnostic(error:unknown,phase:BackupPhase='operation'):BackupDiagnostic {
+ if(error instanceof BackupFailure)return error.diagnostic;
+ let value=error as {name?:unknown;inner?:unknown};let name=typeof value?.name==='string'&&knownNames.has(value.name)?value.name:'Error';
+ for(let i=0;i<2&&value?.inner;i++){value=value.inner as typeof value;if(typeof value?.name==='string'&&knownNames.has(value.name)&&value.name!=='Error')name=value.name;}
+ const kind=error instanceof BackupError?error.code:name==='TimelineValidationError'?'INTEGRITY':name==='QuotaExceededError'?'QUOTA':name==='AbortError'?'CANCELLED':name==='TimeoutError'?'TIMEOUT':name==='TransactionInactiveError'||name==='PrematureCommitError'?'TRANSACTION':name==='DatabaseClosedError'||name==='OpenFailedError'?'DATABASE':name==='NotReadableError'?'FILE_READ':name==='SecurityError'||name==='NotAllowedError'?'PERMISSION':name==='OperationError'?'CRYPTO':name==='RangeError'?'RESOURCE':name==='DataCloneError'?'CLONE':'UNKNOWN';
+ return {phase,code:'BACKUP_'+kind,errorType:name};
+}
+export function withBackupPhase(error:unknown,phase:BackupPhase){return error instanceof BackupFailure?error:new BackupFailure(publicBackupError(error,phase),backupDiagnostic(error,phase));}
 export function ensure(ok: unknown, message: string): asserts ok {
   if (!ok) throw new BackupError(message);
 }
 export function checkAbort(signal?: AbortSignal) {
   if (signal?.aborted)
     throw new BackupError(
-      "操作已取消或页面已进入后台，正式数据未被删除。请保持前台后重试。",
+      "操作已取消或页面已进入后台，正式数据未被删除。请保持前台后重试。", "CANCELLED",
     );
 }
-export function publicBackupError(error: unknown) {
-  if (error instanceof BackupError) return error.message;
-  if ((error as { name?: string })?.name === "QuotaExceededError")
-    return "本地空间不足，操作未完成；正式数据没有被清理，请释放设备空间后重试。";
-  return "备份操作未完成：可能是文件损坏、存储不足或浏览器中断。正式数据库未被覆盖。";
+export function publicBackupError(error:unknown,phase:BackupPhase='operation') {
+ if(error instanceof BackupFailure)return error.message;
+ const d=backupDiagnostic(error,phase);let message:string;
+ if(error instanceof BackupError)message=error.message;
+ else {
+  const exportPhase=phase.startsWith('export-')||phase==='zip-pack';
+  const context=phase==='export-cleanup'?'ZIP 已生成，但本次临时分卷清理未完成，可能占用额外本地空间。':exportPhase?'导出未完成，未生成有效 ZIP；正式数据库未执行恢复或清理。':phase==='download'?'ZIP 已生成，但下载准备未完成。':phase==='share'?(d.code==='BACKUP_CANCELLED'?'已取消保存或分享。备份文件仍保留在当前页面。':'备份文件仍保留在当前页面，系统保存未完成。'):phase.startsWith('restore-')?'恢复尚未提交，当前数据保留。':'读取或验证未完成，当前数据未被覆盖。';
+  const reason=d.code==='BACKUP_INTEGRITY'?'聊天时间线一致性校验未通过；未修补、删除或重排任何历史。':d.code==='BACKUP_QUOTA'?'本地存储空间不足，请释放设备空间后主动重试。':d.code==='BACKUP_TRANSACTION'?'数据库事务提前结束，请保持页面前台并关闭其他客户端后主动重试。':d.code==='BACKUP_DATABASE'?'本地数据库当前不可读取，请重新打开页面后主动重试。':d.code==='BACKUP_TIMEOUT'?'处理超时，请保持页面前台；不会自动重试。':d.code==='BACKUP_CANCELLED'?'操作已取消或被浏览器中断。':d.code==='BACKUP_FILE_READ'?'浏览器无法读取所选文件，请先将文件完整保存到本机后重新选择。':d.code==='BACKUP_PERMISSION'?'浏览器未允许本阶段所需的本地存储或文件操作。':d.code==='BACKUP_CRYPTO'?'浏览器的加密或摘要操作失败，不能据此认定密码错误。':d.code==='BACKUP_RESOURCE'?'数据处理超出浏览器可用范围，尚不能确认是否为内存限制。':d.code==='BACKUP_CLONE'?'浏览器无法复制本地数据或临时分卷。':'暂时无法确定失败原因。';
+  message=context+reason;
+ }
+ return message+`（阶段：${phaseLabels[d.phase]}；代码：${d.code}；类型：${d.errorType}）`;
 }
 export function base64(bytes: Uint8Array) {
   let s = "";

@@ -4,6 +4,7 @@ import { attachmentImages } from "./imageAttachments";
 import type Dexie from "dexie";
 import { messageFingerprint, timelineSpace } from "./timelines";
 import type { Conversation, MemoryTimeline, ConversationPathNode } from "./chatTypes";
+export class TimelineValidationError extends Error {constructor(){super("时间线引用、作用域、内容指纹或路径完整性校验失败，未覆盖正式数据。");this.name="TimelineValidationError";}}
 /** Bounded payload working set: never load all message texts or snapshots at once. */
 async function each(d:Dexie,table:string,visit:(row:any)=>Promise<void>) {
   let last:string|undefined;
@@ -14,7 +15,7 @@ export async function validateTimelineDatabase(d:Dexie) {
   const timelines=new Map<string,MemoryTimeline>((await d.table("timelines").toArray()).map(t=>[t.id,t]));
   type Meta=Pick<ConversationPathNode,"id"|"conversationId"|"parentNodeId"|"messageId"|"fingerprint">;
   const nodes=new Map<string,Meta>();
-  const fail=()=>{throw Error("时间线引用、作用域、内容指纹或路径完整性校验失败，未覆盖正式数据。");};
+  const fail=()=>{throw new TimelineValidationError();};
   await each(d,"pathNodes",async(n:ConversationPathNode)=>{
     if(!conversations.has(n.conversationId)||n.message?.conversationId!==n.conversationId||n.messageId!==n.message.id||n.role!==n.message.role||!["user","assistant","system","tool"].includes(n.role)||n.variantId!==n.message.activeVariantId||typeof n.parentNodeId!=="string"||typeof n.message.content!=="string"||!Number.isFinite(n.message.createdAt)||!Number.isFinite(n.createdAt)||n.fingerprint!==await messageFingerprint(n.message))fail();
     validateBubbleDeletion(n.message);await validateQuoteReference(d,n.message);
@@ -34,9 +35,13 @@ export async function validateTimelineDatabase(d:Dexie) {
     if(!t.parentTimelineId&&t.forkNodeId)fail();
   }
   for(const c of conversations.values())if(c.activeTimelineId){const t=timelines.get(c.activeTimelineId);if(!t||t.conversationId!==c.id)fail();const immutable=path(t!.headNodeId,c.id);
-    const projection=(await d.table("messages").where("conversationId").equals(c.id).filter(m=>!m.archived).toArray()).sort((a,b)=>a.createdAt-b.createdAt||(a.id<b.id?-1:a.id>b.id?1:0));
+    // Keep only ordering metadata; reading every message body at once can exhaust
+    // Safari's working set long before ZIP packing begins. Preserve the exact sort.
+    const projection:{id:string;createdAt:number}[]=[];
+    await d.table("messages").where("conversationId").equals(c.id).each(m=>{if(!m.archived)projection.push({id:m.id,createdAt:m.createdAt});});
+    projection.sort((a,b)=>a.createdAt-b.createdAt||(a.id<b.id?-1:a.id>b.id?1:0));
     if(projection.length!==immutable.length)fail();
-    for(let i=0;i<projection.length;i++){let m=projection[i];if(m.role==="assistant"&&m.activeVariantId){const v=await d.table("messageVariants").get(m.activeVariantId);if(!v||v.conversationId!==c.id||v.messageId!==m.id)fail();m={...m,content:v.content,userEdited:v.userEdited};}if(await messageFingerprint(m)!==immutable[i].fingerprint)fail();}
+    for(let i=0;i<projection.length;i++){let m=await d.table("messages").get(projection[i].id);if(!m)fail();if(m.role==="assistant"&&m.activeVariantId){const v=await d.table("messageVariants").get(m.activeVariantId);if(!v||v.conversationId!==c.id||v.messageId!==m.id)fail();m={...m,content:v.content,userEdited:v.userEdited};}if(await messageFingerprint(m)!==immutable[i].fingerprint)fail();}
   }
   await each(d,"conversationSnapshots",async s=>{if(!s.timelineId)return;const t=timelines.get(s.timelineId);if(!t||t.conversationId!==s.conversationId||s.timelineEpoch!==t.epoch)fail();if(s.headNodeId&&!path(t!.headNodeId,s.conversationId).some(n=>n.id===s.headNodeId))fail();const saved=path(s.headNodeId,s.conversationId);if(saved.length!==s.messages.length)fail();for(let i=0;i<saved.length;i++)if(saved[i].fingerprint!==await messageFingerprint(s.messages[i]))fail();});
 }
