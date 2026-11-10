@@ -1,0 +1,5 @@
+/* Only the chat module owns this measured height. Other phone Apps retain dvh. */
+@media (max-width:760px), (hover:none) and (pointer:coarse){
+ .stage:has(>.phone>.app-panel>.app-scroll>[data-chat-hub]){height:var(--chat-shell-height,100dvh);min-height:0}
+ .stage>.phone:has(>.app-panel>.app-scroll>[data-chat-hub]){height:var(--chat-shell-height,100dvh)}
+}
