@@ -29,22 +29,22 @@
   pointer-events: none;
 }
 
-/* Conversation only: when the keyboard is closed, pin the shell to the
-   fixed containing block instead of relying on iOS's unstable vh units.
-   Keep the existing measured visual-viewport layout when keyboard opens. */
-@media (max-width: 760px), (hover: none) and (pointer: coarse) {
-  html[data-ios="true"][data-standalone="true"] .stage.chat-stage:has(> .phone.chat-conversation:not(.chat-keyboard)) {
-    top: 0;
-    bottom: 0;
-    height: auto;
-    min-height: 0;
-  }
-  html[data-ios="true"][data-standalone="true"] .stage.chat-stage > .phone.chat-conversation:not(.chat-keyboard) {
-    height: 100%;
-    min-height: 0;
-  }
-  html[data-ios="true"][data-standalone="true"] .stage.chat-stage:has(> .phone.chat-conversation.chat-keyboard) {
-    bottom: auto;
-    height: var(--chat-height, 100dvh);
+/* Conversation only: allow the closed-keyboard document to participate in
+   normal scrolling, just like the working desktop and chat hub. The previous
+   position:fixed shell prevented iOS from expanding its initial viewport.
+   Keyboard-open state keeps the original fixed visual-viewport positioning. */
+@supports (height: 100lvh) {
+  @media (max-width: 760px), (hover: none) and (pointer: coarse) {
+    html[data-ios="true"][data-standalone="true"] .stage.chat-stage:has(> .phone.chat-conversation:not(.chat-keyboard)) {
+      position: relative;
+      inset: auto;
+      height: 100lvh;
+      min-height: 100lvh;
+      overflow: visible;
+    }
+    html[data-ios="true"][data-standalone="true"] .stage.chat-stage > .phone.chat-conversation:not(.chat-keyboard) {
+      height: 100lvh;
+      min-height: 0;
+    }
   }
 }
