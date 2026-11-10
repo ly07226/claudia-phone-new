@@ -2349,3 +2349,13 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
     min-height: 0;
   }
 }
+
+/* A backdrop-filter establishes a containing block for position:fixed.
+   Disable it only for the standalone chat hub so the tab bar can attach
+   to the actual viewport instead of the app panel. */
+@media (max-width: 760px), (hover: none) and (pointer: coarse) {
+  .stage[data-ios][data-standalone] > .phone > .app-panel:has(> .app-scroll > [data-chat-hub]) {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
