@@ -1,4 +1,3 @@
-import {noteViewportDecision} from './viewportDiagnostics';
 import './chatViewport.css';
 import {displayEnvironment} from './presentation';
 const closedViewports=new WeakMap<HTMLElement,{height:number;width:number;keyboard:boolean;standalone:boolean}>();
@@ -28,7 +27,6 @@ export function readChatViewport(scope:HTMLElement){
  // In standalone there is no Safari toolbar to reserve. Let CSS own the
  // closed viewport: an early/stale innerHeight must not pin a shorter px shell.
  const cssHeight=!keyboard&&standalone?(CSS.supports('height','100dvh')?'100dvh':'100vh'):`${height}px`;
- noteViewportDecision({scope:scope.matches('[data-chat-hub]')?'hub':'conversation',innerHeight:layoutHeight,visibleHeight,baseline:closed.height,keyboard,standalone,top,height,cssHeight});
  return {top,height,bottom:top+height,keyboard,standalone,cssHeight};
 }
 const listeners=new Set<()=>void>();
