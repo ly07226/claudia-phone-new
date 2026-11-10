@@ -72,6 +72,31 @@ const icons = [
 ];
 function App() {
   const environment = useDisplayEnvironment();
+  // iOS standalone first-paint experiment: invalidate the painted shell without
+  // changing viewport geometry, scroll position, or chat state.
+  useEffect(() => {
+    if (!environment.ios || !environment.standalone) return;
+    let first = 0, second = 0;
+    const refresh = () => {
+      cancelAnimationFrame(first); cancelAnimationFrame(second);
+      first = requestAnimationFrame(() => {
+        const phone = document.querySelector<HTMLElement>('.stage > .phone');
+        if (!phone) return;
+        phone.classList.add('ios-paint-refresh');
+        second = requestAnimationFrame(() => phone.classList.remove('ios-paint-refresh'));
+      });
+    };
+    refresh();
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('pageshow', refresh);
+    return () => {
+      cancelAnimationFrame(first); cancelAnimationFrame(second);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('pageshow', refresh);
+      document.querySelector('.stage > .phone')?.classList.remove('ios-paint-refresh');
+    };
+  }, [environment.ios, environment.standalone]);
+
   const s = usePhone();
   const phoneNavigation=usePhonePageNavigation();
   const appearance = useEffectiveTheme(s.theme);
