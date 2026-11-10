@@ -14,3 +14,19 @@ test('复制可在手机点击使用，复制失败可展开只读文本；关�
 test('显式开启标记跨刷新记录启动、模式及高度，后台恢复采样且不自动写数据库',async({page})=>{
  await page.addInitScript(()=>Object.defineProperty(navigator,'standalone',{configurable:true,value:true}));await setup(page);await enable(page);await page.reload();await expect(page.locator('[data-viewport-diagnostics-ui]')).toBeVisible();await page.getByRole('button',{name:'聊天',exact:true}).click();await page.getByRole('tab',{name:'联系人',exact:true}).click();await page.evaluate(()=>{window.dispatchEvent(new Event('pageshow'));document.dispatchEvent(new Event('visibilitychange'));});await expect.poll(()=>page.evaluate(async()=>{const d=await import('/src/viewportDiagnostics.ts');return d.getViewportDiagnostics().records.some(r=>r.data.nodes.navigation&&r.data.standalone);})).toBe(true);const raw=await page.evaluate(async()=>(await import('/src/viewportDiagnostics.ts')).exportViewportDiagnostics());expect(raw).toContain('navigationAncestors');expect(raw).toContain('recentDecisions');expect(raw).toContain('cssUnits');expect(raw).not.toContain('PRIVATE_');
 });
+test('简短诊断保留首次布局及首次滚动对照，后续设置和采样不覆盖，复制不超过1200字符',async({page})=>{
+ await setup(page);await enable(page);
+ await page.evaluate(async()=>{const d=await import('/src/viewportDiagnostics.ts');d.disableViewportDiagnostics();d.enableViewportDiagnostics();d.captureViewportDiagnostic('before-test-scroll');document.querySelector('.hub-panes')!.dispatchEvent(new Event('scroll'));});
+ const first=await page.evaluate(async()=>JSON.parse((await import('/src/viewportDiagnostics.ts')).exportViewportDiagnostics()).milestones);
+ expect(first.firstNavigation).toBeTruthy();expect(first.preScroll.event).toBe('before-test-scroll');expect(first.firstScroll.event).toBe('first-scroll');
+ await page.getByRole('tab',{name:'聊天',exact:true}).click();
+ await page.evaluate(async()=>{const d=await import('/src/viewportDiagnostics.ts');for(let i=0;i<30;i++)d.captureViewportDiagnostic('later');document.querySelector('.hub-panes')!.dispatchEvent(new Event('scroll'));Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async(text:string)=>{(window as any).__short=text;}}});});
+ await page.getByRole('button',{name:'复制简短诊断',exact:true}).click();
+ const report=await page.evaluate(async()=>({text:(window as any).__short,m:JSON.parse((await import('/src/viewportDiagnostics.ts')).exportViewportDiagnostics()).milestones}));
+ expect(report.text.length).toBeLessThanOrEqual(1200);const short=JSON.parse(report.text);expect(short.before.event).toBe('before-test-scroll');expect(short.after.event).toBe('first-scroll');expect(typeof short.first.nav).toBe('number');expect(short.first.safe).toBeDefined();expect(report.m).toEqual(first);expect(report.text).not.toContain('PRIVATE_');
+});
+test('异常首次高度与滚动后恢复可对照，动作前采样只读且不遗漏内联高度',async({page})=>{
+ await setup(page);await enable(page);
+ const result=await page.evaluate(async()=>{const d=await import('/src/viewportDiagnostics.ts');d.disableViewportDiagnostics();const slot=document.querySelector<HTMLElement>('.phone>.app-panel>.app-scroll')!;const old=slot.style.paddingBottom;slot.style.paddingBottom='180px';d.enableViewportDiagnostics();document.querySelector('.hub-panes')!.dispatchEvent(new Event('touchstart'));slot.style.paddingBottom=old;document.querySelector('.hub-panes')!.dispatchEvent(new Event('scroll'));return JSON.parse(d.exportShortViewportDiagnostics());});
+ expect(result.first.gap).toBeGreaterThan(100);expect(result.before.event).toBe('before-first-gesture');expect(result.after.gap).toBeLessThan(result.before.gap);expect(result.after.nav).toBeGreaterThan(result.before.nav);expect(result.first.inline).toHaveLength(3);
+});
