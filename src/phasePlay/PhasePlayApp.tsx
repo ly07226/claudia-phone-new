@@ -61,10 +61,13 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
    const timer=window.setTimeout(()=>controller.abort(),90000);
    let response:string;
    try{response=await requestReply(config,credential.apiKey,[{role:'system',content:system},{role:'user',content:user}],controller.signal);}finally{clearTimeout(timer);}
-   const json=JSON.parse(response.replace(/^\x60\x60\x60(?:json)?\s*/i,'').replace(/\s*\x60\x60\x60$/,''));
+   const cleaned=response.trim().replace(/^\x60\x60\x60(?:json)?\s*/i,'').replace(/\s*\x60\x60\x60$/,'').trim();
+   let json:unknown;
+   try{json=JSON.parse(cleaned);}catch{const first=cleaned.indexOf('{'),last=cleaned.lastIndexOf('}');if(first<0||last<=first)throw Error('AI 返回内容不是有效 JSON，旧指令未更改。');json=JSON.parse(cleaned.slice(first,last+1));}
+   if(!json||typeof json!=='object'||!('items' in json))throw Error('模型未返回指令列表。');
    if(!Array.isArray(json.items))throw Error('模型未返回有效的指令列表，请重试。');
    const map=new Map<string,string>();
-   for(const row of json.items){if(typeof row?.id==='string'&&typeof row?.text==='string'&&row.text.trim().length>0&&row.text.length<=120&&!map.has(row.id))map.set(row.id,row.text.trim());}
+   for(const row of json.items){if(row&&typeof row.id==='string'&&typeof row.text==='string'&&row.text.trim().length>0&&row.text.length<=120&&!map.has(row.id))map.set(row.id,row.text.trim());}
    if(tasks.some(t=>!map.has(t.id)))throw Error('模型返回的指令不完整，旧版本已保留。');
    const latest=current.current,old=latest.settings.prompts;
    const prefix=scopePrefix;
