@@ -44,7 +44,7 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
  inputData=JSON.parse(simulatorInput);
   const input=simulatorInput;
   if(simulatorPolicy?.secretEvidence.some(secret=>secret.trim().length>0&&input.includes(secret)))throw Error('剧情输入包含已确认的角色秘密原文，已阻止请求；请检查世界设定与历史记录。');
-  if(new TextEncoder().encode(storyPrompt+input).length>storyLimits.inputBytes)throw Error('模拟器公开规则超过剧情输入预算，未请求模型；请精简并人工确认规则。');
+  if(new TextEncoder().encode(storyPrompt+(simulatorPolicy?' 模拟器附加协议：除body、choices、segments外必须输出stateChanges数组；每项为key、op以及set/increment时的value，value必须是字符串、数字或布尔值。没有可确认的变化时返回空数组。仅记录正文已经发生的公开变化，不记录NPC秘密，不得编造玩家行动。':'')+input).length>storyLimits.inputBytes)throw Error('模拟器公开规则超过剧情输入预算，未请求模型；请精简并人工确认规则。');
   const {config}=await reconcileApiDefault();if(!config)throw new StoryGenerationError(makeStoryFailure(await db.apiConfigs.count()?'config-invalid':'config-missing','configuration',false));const credential=await db.apiCredentials.get(config.id);if(!credential?.apiKey||!usableApi(config,credential.apiKey))throw new StoryGenerationError(makeStoryFailure('config-invalid','configuration',false));
   credentialForRedaction=credential.apiKey;
   if(controller.signal.aborted)throw Error('cancelled');
@@ -57,13 +57,15 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
   },true);
   configuredOutputTokens=config.maxTokens;
   outputTokenLimit=Math.min(config.maxTokens,storyLengths[claim.length].tokens,storyLimits.outputTokens);
-  const messages:ContextMessage[]=[{role:'system',content:storyPrompt},{role:'user',content:input}];
+  const simulatorPrompt=simulatorPolicy?' 模拟器附加协议：除body、choices、segments外必须输出stateChanges数组；每项为key、op以及set/increment时的value，value必须是字符串、数字或布尔值。没有可确认的变化时返回空数组。仅记录正文已经发生的公开变化，不记录NPC秘密，不得编造玩家行动。':'';
+  const effectivePrompt=storyPrompt+simulatorPrompt;
+  const messages:ContextMessage[]=[{role:'system',content:effectivePrompt},{role:'user',content:input}];
   if(requestDebugEnabled())registerRequestDiagnostics('story',messages,[{source:'story-instruction',text:storyPrompt,role:'system'},{source:'story-input',text:input,role:'user'}]);
   phase='request';const raw=await requestReply({...config,maxTokens:outputTokenLimit},credential.apiKey,messages,controller.signal,structured.transport,false);
   failure='invalid';phase='parse';if(structured.getResponseInfo().transportInterrupted)throw new StoryGenerationError(makeStoryFailure('network','response',true));if(structured.getResponseInfo().blocked)throw new StoryResponseError('blocked');if(structured.isTruncated())throw new StoryResponseError('truncated',{responseCharacters:raw.length});const participants=s.definition.participants;const result=parseStoryReply(raw,participants?[participants.protagonist.name,...participants.characters.map(c=>c.name)]:[],!!simulatorPolicy);
   // A model can still hallucinate private source evidence even when it was not in its prompt.
   // Never persist or display a response containing a verified private passage.
-  if(simulatorPolicy?.secretEvidence.some(secret=>secret.trim().length>0&&(result.body.includes(secret)||result.choices.some(c=>c.text.includes(secret)))))throw Error('剧情生成结果包含尚未授权公开的秘密原文，已拒绝保存本回合。');
+  if(simulatorPolicy?.secretEvidence.some(secret=>secret.trim().length>0&&(result.body.includes(secret)||result.choices.some(c=>c.text.includes(secret))||JSON.stringify(result.stateChanges??[]).includes(secret))))throw Error('剧情生成结果包含尚未授权公开的秘密原文，已拒绝保存本回合。');
   const simulatorChanges=result.stateChanges;
   if(simulatorChanges)applySimulatorChanges(replaySimulatorState(claim.path),simulatorChanges);
   const id=crypto.randomUUID();phase='validation';
