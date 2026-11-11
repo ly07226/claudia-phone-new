@@ -11,7 +11,6 @@ export function normalizeBubbleCSS(source:string):string{
  .replace(/\.message-container\s*\.assistant\s+\.message-bubble|\.message-container\.assistant\s+\.message-bubble/g,'.theme-role-bubble')
  .replace(/\.message-container\s*\.user\s+\.message-bubble|\.message-container\.user\s+\.message-bubble/g,'.theme-user-bubble');
 }
-const stickerHosts=new Set(['.theme-user-bubble::before','.theme-role-bubble::after']);
 const effectSelectors:Record<string,string[]>={
  '.theme-user-bubble::before':['.chat-user .chat-bubble-surface::before'],
  '.theme-role-bubble::after':['.chat-assistant .chat-bubble-surface::after'],
@@ -40,20 +39,20 @@ const bubbleSelectors=new Set(['.theme-user-bubble','.theme-role-bubble','.chat-
 const bubbleProperties=new Set(['border-top-left-radius','border-top-right-radius','border-bottom-right-radius','border-bottom-left-radius','font-family','max-width','position','transition','animation','transform','margin-bottom','display','justify-content','padding-top','background','background-image','box-shadow','border','border-width','border-style','padding','letter-spacing','font-weight','font-style','text-align','opacity','text-shadow','backdrop-filter','-webkit-backdrop-filter']);
 const safeBubbleValue=(property:string,value:string):boolean=>{
  if(value.length>240||/[{};<>\\]/.test(value)||/url\s*\(|@import|expression\s*\(|var\s*\(|position|calc\s*\(/i.test(value))return false;
- if(property.startsWith('border-')&&property.endsWith('-radius'))return /^(?:\\d{1,2}(?:\\.\\d+)?px)(?:\\s+\\d{1,2}(?:\\.\\d+)?px)?$/.test(value);
- if(property==='font-family')return /^['"\\w ,\\-]+$/.test(value)&&value.length<120;
+ if(property.startsWith('border-')&&property.endsWith('-radius'))return /^(?:\d{1,2}(?:\.\d+)?px)(?:\s+\d{1,2}(?:\.\d+)?px)?$/.test(value);
+ if(property==='font-family')return /^['"\w ,\-]+$/.test(value)&&value.length<120;
  if(property==='position')return value==='relative';
- if(property==='max-width')return /^(?:[1-9]\\d?|100)%$/.test(value);
+ if(property==='max-width')return /^(?:[1-9]\d?|100)%$/.test(value);
  if(property==='margin-bottom'||property==='padding-top')return /^(?:[0-9]|[1-2][0-9])px$/.test(value);
  if(property==='display')return value==='flex';
  if(property==='justify-content')return /^(flex-start|flex-end)$/.test(value);
- if(property==='transition')return /^all 0\\.3s cubic-bezier\\(0\\.34,\\s*1\\.56,\\s*0\\.64,\\s*1\\)$/.test(value);
- if(property==='transform')return /^scale\\(0\\.98\\)$/.test(value);
+ if(property==='transition')return /^all 0\.3s cubic-bezier\(0\.34,\s*1\.56,\s*0\.64,\s*1\)$/.test(value);
+ if(property==='transform')return /^scale\(0\.98\)$/.test(value);
  if(property==='animation')return value==='jellyIn 0.4s ease-out forwards';
  if(property==='backdrop-filter'||property==='-webkit-backdrop-filter')return /^blur\((?:0|[1-9]|1[0-9]|20)(?:\.\d+)?px\)$/.test(value)&&Number(value.slice(5,-3))<=20;
  if(property==='background'||property==='background-image')return /^(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|linear-gradient\([#\w\d\s.,%()\-]+\)|none)$/i.test(value);
  if(property==='box-shadow'||property==='text-shadow'){const v=value.replace(/\s*!important\s*$/i,'').trim();return /^(?:none|[\d\s.,#%a-z()\-]+)$/i.test(v)&&!/[a-z]+\s*\(/i.test(v.replace(/rgba?\([\d\s.,%]+\)/gi,''));}
- if(property==='border')return /^(?:none|(?:\d{1,2}px\s+)?(?:solid|dashed|dotted)\s+(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)))$/i.test(value);
+ if(property==='border')return /^(?:none|(?:\d{1,2}(?:\.\d+)?px\s+)?(?:solid|dashed|dotted)\s+(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)))$/i.test(value);
  if(property==='border-width'||property==='padding'||property==='letter-spacing')return /^(?:\d{1,2}(?:\.\d+)?px)(?:\s+\d{1,2}(?:\.\d+)?px){0,3}$/.test(value);
  if(property==='border-style')return /^(none|solid|dashed|dotted)$/.test(value);
  if(property==='font-weight')return /^(normal|bold|[1-9]00)$/.test(value);
@@ -64,7 +63,7 @@ const safeBubbleValue=(property:string,value:string):boolean=>{
 };
 const invalid=():never=>{throw Error('CSS 校验未通过：请检查选择器、属性或属性值。气泡支持 12～24px 字号、颜色、边框、阴影、内边距及 blur(0～20px) 毛玻璃；不支持外部资源、嵌套规则或页面布局控制。');};
 export function compileThemeCSS(source:string,preview=false):string{
- if(typeof source!=='string'||source.length>16000)throw Error('自定义 CSS 最多 8000 字符。');
+ if(typeof source!=='string'||source.length>16000)throw Error('自定义 CSS 最多 16000 字符。');
  source=normalizeBubbleCSS(source).replace(/^[^{}\n]*无边框版[^{}\n]*$/gm,'').replace(/\s*!important\s*(?=;|})/gi,'');
  let i=0;const rules:string[]=[];let hasBubbleRule=false;
  const invalid=():never=>{const line=source.slice(0,i).split('\n').length;const excerpt=source.slice(Math.max(0,i-20),Math.min(source.length,i+55)).replace(/\s+/g,' ').trim();throw Error(`CSS 第 ${line} 行附近不受支持：${excerpt||'(空内容)'}。请检查选择器、属性和值。`);};
