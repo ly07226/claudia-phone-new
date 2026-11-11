@@ -1,3 +1,4 @@
+import {PhasePlayApp} from './phasePlay/PhasePlayApp';
 import {ViewportDiagnosticsPanel} from './ViewportDiagnosticsPanel';
 import {ChatHubScheduler} from './ChatHubScheduler';
 import {ThemeEditor} from './ThemeEditor';
@@ -380,6 +381,8 @@ function App() {
                 <IdentityEditor key={space?.spaceId || "daily"} spaceId={space?.spaceId || "daily"}/>
               ) : s.activeApp === "聊天" || s.activeApp === "世界聊天" ? (
                 <Chat worldId={space?.worldId} />
+              ) : s.activeApp === "忍一下嘛" && !space?.worldId ? (
+                <PhasePlayApp onBack={phoneNavigation.back}/>
               ) : s.activeApp === "世界书 / Lorebook" ? (
                 <Lorebooks />
               ) : s.activeApp === "AI / API 设置" ? (
