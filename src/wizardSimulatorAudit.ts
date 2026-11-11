@@ -9,10 +9,11 @@ export interface SimulatorAuditStatus {
 /** Pure readiness check. A saved review is not proof of complete rule extraction. */
 export function simulatorAuditStatus(chunks:SimulatorAnalysisChunk[],reviews:SavedSimulatorReview[],decisions:SimulatorDecision[]):SimulatorAuditStatus {
  const byIndex=new Map<number,SavedSimulatorReview>();
+ const expectedLength=chunks.reduce((n,c)=>n+c.text.length,0);
  for(const r of reviews){
   const chunk=chunks[r.review.chunkIndex];
-  if(!chunk||r.review.chunkIndex<0||!Number.isInteger(r.review.chunkIndex)||r.review.start!==chunk.start||r.review.end!==chunk.end||r.review.chunkCount!==chunks.length||r.sourceLength!==chunks.reduce((n,c)=>n+c.text.length,0))continue;
-  if(r.review.findings.some(f=>f.start<chunk.start||f.end>chunk.end||f.end<=f.start||chunk.text.slice(f.start-chunk.start,f.end-chunk.start)!==f.quote))continue;
+  if(!chunk||r.review.chunkIndex<0||!Number.isInteger(r.review.chunkIndex)||r.review.start!==chunk.start||r.review.end!==chunk.end||r.review.chunkCount!==chunks.length||r.sourceLength!==expectedLength)continue;
+  if(!Number.isSafeInteger(r.review.rejected)||r.review.rejected<0||!Array.isArray(r.review.findings)||r.review.findings.some(f=>!f||typeof f.quote!=='string'||typeof f.kind!=='string'||typeof f.interpretation!=='string'||f.confidence!=='source-verified'||f.start<chunk.start||f.end>chunk.end||f.end<=f.start||chunk.text.slice(f.start-chunk.start,f.end-chunk.start)!==f.quote))continue;
   if(byIndex.has(r.review.chunkIndex))continue;
   byIndex.set(r.review.chunkIndex,r);
  }
@@ -28,5 +29,5 @@ export function simulatorAuditStatus(chunks:SimulatorAnalysisChunk[],reviews:Sav
    if(decision==='accepted')accepted++;else if(decision==='rejected')rejected++;else pending++;
   }
  }
- return {totalChunks:chunks.length,reviewedChunks:byIndex.size,missingChunks,invalidChunks,findings,accepted,rejected,pending,secretFindings,rejectedEvidence,ready:chunks.length>0&&missingChunks.length===0&&invalidChunks.length===0&&pending===0&&rejectedEvidence===0};
+ return {totalChunks:chunks.length,reviewedChunks:byIndex.size,missingChunks,invalidChunks,findings,accepted,rejected,pending,secretFindings,rejectedEvidence,ready:chunks.length>0&&missingChunks.length===0&&invalidChunks.length===0&&pending===0};
 }
