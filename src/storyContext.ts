@@ -5,6 +5,17 @@ export const storyPrompt=`输出协议优先于文笔和目标篇幅：必须返
 export function storyInput(s:StorySession,path:StoryNode[],actionInput?:string|StoryAction,length:StoryLength='standard',guidance?:StoryGuidance,inputByteLimit:number=storyLimits.inputBytes){
  const action=normalizeStoryAction(actionInput),head=path.at(-1);
  const {creation:internalCreation,...script}=s.definition.script;const definition={...s.definition,script};
+ // For imported reference documents the complete source is stored separately.
+ // Do not classify every numbered or rule-like sentence as mandatory context.
+ // Compact only the per-request copy; never mutate the persisted definition.
+ if(inputByteLimit<storyLimits.inputBytes){
+  const maxField=3000;
+  for(const field of ['description','background'] as const){
+   const value=definition[field];
+   if(typeof value==='string'&&value.length>maxField)
+    definition[field]=value.slice(0,2400)+'\n[其余背景仍保存在原始剧本中，按剧情需要读取]\n'+value.slice(-450);
+  }
+ }
  const selectedAction=action?.kind==='custom'?{kind:'custom',text:action.text}:action?.kind==='choice'?{kind:'choice',label:head?.choices.find(c=>c.id===action.choiceId)?.label,text:head?.choices.find(c=>c.id===action.choiceId)?.text}:undefined;
  const history=path.map((n,i)=>({body:n.body,selectedAction:path[i+1]?storyActionText(n,path[i+1]):undefined}));
  let start=Math.max(0,history.length-8),ledgerStart=Math.max(0,start-24),memoryBudget=6000;
