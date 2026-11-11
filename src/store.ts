@@ -188,6 +188,7 @@ export const apps = [
   "世界管理",
   "角色管理",
   "记忆",
+  "忍一下嘛",
 ];
 export const defaultTheme: Theme = {
   id: "global",
