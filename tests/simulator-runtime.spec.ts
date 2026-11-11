@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {deriveSimulatorProgress} from '../src/wizardSimulatorProgress';
 import {simulatorAuditStatus} from '../src/wizardSimulatorAudit';
-import {applySimulatorChanges} from '../src/wizardSimulatorState';
+import {applySimulatorChanges,replaySimulatorState,validateSimulatorChanges} from '../src/wizardSimulatorState';
 import type {StoryNode} from '../src/storyTypes';
 
 function node(sequence:number,parentNodeId?:string):StoryNode{
@@ -59,4 +59,17 @@ test('generic world state rejects unsafe keys and invalid increments',()=>{
  expect(()=>applySimulatorChanges({},[{key:'__proto__',op:'set',value:'bad'}])).toThrow();
  expect(()=>applySimulatorChanges({supplies:2},[{key:'supplies',op:'increment',value:Infinity}])).toThrow();
  expect(()=>applySimulatorChanges({weather:'rain'},[{key:'weather',op:'increment',value:1}])).toThrow();
+});
+
+test('state replay ignores discarded branch nodes',()=>{
+ const root={simulatorChanges:[{key:'supplies',op:'set' as const,value:10}]};
+ const abandoned={simulatorChanges:[{key:'supplies',op:'increment' as const,value:-8}]};
+ const current={simulatorChanges:[{key:'supplies',op:'increment' as const,value:-2}]};
+ expect(replaySimulatorState([root,abandoned]).supplies).toBe(2);
+ expect(replaySimulatorState([root,current]).supplies).toBe(8);
+});
+test('state validation rejects malformed imported records',()=>{
+ expect(()=>validateSimulatorChanges([{key:'supplies',op:'increment',value:'two'}])).toThrow();
+ expect(()=>validateSimulatorChanges([{key:'supplies',op:'set',value:2,unexpected:'bad'}])).toThrow();
+ expect(()=>applySimulatorChanges({'constructor':1},[])).toThrow();
 });
