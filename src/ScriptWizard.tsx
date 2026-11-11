@@ -14,7 +14,7 @@ import './scriptWizard.css';
 import {readWizardDocument} from './wizardDocumentImport';
 import {saveLongNarrative,readLongNarrative,synopsisPreview} from './wizardLongNarrative';
 import {analyzeLongNarrative} from './wizardSourceAnalysis';
-import {indexSimulatorDocument,simulatorEvidence,type SimulatorSectionKind} from './wizardSimulatorDocument';
+import {indexSimulatorDocument,simulatorEvidence} from './wizardSimulatorDocument';
 const steps=['剧情设定','主控面具','关联角色','开局方向','生成与进入'];
 export function ScriptWizard(){
  const s=usePhone(),nav=useSpaces(),key=wizardDraftKey(db.name);
