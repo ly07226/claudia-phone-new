@@ -1,3 +1,4 @@
+import {replayDocumentState} from './wizardRuntimeConfig';
 import {resolveStorySegments} from './storySegments';
 import {validateSimulatorChanges,replaySimulatorState} from './wizardSimulatorState';
 import {validStoryFailure} from './storyFailure';
@@ -22,7 +23,7 @@ export function validateStoryNode(n:StoryNode){
 }
 export function validateStorySession(s:StorySession){
  check(s&&id(s.id)&&id(s.worldId)&&num(s.revision)&&s.revision<=storyLimits.nodes&&num(s.definitionRevision)&&s.definitionRevision>0&&['idle','generating','ready','failed'].includes(s.status)&&num(s.createdAt)&&num(s.updatedAt));
- const d=s.definition;check(d&&[d.name,d.description,d.rules,d.background].every(x=>typeof x==='string')&&d.name.length<=80&&d.description.length<=10000&&d.rules.length<=4000&&d.background.length<=6000);validateScriptConfig(d.script);if(d.participants!==undefined)validateStoryParticipants(d.participants);check(d.script.playMode==='story'&&d.script.definitionRevision===s.definitionRevision);
+ const d=s.definition;check(d&&typeof d==='object');if(d.documentRevision!==undefined)check(typeof d.documentRevision==='string'&&/^[a-f0-9]{64}$/.test(d.documentRevision));check(d&&[d.name,d.description,d.rules,d.background].every(x=>typeof x==='string')&&d.name.length<=80&&d.description.length<=10000&&d.rules.length<=4000&&d.background.length<=6000);validateScriptConfig(d.script);if(d.participants!==undefined)validateStoryParticipants(d.participants);check(d.script.playMode==='story'&&d.script.definitionRevision===s.definitionRevision);
  check(s.headNodeId===undefined||id(s.headNodeId));check(!!s.headNodeId===(s.revision>0));check(s.status!=='ready'||!!s.headNodeId);check(s.status!=='idle'||s.revision===0);
  if(s.pending)check(id(s.pending.token)&&num(s.pending.revision)&&s.pending.revision===s.revision&&s.pending.headNodeId===s.headNodeId&&num(s.pending.expiresAt));
  check((s.status==='generating')===!!s.pending);
@@ -37,7 +38,7 @@ export async function validateStoryDatabase(d:Dexie){
  const byId=new Map(nodes.map(n=>[n.id,n])),owners=new Map(sessions.map(s=>[s.id,s]));const requests=new Set<string>(),worlds=new Set<string>(),visited=new Set<string>();
  for(const s of sessions){validateStorySession(s);check(!worlds.has(s.worldId)&&await d.table('worlds').get(s.worldId));worlds.add(s.worldId);let node=s.headNodeId,count=0;const seen=new Set<string>();
   while(node){check(!seen.has(node));seen.add(node);visited.add(node);const n=byId.get(node);check(n&&n.sessionId===s.id&&n.worldId===s.worldId&&n.definitionRevision===s.definitionRevision&&n.sequence===s.revision-count);count++;node=n.parentNodeId;}
-  check(count===s.revision);const activePath=[...seen].reverse().map(id=>byId.get(id)!);replaySimulatorState(activePath);if(s.actionDraft?.choiceId)check(byId.get(s.headNodeId!)?.choices.some(c=>c.id===s.actionDraft!.choiceId));
+  check(count===s.revision);const activePath=[...seen].reverse().map(id=>byId.get(id)!);const world=await d.table('worlds').get(s.worldId);if(world.storyDocument?.runtime)replayDocumentState(activePath,world.storyDocument.runtime);else replaySimulatorState(activePath);if(s.actionDraft?.choiceId)check(byId.get(s.headNodeId!)?.choices.some(c=>c.id===s.actionDraft!.choiceId));
  }
  for(const n of nodes){validateStoryNode(n);check(owners.has(n.sessionId)&&visited.has(n.id)&&!requests.has(n.requestId));requests.add(n.requestId);
   if(n.parentNodeId){const p=byId.get(n.parentNodeId);check(p&&p.sessionId===n.sessionId&&p.worldId===n.worldId&&(n.action?.kind==='custom'?n.fromChoiceId===undefined:p.choices.some(c=>c.id===n.fromChoiceId))&&n.sequence===p.sequence+1);}else check(n.sequence===1&&n.fromChoiceId===undefined&&n.action===undefined);

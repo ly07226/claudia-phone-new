@@ -1,3 +1,4 @@
+import {verifyDocumentSnapshot} from './wizardDocumentSnapshot';
 import {validateChatHub,hubAssetIds} from './chatHubTypes';
 import {validInterruption} from './chatCompletion';
 import {validateThemeAppearance} from './themeCSS';
@@ -303,6 +304,7 @@ export async function createBackup(options: {
                   ? sanitizeConfig(original, m.redactions)
                   : original;
               phase='export-encode';
+              if(table==='worlds'&&row.storyDocument)await verifyDocumentSnapshot(row.storyDocument);
               const encoded = await rowBytes(table, row);
               ensure(
                 encoded.length <= backupLimits.recordBytes,
@@ -870,6 +872,7 @@ export async function validateReferences(
     if (id !== undefined && id !== "" && !(await exists(table, id))) bad(code);
   };
   await eachBackupRow(d,"worlds",async x=>{
+    if(x.storyDocument!==undefined){try{await verifyDocumentSnapshot(x.storyDocument);}catch{bad('worlds.storyDocument');}}
     if(x.storyPreferences!==undefined){try{validateStoryPreferences(x.storyPreferences);}catch{bad('worlds.storyPreferences');}}
     if(x.script!==undefined){try{validateScriptConfig(x.script);}catch{bad("worlds.script");}}
   },signal);

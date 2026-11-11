@@ -13,7 +13,7 @@ export function simulatorAuditStatus(chunks:SimulatorAnalysisChunk[],reviews:Sav
  for(const r of reviews){
   const chunk=chunks[r.review.chunkIndex];
   if(!chunk||r.review.chunkIndex<0||!Number.isInteger(r.review.chunkIndex)||r.review.start!==chunk.start||r.review.end!==chunk.end||r.review.chunkCount!==chunks.length||r.sourceLength!==expectedLength)continue;
-  if(!Number.isSafeInteger(r.review.rejected)||r.review.rejected<0||!Array.isArray(r.review.findings)||r.review.findings.some(f=>!f||typeof f.quote!=='string'||typeof f.kind!=='string'||typeof f.interpretation!=='string'||f.confidence!=='source-verified'||f.start<chunk.start||f.end>chunk.end||f.end<=f.start||chunk.text.slice(f.start-chunk.start,f.end-chunk.start)!==f.quote))continue;
+  if(!Number.isSafeInteger(r.review.rejected)||r.review.rejected<0||!Array.isArray(r.review.findings)||r.review.findings.some(f=>!f||typeof f.quote!=='string'||typeof f.kind!=='string'||typeof f.interpretation!=='string'||f.confidence!=='source-verified'||(f.protectedTerms!==undefined&&(!Array.isArray(f.protectedTerms)||f.protectedTerms.length>12||f.protectedTerms.some(t=>typeof t!=='string'||t.trim().length<2||!f.quote.includes(t))))||(f.certainty!==undefined&&!['asserted','uncertain','planned'].includes(f.certainty))||f.start<chunk.start||f.end>chunk.end||f.end<=f.start||chunk.text.slice(f.start-chunk.start,f.end-chunk.start)!==f.quote))continue;
   if(byIndex.has(r.review.chunkIndex))continue;
   byIndex.set(r.review.chunkIndex,r);
  }

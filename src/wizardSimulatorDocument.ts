@@ -1,14 +1,12 @@
 /** Source-faithful simulator document index. This does not summarize or rewrite rules. */
 export type SimulatorSectionKind='core_rules'|'world'|'mechanics'|'characters'|'opening_gate'|'output_protocol'|'events'|'other';
 export interface SimulatorSection {id:string;heading:string;kind:SimulatorSectionKind;start:number;end:number;body:string}
-const headings=[{kind:'opening_gate',re:/开局规则|开场角色卡|玩家角色卡/},{kind:'output_protocol',re:/输出格式|叙事规则|叙事要求|剧情推进|节奏规则/},{kind:'mechanics',re:/感染|ABO|物资|基地|名声|信任|世界运作|安全规则/},{kind:'events',re:/随机事件|主要冲突|核心方向/},{kind:'characters',re:/重要角色|角色卡|角色定位|人物|夏以昼|关系线/},{kind:'core_rules',re:/AI.?运作核心规则|AI.?角色规则/},{kind:'world',re:/世界观|世界现况|游戏核心氛围/}] as const;
-function classify(heading:string):SimulatorSectionKind {return headings.find(h=>h.re.test(heading))?.kind??'other';}
-const markdownHeading=/^\s{0,3}#{1,6}\s+(.+?)\s*$/;
-const plainHeading=/^(?:AI\s*运作核心规则|世界观核心|世界现况|感染者设定|感染方式|感染者特征|感染阶段|ABO\s*末世规则|重要物资|幸存者基地|常见基地类型|世界主要冲突|游戏核心氛围|叙事规则|剧情描写规定|节奏规则|关系规则|ABO\s*安全规则|世界运作规则|随机事件规则|名声与信任系统|AI\s*叙事要求|开局规则|开场角色卡|玩家角色卡|剧情推进与输出格式[^\n]*|AI\s*角色规则|重要角色[^\n]*|角色卡|夏以昼|基本资料|末世前背景|目前状态|ABO\s*相关设定|所属位置或势力|表面身份|真实需求|可提供的资源|可能隐瞒的秘密|生存压力与选择理由|与.{0,12}的关系线[^\n]*|角色定位总结|常见角色类型|游戏核心方向)$/;
-function detectedHeading(line:string):string|undefined {
- const trimmed=line.trim().replace(/^【(.+)】$/,'$1');
- const markdown=trimmed.match(markdownHeading);if(markdown)return markdown[1].trim();
- return trimmed.length<=70&&plainHeading.test(trimmed)?trimmed:undefined;
+const headings=[{kind:'opening_gate',re:/开局|开场|玩家资料/},{kind:'output_protocol',re:/输出|叙事|剧情推进|节奏/},{kind:'mechanics',re:/资源|物资|时间|状态|机制|运作|数值|条件/},{kind:'events',re:/事件|冲突|方向|伏笔/},{kind:'characters',re:/角色|人物|身份|性格|关系/},{kind:'core_rules',re:/核心规则|禁止|约束/},{kind:'world',re:/世界|背景|地理|历史/}] as const;
+function classify(heading:string):SimulatorSectionKind{return headings.find(h=>h.re.test(heading))?.kind??'other';}
+function detectedHeading(line:string):string|undefined{
+ const text=line.trim();const markdown=text.match(/^#{1,6}\s+(.+?)\s*$/);if(markdown)return markdown[1];
+ const bracket=text.match(/^【([^】]{1,70})】$/);if(bracket)return bracket[1];
+ return text.length<=70&&/^(?:[一二三四五六七八九十0-9]+[、.．]\s*)?[^。！？!?：:]{1,60}(?:设定|背景|规则|机制|人物|角色|事件|秘密|方向|状态|资料|条件|世界观)[：:]?$/.test(text)?text:undefined;
 }
 /** Works for Markdown and DOCX plain-text extraction; offsets point into the exact original body. */
 export function indexSimulatorDocument(body:string):SimulatorSection[]{

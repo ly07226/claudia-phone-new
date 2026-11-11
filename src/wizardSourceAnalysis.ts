@@ -6,7 +6,8 @@ import {readLongNarrative} from './wizardLongNarrative';
 export async function analyzeLongNarrative(sourceId:string,signal:AbortSignal):Promise<string>{
  const source=await readLongNarrative(sourceId);if(!source)throw Error('长篇原文已丢失，请重新导入。');
  if(!navigator.locks)throw Error('当前浏览器不支持安全请求锁。');
- return navigator.locks.request('claudia-wizard-source:'+sourceId,{ifAvailable:true,signal},async lock=>{
+ return navigator.locks.request('claudia-wizard-source:'+sourceId,{ifAvailable:true},async lock=>{
+  if(signal.aborted)throw Error('分析已取消，未请求模型。');
   if(!lock)throw Error('已有分析请求正在进行。');
   const {config}=await reconcileApiDefault();if(!config)throw Error('请先设置默认 AI API。');
   const key=(await db.apiCredentials.get(config.id))?.apiKey;if(!key)throw Error('默认 API 缺少密钥。');

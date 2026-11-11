@@ -10,7 +10,7 @@ export interface StoryExpectedProgress {sessionId?:string;headNodeId?:string;rev
 export interface StoryDraft {headNodeId:string;mode:'choice'|'custom';customText:string;choiceId?:string}
 export const storyLengths={brief:{label:'精简',target:'400～800',tokens:4000},standard:{label:'标准',target:'800～1500',tokens:7000},detailed:{label:'详细',target:'1500～2500',tokens:11000}} as const;
 export interface StoryParticipants {protagonist:{name:string;bio:string;customSetting:string;gender:string;appearance:string;personality:string;occupation:string;experience:string;age?:string|number};characters:{name:string;persona:string;speakingStyle:string;setting:string}[]}
-export interface StoryDefinition {participants?:StoryParticipants;name:string;description:string;rules:string;background:string;script:ScriptConfig}
+export interface StoryDefinition {documentRevision?:string;participants?:StoryParticipants;name:string;description:string;rules:string;background:string;script:ScriptConfig}
 export interface StoryChoice {id:string;label:'A'|'B'|'C'|'D';text:string}
 export type StorySegment = {type:"narration"|"action";text:string}|{type:"dialogue";speaker:string;text:string};
 export interface StoryNode {simulatorChanges?:SimulatorStateChange[];segments?:StorySegment[];action?:StoryAction;narrativeLength?:StoryLength;id:string;worldId:string;sessionId:string;parentNodeId?:string;fromChoiceId?:string;body:string;choices:StoryChoice[];createdAt:number;requestId:string;definitionRevision:number;sequence:number}

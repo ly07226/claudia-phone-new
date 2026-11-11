@@ -21,6 +21,7 @@ import type {
 } from "./chatTypes";
 export interface World {
   /** Browser-local original document; not part of ZIP backup or story prompts. */
+  storyDocument?: import('./wizardDocumentSnapshot').StoryDocumentSnapshot;
   simulatorSource?: {id:string;name:string;characters:number};
   script?: ScriptConfig;
   storyPreferences?: StoryPreferences;

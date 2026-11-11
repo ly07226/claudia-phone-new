@@ -1,7 +1,7 @@
 import type {SimulatorChunkReview} from './wizardSimulatorReview';
 const database='claudia-wizard-simulator-reviews-v1',store='reviews',decisions='decisions';
 export type SimulatorFindingDecision='accepted'|'rejected'|'needs_review';
-export interface SimulatorDecision {id:string;sourceId:string;sourceLength:number;chunkIndex:number;findingStart:number;findingEnd:number;quote:string;decision:SimulatorFindingDecision;updatedAt:number}
+export interface SimulatorDecision {id:string;sourceId:string;sourceLength:number;chunkIndex:number;findingStart:number;findingEnd:number;quote:string;decision:SimulatorFindingDecision;playerKnown?:boolean;protectedTerms?:string[];knownBy?:string[];revealWhen?:{key:string;equals:string|number|boolean};updatedAt:number}
 export interface SavedSimulatorReview {id:string;sourceId:string;sourceLength:number;sourceName:string;review:SimulatorChunkReview;savedAt:number}
 function open():Promise<IDBDatabase>{return new Promise((resolve,reject)=>{const request=indexedDB.open(database,2);request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains(store))request.result.createObjectStore(store,{keyPath:'id'});if(!request.result.objectStoreNames.contains(decisions))request.result.createObjectStore(decisions,{keyPath:'id'});};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error??Error('审核数据库无法打开'));});}
 export async function saveSimulatorReview(sourceId:string,sourceLength:number,sourceName:string,review:SimulatorChunkReview):Promise<void>{

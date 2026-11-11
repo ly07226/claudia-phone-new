@@ -8,6 +8,7 @@ export interface WizardIdentity {name:string;gender:string;appearance:string;per
 export interface WizardCharacter {worldSetting?:string;name:string;persona:string;speakingStyle:string}
 export interface ScriptWizardDraft {
  suggestions?:WizardSuggestions;aiCharacterRequirements?:string;
+ documentMode?:'narrative'|'simulation';runtimeConfig?:string;
  background?:string;perspective?:StoryPerspective;longSourceId?:string;longSourceName?:string;
  creationToken?:string;createdWorldId?:string;length?:StoryLength;
  version:1;step:number;title:string;synopsis:string;rules:string;direction:string;pace:keyof typeof wizardPaces;customPace:string;
@@ -25,6 +26,7 @@ export function copyWizardIdentity(identity:UserIdentity):WizardIdentity {
 const text=(x:unknown,max:number)=>typeof x==='string'&&x.length<=max;
 export function validateWizardDraft(value:unknown):asserts value is ScriptWizardDraft {
  const x=value as ScriptWizardDraft;
+ if(x?.documentMode!==undefined&&!['narrative','simulation'].includes(x.documentMode)||x?.runtimeConfig!==undefined&&!text(x.runtimeConfig,24000))throw Error('文档运行配置无效。');
  if(x?.perspective!==undefined&&!['first','second','third'].includes(x.perspective))throw Error('叙事人称配置无效。');
  if(x?.longSourceId!==undefined&&!text(x.longSourceId,80)||x?.longSourceName!==undefined&&!text(x.longSourceName,255))throw Error('长篇来源引用无效。');
  if(x?.background!==undefined&&!text(x.background,6000))throw Error('世界背景最多6000字符。');
