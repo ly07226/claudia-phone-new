@@ -20,7 +20,7 @@ import {replaySimulatorState,applySimulatorChanges} from './wizardSimulatorState
 export {storyPrompt,storyInput} from './storyContext';
 const schema={type:'OBJECT',properties:{segments:{type:'ARRAY',maxItems:256,items:{type:'OBJECT',properties:{type:{type:'STRING',enum:['narration','action','dialogue']},text:{type:'STRING'},speaker:{type:'STRING'}},required:['type','text']}},body:{type:'STRING'},choices:{type:'ARRAY',minItems:4,maxItems:4,items:{type:'OBJECT',properties:{id:{type:'STRING',enum:['A','B','C','D']},text:{type:'STRING'}},required:['id','text']}}},required:['body','choices']};
 
-const simulatorSchema={...schema,properties:{...schema.properties,stateChanges:{type:'ARRAY',maxItems:40,items:{type:'OBJECT',properties:{key:{type:'STRING'},op:{type:'STRING',enum:['set','increment','remove']},value:{type:'STRING'}},required:['key','op']}}},required:[...schema.required,'stateChanges']};
+const simulatorSchema={...schema,properties:{...schema.properties,stateChanges:{type:'ARRAY',maxItems:40,items:{type:'OBJECT',properties:{key:{type:'STRING'},op:{type:'STRING',enum:['set','increment','remove']},value:{anyOf:[{type:'STRING'},{type:'NUMBER'},{type:'BOOLEAN'}]}},required:['key','op']}}},required:[...schema.required,'stateChanges']};
 export async function generateStory(worldId:string,actionInput?:string|StoryAction,options:{signal?:AbortSignal;allowOldDefinition?:boolean;expected?:StoryExpectedProgress;firstAttemptOnly?:boolean;operation?:'advance'|'regenerate'}={}){
  if(options.signal?.aborted)throw Error('生成已取消，原主线未改变。');
  const initialWorld=await db.worlds.get(worldId);
