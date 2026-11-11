@@ -9,6 +9,8 @@ export interface SimulatorRuntimePolicy {
  sourceName:string;
  publicRules:{kind:string;text:string;sourceStart:number;sourceEnd:number}[];
  secretCount:number;
+ /** Internal-only evidence for checking existing story context; never send to the model. */
+ secretEvidence:string[];
  reviewedChunks:number;
 }
 /** Fail closed: never supply hidden character facts to a player-facing model. */
@@ -24,6 +26,7 @@ export async function compileSimulatorRuntime(sourceId:string):Promise<Simulator
  const byChunk=new Map(reviews.map(r=>[r.review.chunkIndex,r]));
  const publicRules:SimulatorRuntimePolicy['publicRules']=[];
  const secretRanges:{start:number;end:number}[]=[];
+ const secretEvidence:string[]=[];
  const acceptedPublic:{kind:string;text:string;sourceStart:number;sourceEnd:number}[]=[];
  let secretCount=0;
  for(let i=0;i<chunks.length;i++){
@@ -33,7 +36,7 @@ export async function compileSimulatorRuntime(sourceId:string):Promise<Simulator
    const decision=decisions.find(d=>d.sourceId===source.id&&d.sourceLength===source.body.length&&d.chunkIndex===i&&d.findingStart===finding.start&&d.findingEnd===finding.end&&d.quote===finding.quote);
    if(decision?.decision!=='accepted')continue;
    if(source.body.slice(finding.start,finding.end)!==finding.quote)throw Error('规则引用已失效。');
-   if(finding.kind==='secret'){secretCount++;secretRanges.push({start:finding.start,end:finding.end});continue;}
+   if(finding.kind==='secret'){secretCount++;secretRanges.push({start:finding.start,end:finding.end});secretEvidence.push(finding.quote);continue;}
    acceptedPublic.push({kind:finding.kind,text:finding.quote,sourceStart:finding.start,sourceEnd:finding.end});
   }
  }
@@ -43,5 +46,5 @@ export async function compileSimulatorRuntime(sourceId:string):Promise<Simulator
   if(secretRanges.some(secret=>rule.sourceStart<secret.end&&secret.start<rule.sourceEnd))throw Error('公开规则与角色秘密引用范围重叠，请先人工拆分或拒绝冲突条目。');
   publicRules.push(rule);
  }
- return {sourceId:source.id,sourceName:source.name,publicRules,secretCount,reviewedChunks:chunks.length};
+ return {sourceId:source.id,sourceName:source.name,publicRules,secretCount,secretEvidence,reviewedChunks:chunks.length};
 }
