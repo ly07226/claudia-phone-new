@@ -49,7 +49,7 @@ for(const width of [375,390,430]) {
  test(`聊天搜索 ${width}px：姓名、当前版本预览、清空、无结果、不跨世界`,async({page})=>{
   await page.setViewportSize({width,height:844});await data(page);await chat(page);
   await expect(page.locator('.chat-list-row')).toHaveCount(3);await expect(page.locator('.chat-space')).toHaveCount(0);
-  await expect(page.locator('.chat-list-title')).toHaveCSS('font-size','32px');
+  await expect(page.locator('.chat-list-title')).toHaveCount(0);await expect(page.getByRole('tabpanel',{name:'聊天',exact:true})).toBeVisible();
   const input=page.getByRole('searchbox',{name:'搜索聊天',exact:true});
   await expect(page.locator('.chat-list-row').first()).toContainText('LastNeedle');
   await expect(page.locator('.chat-list-row').nth(1)).toContainText('Beta last preview');

@@ -97,7 +97,7 @@ test('合并时图片ID冲突完整重映射、原数据保留、重复导入幂
   const first=await merge();expect(first.id).not.toBe(images[0]);expect(first.asset?.data).not.toBe('data:image/png;base64,aGVsbG8=');expect(first.persona).toBe('目标手机保持');
   await target.reload();await expect(target.locator('.desktop')).toBeVisible();const second=await merge();expect(second.count).toBe(first.count);expect(second.id).toBe(first.id);
  }finally{await ctx.close();}
- const error=await page.evaluate(async imageId=>{const {db}=await import('/src/store.ts');await db.assets.delete(imageId);try{await(await import('/src/backupZip.ts')).createZipBackup({closedOtherClients:true});return '';}catch(e){return(e as Error).message;}},images[0]);expect(error).toContain('图片资源缺失');
+ const error=await page.evaluate(async imageId=>{const {db}=await import('/src/store.ts');await db.assets.delete(imageId);const before=JSON.stringify(await db.messages.toArray());let integrity='';try{await(await import('/src/timelineValidation.ts')).validateTimelineDatabase(db);}catch(e){integrity=(e as Error).message;}try{await(await import('/src/backupZip.ts')).createZipBackup({closedOtherClients:true});return {message:'',integrity,diagnostic:undefined,unchanged:false};}catch(e){return {message:(e as Error).message,integrity,diagnostic:(e as any).diagnostic,unchanged:before===JSON.stringify(await db.messages.toArray())};}},images[0]);expect(error.integrity).toContain('图片资源缺失');expect(error.message).toContain('未生成有效 ZIP');expect(error.diagnostic.phase).toBe('export-validate');expect(error.unchanged).toBe(true);
 });
 
 test('发送前存储失败保留原始输入，取消选择无影响，附件上限和缩小视口菜单可见',async({page})=>{

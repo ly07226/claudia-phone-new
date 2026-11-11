@@ -1,4 +1,4 @@
-import {createDocumentSnapshot} from './wizardDocumentSnapshot';
+import {createDocumentSnapshot,verifyDocumentSnapshot} from './wizardDocumentSnapshot';
 import {compileSimulatorRuntime} from './wizardSimulatorRuntime';
 import {synopsisPreview} from './wizardLongNarrative';
 import type {DocumentRuntimeConfig} from './wizardRuntimeConfig';
@@ -28,14 +28,14 @@ export async function findWizardCreation(token:string){
 export async function createWizardWorld(input:Readonly<ScriptWizardDraft>):Promise<World>{
  const d=structuredClone(input);validateWizardDraft(d);
  if(!d.creationToken)throw Error('请先保存草稿创建标识，再确认创建。');
- const source=d.longSourceId?await readLongNarrative(d.longSourceId):undefined;
- if(source&&!source.preparation){const {listSimulatorReviews}=await import('./wizardSimulatorReviewStore');if(!(await listSimulatorReviews(source.id,source.body.length)).length)throw Error('剧本尚未准备完成，请返回第一步点击重新准备。');}
- if(d.longSourceId&&!source)throw Error('原始模拟器文档不存在，未创建不完整世界。');
- let runtime:DocumentRuntimeConfig|undefined;if(d.documentMode==='simulation'&&!source?.preparation){try{runtime=JSON.parse(d.runtimeConfig??'');}catch{throw Error('请填写有效的模拟状态 JSON，未创建世界。');}}
- const document=source?await createDocumentSnapshot(source.id,d.documentMode??'narrative',runtime):undefined;
+ const prior=await findWizardCreation(d.creationToken),frozen=d.longSourceId&&prior?.storyDocument?.source.id===d.longSourceId?prior.storyDocument:undefined;
+ const source=frozen?.source??(d.longSourceId?await readLongNarrative(d.longSourceId):undefined);
+ if(d.longSourceId&&!source)throw Error('导入原文不存在，未创建不完整世界。请重新上传原文件。');
+ let runtime:DocumentRuntimeConfig|undefined;if(d.documentMode==='simulation'&&!source?.preparation){try{runtime=JSON.parse(d.runtimeConfig??'');}catch{/* Legacy unfinished declarations fall back to original-text narration. */}}
+ const document=frozen??(source?await createDocumentSnapshot(source.id,d.documentMode??'narrative',runtime):undefined);if(frozen)await verifyDocumentSnapshot(frozen);
  const policy=document?await compileSimulatorRuntime(document.source.id,document):undefined;
  const publicSummary:string[]=[];let summaryLength=0;for(const rule of policy?.publicRules??[]){if(summaryLength+rule.text.length+1>10000)break;publicSummary.push(rule.text);summaryLength+=rule.text.length+1;}
- const synopsis=source&&d.synopsis===synopsisPreview(source.body)?(publicSummary.join('\n')||'导入资料已审核；使用确认的公开资料创作。'):d.synopsis;
+ const synopsis=source&&d.synopsis===synopsisPreview(source.body)?(publicSummary.join('\n')||'按已保存的原文与当前人物设定开始故事，不编造缺失资料。'):d.synopsis;
  const snapshot={...(document?{documentRevision:document.revision}:{}),...(d.longSourceId?{longSourceId:d.longSourceId,longSourceName:source!.name,longSourceCharacters:source!.body.length}:{}),...(d.perspective&&d.perspective!=='second'?{perspective:d.perspective}:{}),...(d.background?{background:d.background}:{}),title:d.title.trim(),synopsis:d.synopsis,rules:d.rules,direction:d.direction,pace:d.pace,customPace:d.pace==='custom'?d.customPace:'',identity:copyWizardIdentity({...d.identity}),characterIds:d.characterIds,customCharacters:d.customCharacters.map(c=>({...c,name:c.name.trim()})),opening:d.opening,length:d.length??'standard'};
  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(snapshot))),fingerprint=Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,'0')).join('');
  return db.transaction('rw',tables(),async()=>{

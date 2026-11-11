@@ -6,6 +6,21 @@ async function openScripts(page: Page) {
   if (await entry.count()) await entry.click();
   await expect(page.getByRole("heading", {name:"剧本世界",exact:true})).toBeVisible();
 }
+async function finishManualWizard(page:Page,title:string,background:string){
+  await page.getByLabel('故事标题',{exact:true}).fill(title);
+  await page.getByLabel('整体剧情梗概',{exact:true}).fill('自定义简介');
+  await page.getByLabel('世界背景',{exact:true}).fill(background);
+  await page.getByRole('button',{name:'下一步',exact:true}).click();
+  await page.getByLabel('主控姓名',{exact:true}).fill('玩家');
+  await page.getByRole('button',{name:'下一步',exact:true}).click();
+  await page.getByRole('button',{name:'＋ 自定义角色',exact:true}).click();
+  await page.getByLabel('角色1姓名',{exact:true}).fill('同行者');
+  await page.getByRole('button',{name:'下一步',exact:true}).click();
+  await page.getByLabel('开场场景',{exact:true}).fill('在车站初遇');
+  await page.getByRole('button',{name:'确认开局',exact:true}).click();
+  await expect(page.getByRole('button',{name:'返回剧本世界列表',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'返回剧本世界列表',exact:true}).click();
+}
 async function selector(page: Page) {
   await page.goto("/");
   await expect(
@@ -228,11 +243,8 @@ test("复用世界 CRUD，重命名保持稳定ID，删除活动世界安全回�
 }) => {
   await selector(page);
   await openScripts(page);
-  await page.getByRole("button", { name: "新建剧本", exact: true }).click();
-  await page.getByRole("button", {name:"手动粘贴", exact:true}).click();
-  await page.getByLabel("世界名称", { exact: true }).fill("我的新剧本");
-  await page.getByLabel("世界描述", { exact: true }).fill("自定义简介");
-  await page.getByRole("button", { name: "保存世界", exact: true }).click();
+  await page.getByRole("button", { name: "创建新剧本", exact: true }).click();
+  await finishManualWizard(page,'我的新剧本','世界背景');
   await expect(
     page.getByRole("heading", { name: "我的新剧本", exact: true }),
   ).toBeVisible();
@@ -367,7 +379,7 @@ test("生成中切换空间保留原请求，回复只写入原空间，另一�
   expect(stored.b.map((m) => m.content)).toEqual(["乙的新消息", "乙正常回复"]);
   expect(JSON.stringify(payloads.at(-1))).not.toContain("WORLD_A_ONLY");
   expect(JSON.stringify(payloads.at(-1))).not.toContain("DAILY_ONLY");
-  expect(stored.version).toBe(6);
+  expect(stored.version).toBe(7);
   await checkSpace(page, "world:space-b");
 });
 
@@ -460,6 +472,7 @@ test("日常角色管理默认基础角色不自动关联首世界，世界入�
         : -1;
     }),
   ).toBe(0);
+  await page.getByRole("button", {name:"返回桌面",exact:true}).click();
   await page.getByRole("button", { name: "返回空间列表", exact: true }).click();
   await openScripts(page);
   await page
@@ -526,7 +539,7 @@ for (const standalone of [false, true]) test(`三级路由、刷新/后退及真
   expect(await capture()).toEqual(before);
 });
 
-test("新建入口默认折叠，AI仅提示无写入或请求，手动粘贴复用保存，卡片直达手机", async ({page}) => {
+test("统一向导手动输入无推荐请求，确认前无数据库写入，卡片直达手机", async ({page}) => {
   await selector(page); await openScripts(page);
   await expect(page.getByText("暂无剧本",{exact:true})).toBeVisible();
   await expect(page.getByRole("button",{name:"手动粘贴",exact:true})).toHaveCount(0);
@@ -537,16 +550,14 @@ test("新建入口默认折叠，AI仅提示无写入或请求，手动粘贴复
   });
   const before = await capture();
   let posts = 0; page.on("request", r=>{if(r.method()==="POST") posts++;});
-  await page.getByRole("button",{name:"新建剧本",exact:true}).click();
-  await expect(page.getByRole("button",{name:"手动粘贴",exact:true})).toBeVisible();
-  await page.getByRole("button",{name:"AI 生成",exact:true}).click();
-  await expect(page.getByRole("status")).toContainText("AI 剧本生成器即将开放");
+  await page.getByRole("button",{name:"创建新剧本",exact:true}).click();
+  await expect(page.getByLabel('AI 剧本创建向导')).toBeVisible();
   expect(await capture()).toEqual(before); expect(posts).toBe(0);
-  await page.getByRole("button",{name:"手动粘贴",exact:true}).click();
-  await page.getByLabel("世界名称",{exact:true}).fill("我的粘贴剧本");
-  await page.getByLabel("世界背景",{exact:true}).fill("原始剧情第一行\n第二行：保留标点。");
+  await page.getByLabel('故事标题',{exact:true}).fill('我的粘贴剧本');
+  await page.getByLabel('世界背景',{exact:true}).fill('原始剧情第一行\n第二行：保留标点。');
   expect(await capture()).toEqual(before);
-  await page.getByRole("button",{name:"保存世界",exact:true}).click();
+  await finishManualWizard(page,'我的粘贴剧本','原始剧情第一行\n第二行：保留标点。');
+  expect(posts).toBe(0);
   const world = await page.evaluate(async()=> (await import("/src/store.ts")).db.worlds.toArray());
   expect(world).toHaveLength(1); expect(world[0].background).toBe("原始剧情第一行\n第二行：保留标点。");
   const card=page.getByTestId(`world-space-${world[0].id}`);
@@ -561,7 +572,7 @@ test("新建入口默认折叠，AI仅提示无写入或请求，手动粘贴复
   await page.getByLabel("世界名称",{exact:true}).fill("修改名字");
   await page.getByRole("button",{name:"保存世界",exact:true}).click();
   expect(await page.evaluate(async id=>(await import("/src/store.ts")).db.worlds.get(id),world[0].id)).toMatchObject({id:world[0].id,name:"修改名字",cover:"legacy-cover",extraInfo:{note:"keep"}});
-  await page.getByRole("button",{name:"进入剧本 · 修改名字",exact:true}).focus(); await page.keyboard.press("Enter");
+  await page.getByRole("button",{name:"开始新游戏 · 修改名字",exact:true}).focus(); await page.keyboard.press("Enter");
   await expect(page.locator(".desktop")).toBeVisible(); await checkSpace(page,`world:${world[0].id}`);
 });
 
@@ -569,20 +580,17 @@ test("独立创建子页逐级返回、取消无写入，紧凑卡片与更多�
   await selector(page); const {a}=await seed(page);
   const before=await page.evaluate(async()=>{const {db}=await import("/src/store.ts");return {worlds:await db.worlds.toArray(),messages:await db.messages.toArray(),profiles:await db.worldProfiles.toArray()};});
   await expect(page.locator("form")).toHaveCount(0);
-  await page.getByRole("button",{name:"新建剧本",exact:true}).click();
-  expect(new URL(page.url()).hash).toBe("#worlds/create");
-  await expect(page.locator(".script-compact")).toHaveCount(0); await expect(page.locator("form")).toHaveCount(0);
-  await page.getByRole("button",{name:"手动粘贴",exact:true}).click();
-  expect(new URL(page.url()).hash).toBe("#worlds/create/manual");
-  await expect(page.locator(".script-compact")).toHaveCount(0);
-  await page.getByLabel("世界名称",{exact:true}).fill("不会保存的草稿");
-  await page.getByRole("button",{name:"取消",exact:true}).click();
-  await expect(page.getByRole("button",{name:"手动粘贴",exact:true})).toBeVisible();
-  await page.reload(); await expect(page.getByRole("button",{name:"手动粘贴",exact:true})).toBeVisible();
-  await page.getByRole("button",{name:"手动粘贴",exact:true}).click();
-  await page.goBack(); await expect(page.getByRole("button",{name:"AI 生成",exact:true})).toBeVisible();
-  await page.getByRole("button",{name:"返回剧本列表",exact:true}).click();
-  await expect(page.locator("form")).toHaveCount(0);
+  await page.getByRole("button",{name:"创建新剧本",exact:true}).click();
+  expect(new URL(page.url()).hash).toBe("#worlds/create/wizard");
+  await expect(page.locator('.script-compact')).toHaveCount(0);
+  await page.getByLabel('故事标题',{exact:true}).fill('不会保存的草稿');
+  await page.getByRole('button',{name:'返回剧本列表',exact:true}).click();
+  await page.getByRole('button',{name:'创建新剧本',exact:true}).click();
+  await expect(page.getByLabel('故事标题',{exact:true})).toHaveValue('不会保存的草稿');
+  await page.reload();
+  await expect(page.getByLabel('故事标题',{exact:true})).toHaveValue('不会保存的草稿');
+  await page.getByRole('button',{name:'返回剧本列表',exact:true}).click();
+  await expect(page.locator('form')).toHaveCount(0);
   const card=page.getByTestId("world-space-space:a/一");
   for (const width of [320,390,430]) {
     await page.setViewportSize({width,height:844});
@@ -603,7 +611,7 @@ test("独立创建子页逐级返回、取消无写入，紧凑卡片与更多�
   expect(confirms).toBe(1);expect(new URL(page.url()).hash).toBe("#worlds");page.off("dialog",dismiss);
   await card.getByRole("button",{name:"查看角色",exact:true}).click();
   await expect(page.getByRole("heading",{name:"角色管理",exact:true})).toBeVisible();await checkSpace(page,"world:space:a/一");
-  await page.getByRole("button",{name:"返回空间列表",exact:true}).click();await expect(page.getByRole("heading",{name:"剧本世界",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"返回桌面",exact:true}).click();await page.getByRole("button",{name:"返回空间列表",exact:true}).click();await expect(page.getByRole("heading",{name:"剧本世界",exact:true})).toBeVisible();
   expect(await page.evaluate(async()=>{const {db}=await import("/src/store.ts");return {worlds:await db.worlds.toArray(),messages:await db.messages.toArray(),profiles:await db.worldProfiles.toArray()};})).toEqual(before);
   expect(await page.evaluate(async id=>(await import("/src/store.ts")).db.conversations.get(id),a.id)).toBeTruthy();
   await page.screenshot({path:"artifacts/script-compact-mobile.png"});

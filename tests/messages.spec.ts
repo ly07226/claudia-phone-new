@@ -523,7 +523,7 @@ test("v4 消息无损迁移为单版本，其他表逐条保持不变", async ({
     "OLD_USER",
     "OLD_AI",
   ]);
-  expect(after.version).toBe(6);
+  expect(after.version).toBe(7);
 });
 test("iPhone 长按、移动取消、Escape/空白关闭、编辑/复制/删除/快照恢复 UI", async ({
   page,
@@ -1032,7 +1032,9 @@ test("单版本无切换器及占位，重新生成成功显示新版本，失�
     await page.getByRole("button", { name: "重新生成", exact: true }).click();
   }
   await regenerate();
-  await expect(page.getByRole("alert")).toContainText("认证失败");
+  await page.getByRole("button", { name: "回复失败，查看详情" }).click();
+  await expect(page.getByRole("dialog")).toContainText("认证失败");
+  await page.getByRole("dialog").getByRole("button", {name:"关闭消息面板",exact:true}).click();
   await expect(ai).toContainText("REPLY_1");
   await expect(switcher).toHaveCount(0);
   fail = false;
@@ -1047,7 +1049,9 @@ test("单版本无切换器及占位，重新生成成功显示新版本，失�
   ).toBeDisabled();
   fail = true;
   await regenerate();
-  await expect(page.getByRole("alert")).toContainText("认证失败");
+  await page.getByRole("button", { name: "回复失败，查看详情" }).click();
+  await expect(page.getByRole("dialog")).toContainText("认证失败");
+  await page.getByRole("dialog").getByRole("button", {name:"关闭消息面板",exact:true}).click();
   await expect(ai).toContainText("NEW_VERSION");
   await expect(switcher).toContainText("2 / 2");
   await page.reload();

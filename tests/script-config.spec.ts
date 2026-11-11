@@ -3,15 +3,17 @@ import {isolatedApp} from './backupBrowser';
 async function setup(page:any){await isolatedApp(page,'script-config-'+crypto.randomUUID());await page.evaluate(async()=>{await(await import('/src/spaces.ts')).useSpaces.getState().openWorldEditor('manual');});}
 for(const mode of ['story','everyday'])test(`创建、重开、编辑、进入世界手机 ${mode}`,async({page})=>{
  await page.setViewportSize({width:375,height:812});await setup(page);
- await page.getByLabel('世界名称',{exact:true}).fill('测试剧本');await page.getByLabel('世界背景',{exact:true}).fill('世界背景');await page.getByLabel('剧本玩法',{exact:true}).selectOption(mode);await page.getByLabel('开场情境',{exact:true}).fill('在车站初次见面');
- if(mode==='story')await page.getByLabel('故事发展方向',{exact:true}).fill('逐步寻找失踪的朋友');else await expect(page.getByLabel('故事发展方向',{exact:true})).toHaveCount(0);
- await page.getByRole('button',{name:'保存世界',exact:true}).click();await expect(page.getByRole('heading',{name:'剧本世界',exact:true})).toBeVisible();
+ // Legacy creation URLs now open the unified wizard. Preserve both stored play modes
+ // through the existing world service; dedicated wizard tests exercise UI creation.
+ await expect(page.getByLabel('AI 剧本创建向导')).toBeVisible();
+ await page.evaluate(async mode=>{const {saveScriptWorld}=await import('/src/scriptWorlds.ts');await saveScriptWorld({name:'测试剧本',background:'世界背景',script:{version:1,playMode:mode,opening:'在车站初次见面',...(mode==='story'?{direction:'逐步寻找失踪的朋友'}:{}),definitionRevision:1}});await(await import('/src/spaces.ts')).useSpaces.getState().manageWorlds(true);},mode as 'story'|'everyday');
+ await expect(page.getByRole('heading',{name:'剧本世界',exact:true})).toBeVisible();
  const world=await page.evaluate(async()=>{const {db}=await import('/src/store.ts');return(await db.worlds.toArray())[0];});expect(world.script).toMatchObject({version:1,playMode:mode,opening:'在车站初次见面',definitionRevision:1});
  await page.reload();await page.evaluate(async id=>(await import('/src/spaces.ts')).useSpaces.getState().openWorldEditor('edit',id),world.id);await expect(page.getByLabel('开场情境')).toHaveValue('在车站初次见面');await expect(page.getByLabel('剧本玩法')).toHaveValue(mode);
  await page.getByRole('button',{name:'保存世界',exact:true}).click();expect(await page.evaluate(async id=>(await(await import('/src/store.ts')).db.worlds.get(id))!.script!.definitionRevision,world.id)).toBe(1);
  await page.evaluate(async id=>(await import('/src/spaces.ts')).useSpaces.getState().openWorldEditor('edit',id),world.id);await page.getByLabel('开场情境').fill('在公园初次见面');await page.getByRole('button',{name:'保存世界',exact:true}).click();
  expect(await page.evaluate(async id=>(await(await import('/src/store.ts')).db.worlds.get(id))!.script!.definitionRevision,world.id)).toBe(2);
- await page.getByRole('button',{name:'进入剧本 · 测试剧本',exact:true}).click();await expect(page.locator('.desktop')).toBeVisible();expect(page.url()).toContain('#phone/world/');expect(await page.evaluate(async()=>({space:(await import('/src/spaces.ts')).useSpaces.getState().space,apps:(await import('/src/store.ts')).apps}))).toMatchObject({space:{type:'world',worldId:world.id}});await expect(page.getByRole('button',{name:'剧本',exact:true})).toHaveCount(mode==='story'?1:0);
+ await page.getByRole('button',{name:'开始新游戏 · 测试剧本',exact:true}).click();await expect(page.locator('.desktop')).toBeVisible();expect(page.url()).toContain('#phone/world/');expect(await page.evaluate(async()=>({space:(await import('/src/spaces.ts')).useSpaces.getState().space,apps:(await import('/src/store.ts')).apps}))).toMatchObject({space:{type:'world',worldId:world.id}});await expect(page.getByRole('button',{name:'剧本',exact:true})).toHaveCount(mode==='story'?1:0);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 test('旧世界编辑不隐式配置，原聊天及关联保持，版本增量及并发保护',async({page})=>{

@@ -161,7 +161,7 @@ test("沉浸导航名称居中、无顶部头像和状态说明、左右头像�
     }),
   ).toBe(true);
   await page.getByRole("button", { name: "返回角色列表" }).click();
-  await expect(page.locator(".status")).toBeVisible();
+  await expect(page.locator(".app-panel>header")).toBeVisible();
   await page.getByRole("button", { name: "返回桌面" }).click();
   await expect(page.locator(".desktop")).toBeVisible();
   await expect(page.locator(".status")).toBeVisible();
@@ -260,7 +260,7 @@ test("管理菜单、会话 API 选择与真实连接测试、快照入口和删
   page.on("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "删除会话", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "聊天", exact: true }),
+    page.getByRole("tabpanel", { name: "聊天", exact: true }),
   ).toBeVisible();
   expect(
     await page.evaluate(async () => {
@@ -444,10 +444,8 @@ test("消息编辑面板缩小视口仍可保存取消，生成中返回不会�
   await page.waitForTimeout(150);
   await expect(page.locator(".chat-bubble")).toHaveCount(0);
   await expect(page.getByLabel("聊天消息")).toBeEnabled();
-  expect(
-    await page.evaluate(async (id) => {
-      const { activeMessages } = await import("/src/messagePath.ts");
-      return (await activeMessages(id)).at(-1)?.content;
-    }, state.daily.id),
-  ).toBe("返回前发送");
+  await expect.poll(()=>page.evaluate(async (id) => {
+    const {activeMessages}=await import("/src/messagePath.ts");return (await activeMessages(id)).at(-1)?.content;
+  },state.daily.id)).toBe("旧角色迟到回复");
+  expect(await page.evaluate(async id=>{const {activeMessages}=await import("/src/messagePath.ts");return (await activeMessages(id)).at(-2)?.content;},state.daily.id)).toBe("返回前发送");
 });

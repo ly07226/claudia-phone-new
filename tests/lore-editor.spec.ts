@@ -141,7 +141,7 @@ test("完整编辑器保存、折叠摘要、复制、非法正则提示和普�
     useProbability: false,
     probability: 100,
   });
-  expect(data.version).toBe(6);
+  expect(data.version).toBe(7);
 });
 test("纯函数激活、稳定排序、概率边界、正则安全、位置与扫描深度独立", async ({
   page,

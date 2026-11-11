@@ -31,8 +31,9 @@ export function ScriptWizard(){
  useEffect(()=>{alive.current=true;
   void (async()=>{try{if(!initial.draft.createdWorldId&&initial.draft.creationToken){const world=await findWizardCreation(initial.draft.creationToken);if(world&&alive.current)setCreatedId(world.id);}}catch(e){if(alive.current)setError(e instanceof Error?e.message:'无法复核创建状态。');}finally{if(alive.current)setRecovering(false);}})();
   const hide=()=>{assistant.current?.abort();reviewAbort.current?.abort();};window.addEventListener('pagehide',hide);return()=>{alive.current=false;request.current++;assistant.current?.abort();reviewAbort.current?.abort();window.removeEventListener('pagehide',hide);};},[]);
- useEffect(()=>{const id=draft.longSourceId;setPreparationReady(false);setPreparationError('');if(!id){setLongSource(null);return;}let live=true;void readLongNarrative(id).then(source=>{if(live){setLongSource(source?{name:source.name,characters:source.body.length,sections:source.sections.length}:null);setPreparationReady(!!source?.preparation);if(!source?.preparation&&!reviewAbort.current)setPreparationError(source?'准备尚未完成，已保存原文和完成进度，请点击重新准备。':'本机原文未找到，请重新上传。');}}).catch(()=>{if(live)setPreparationError('无法读取本机原文，请检查存储空间。');});return()=>{live=false;};},[draft.longSourceId]);
- async function prepareSource(id:string){if(reviewAbort.current)return;const controller=new AbortController();reviewAbort.current=controller;setReviewBusy(true);setPreparationReady(false);setPreparationError('');try{await prepareAutomaticDocument(id,controller.signal);if(alive.current){setPreparationReady(true);setPreparationError('');}}catch(e){if(alive.current)setPreparationError(e instanceof Error?e.message:'暂时无法完成准备，请重试；原文已保留。');}finally{if(reviewAbort.current===controller)reviewAbort.current=null;if(alive.current)setReviewBusy(false);}}
+ useEffect(()=>{const id=draft.longSourceId;setPreparationReady(false);setPreparationError('');if(!id){setLongSource(null);return;}let live=true;void readLongNarrative(id).then(source=>{if(live){setLongSource(source?{name:source.name,characters:source.body.length,sections:source.sections.length}:null);setPreparationReady(!!source?.preparation);if(!source&&!reviewAbort.current)setPreparationError('本机原文未找到，请重新上传。');}}).catch(()=>{if(live)setPreparationError('无法读取本机原文，请检查存储空间。');});return()=>{live=false;};},[draft.longSourceId]);
+ function stopPreparation(){reviewAbort.current?.abort();reviewAbort.current=null;setReviewBusy(false);}
+ async function prepareSource(id:string){if(reviewAbort.current)return;const controller=new AbortController();reviewAbort.current=controller;setReviewBusy(true);setPreparationReady(false);setPreparationError('');try{await prepareAutomaticDocument(id,controller.signal);if(alive.current&&reviewAbort.current===controller){setPreparationReady(true);setPreparationError('');}}catch(e){if(alive.current&&reviewAbort.current===controller)setPreparationError('智能整理未完成，原文已保留，仍可直接继续。'+(e instanceof Error&&/超时|取消|中断/.test(e.message)?'本次整理已停止。':''));}finally{if(reviewAbort.current===controller){reviewAbort.current=null;if(alive.current)setReviewBusy(false);}}}
  const available=new Set(s.characters.map(c=>c.id));
  function update(patch:Partial<ScriptWizardDraft>){
   const next={...draft,...patch,confirmed:patch.confirmed??false};setDraft(next);setSaved(false);setError('');
@@ -45,20 +46,19 @@ export function ScriptWizard(){
   catch(e){if(alive.current)setError(e instanceof Error?e.message:'推荐未完成，原输入保留。');}
   finally{if(assistant.current===controller)assistant.current=null;if(alive.current)setAssisting(false);}
  }
- function go(step:number){if(step>draft.step&&draft.longSourceId&&!preparationReady){setError('请等待剧本准备完成，失败时可在第一步重新准备。');return;}if(step>draft.step){const message=wizardStepError(draft,draft.step,available);if(message){setError(message);return;}}update({step});content.current?.scrollTo({top:0});}
+ function go(step:number){if(reviewBusy)stopPreparation();if(step>draft.step){const message=wizardStepError(draft,draft.step,available);if(message){setError(message);return;}}update({step});content.current?.scrollTo({top:0});}
  async function importFile(selected?:File){
   if(!selected||reading||creating||assisting||reviewBusy)return;const ticket=++request.current;setReading(true);setError('');
   try{if(selected.size>wizardLimits.fileBytes)throw Error('文件超过 20 MB，请缩小后重试。');const patch=await readWizardDocument(selected);
    if(!alive.current||ticket!==request.current)return;
    if((draft.title||draft.synopsis||draft.rules||draft.direction)&&!confirm('用文件内容替换对应草稿字段？不会修改任何现有世界。'))return;
-   if(patch.longBody){const source=await saveLongNarrative(selected.name,patch.longBody,await archiveWizardFile(selected));if(!alive.current||ticket!==request.current)return;setLongSource({name:source.name,characters:source.body.length,sections:source.sections.length});const persisted=update({...(patch.title?{title:patch.title}:{}),...(patch.rules?{rules:patch.rules}:{}),...(patch.direction?{direction:patch.direction}:{}),synopsis:patch.synopsis??synopsisPreview(source.body),longSourceId:source.id,longSourceName:source.name,documentMode:'narrative',runtimeConfig:undefined} as Partial<ScriptWizardDraft>);if(persisted){setReading(false);await prepareSource(source.id);}}
+   if(patch.longBody){const source=await saveLongNarrative(selected.name,patch.longBody,await archiveWizardFile(selected));if(!alive.current||ticket!==request.current)return;setLongSource({name:source.name,characters:source.body.length,sections:source.sections.length});const persisted=update({...(patch.title?{title:patch.title}:{}),...(patch.rules?{rules:patch.rules}:{}),...(patch.direction?{direction:patch.direction}:{}),synopsis:patch.synopsis??synopsisPreview(source.body),longSourceId:source.id,longSourceName:source.name,documentMode:'narrative',runtimeConfig:undefined} as Partial<ScriptWizardDraft>);if(persisted)setReading(false);}
    else update(patch);
   }catch(e){if(alive.current&&ticket===request.current)setError(e instanceof Error?e.message:'读取失败，原草稿未改变。');}
   finally{if(alive.current&&ticket===request.current)setReading(false);}
  }
  async function confirmDraft(){
-  if(creationLock.current||reading||recovering||reviewBusy)return;
-  if(draft.longSourceId&&!preparationReady){setError('请先完成剧本准备，原文和角色设定已保留。');return;}
+  if(creationLock.current||reading||recovering)return;if(reviewBusy)stopPreparation();
   for(let i=0;i<4;i++){const message=wizardStepError(draft,i,available);if(message){setError(message);return;}}
   const input={...draft,creationToken:draft.creationToken??crypto.randomUUID()};
   try{validateWizardDraft(input);if(stored.current===undefined||localStorage.getItem(key)!==stored.current)throw Error('conflict');const raw=JSON.stringify(input);localStorage.setItem(key,raw);stored.current=raw;setDraft(input);}
@@ -76,7 +76,7 @@ export function ScriptWizard(){
  const identityFields=[['name','姓名'],['gender','性别'],['appearance','外貌特征'],['personality','性格'],['occupation','身份与职业'],['experience','人物经历'],['bio','简介'],['customSetting','补充设定']] as const;
  if(createdId)return <WizardSetupStatus worldId={createdId} openingError={openingError} onNewDraft={()=>{try{const next=loadWizardDraft(localStorage,key);stored.current=next.raw;setDraft(next.draft);setCreatedId(undefined);setOpeningError('');setSaved(true);setError('');}catch{setError('新草稿读取失败。');}}}/>;
  if(recovering)return <p role="status">正在复核创作草稿与创建状态…</p>;
- return <section ref={wizardRoot} style={visibleHeight?{height:visibleHeight,maxHeight:visibleHeight}:undefined} className="script-wizard" aria-label="AI 剧本创建向导" aria-busy={reading||creating||assisting||reviewBusy}>
+ return <section ref={wizardRoot} style={visibleHeight?{height:visibleHeight,maxHeight:visibleHeight}:undefined} className="script-wizard" aria-label="AI 剧本创建向导" aria-busy={reading||creating||assisting}>
   <header className="wizard-heading"><h1>{draft.title||'创建新剧本'}</h1><p>第 {draft.step+1} 步 / 5 · {steps[draft.step]}</p><ol aria-label="创建进度">{steps.map((name,i)=><li key={name} aria-current={i===draft.step?'step':undefined}><span>{i+1}</span><small>{name}</small></li>)}</ol></header>
   <div className="wizard-content" ref={content} inert={reading||creating||assisting}>
    
@@ -88,8 +88,8 @@ export function ScriptWizard(){
     <button type="button" disabled={reading||creating||assisting||reviewBusy} onClick={()=>file.current?.click()}>上传剧本文档（Word / TXT / MD）</button>
     <input hidden ref={file} type="file" accept=".docx,.txt,.md,.json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,application/json" aria-label="剧情文件" onChange={e=>{const selected=e.target.files?.[0];e.target.value='';void importFile(selected);}}/>
     {reading&&<p role="status">正在读取本地文件…</p>}
-    <p className="wizard-note">上传后会使用当前 AI 配置自动理解全文，可能分多次请求并消耗 API 额度；不会自动重试。原文完整保存在本机。</p>
-    {longSource&&<div className="wizard-source-analysis"><p role="status">{reviewBusy?'已上传，正在理解剧本……':preparationReady?'剧本准备完成，可以继续':`已完整保存《${longSource.name}》`}</p>{preparationError&&<p role="alert">{preparationError}</p>}{!reviewBusy&&!preparationReady&&<button type="button" onClick={()=>draft.longSourceId&&void prepareSource(draft.longSourceId)}>重新准备剧本</button>}{reviewBusy&&<button type="button" onClick={()=>reviewAbort.current?.abort()}>暂停准备</button>}</div>}
+    <p className="wizard-note">上传后即可继续，原文完整保存在本机。智能整理为可选辅助，点击后可能分多次请求并消耗 API 额度；失败不会阻止创建，也不会自动重试。</p>
+    {longSource&&<div className="wizard-source-analysis"><p role="status">{reviewBusy?'正在智能整理，您仍可直接继续。':preparationReady?'剧本整理完成，可以继续':`已保存《${longSource.name}》，可以直接继续。`}</p>{preparationError&&<p role="alert">{preparationError}</p>}{!reviewBusy&&!preparationReady&&<button type="button" onClick={()=>draft.longSourceId&&void prepareSource(draft.longSourceId)}>智能整理（可选）</button>}{reviewBusy&&<button type="button" onClick={stopPreparation}>停止整理并直接继续</button>}<p className="wizard-note">未完成智能整理时按原文叙事，不启用未确认的额外机制。</p></div>}
     <label>自定义内容与补充规则<textarea aria-label="补充规则" maxLength={4000} value={draft.rules} onChange={e=>update({rules:e.target.value})}/></label>
     <label>叙事人称<select aria-label="叙事人称" value={draft.perspective??'second'} onChange={e=>update({perspective:e.target.value as StoryPerspective})}>{Object.entries(storyPerspectives).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
     <label>剧情节奏<select aria-label="剧情节奏" value={draft.pace} onChange={e=>update({pace:e.target.value as ScriptWizardDraft['pace']})}>{Object.entries(wizardPaces).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
@@ -121,7 +121,7 @@ export function ScriptWizard(){
     <p className="wizard-note">自定义角色将在确认时保存到基础角色库，并出现在日常角色列表；新世界的聊天仍独立隔离。</p>
     <WizardAssistanceUI kind="character" draft={draft} busy={assisting} onRequest={()=>void assist('character')} onChange={update} onError={setError}/>
    </div>}
-   {draft.step===3&&<div className="wizard-fields"><h2>开局方向</h2>
+   {draft.step===3&&<div className="wizard-fields"><h2>开局方向</h2>{longSource&&<p className="wizard-note">{preparationReady?'使用原文和可靠的整理结果；只启用已核验的额外机制。':'将按原文开始普通剧情，未启用额外机制。'}</p>}
     <label>开场场景<textarea aria-label="开场场景" rows={6} maxLength={6000} value={draft.opening} onChange={e=>update({opening:e.target.value})}/></label>
     <label>预设方向示例（非 AI）<select aria-label="开场示例" value="" onChange={e=>{if(e.target.value&&(!draft.opening||confirm('用示例替换当前开场草稿？')))update({opening:e.target.value});}}><option value="">选择示例填入，可继续修改</option>{['一次意外的初次相遇。','一封来历不明的邀请打破了平静。','重逢时，双方发现过去的问题仍未解决。'].map(text=><option key={text} value={text}>{text}</option>)}</select></label>
     <WizardAssistanceUI kind="opening" draft={draft} busy={assisting} onRequest={()=>void assist('opening')} onChange={update} onError={setError}/>
@@ -132,9 +132,9 @@ export function ScriptWizard(){
    {draft.step===4&&<div className="wizard-fields"><h2>配置尚未创建世界</h2><p>这是第一批保留的确认草稿，请返回开局方向，确认后真实创建。不会自动调用 AI。</p><button onClick={()=>go(3)}>返回开局方向</button></div>}
   </div>
   <footer className="wizard-footer">{assisting&&<button onClick={()=>assistant.current?.abort()}>取消本次推荐</button>}{error&&<p role="alert">{error}</p>}<small role="status">{saved?'草稿已保存在当前浏览器':initial.raw?'已读取本地草稿':'尚未保存新草稿'}</small><div>
-   <button disabled={draft.step===0||reading||creating||assisting||reviewBusy} onClick={()=>go(draft.step-1)}>上一步</button>
-   {draft.step<3&&<button className="primary" disabled={reading||creating||assisting||reviewBusy} onClick={()=>go(draft.step+1)}>下一步</button>}
-   {draft.step===3&&<button className="primary" disabled={reading||creating||assisting||reviewBusy} onClick={()=>void confirmDraft()}>{creating?'正在创建…':'确认开局'}</button>}
+   <button disabled={draft.step===0||reading||creating||assisting} onClick={()=>go(draft.step-1)}>上一步</button>
+   {draft.step<3&&<button className="primary" disabled={reading||creating||assisting} onClick={()=>go(draft.step+1)}>下一步</button>}
+   {draft.step===3&&<button className="primary" disabled={reading||creating||assisting} onClick={()=>void confirmDraft()}>{creating?'正在创建…':'确认开局'}</button>}
    <button disabled={reading||creating||assisting||reviewBusy} onClick={()=>{if(confirm('丢弃此浏览器中的创作草稿？现有世界和聊天不受影响。')){try{localStorage.removeItem(key);stored.current=null;setDraft(newWizardDraft());setSaved(false);setError('');}catch{setError('无法清除草稿，请检查存储权限。');}}}}>丢弃草稿</button>
   </div></footer>
  </section>;

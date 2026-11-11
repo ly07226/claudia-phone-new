@@ -1,3 +1,4 @@
+import {referenceDocumentPolicy} from './wizardReferenceDocument';
 import type {StorySegment} from './storyTypes';
 import type {StoryDocumentSnapshot} from './wizardDocumentSnapshot';
 import type {SimulatorState} from './wizardSimulatorState';
@@ -8,6 +9,7 @@ import {listSimulatorReviews,listSimulatorDecisions} from './wizardSimulatorRevi
 import {simulatorAuditStatus} from './wizardSimulatorAudit';
 
 export interface SimulatorRuntimePolicy {
+ referenceOnly?:true;
  sourceId:string;
  simulation:boolean;
  sourceName:string;
@@ -22,12 +24,13 @@ export interface SimulatorRuntimePolicy {
 export async function compileSimulatorRuntime(sourceId:string,snapshot?:StoryDocumentSnapshot,state:SimulatorState={},history:readonly SimulatorState[]=[]):Promise<SimulatorRuntimePolicy>{
  const source=snapshot?.source??await readLongNarrative(sourceId);
  if(!source)throw Error('模拟器原文已丢失，不能启用规则。');
+ if(snapshot?.referenceOnly)return referenceDocumentPolicy(source);
  const chunks=planSimulatorAnalysis(source.body,indexSimulatorDocument(source.body),snapshot?.automation?.chunkChars);
  if(!checkSimulatorCoverage(source.body,chunks).complete)throw Error('模拟器原文覆盖校验失败。');
  const reviews=snapshot?.reviews??await listSimulatorReviews(source.id,source.body.length);
  const decisions=snapshot?.decisions??await listSimulatorDecisions(source.id,source.body.length);
  const audit=simulatorAuditStatus(chunks,reviews,decisions);
- if(!audit.ready)throw Error('模拟器规则审核尚未完成，不能启用运行规则。');
+ if(!audit.ready)return referenceDocumentPolicy(source);
  const byChunk=new Map(reviews.map(r=>[r.review.chunkIndex,r]));
  const publicRules:SimulatorRuntimePolicy['publicRules']=[];
  const secretRanges:{start:number;end:number}[]=[];
