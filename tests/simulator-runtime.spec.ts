@@ -1,6 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {deriveSimulatorProgress} from '../src/wizardSimulatorProgress';
 import {simulatorAuditStatus} from '../src/wizardSimulatorAudit';
+import {applySimulatorChanges} from '../src/wizardSimulatorState';
 import type {StoryNode} from '../src/storyTypes';
 
 function node(sequence:number,parentNodeId?:string):StoryNode{
@@ -45,4 +46,17 @@ test('invalid review evidence fails closed',()=>{
  const review={id:'s:0',sourceId:'s',sourceLength:3,sourceName:'s',
   review:{chunkIndex:0,chunkCount:1,start:0,end:3,findings:[{kind:'secret',quote:'xyz',start:0,end:3,interpretation:'bad',confidence:'source-verified' as const}],rejected:0},savedAt:1};
  expect(simulatorAuditStatus(chunks,[review],[]).ready).toBe(false);
+});
+
+test('generic world state updates without mutating earlier snapshot',()=>{
+ const initial={supplies:5,weather:'rain',doorOpen:false};
+ const next=applySimulatorChanges(initial,[{key:'supplies',op:'increment',value:-2},{key:'doorOpen',op:'set',value:true}]);
+ expect(next.supplies).toBe(3);
+ expect(next.doorOpen).toBe(true);
+ expect(initial.supplies).toBe(5);
+});
+test('generic world state rejects unsafe keys and invalid increments',()=>{
+ expect(()=>applySimulatorChanges({},[{key:'__proto__',op:'set',value:'bad'}])).toThrow();
+ expect(()=>applySimulatorChanges({supplies:2},[{key:'supplies',op:'increment',value:Infinity}])).toThrow();
+ expect(()=>applySimulatorChanges({weather:'rain'},[{key:'weather',op:'increment',value:1}])).toThrow();
 });
