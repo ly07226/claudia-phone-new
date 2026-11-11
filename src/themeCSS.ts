@@ -12,9 +12,19 @@ export function normalizeBubbleCSS(source:string):string{
  .replace(/\.message-container\s*\.user\s+\.message-bubble|\.message-container\.user\s+\.message-bubble/g,'.theme-user-bubble');
 }
 const bubbleSelectors=new Set(['.theme-user-bubble','.theme-role-bubble','.chat-user','.chat-assistant','.chat-bubble','.chat-bubble-surface']);
-const bubbleProperties=new Set(['background','background-image','box-shadow','border','border-width','border-style','padding','letter-spacing','font-weight','font-style','text-align','opacity','text-shadow','backdrop-filter','-webkit-backdrop-filter']);
+const bubbleProperties=new Set(['border-top-left-radius','border-top-right-radius','border-bottom-right-radius','border-bottom-left-radius','font-family','max-width','position','transition','animation','transform','margin-bottom','display','justify-content','padding-top','background','background-image','box-shadow','border','border-width','border-style','padding','letter-spacing','font-weight','font-style','text-align','opacity','text-shadow','backdrop-filter','-webkit-backdrop-filter']);
 const safeBubbleValue=(property:string,value:string):boolean=>{
  if(value.length>240||/[{};<>\\]/.test(value)||/url\s*\(|@import|expression\s*\(|var\s*\(|position|calc\s*\(/i.test(value))return false;
+ if(property.startsWith('border-')&&property.endsWith('-radius'))return /^(?:\\d{1,2}(?:\\.\\d+)?px)(?:\\s+\\d{1,2}(?:\\.\\d+)?px)?$/.test(value);
+ if(property==='font-family')return /^['"\\w ,\\-]+$/.test(value)&&value.length<120;
+ if(property==='position')return value==='relative';
+ if(property==='max-width')return /^(?:[1-9]\\d?|100)%$/.test(value);
+ if(property==='margin-bottom'||property==='padding-top')return /^(?:[0-9]|[1-2][0-9])px$/.test(value);
+ if(property==='display')return value==='flex';
+ if(property==='justify-content')return /^(flex-start|flex-end)$/.test(value);
+ if(property==='transition')return /^all 0\\.3s cubic-bezier\\(0\\.34,\\s*1\\.56,\\s*0\\.64,\\s*1\\)$/.test(value);
+ if(property==='transform')return /^scale\\(0\\.98\\)$/.test(value);
+ if(property==='animation')return value==='jellyIn 0.4s ease-out forwards';
  if(property==='backdrop-filter'||property==='-webkit-backdrop-filter')return /^blur\((?:0|[1-9]|1[0-9]|20)(?:\.\d+)?px\)$/.test(value)&&Number(value.slice(5,-3))<=20;
  if(property==='background'||property==='background-image')return /^(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|linear-gradient\([#\w\d\s.,%()\-]+\)|none)$/i.test(value);
  if(property==='box-shadow'||property==='text-shadow'){const v=value.replace(/\s*!important\s*$/i,'').trim();return /^(?:none|[\d\s.,#%a-z()\-]+)$/i.test(v)&&!/[a-z]+\s*\(/i.test(v.replace(/rgba?\([\d\s.,%]+\)/gi,''));}
@@ -48,10 +58,10 @@ export function compileThemeCSS(source:string,preview=false):string{
    else if(isBubble&&bubbleProperties.has(property)){skip();const end=source.indexOf(';',i),close=source.indexOf('}',i);const stop=end>=0&&end<close?end:close;if(stop<0)invalid();value=source.slice(i,stop).trim();if(!safeBubbleValue(property,value))invalid();value=value.replace(/\s*!important\s*$/i,'');i=stop;}
    else invalid();
    declarations.push(`${property}:${value!}`);skip();if(source[i]===';'){i++;skip();}else if(source[i]!=='}')invalid();
-   if(declarations.length>24)invalid();
+   if(declarations.length>48)invalid();
   }
   mark('}');if(!declarations.length)invalid();
-  rules.push(`${selectors.map(s=>s==='&'?scope:`${scope} ${s}`).join(',')}{${declarations.join(';')}}`);if(rules.length>40)invalid();skip();
+  rules.push(`${selectors.map(s=>s==='&'?scope:`${scope} ${s}`).join(',')}{${declarations.join(';')}}`);if(rules.length>60)invalid();skip();
  }
  if(hasBubbleRule){rules.unshift(`${scope} .chat-bubble.chat-user:has(> .chat-bubble-surface),${scope} .chat-bubble.chat-assistant:has(> .chat-bubble-surface){background:transparent!important;background-image:none!important;border:0!important;box-shadow:none!important;padding:0!important}`);}
  return rules.join('\n');
