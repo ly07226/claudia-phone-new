@@ -2,7 +2,7 @@ import type {StoryPerspective} from './scriptTypes';
 import {validateWizardSuggestions,type WizardSuggestions} from './wizardAssistanceTypes';
 import type {StoryLength} from './storyTypes';
 import type {UserIdentity} from './userIdentity';
-export const wizardLimits={title:80,synopsis:10000,rules:4000,direction:4000,opening:6000,profile:4000,fileBytes:2*1024*1024};
+export const wizardLimits={title:80,synopsis:10000,rules:4000,direction:4000,opening:6000,profile:4000,fileBytes:20*1024*1024};
 export const wizardPaces={slow:'慢热',balanced:'均衡',compact:'紧凑',custom:'自定义'} as const;
 export interface WizardIdentity {name:string;gender:string;appearance:string;personality:string;occupation:string;experience:string;bio:string;customSetting:string;age?:string|number;avatar?:string}
 export interface WizardCharacter {worldSetting?:string;name:string;persona:string;speakingStyle:string}
