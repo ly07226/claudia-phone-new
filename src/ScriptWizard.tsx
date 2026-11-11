@@ -98,17 +98,17 @@ export function ScriptWizard(){
  return <section ref={wizardRoot} style={visibleHeight?{height:visibleHeight,maxHeight:visibleHeight}:undefined} className="script-wizard" aria-label="AI 剧本创建向导" aria-busy={reading||creating||assisting}>
   <header className="wizard-heading"><h1>{draft.title||'创建新剧本'}</h1><p>第 {draft.step+1} 步 / 5 · {steps[draft.step]}</p><ol aria-label="创建进度">{steps.map((name,i)=><li key={name} aria-current={i===draft.step?'step':undefined}><span>{i+1}</span><small>{name}</small></li>)}</ol></header>
   <div className="wizard-content" ref={content} inert={reading||creating||assisting}>
-   <p className="wizard-note">创建前的草稿仅保存在当前浏览器，不包含在 ZIP 备份中；确认创建后，世界、身份和角色关联将写入数据库。仅主动点击推荐或确认开局时调用 AI。</p>
+   
    {draft.step===0&&<div className="wizard-fields">
     <h2>剧情设定</h2>
     <label>故事标题<input aria-label="故事标题" maxLength={80} value={draft.title} onChange={e=>update({title:e.target.value})}/></label>
     <label>整体剧情梗概<textarea aria-label="整体剧情梗概" rows={7} maxLength={10000} value={draft.synopsis} onChange={e=>update({synopsis:e.target.value})}/></label>
     <label>世界背景与补充（可选）<textarea aria-label="世界背景" rows={4} maxLength={6000} value={draft.background??''} onChange={e=>update({background:e.target.value})}/></label>
-    <button type="button" disabled={reading||creating||assisting||reviewBusy||analyzingSource} onClick={()=>file.current?.click()}>导入世界设定 / 模拟器规则 / 剧情文件（Word / TXT / MD / JSON）</button>
+    <button type="button" disabled={reading||creating||assisting||reviewBusy||analyzingSource} onClick={()=>file.current?.click()}>上传剧本文档（Word / TXT / MD）</button>
     <input hidden ref={file} type="file" accept=".docx,.txt,.md,.json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,application/json" aria-label="剧情文件" onChange={e=>{const selected=e.target.files?.[0];e.target.value='';void importFile(selected);}}/>
     {reading&&<p role="status">正在读取本地文件…</p>}
-    {longSource&&<p role="status" className="wizard-note">已完整保存原文：{longSource.name}，{longSource.characters.toLocaleString()} 字符，识别 {longSource.sections} 个章节或片段。梗概框显示可编辑的前段预览；尚未进行 AI 重点提取，生成时不会自动读取全文。</p>}
-    {longSource&&<section className="wizard-source-analysis" aria-label="导入文档原文索引">
+    {longSource&&<p role="status" className="wizard-note">已保存《{longSource.name}》原文。可以继续设置角色并创建剧本；无需逐段人工审核。当前版本不会自动完整理解全部规则。</p>}
+    {longSource&&<details className="wizard-source-analysis" aria-label="导入文档高级检查"><summary>高级检查（可选，不影响创建）</summary>
      <h3>文档索引（混合内容，不改写原文）</h3>
      <label>文档运行方式<select aria-label="文档运行方式" value={draft.documentMode??'narrative'} onChange={e=>update({documentMode:e.target.value as 'narrative'|'simulation',runtimeConfig:undefined})}><option value="narrative">原剧情模式 · 普通叙事</option><option value="simulation">原剧情模式 · 启用声明的状态规则</option></select></label>{draft.documentMode==='simulation'&&<label>运行状态声明 JSON<textarea aria-label="运行状态声明" maxLength={24000} value={draft.runtimeConfig??''} onChange={e=>update({runtimeConfig:e.target.value})} placeholder={'{"initial":{},"fields":{},"events":[]}'}/></label>}
      {sourceCoverage&&<p role="status" className="wizard-note">全文分段校验：{sourceCoverage.complete?"完整覆盖":"覆盖异常"} · {sourceCoverage.covered.toLocaleString()}/{sourceCoverage.total.toLocaleString()} 字符 · {sourceCoverage.chunks} 个待分析片段。注意：这是读取覆盖率，不是 AI 理解完成率。</p>}
@@ -136,11 +136,11 @@ export function ScriptWizard(){
      </div>
      <label>搜索原文规则（关键词）<input aria-label="搜索模拟器原文" value={sourceSearch} onChange={e=>setSourceSearch(e.target.value)} placeholder="输入原文关键词"/></label>
      {sourceSearch.trim()&&<div aria-live="polite">{simulatorEvidence(simulatorSections,[sourceSearch.trim()],8).map(hit=><article key={hit.sectionId}><h4>{hit.heading} · {hit.kind}</h4><p>{hit.excerpt}</p><small>原文字符位置 {hit.start}–{hit.end}</small></article>)}</div>}
-    </section>}
-    {longSource&&<div className="wizard-source-analysis"><button type="button" disabled={analyzingSource||reading||creating} onClick={()=>{if(!draft.longSourceId)return;const controller=new AbortController();assistant.current=controller;setAnalyzingSource(true);setError('');void analyzeLongNarrative(draft.longSourceId,controller.signal).then(result=>setSourceAnalysis(result)).catch(e=>setError(e instanceof Error?e.message:'原文分析失败')).finally(()=>{if(assistant.current===controller)assistant.current=null;if(alive.current)setAnalyzingSource(false);});}}>{analyzingSource?'正在分析原文片段…':'AI 片段整理（非完整模拟器规则解析）'}</button>
+    </details>}
+    {longSource&&<details className="wizard-source-analysis"><summary>旧版片段摘要工具（可选）</summary><div><button type="button" disabled={analyzingSource||reading||creating} onClick={()=>{if(!draft.longSourceId)return;const controller=new AbortController();assistant.current=controller;setAnalyzingSource(true);setError('');void analyzeLongNarrative(draft.longSourceId,controller.signal).then(result=>setSourceAnalysis(result)).catch(e=>setError(e instanceof Error?e.message:'原文分析失败')).finally(()=>{if(assistant.current===controller)assistant.current=null;if(alive.current)setAnalyzingSource(false);});}}>{analyzingSource?'正在分析原文片段…':'AI 片段整理（非完整模拟器规则解析）'}</button>
     {sourceAnalysis&&<><label>分析草稿（可编辑，尚未应用）<textarea aria-label="原文分析草稿" rows={10} value={sourceAnalysis} onChange={e=>setSourceAnalysis(e.target.value)}/></label><button type="button" onClick={()=>{if(!confirm('用审核后的分析结果替换剧情梗概？原始长篇文件仍保留。'))return;if(sourceAnalysis.length>10000){setError('分析草稿超过梗概容量，未截断或应用。');return;}update({synopsis:sourceAnalysis});setSourceAnalysis('');}}>确认并填入剧情梗概</button></>}
-    <p className="wizard-note">此旧功能仅对部分片段做摘要，不适合直接作为模拟器运行规则。请核对人物、时间线与开场建议；未确认前不会修改设定。</p></div>}
-    <p className="wizard-note">DOCX/TXT/MD 支持最长 200 万字符，长篇原文另存于本机浏览器；梗概仅显示预览。JSON 使用 version:1、synopsis，可选 title、rules、direction；不会导入世界或世界书。</p>
+    <p className="wizard-note">旧版工具仅生成部分摘要，不会自动解析全部模拟规则。</p></div></details>}
+
     <label>自定义内容与补充规则<textarea aria-label="补充规则" maxLength={4000} value={draft.rules} onChange={e=>update({rules:e.target.value})}/></label>
     <label>叙事人称<select aria-label="叙事人称" value={draft.perspective??'second'} onChange={e=>update({perspective:e.target.value as StoryPerspective})}>{Object.entries(storyPerspectives).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
     <label>剧情节奏<select aria-label="剧情节奏" value={draft.pace} onChange={e=>update({pace:e.target.value as ScriptWizardDraft['pace']})}>{Object.entries(wizardPaces).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
