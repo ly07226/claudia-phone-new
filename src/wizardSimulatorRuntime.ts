@@ -23,6 +23,8 @@ export async function compileSimulatorRuntime(sourceId:string):Promise<Simulator
  if(!audit.ready)throw Error('模拟器规则审核尚未完成，不能启用运行规则。');
  const byChunk=new Map(reviews.map(r=>[r.review.chunkIndex,r]));
  const publicRules:SimulatorRuntimePolicy['publicRules']=[];
+ const secretRanges:{start:number;end:number}[]=[];
+ const acceptedPublic:{kind:string;text:string;sourceStart:number;sourceEnd:number}[]=[];
  let secretCount=0;
  for(let i=0;i<chunks.length;i++){
   const saved=byChunk.get(i);
@@ -31,9 +33,15 @@ export async function compileSimulatorRuntime(sourceId:string):Promise<Simulator
    const decision=decisions.find(d=>d.sourceId===source.id&&d.sourceLength===source.body.length&&d.chunkIndex===i&&d.findingStart===finding.start&&d.findingEnd===finding.end&&d.quote===finding.quote);
    if(decision?.decision!=='accepted')continue;
    if(source.body.slice(finding.start,finding.end)!==finding.quote)throw Error('规则引用已失效。');
-   if(finding.kind==='secret'){secretCount++;continue;}
-   publicRules.push({kind:finding.kind,text:finding.quote,sourceStart:finding.start,sourceEnd:finding.end});
+   if(finding.kind==='secret'){secretCount++;secretRanges.push({start:finding.start,end:finding.end});continue;}
+   acceptedPublic.push({kind:finding.kind,text:finding.quote,sourceStart:finding.start,sourceEnd:finding.end});
   }
+ }
+ // Overlapping source evidence can disclose a secret even if tagged public.
+ // Reject ambiguous classifications rather than silently sending the text.
+ for(const rule of acceptedPublic){
+  if(secretRanges.some(secret=>rule.sourceStart<secret.end&&secret.start<rule.sourceEnd))throw Error('公开规则与角色秘密引用范围重叠，请先人工拆分或拒绝冲突条目。');
+  publicRules.push(rule);
  }
  return {sourceId:source.id,sourceName:source.name,publicRules,secretCount,reviewedChunks:chunks.length};
 }
