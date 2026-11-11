@@ -15,7 +15,7 @@ export function simulatorAuditStatus(chunks:SimulatorAnalysisChunk[],reviews:Sav
   if(r.review.findings.some(f=>f.start<chunk.start||f.end>chunk.end||f.end<=f.start||chunk.text.slice(f.start-chunk.start,f.end-chunk.start)!==f.quote))continue;
   byIndex.set(r.review.chunkIndex,r);
  }
- const missingChunks=chunks.filter((_,i)=>!byIndex.has(i)).map((_,i)=>i);
+ const missingChunks=chunks.flatMap((_,i)=>byIndex.has(i)?[]:[i]);
  const invalidChunks=reviews.filter(r=>!byIndex.has(r.review.chunkIndex)).map(r=>r.review.chunkIndex);
  let findings=0,accepted=0,rejected=0,pending=0,secretFindings=0;
  for(const [index,r] of byIndex){
