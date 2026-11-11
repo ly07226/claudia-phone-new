@@ -12,10 +12,12 @@ import {useSpaces} from './spaces';
 import {copyWizardIdentity,emptyWizardIdentity,loadWizardDraft,newWizardDraft,validateWizardDraft,wizardDraftKey,wizardLimits,wizardPaces,wizardStepError,type ScriptWizardDraft} from './scriptWizardDraft';
 import './scriptWizard.css';
 import {readWizardDocument} from './wizardDocumentImport';
+import {saveLongNarrative,synopsisPreview} from './wizardLongNarrative';
 const steps=['剧情设定','主控面具','关联角色','开局方向','生成与进入'];
 export function ScriptWizard(){
  const s=usePhone(),nav=useSpaces(),key=wizardDraftKey(db.name);
  const [initial]=useState(()=>{try{return {...loadWizardDraft(localStorage,key),error:''};}catch{return {draft:newWizardDraft(),raw:undefined,error:'无法读取草稿，未覆盖原数据。请检查浏览器存储或主动丢弃损坏草稿。'};}});
+ const [longSource,setLongSource]=useState<{name:string;characters:number;sections:number}|null>(null);
  const [draft,setDraft]=useState(initial.draft),[error,setError]=useState(initial.error),[saved,setSaved]=useState(false),[reading,setReading]=useState(false),[creating,setCreating]=useState(false),[createdId,setCreatedId]=useState(initial.draft.createdWorldId),[recovering,setRecovering]=useState(true),[assisting,setAssisting]=useState(false),[openingError,setOpeningError]=useState('');
  const wizardRoot=useRef<HTMLElement>(null);
  const [visibleHeight,setVisibleHeight]=useState<number|null>(null);
@@ -44,7 +46,8 @@ export function ScriptWizard(){
   try{if(selected.size>wizardLimits.fileBytes)throw Error('文件超过 256 KB，请缩小后重试。');const patch=await readWizardDocument(selected);
    if(!alive.current||ticket!==request.current)return;
    if((draft.title||draft.synopsis||draft.rules||draft.direction)&&!confirm('用文件内容替换对应草稿字段？不会修改任何现有世界。'))return;
-   update(patch);
+   if(patch.longBody){const source=await saveLongNarrative(selected.name,patch.longBody);setLongSource({name:source.name,characters:source.body.length,sections:source.sections.length});update({synopsis:synopsisPreview(source.body)});}
+   else update(patch);
   }catch(e){if(alive.current&&ticket===request.current)setError(e instanceof Error?e.message:'读取失败，原草稿未改变。');}
   finally{if(alive.current&&ticket===request.current)setReading(false);}
  }
@@ -79,7 +82,8 @@ export function ScriptWizard(){
     <button type="button" disabled={reading||creating||assisting} onClick={()=>file.current?.click()}>导入剧情文件（Word / TXT / MD / JSON）</button>
     <input hidden ref={file} type="file" accept=".docx,.txt,.md,.json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,application/json" aria-label="剧情文件" onChange={e=>{const selected=e.target.files?.[0];e.target.value='';void importFile(selected);}}/>
     {reading&&<p role="status">正在读取本地文件…</p>}
-    <p className="wizard-note">DOCX/TXT/MD 最多导入 10000 字符。JSON 使用 version:1、synopsis，可选 title、rules、direction；不会导入世界或世界书。</p>
+    {longSource&&<p role="status" className="wizard-note">已保存长篇原文：{longSource.name}，{longSource.characters.toLocaleString()} 字符，识别 {longSource.sections} 个章节或片段。梗概框显示可编辑的前段预览；尚未进行 AI 重点提取，生成时不会自动读取全文。</p>}
+    <p className="wizard-note">DOCX/TXT/MD 支持最长 500000 字符，长篇原文另存于本机浏览器；梗概仅显示预览。JSON 使用 version:1、synopsis，可选 title、rules、direction；不会导入世界或世界书。</p>
     <label>自定义内容与补充规则<textarea aria-label="补充规则" maxLength={4000} value={draft.rules} onChange={e=>update({rules:e.target.value})}/></label>
     <label>叙事人称<select aria-label="叙事人称" value={draft.perspective??'second'} onChange={e=>update({perspective:e.target.value as StoryPerspective})}>{Object.entries(storyPerspectives).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
     <label>剧情节奏<select aria-label="剧情节奏" value={draft.pace} onChange={e=>update({pace:e.target.value as ScriptWizardDraft['pace']})}>{Object.entries(wizardPaces).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
