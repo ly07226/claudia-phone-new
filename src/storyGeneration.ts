@@ -14,20 +14,26 @@ import {claimStory,resolveStoryDefinition,storyTables} from './storyStore';
 import {validateStoryNode} from './storyValidation';
 import {storyLimits,storyLengths,type StoryNode,type StoryAction,type StoryExpectedProgress} from './storyTypes';
 import {storyPrompt} from './storyContext';
+import {compileSimulatorRuntime} from './wizardSimulatorRuntime';
 export {storyPrompt,storyInput} from './storyContext';
 const schema={type:'OBJECT',properties:{segments:{type:'ARRAY',maxItems:256,items:{type:'OBJECT',properties:{type:{type:'STRING',enum:['narration','action','dialogue']},text:{type:'STRING'},speaker:{type:'STRING'}},required:['type','text']}},body:{type:'STRING'},choices:{type:'ARRAY',minItems:4,maxItems:4,items:{type:'OBJECT',properties:{id:{type:'STRING',enum:['A','B','C','D']},text:{type:'STRING'}},required:['id','text']}}},required:['body','choices']};
 
 export async function generateStory(worldId:string,actionInput?:string|StoryAction,options:{signal?:AbortSignal;allowOldDefinition?:boolean;expected?:StoryExpectedProgress;firstAttemptOnly?:boolean;operation?:'advance'|'regenerate'}={}){
  if(options.signal?.aborted)throw Error('生成已取消，原主线未改变。');
+ const simulatorSource=(await db.worlds.get(worldId))?.simulatorSource;
+ // The browser-local source must pass the human review gate before any paid request.
+ const simulatorPolicy=simulatorSource?await compileSimulatorRuntime(simulatorSource.id):undefined;
  const claim=await claimStory(worldId,actionInput,!!options.allowOldDefinition,options.expected,!!options.firstAttemptOnly,options.operation),s=claim.session,token=s.pending!.token;
  const controller=new AbortController(),abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
  let timedOut=false;const timer=setTimeout(()=>{timedOut=true;abort();},storyLimits.leaseMs);let failure:'cancelled'|'request'|'invalid'|'stale'|'budget'='request',phase:StoryFailureStage='configuration';
  let configuredOutputTokens=0,diagnosticRecorded=false,credentialForRedaction='\u0000';
- const inputData=JSON.parse(claim.input);
- const record=(outcome:'complete'|'failed',body?:string)=>{if(diagnosticRecorded||!structured?.getResponseInfo().attempted)return;diagnosticRecorded=true;const info=structured.getResponseInfo();recordStoryGeneration({outcome,length:claim.length,inputBytes:new TextEncoder().encode(storyPrompt+claim.input).length,configuredOutputTokens,outputTokenLimit:outputTokenLimit??0,...(info.finishReason?{finishReason:info.finishReason}:{}),...(info.outputTokens!==undefined?{returnedOutputTokens:info.outputTokens}:{}),...(info.textCharacters!==undefined?{responseCharacters:info.textCharacters}:{}),...(body!==undefined?{bodyCharacters:Array.from(body.replace(/\s/gu,'')).length,chineseCharacters:(body.match(/\p{Script=Han}/gu)||[]).length,belowTarget:Array.from(body.replace(/\s/gu,'')).length<Number(storyLengths[claim.length].target.split('～')[0])}:{}),recentNodes:inputData.confirmedHistory.length,omittedNodes:inputData.historyOmitted,memoryExcerpts:inputData.longTermStoryMemory?.excerpts.length??0});};
+ const simulatorInput=simulatorPolicy?JSON.stringify({...JSON.parse(claim.input),simulatorRules:{sourceName:simulatorPolicy.sourceName,reviewedChunks:simulatorPolicy.reviewedChunks,rules:simulatorPolicy.publicRules.map(r=>({kind:r.kind,text:r.text})),instruction:'仅使用已人工确认的公开规则；未提供的原文和角色秘密不得推断为事实。'}}):claim.input;
+ const inputData=JSON.parse(simulatorInput);
+ const record=(outcome:'complete'|'failed',body?:string)=>{if(diagnosticRecorded||!structured?.getResponseInfo().attempted)return;diagnosticRecorded=true;const info=structured.getResponseInfo();recordStoryGeneration({outcome,length:claim.length,inputBytes:new TextEncoder().encode(storyPrompt+simulatorInput).length,configuredOutputTokens,outputTokenLimit:outputTokenLimit??0,...(info.finishReason?{finishReason:info.finishReason}:{}),...(info.outputTokens!==undefined?{returnedOutputTokens:info.outputTokens}:{}),...(info.textCharacters!==undefined?{responseCharacters:info.textCharacters}:{}),...(body!==undefined?{bodyCharacters:Array.from(body.replace(/\s/gu,'')).length,chineseCharacters:(body.match(/\p{Script=Han}/gu)||[]).length,belowTarget:Array.from(body.replace(/\s/gu,'')).length<Number(storyLengths[claim.length].target.split('～')[0])}:{}),recentNodes:inputData.confirmedHistory.length,omittedNodes:inputData.historyOmitted,memoryExcerpts:inputData.longTermStoryMemory?.excerpts.length??0});};
  let structured:ReturnType<typeof storyJSONTransport>|undefined,outputTokenLimit:number|undefined;
  try{
-  const input=claim.input;
+  const input=simulatorInput;
+  if(new TextEncoder().encode(storyPrompt+input).length>storyLimits.inputBytes)throw Error('模拟器公开规则超过剧情输入预算，未请求模型；请精简并人工确认规则。');
   const {config}=await reconcileApiDefault();if(!config)throw new StoryGenerationError(makeStoryFailure(await db.apiConfigs.count()?'config-invalid':'config-missing','configuration',false));const credential=await db.apiCredentials.get(config.id);if(!credential?.apiKey||!usableApi(config,credential.apiKey))throw new StoryGenerationError(makeStoryFailure('config-invalid','configuration',false));
   credentialForRedaction=credential.apiKey;
   if(controller.signal.aborted)throw Error('cancelled');
