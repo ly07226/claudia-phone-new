@@ -3,10 +3,10 @@ export const phases=['red','yellow','green'] as const;
 export type Phase=typeof phases[number];
 export const phaseNames:Record<Phase,string>={red:'红灯',yellow:'黄灯',green:'绿灯'};
 export interface Prompt {id:string;phase:Phase|'all';text:string}
-export interface PhaseSettings {mode:'sequence'|'random';randomDuration:boolean;duration:Record<Phase,{seconds:number;min:number;max:number}>;bpm:number;beat:boolean;sound:boolean;volume:number;vibration:boolean;prompts:Prompt[];sweetMode?:boolean;commandMode?:boolean;address?:string;intensity?:'soft'|'medium'|'strong'|'dramatic';instructionMode?:'default'|'character';instructionCharacterId?:string;instructionWorldId?:string}
+export interface PhaseSettings {mode:'sequence'|'random';randomDuration:boolean;duration:Record<Phase,{seconds:number;min:number;max:number}>;bpm:number;beat:boolean;sound:boolean;volume:number;vibration:boolean;prompts:Prompt[];sweetMode?:boolean;commandMode?:boolean;address?:string;intensity?:'soft'|'medium'|'strong'|'dramatic';instructionMode?:'default'|'character';instructionCharacterId?:string;instructionWorldId?:string;autoAccelerate?:boolean;maxBpm?:number;accelerationSeconds?:number}
 export interface PhaseSession {status:'idle'|'running'|'paused';phase:Phase;remainingMs:number;step:number;prompt:string}
 export interface PhaseData {version:1;settings:PhaseSettings;session:PhaseSession}
-export function defaults():PhaseSettings{return {mode:'sequence',randomDuration:false,duration:{red:{seconds:5,min:3,max:8},yellow:{seconds:15,min:10,max:20},green:{seconds:60,min:40,max:80}},bpm:60,beat:true,sound:false,volume:.2,vibration:false,prompts:[],sweetMode:false,commandMode:false,address:'',intensity:'medium',instructionMode:'default',instructionCharacterId:'',instructionWorldId:''};}
+export function defaults():PhaseSettings{return {mode:'sequence',randomDuration:false,duration:{red:{seconds:5,min:3,max:8},yellow:{seconds:15,min:10,max:20},green:{seconds:60,min:40,max:80}},bpm:60,beat:true,sound:false,volume:.2,vibration:false,prompts:[],sweetMode:false,commandMode:false,address:'',intensity:'medium',instructionMode:'default',instructionCharacterId:'',instructionWorldId:'',autoAccelerate:false,maxBpm:120,accelerationSeconds:120};}
 export function duration(s:PhaseSettings,p:Phase,random=Math.random){const d=s.duration[p];return (s.randomDuration?d.min+Math.floor(random()*(d.max-d.min+1)):d.seconds)*1000;}
 export function prompt(s:PhaseSettings,p:Phase,random=Math.random){const choices=s.instructionMode==='character'?s.prompts.filter(x=>x.id.startsWith('character:'+encodeURIComponent(s.instructionCharacterId??'')+':'+encodeURIComponent(s.instructionWorldId??'')+':')&&(x.phase==='all'||x.phase===p)):s.prompts.filter(x=>!x.id.startsWith('character:')&&(x.phase==='all'||x.phase===p));if(choices.length)return choices[Math.floor(random()*choices.length)].text;
  const base=pickInstruction(p,{},random)?.text??('当前阶段：'+phaseNames[p]+'。');
@@ -36,5 +36,8 @@ export function validData(x:unknown):x is PhaseData{
  if((s.sweetMode!==undefined&&typeof s.sweetMode!=='boolean')||(s.commandMode!==undefined&&typeof s.commandMode!=='boolean')||(s.address!==undefined&&(typeof s.address!=='string'||s.address.length>60))||(s.intensity!==undefined&&!['soft','medium','strong','dramatic'].includes(String(s.intensity))))return false;
  if(s.instructionMode!==undefined&&!['default','character'].includes(String(s.instructionMode))||s.instructionCharacterId!==undefined&&(typeof s.instructionCharacterId!=='string'||s.instructionCharacterId.length>100))return false;
  if(s.instructionWorldId!==undefined&&(typeof s.instructionWorldId!=='string'||s.instructionWorldId.length>100))return false;
+ if(s.autoAccelerate!==undefined&&typeof s.autoAccelerate!=='boolean')return false;
+ if(s.maxBpm!==undefined&&!number(s.maxBpm,30,180))return false;
+ if(s.accelerationSeconds!==undefined&&!number(s.accelerationSeconds,10,3600))return false;
  return ['idle','running','paused'].includes(String(r.status))&&phases.includes(r.phase as Phase)&&number(r.remainingMs,0,600000)&&Number.isInteger(r.step)&&number(r.step,0,1e9)&&typeof r.prompt==='string'&&r.prompt.length<=1000;
 }
