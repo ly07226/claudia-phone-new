@@ -44,7 +44,8 @@ export function compileThemeCSS(source:string,preview=false):string{
   mark('}');if(!declarations.length)invalid();
   rules.push(`${selectors.map(s=>s==='&'?scope:`${scope} ${s}`).join(',')}{${declarations.join(';')}}`);if(rules.length>40)invalid();skip();
  }
- if(hasBubbleRule){rules.unshift(`${scope} .chat-bubble.chat-user:has(> .chat-bubble-surface),${scope} .chat-bubble.chat-assistant:has(> .chat-bubble-surface){background:transparent!important;background-image:none!important;border:0!important;box-shadow:none!important;padding:0!important}`);}\n return rules.join('\n');
+ if(hasBubbleRule){rules.unshift(`${scope} .chat-bubble.chat-user:has(> .chat-bubble-surface),${scope} .chat-bubble.chat-assistant:has(> .chat-bubble-surface){background:transparent!important;background-image:none!important;border:0!important;box-shadow:none!important;padding:0!important}`);}
+ return rules.join('\n');
 }
 export function validateThemeAppearance(value:unknown){
  const x=value as {storyReading?:unknown;palette?:unknown;customCss?:{version:number;source:string}};
