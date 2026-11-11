@@ -41,7 +41,7 @@ export async function reviewSimulatorChunk(sourceId:string,chunkIndex:number,sig
     const start=cleaned.indexOf('{');let end=-1,depth=0,inString=false,escaped=false;
     for(let i=start;i>=0&&i<cleaned.length;i++){
      const ch=cleaned[i];
-     if(inString){if(escaped)escaped=false;else if(ch==='\\\\')escaped=true;else if(ch==='"')inString=false;continue;}
+     if(inString){if(escaped)escaped=false;else if(ch==='\\')escaped=true;else if(ch==='"')inString=false;continue;}
      if(ch==='"'){inString=true;continue;}
      if(ch==='{')depth++;
      else if(ch==='}'&&--depth===0){end=i+1;break;}
