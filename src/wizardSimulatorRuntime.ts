@@ -72,6 +72,7 @@ export function containsHiddenEvidence(value:unknown,policy:SimulatorRuntimePoli
 }
 
 export function documentKnowledge(policy:SimulatorRuntimePolicy,names:string[],playerName?:string){
+ if(policy.referenceOnly)return {player:[],characters:names.map(name=>({name,known:[]})),instruction:'这些原文仅供叙述者参考，尚未结构化确认玩家或角色的知情范围。后台保存原文不等于任何人物已知；按原文关系和已确认剧情判断，不擅自提前揭示秘密。'};
  const ids=policy.publicRules.map(r=>`${r.sourceStart}:${r.sourceEnd}`);
  return {player:ids,characters:names.map(name=>({name,known:policy.publicRules.flatMap((r,i)=>policy.restrictedFacts.some(f=>f.revealed&&f.start===r.sourceStart&&f.end===r.sourceEnd&&!f.knownBy.includes(name)&&name!==playerName)?[]:[ids[i]])})),instruction:'编号对应已审核资料的原文范围；玩家知道不等于所有角色知道。系统持有但未公开的秘密内容未发送。'};
 }

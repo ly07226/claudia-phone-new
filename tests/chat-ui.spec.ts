@@ -351,6 +351,11 @@ test("浏览历史时回复不强制滚底，多版本切换保持位置，菜�
     });
   }, state.daily.id);
   await daily(page, state.name);
+  // A transient empty history also reports distance-to-bottom=0. Wait for the
+  // actual 40 restored rows before recording the scroll baseline.
+  await expect(page.locator('.chat-user')).toHaveCount(20);
+  await expect(page.locator('.chat-assistant')).toHaveCount(20);
+
   await expect
     .poll(() =>
       page

@@ -10,5 +10,6 @@ export function StoryFailureDetails({failure}:{failure:StoryFailure}){
   {failure.responseCharacters!==undefined&&<><dt>返回内容字符数</dt><dd>{failure.responseCharacters}</dd></>}
   {failure.choiceCount!==undefined&&<><dt>识别到选项数</dt><dd>{failure.choiceCount}</dd></>}
   {failure.outputTokenLimit!==undefined&&<><dt>本次输出 Token 上限</dt><dd>{failure.outputTokenLimit}</dd></>}
+  {failure.modelOutputLimit!==undefined&&<><dt>服务商明确输出上限</dt><dd>{failure.modelOutputLimit}</dd></>}
  </dl></details>;
 }
