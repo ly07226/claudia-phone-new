@@ -6,7 +6,7 @@ export interface Prompt {id:string;phase:Phase|'all';text:string}
 export interface PhaseSettings {mode:'sequence'|'random';randomDuration:boolean;duration:Record<Phase,{seconds:number;min:number;max:number}>;bpm:number;beat:boolean;sound:boolean;volume:number;vibration:boolean;prompts:Prompt[]}
 export interface PhaseSession {status:'idle'|'running'|'paused';phase:Phase;remainingMs:number;step:number;prompt:string}
 export interface PhaseData {version:1;settings:PhaseSettings;session:PhaseSession}
-export function defaults():PhaseSettings{return {mode:'sequence',randomDuration:false,duration:{red:{seconds:20,min:10,max:30},yellow:{seconds:15,min:10,max:20},green:{seconds:30,min:20,max:40}},bpm:60,beat:true,sound:false,volume:.2,vibration:false,prompts:[]};}
+export function defaults():PhaseSettings{return {mode:'sequence',randomDuration:false,duration:{red:{seconds:5,min:3,max:8},yellow:{seconds:15,min:10,max:20},green:{seconds:60,min:40,max:80}},bpm:60,beat:true,sound:false,volume:.2,vibration:false,prompts:[]};}
 export function duration(s:PhaseSettings,p:Phase,random=Math.random){const d=s.duration[p];return (s.randomDuration?d.min+Math.floor(random()*(d.max-d.min+1)):d.seconds)*1000;}
 export function prompt(s:PhaseSettings,p:Phase,random=Math.random){const choices=s.prompts.filter(x=>x.phase==='all'||x.phase===p);return choices.length?choices[Math.floor(random()*choices.length)].text:(pickInstruction(p,{},random)?.text??`当前阶段：${phaseNames[p]}。`);}
 export function initial(s:PhaseSettings):PhaseSession{return {status:'idle',phase:'red',remainingMs:s.duration.red.seconds*1000,step:0,prompt:''};}
