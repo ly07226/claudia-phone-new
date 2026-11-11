@@ -15,9 +15,9 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
  const [characters,setCharacters]=useState<{id:string;name:string}[]>([]);
  useEffect(()=>{let active=true;void db.characters.toArray().then(rows=>{if(active)setCharacters(rows.map(x=>({id:x.id,name:x.name})));});return()=>{active=false;};},[]);
  useEffect(()=>{let active=true;void db.worlds.toArray().then(rows=>{if(active)setWorldOptions(rows.map(w=>({id:w.id,name:w.name})));});return()=>{active=false;};},[]);
- useEffect(()=>{const id=data?.settings?.instructionCharacterId;if(!id){setVersions([]);return;}try{const rows=JSON.parse(localStorage.getItem('claudia.phasePlay.versions.v1:'+db.name+':'+id)||'[]');setVersions(Array.isArray(rows)?rows:[]);}catch{setVersions([]);}},[data?.settings?.instructionCharacterId,data?.settings?.prompts]);
  const [screen,setScreen]=useState<'settings'|'running'>('settings'),[tab,setTab]=useState<'玩法'|'节奏'|'指令'|'其他'>('节奏');
  const [loaded]=useState(()=>loadPhaseData(db.name)),[data,setData]=useState(loaded.data),[error,setError]=useState(loaded.error),[blocked,setBlocked]=useState(!!loaded.error),[notice,setNotice]=useState(''),[editId,setEditId]=useState<string|null>(null),[text,setText]=useState(''),[scope,setScope]=useState<Phase|'all'>('all'),[pulse,setPulse]=useState(0);
+ useEffect(()=>{const id=data?.settings?.instructionCharacterId;if(!id){setVersions([]);return;}try{const rows=JSON.parse(localStorage.getItem('claudia.phasePlay.versions.v1:'+db.name+':'+id)||'[]');setVersions(Array.isArray(rows)?rows:[]);}catch{setVersions([]);}},[data?.settings?.instructionCharacterId,data?.settings?.prompts]);
  const current=useRef(data),feedback=useRef<PhaseFeedback|null>(null),last=useRef(performance.now()),saved=useRef(0),beat=useRef(0);
  if(!feedback.current)feedback.current=new PhaseFeedback();
  function persist(value:PhaseData){try{savePhaseData(db.name,value);return true;}catch(e){setError((e as Error).message);return false;}}
