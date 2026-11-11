@@ -50,7 +50,7 @@ export async function claimStory(worldId:string,actionInput:string|StoryAction|u
   if(operation==='advance'&&action&&head)s.actionDraft=action.kind==='custom'?{headNodeId:head.id,mode:'custom',customText:action.text}:{headNodeId:head.id,mode:'choice',customText:'',choiceId:action.choiceId};
   const length=world.storyPreferences?.length??'standard';if(world.storyPreferences)validateStoryPreferences(world.storyPreferences);
   const guidance=world.storyPreferences?.guidance;if(guidance?.enabled&&guidance.mode==='once'&&guidance.revision===Number.MAX_SAFE_INTEGER)throw Error('指导版本已达上限，未请求模型。');
-  let input:string;try{input=storyInput(s,path,action,length,guidance?.enabled?guidance:undefined,storyLimits.inputBytes-reservedBytes);}catch{throw Error('必要身份、规则、开场、剧情指导或当前剧情仍超过48000字节安全输入预算，无法完整纳入。本次未请求模型、未推进主线，全部原文保留；不会自动重试。');}
+  let input:string;try{input=storyInput(s,path,action,length,guidance?.enabled?guidance:undefined,storyLimits.inputBytes-reservedBytes);}catch{throw Error('必要身份、规则、开场、剧情指导或当前剧情仍超过当前安全输入预算，无法完整纳入。本次未请求模型、未推进主线，全部原文保留；不会自动重试。');}
   await db.storySessions.put(s);return {session:s,path,input,action,length,replacement,parentNodeId:head?.id,nextRevision:path.length+1,guidance,guidanceSnapshot:JSON.stringify(guidance??null),choice:head?.choices.find(c=>c.id===choiceId),documentSnapshot:JSON.stringify(world.storyDocument??world.simulatorSource??null),worldSnapshot:JSON.stringify(currentDefinition)};
  });
 }
