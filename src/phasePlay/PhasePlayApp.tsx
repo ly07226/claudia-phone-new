@@ -10,6 +10,8 @@ import './phasePlay.css';
 export function PhasePlayApp({onBack}:{onBack:()=>void}){
  const [generating,setGenerating]=useState(false);
  const [showInstructionCards,setShowInstructionCards]=useState(false);
+ const [effectiveBpm,setEffectiveBpm]=useState(60);
+ const activeSeconds=useRef(0);
  const [worldOptions,setWorldOptions]=useState<{id:string;name:string}[]>([]);
  const [versions,setVersions]=useState<{savedAt:number;prompts:{id:string;phase:Phase|'all';text:string}[]}[]>([]);
  const [characters,setCharacters]=useState<{id:string;name:string}[]>([]);
@@ -27,16 +29,19 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
   const interval=window.setInterval(()=>{
    const now=performance.now(),elapsed=now-last.current;last.current=now;const d=current.current;
    if(d.session.status!=='running')return;
+   activeSeconds.current+=elapsed/1000;
+   const bpm=d.settings.autoAccelerate?Math.min(Math.max(d.settings.bpm,d.settings.maxBpm??120),d.settings.bpm+(Math.max(0,(d.settings.maxBpm??120)-d.settings.bpm)*Math.min(1,activeSeconds.current/(d.settings.accelerationSeconds??120)))):d.settings.bpm;
+   setEffectiveBpm(old=>Math.abs(old-bpm)>.2?bpm:old);
    if(document.hidden||elapsed>1500){pause('应用已暂停，请确认后继续。');return;}
    const value={...d,session:advance(d.settings,d.session,elapsed)};current.current=value;setData(value);
-   if(d.settings.beat&&now-beat.current>=60000/d.settings.bpm){beat.current=now;setPulse(x=>x+1);feedback.current?.pulse(d.settings.sound,d.settings.volume,d.settings.vibration);}
+   if(d.settings.beat&&now-beat.current>=60000/bpm){beat.current=now;setPulse(x=>x+1);feedback.current?.pulse(d.settings.sound,d.settings.volume,d.settings.vibration);}
    if(now-saved.current>=1000){saved.current=now;persist(value);}
   },100);
   const visibility=()=>{if(document.hidden)pause('离开前台后已暂停，返回时请主动继续。');};
   const leave=()=>pause();document.addEventListener('visibilitychange',visibility);window.addEventListener('pagehide',leave);window.addEventListener('beforeunload',leave);
   return()=>{clearInterval(interval);document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',leave);window.removeEventListener('beforeunload',leave);const d=current.current;if(d.session.status==='running'){const value={...d,session:{...d.session,status:'paused' as const}};try{savePhaseData(db.name,value);}catch{/* Do not touch any other storage on exit. */}}feedback.current?.dispose();};
  },[]);
- async function run(){if(blocked)return;const d=current.current;const value={...d,session:d.session.status==='idle'?start(d.settings):{...d.session,status:'running' as const}};last.current=performance.now();beat.current=last.current;change(value);setNotice('');if(d.settings.sound&&!await feedback.current!.unlock())setNotice('此浏览器暂未启用音频，计时正常。可关闭音效后重新开启。');}
+ async function run(){if(blocked)return;const d=current.current;if(d.session.status==='idle'){activeSeconds.current=0;setEffectiveBpm(d.settings.bpm);}const value={...d,session:d.session.status==='idle'?start(d.settings):{...d.session,status:'running' as const}};last.current=performance.now();beat.current=last.current;change(value);setNotice('');if(d.settings.sound&&!await feedback.current!.unlock())setNotice('此浏览器暂未启用音频，计时正常。可关闭音效后重新开启。');}
  function setting(patch:Partial<PhaseSettings>){change({...current.current,settings:{...current.current.settings,...patch}});}
  const s=data.settings,r=data.session,scopePrefix='character:'+encodeURIComponent(s.instructionCharacterId??'')+':'+encodeURIComponent(s.instructionWorldId??'')+':',seconds=Math.ceil(r.remainingMs/1000),running=r.status==='running';
  const exit=()=>{pause();onBack();};
@@ -126,7 +131,7 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
  </div>}
  {tab==='节奏'&&<div className="phase-play-card"><h3>灯光节奏</h3><p className="phase-play-note">默认红灯最短。调整每种灯光的持续时间。</p>
   {(['green','yellow','red'] as const).map(p=><div className="phase-play-duration" data-color={p} key={p}><strong>{phaseNames[p]}</strong>{(s.randomDuration?['min','max']:['seconds']).map(k=><label key={k}>{k==='min'?'最短':k==='max'?'最长':'时长'}<input aria-label={phaseNames[p]+(k==='min'?'最短秒数':k==='max'?'最长秒数':'秒数')} type="number" min={1} max={600} step={1} value={s.duration[p][k as 'seconds'|'min'|'max']} onChange={e=>setting({duration:{...s.duration,[p]:{...s.duration[p],[k]:Number(e.target.value)}}})}/></label>)}</div>)}
-  <label>节拍速度 · {s.bpm} BPM<input aria-label="节拍速度" type="range" min={30} max={180} step={1} value={s.bpm} onChange={e=>setting({bpm:Number(e.target.value)})}/></label></div>}
+  <label>节拍速度 · {s.bpm} BPM<input aria-label="节拍速度" type="range" min={30} max={180} step={1} value={s.bpm} onChange={e=>setting({bpm:Number(e.target.value)})}/></label><label className="phase-play-toggle">自动加速节拍<input type="checkbox" aria-label="自动加速节拍" checked={!!s.autoAccelerate} onChange={e=>setting({autoAccelerate:e.target.checked})}/></label>{s.autoAccelerate&&<><label>加速目标 · {s.maxBpm??120} BPM<input aria-label="加速目标BPM" type="range" min={s.bpm} max={180} value={Math.max(s.bpm,s.maxBpm??120)} onChange={e=>setting({maxBpm:Number(e.target.value)})}/></label><label>加速所需秒数<input aria-label="加速所需秒数" type="number" min={10} max={3600} value={s.accelerationSeconds??120} onChange={e=>setting({accelerationSeconds:Number(e.target.value)})}/></label></>}<p className="phase-play-note">自动加速只影响节拍声和灯光脉冲，不改变红黄绿阶段持续时间。</p></div>}
   {tab==='指令'&&<div className="phase-play-card"><h3>指令来源</h3>
  <div className="phase-play-mode-options"><label><input type="radio" name="phase-instruction-mode" checked={(s.instructionMode??'default')==='default'} onChange={()=>setting({instructionMode:'default'})}/> 默认指令</label><label><input type="radio" name="phase-instruction-mode" checked={s.instructionMode==='character'} onChange={()=>setting({instructionMode:'character'})}/> 根据角色生成指令</label></div>
  {s.instructionMode==='character'&&<div className="phase-play-character-settings"><label>选择角色<select aria-label="指令角色" value={s.instructionCharacterId??''} onChange={e=>{setEditId(null);setText('');setting({instructionCharacterId:e.target.value});}}><option value="">请选择角色</option>{characters.map(character=><option key={character.id} value={character.id}>{character.name}</option>)}</select></label><label>世界设定（可选）<select aria-label="指令世界" value={s.instructionWorldId??''} onChange={e=>{setEditId(null);setText('');setting({instructionWorldId:e.target.value});}}><option value="">仅角色基础人设</option>{worldOptions.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label><p className="phase-play-note">每个角色的指令独立保存，可长期使用、编辑和重新建立。生成后独立保存在本机指令库，下次直接复用；更新时保留最近10份旧版本。不会写入聊天记忆。</p><button type="button" disabled={generating||!s.instructionCharacterId} onClick={()=>void generateCharacterLibrary()}>{generating?'正在生成全部指令…':'AI 生成／更新全部指令'}</button><button type="button" disabled={generating||!s.instructionCharacterId} onClick={makeCharacterDraft}>建立基础草稿（不调用 AI）</button><button type="button" onClick={()=>setShowInstructionCards(v=>!v)}>{showInstructionCards?'收起角色指令卡片':'查看角色指令卡片'}</button>{versions.length>0&&<div className="phase-play-versions"><h4>历史版本</h4>{versions.slice().reverse().map((version,i)=><div key={version.savedAt+'-'+i} className="phase-play-version"><small>{new Date(version.savedAt).toLocaleString('zh-CN')} · {version.prompts.length} 条</small><button type="button" onClick={()=>{if(!confirm('恢复此版本将替换当前角色指令，其他角色不变。确定吗？'))return;const prefix=scopePrefix,old=current.current;const others=old.settings.prompts.filter(p=>!p.id.startsWith(prefix));const restored:PhaseData={...old,settings:{...old.settings,prompts:[...others,...version.prompts]}};if(!validData(restored)){setError('历史版本数据无效，未恢复。');return;}try{savePhaseData(db.name,restored);current.current=restored;setData(restored);setError('');setNotice('已恢复选定的历史版本。');}catch(e){setError(e instanceof Error?e.message:'恢复失败。');}}}>恢复此版本</button></div>)}</div>}</div>}
@@ -137,10 +142,10 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
   {r.status==='paused'&&<button className="phase-play-resume" onClick={()=>setScreen('running')}>查看上次暂停的游戏</button>}
   <p className="phase-play-note">设置保存在当前浏览器。切换后台或锁屏后会暂停；本应用数据尚未纳入 ZIP 备份。</p>
  </>:<>
-  <div className="phase-play-stage" data-phase={r.phase}><span className="phase-play-orb" aria-hidden="true"/><strong>{phaseNames[r.phase]}</strong><output aria-label="阶段剩余时间">{String(Math.floor(seconds/60)).padStart(2,'0')}:{String(seconds%60).padStart(2,'0')}</output><span key={pulse} className="phase-play-beat" data-active={running&&s.beat} role="img" aria-label="节拍指示"/><small>{r.status==='idle'?'准备开始':r.status==='paused'?'已暂停':'进行中'} · 第 {r.step} 阶段</small></div>
+  <div className="phase-play-stage" data-phase={r.phase}><span className="phase-play-orb" aria-hidden="true"><span key={pulse} className="phase-play-orb-pulse" data-active={running&&s.beat} /></span><strong>{phaseNames[r.phase]}</strong><output aria-label="阶段剩余时间">{String(Math.floor(seconds/60)).padStart(2,'0')}:{String(seconds%60).padStart(2,'0')}</output><span key={pulse} className="phase-play-beat" data-active={running&&s.beat} role="img" aria-label="节拍指示"/><small>{r.status==='idle'?'准备开始':r.status==='paused'?'已暂停':'进行中'} · 第 {r.step} 阶段 · {Math.round(running?effectiveBpm:s.bpm)} BPM</small></div>
   <div className="phase-play-instruction"><small>当前指令</small><p className="phase-play-prompt">{r.prompt||'准备好后，点击开始。'}</p></div>
   <div className="phase-play-actions"><button className="phase-play-primary" disabled={blocked} onClick={()=>running?pause():void run()}>{running?'暂停':r.status==='idle'?'开始':'继续'}</button><button disabled={blocked||r.status==='idle'} onClick={()=>{change({...current.current,session:next(s,current.current.session)});beat.current=performance.now();}}>下一阶段</button></div>
-  <div className="phase-play-actions"><button disabled={blocked} onClick={()=>{pause();change({...current.current,session:initial(s)});}}>重置计时</button><button onClick={exit}>快速退出</button></div>
+  <div className="phase-play-actions"><button disabled={blocked} onClick={()=>{pause();activeSeconds.current=0;setEffectiveBpm(s.bpm);change({...current.current,session:initial(s)});}}>重置计时</button><button onClick={exit}>快速退出</button></div>
  </>}
  </section>;
 }
