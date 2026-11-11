@@ -35,11 +35,13 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
  const controller=new AbortController(),abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
  let timedOut=false;const timer=setTimeout(()=>{timedOut=true;abort();},storyLimits.leaseMs);let failure:'cancelled'|'request'|'invalid'|'stale'|'budget'='request',phase:StoryFailureStage='configuration';
  let configuredOutputTokens=0,diagnosticRecorded=false,credentialForRedaction='\u0000';
- const simulatorInput=simulatorPolicy?JSON.stringify({...JSON.parse(claim.input),simulatorProgress:deriveSimulatorProgress(claim.path),simulatorState:replaySimulatorState(claim.path),simulatorRules:{sourceName:simulatorPolicy.sourceName,reviewedChunks:simulatorPolicy.reviewedChunks,rules:simulatorPolicy.publicRules.map(r=>({kind:r.kind,text:r.text})),instruction:'仅使用已人工确认的公开规则；未提供的原文和角色秘密不得推断为事实。仅在本次正文明确发生状态变化时输出stateChanges数组；每项包含key、op(set/increment/remove)、value，value可为字符串、有限数字或布尔值；无变化输出空数组，不推断秘密状态。'}}):claim.input;
- const inputData=JSON.parse(simulatorInput);
+ let simulatorInput=claim.input;
+ let inputData:Record<string,any>={};
  const record=(outcome:'complete'|'failed',body?:string)=>{if(diagnosticRecorded||!structured?.getResponseInfo().attempted)return;diagnosticRecorded=true;const info=structured.getResponseInfo();recordStoryGeneration({outcome,length:claim.length,inputBytes:new TextEncoder().encode(storyPrompt+simulatorInput).length,configuredOutputTokens,outputTokenLimit:outputTokenLimit??0,...(info.finishReason?{finishReason:info.finishReason}:{}),...(info.outputTokens!==undefined?{returnedOutputTokens:info.outputTokens}:{}),...(info.textCharacters!==undefined?{responseCharacters:info.textCharacters}:{}),...(body!==undefined?{bodyCharacters:Array.from(body.replace(/\s/gu,'')).length,chineseCharacters:(body.match(/\p{Script=Han}/gu)||[]).length,belowTarget:Array.from(body.replace(/\s/gu,'')).length<Number(storyLengths[claim.length].target.split('～')[0])}:{}),recentNodes:inputData.confirmedHistory.length,omittedNodes:inputData.historyOmitted,memoryExcerpts:inputData.longTermStoryMemory?.excerpts.length??0});};
  let structured:ReturnType<typeof storyJSONTransport>|undefined,outputTokenLimit:number|undefined;
  try{
+ simulatorInput=simulatorPolicy?JSON.stringify({...JSON.parse(claim.input),simulatorProgress:deriveSimulatorProgress(claim.path),simulatorState:replaySimulatorState(claim.path),simulatorRules:{sourceName:simulatorPolicy.sourceName,reviewedChunks:simulatorPolicy.reviewedChunks,rules:simulatorPolicy.publicRules.map(r=>({kind:r.kind,text:r.text})),instruction:'仅使用已人工确认的公开规则；未提供的原文和角色秘密不得推断为事实。仅在本次正文明确发生状态变化时输出stateChanges数组；每项包含key、op(set/increment/remove)、value，value可为字符串、有限数字或布尔值；无变化输出空数组，不推断秘密状态。'}}):claim.input;
+ inputData=JSON.parse(simulatorInput);
   const input=simulatorInput;
   if(simulatorPolicy?.secretEvidence.some(secret=>secret.trim().length>0&&input.includes(secret)))throw Error('剧情输入包含已确认的角色秘密原文，已阻止请求；请检查世界设定与历史记录。');
   if(new TextEncoder().encode(storyPrompt+input).length>storyLimits.inputBytes)throw Error('模拟器公开规则超过剧情输入预算，未请求模型；请精简并人工确认规则。');
