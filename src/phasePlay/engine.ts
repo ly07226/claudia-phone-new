@@ -31,7 +31,7 @@ export function validData(x:unknown):x is PhaseData{
  const s=x.settings,r=x.session;
  if(!['sequence','random'].includes(String(s.mode))||!object(s.duration)||!number(s.bpm,30,180)||!number(s.volume,0,1)||!['randomDuration','beat','sound','vibration'].every(k=>typeof s[k]==='boolean'))return false;
  for(const p of phases){const d=s.duration[p];if(!object(d)||!number(d.seconds,1,600)||!number(d.min,1,600)||!number(d.max,1,600)||Number(d.min)>Number(d.max))return false;}
- if(!Array.isArray(s.prompts)||s.prompts.length>100||!s.prompts.every(p=>object(p)&&typeof p.id==='string'&&p.id.length<=80&&['all',...phases].includes(String(p.phase))&&typeof p.text==='string'&&p.text.trim().length>0&&p.text.length<=1000))return false;
+ if(!Array.isArray(s.prompts)||s.prompts.length>100||!s.prompts.every(p=>object(p)&&typeof p.id==='string'&&p.id.length<=240&&['all',...phases].includes(String(p.phase))&&typeof p.text==='string'&&p.text.trim().length>0&&p.text.length<=1000))return false;
  if(new Set(s.prompts.map(p=>p.id)).size!==s.prompts.length)return false;
  if((s.sweetMode!==undefined&&typeof s.sweetMode!=='boolean')||(s.commandMode!==undefined&&typeof s.commandMode!=='boolean')||(s.address!==undefined&&(typeof s.address!=='string'||s.address.length>60))||(s.intensity!==undefined&&!['soft','medium','strong','dramatic'].includes(s.intensity)))return false;
  if(s.instructionMode!==undefined&&!['default','character'].includes(s.instructionMode)||s.instructionCharacterId!==undefined&&(typeof s.instructionCharacterId!=='string'||s.instructionCharacterId.length>100))return false;
