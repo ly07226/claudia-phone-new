@@ -59,3 +59,9 @@
 .phase-play[data-screen=running] .phase-play-actions{margin:0}
 .phase-play [role=alert]{color:#ff9aab}
 @media(max-width:360px){.phase-play{padding:14px 12px}.phase-play-tabs{gap:3px}.phase-play-tabs button{font-size:12px}.phase-play-orb{width:160px;height:160px}}
+
+.phase-play-tone-settings{display:grid;gap:12px;margin-top:12px}
+.phase-play .phase-play-tone-card{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:20px 16px;border:1px solid #604766;border-radius:20px;background:#33263b;margin:0}
+.phase-play-tone-card span{display:grid;gap:8px}.phase-play-tone-card strong{font-size:19px}.phase-play-tone-card small{font-size:13px;color:#cbb4cb;line-height:1.6}
+.phase-play-tone-card:has(input:checked){background:linear-gradient(115deg,#60374e,#40304f);border-color:#ce8ebc}
+.phase-play .phase-play-tone-card input{flex:none;width:44px;height:28px;accent-color:#dca3d8}
