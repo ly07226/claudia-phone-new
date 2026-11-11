@@ -21,12 +21,13 @@ const schema={type:'OBJECT',properties:{segments:{type:'ARRAY',maxItems:256,item
 
 export async function generateStory(worldId:string,actionInput?:string|StoryAction,options:{signal?:AbortSignal;allowOldDefinition?:boolean;expected?:StoryExpectedProgress;firstAttemptOnly?:boolean;operation?:'advance'|'regenerate'}={}){
  if(options.signal?.aborted)throw Error('生成已取消，原主线未改变。');
- const simulatorSource=(await db.worlds.get(worldId))?.simulatorSource;
+ const initialWorld=await db.worlds.get(worldId);
+ const simulatorSource=initialWorld?.simulatorSource;
  // The browser-local source must pass the human review gate before any paid request.
  const simulatorPolicy=simulatorSource?await compileSimulatorRuntime(simulatorSource.id):undefined;
  // Never claim a generation lease if the supplied public world metadata already contains secret evidence.
- if(simulatorPolicy?.secretEvidence.some(secret=>secret.length>=12&&[
-  (await db.worlds.get(worldId))?.description??'',(await db.worlds.get(worldId))?.background??'',(await db.worlds.get(worldId))?.rules??''
+ if(simulatorPolicy?.secretEvidence.some(secret=>secret.trim().length>0&&[
+  initialWorld?.description??'',initialWorld?.background??'',initialWorld?.rules??''
  ].some(publicText=>publicText.includes(secret))))throw Error('公开世界设定包含已确认的角色秘密原文，请先分离公开设定与秘密；未请求模型。');
  const claim=await claimStory(worldId,actionInput,!!options.allowOldDefinition,options.expected,!!options.firstAttemptOnly,options.operation),s=claim.session,token=s.pending!.token;
  const controller=new AbortController(),abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
@@ -38,7 +39,7 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
  let structured:ReturnType<typeof storyJSONTransport>|undefined,outputTokenLimit:number|undefined;
  try{
   const input=simulatorInput;
-  if(simulatorPolicy?.secretEvidence.some(secret=>secret.length>=12&&input.includes(secret)))throw Error('剧情输入包含已确认的角色秘密原文，已阻止请求；请检查世界设定与历史记录。');
+  if(simulatorPolicy?.secretEvidence.some(secret=>secret.trim().length>0&&input.includes(secret)))throw Error('剧情输入包含已确认的角色秘密原文，已阻止请求；请检查世界设定与历史记录。');
   if(new TextEncoder().encode(storyPrompt+input).length>storyLimits.inputBytes)throw Error('模拟器公开规则超过剧情输入预算，未请求模型；请精简并人工确认规则。');
   const {config}=await reconcileApiDefault();if(!config)throw new StoryGenerationError(makeStoryFailure(await db.apiConfigs.count()?'config-invalid':'config-missing','configuration',false));const credential=await db.apiCredentials.get(config.id);if(!credential?.apiKey||!usableApi(config,credential.apiKey))throw new StoryGenerationError(makeStoryFailure('config-invalid','configuration',false));
   credentialForRedaction=credential.apiKey;
