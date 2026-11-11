@@ -53,7 +53,7 @@ test("默认折叠、开关独立、展开状态不因持久化丢失，刷新�
 }) => {
   await seed(page);
   const headerBox = await page
-    .getByRole("button", { name: "返回桌面", exact: true })
+    .getByRole("button", { name: "返回设置", exact: true })
     .boundingBox();
   expect(headerBox!.y).toBeGreaterThanOrEqual(0);
   expect(headerBox!.x).toBeGreaterThanOrEqual(0);

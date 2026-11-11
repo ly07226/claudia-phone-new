@@ -37,7 +37,7 @@ for (const standalone of [false,true]) test(`iOS安全区单次补偿、全屏�
   await expect(page.locator(".phone")).toHaveCSS("background-image","none");
   await expect(page.locator("html")).toHaveAttribute("data-screen","app");
   expect(await page.locator("html").evaluate(el=>getComputedStyle(el).backgroundImage)).toBe("none");
-  await expect.poll(async()=>Math.round((await page.locator(".app-panel").boundingBox())!.y)).toBe(91);
+  await expect.poll(async()=>Math.round((await page.locator(".app-panel").boundingBox())!.y)).toBe(47);
   await page.locator(".app-scroll button").last().scrollIntoViewIfNeeded();
   const last=await page.locator(".app-scroll button").last().boundingBox();expect(last!.y+last!.height).toBeLessThanOrEqual(844-34);
   await page.getByRole("button",{name:"返回桌面",exact:true}).click();

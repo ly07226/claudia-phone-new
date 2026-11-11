@@ -1,15 +1,16 @@
+import {storyProviderBudgetError} from './storyOutputBudget';
 import {readChatResponse} from './chatCompletion';
 import {browserTransport,type ApiTransport,type ApiConfig} from './api';
 /** Shared structured-output envelope for story creation; requestReply still owns protocols.
  * There is no role fallback or second request here. */
 export function storyJSONTransport(config:ApiConfig,schema:unknown,admit:()=>Promise<boolean>,observeStream=false){
  const gemini=config.provider==='gemini'||config.provider==='custom'&&config.protocol==='gemini';let truncated=false;let partialText='';
- const info:{attempted:boolean;httpStatus?:number;finishReason?:string;blocked?:boolean;serviceError?:boolean;invalidEnvelope?:boolean;invalidContent?:boolean;textCharacters?:number;outputTokens?:number;transportInterrupted?:boolean}={attempted:false};
+ const info:{attempted:boolean;httpStatus?:number;finishReason?:string;blocked?:boolean;serviceError?:boolean;invalidEnvelope?:boolean;invalidContent?:boolean;textCharacters?:number;outputTokens?:number;transportInterrupted?:boolean;contextWindow?:true;modelOutputLimit?:number;outputRejected?:true}={attempted:false};
  const transport:ApiTransport={send:async(url,init)=>{
   const body=JSON.parse(String(init.body));if(gemini)body.generationConfig={...body.generationConfig,responseMimeType:'application/json',responseSchema:schema};else body.response_format={type:'json_object'};
   if(!await admit())throw Error('stale');
   info.attempted=true;const response=await browserTransport.send(url,{...init,body:JSON.stringify(body)});
-  info.httpStatus=response.status;if(!response.ok)return response;
+  info.httpStatus=response.status;if(!response.ok){if(response.status===400||response.status===422){const evidence=storyProviderBudgetError(await response.clone().json().catch(()=>null));if(evidence.contextWindow)info.contextWindow=true;if(evidence.outputRejected)info.outputRejected=true;if(evidence.modelLimit)info.modelOutputLimit=evidence.modelLimit;}return response;}
   let data:any;try{
    if(observeStream&&response.headers.get('content-type')?.includes('text/event-stream')){
     // Observe only usage counters while passing the same bytes to the shared

@@ -1,5 +1,7 @@
 # 文档驱动剧情：研发验收说明
 
+> 历史版本说明：本页的逐段人工审核描述保留用于旧归档兼容。新导入已改为自动准备，不要求玩家审核或配置 JSON，见 [自动导入说明](story-automatic-import.md)。
+
 研发基线：`0bb163dfe3a9253dfde121c494749439b8a24a99`。
 main 对照：`1df81a38918358aca6e9b06dc779fd9cf80b6695`。
 PR #11 合并准备：已同步上述 main，保留其 iPhone 向导 VisualViewport 高度、内容滚动与固定 footer 样式；`scriptWizard.css` 与 main 完全一致。保留恢复完成后重新测量视口的逻辑。本批不修改气泡 CSS 或自定义 CSS 编辑器。

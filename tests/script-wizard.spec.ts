@@ -20,8 +20,8 @@ test('五步导航、返回、刷新、真实创建及身份静态复制；无�
 });
 test('本地文件导入校验，不覆盖世界；无效文件保持草稿',async({page})=>{
  await open(page);await page.getByLabel('整体剧情梗概',{exact:true}).fill('原草稿');page.on('dialog',d=>d.accept());
- await page.getByLabel('剧情文件').setInputFiles({name:'story.md',mimeType:'text/markdown',buffer:Buffer.from('导入的剧情梗概')});await expect(page.getByLabel('整体剧情梗概',{exact:true})).toHaveValue('导入的剧情梗概');
- await page.getByLabel('剧情文件').setInputFiles({name:'invalid.json',mimeType:'application/json',buffer:Buffer.from('{"version":1,"synopsis":"新内容","worlds":[]}')});await expect(page.getByRole('alert')).toContainText('JSON');await expect(page.getByLabel('整体剧情梗概',{exact:true})).toHaveValue('导入的剧情梗概');
+ await page.getByLabel('剧情文件').setInputFiles({name:'story.md',mimeType:'text/markdown',buffer:Buffer.from('导入的剧情梗概')});await expect(page.getByLabel('整体剧情梗概',{exact:true})).toHaveValue('导入的剧情梗概');await expect(page.getByRole('button',{name:'智能整理（可选）'})).toBeVisible();await expect(page.getByRole('button',{name:'上传剧本文档（Word / TXT / MD）'})).toBeEnabled();
+ await page.getByLabel('剧情文件').setInputFiles({name:'invalid.json',mimeType:'application/json',buffer:Buffer.from('{"version":1,"synopsis":"新内容","worlds":[]}')});await expect(page.locator('.wizard-footer').getByRole('alert')).toContainText('JSON');await expect(page.getByLabel('整体剧情梗概',{exact:true})).toHaveValue('导入的剧情梗概');
  expect(await page.evaluate(async()=>await(await import('/src/store.ts')).db.worlds.count())).toBe(0);
 });
 test('跨标签页草稿冲突保留输入，不静默覆盖；损坏草稿不覆盖',async({page})=>{

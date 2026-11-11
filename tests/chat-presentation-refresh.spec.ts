@@ -17,7 +17,7 @@ async function seed(page: Page) {
     await usePhone.getState().reload();
   });
   await page.getByRole("button",{name:"聊天",exact:true}).click();
-  await page.locator(".chat-app").evaluate(async el => { const animations = []; for(let node:Element|null=el;node;node=node.parentElement) animations.push(...node.getAnimations()); await Promise.all(animations.map(a=>a.finished.catch(()=>{}))); });
+  await page.locator("[data-chat-hub]").evaluate(async el => { const animations = []; for(let node:Element|null=el;node;node=node.parentElement) animations.push(...node.getAnimations()); await Promise.all(animations.map(a=>a.finished.catch(()=>{}))); });
 }
 for(const width of [375,390,430]) {
  test(`聊天列表 ${width}px：头像、活动版本预览、时间及空间隔离，读取不创建会话`,async({page})=>{
@@ -26,9 +26,9 @@ for(const width of [375,390,430]) {
   await expect(page.locator(".chat-list-row").first()).toContainText("第一句。第二句。");
   await expect(page.locator(".chat-list-row").nth(2)).toContainText("开始聊天");
   await expect(page.locator(".chat-list-row").first().locator("time")).toHaveCount(1);
-  await expect(page.locator(".chat-app")).not.toContainText("仅甲世界的消息");
+  await expect(page.locator("[data-chat-hub]")).not.toContainText("仅甲世界的消息");
   const dimensions=await page.locator(".chat-list-row").first().evaluate(el=>{const avatar=el.querySelector(".chat-avatar")!.getBoundingClientRect(),info=el.querySelector(".chat-list-info")!.getBoundingClientRect();return {w:avatar.width,h:avatar.height,separate:info.left>=avatar.right,overflow:el.scrollWidth>el.clientWidth};});
-  expect(Math.abs(dimensions.w-54)).toBeLessThan(0.01);expect(Math.abs(dimensions.h-54)).toBeLessThan(0.01);expect(dimensions.separate).toBe(true);expect(dimensions.overflow).toBe(false);
+  expect(Math.abs(dimensions.w-45)).toBeLessThan(0.01);expect(Math.abs(dimensions.h-45)).toBeLessThan(0.01);expect(dimensions.separate).toBe(true);expect(dimensions.overflow).toBe(false);
   const data=await page.evaluate(async()=>{const {db}=await import("/src/store.ts");const {chatListPreviews}=await import("/src/chatListPreview.ts");return {a:await chatListPreviews(["chat-a"],"world-a"),b:await chatListPreviews(["chat-a"],"world-b"),count:await db.conversations.count(),messages:await db.messages.count()};});
   expect(data.a["chat-a"].content).toBe("仅甲世界的消息");expect(data.b["chat-a"].content).toBe("仅乙世界的消息");expect(data.count).toBe(4);expect(data.messages).toBe(6);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);

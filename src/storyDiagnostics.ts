@@ -1,7 +1,7 @@
 /** Bounded numeric/fixed-code diagnostics only. Never body, key, URL, or IDs. */
 export interface StoryGenerationDiagnostic {
  sequence:number;outcome:'complete'|'failed';length:'brief'|'standard'|'detailed';
- inputBytes:number;configuredOutputTokens:number;outputTokenLimit:number;
+ inputBytes:number;configuredOutputTokens:number;outputTokenLimit:number;modelOutputLimit?:number;
  finishReason?:string;returnedOutputTokens?:number;responseCharacters?:number;
  bodyCharacters?:number;chineseCharacters?:number;belowTarget?:boolean;
  recentNodes:number;omittedNodes:number;memoryExcerpts:number;
