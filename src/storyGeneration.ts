@@ -63,7 +63,9 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
    if(!admitted)failure='stale';return admitted;
   },true);
   configuredOutputTokens=config.maxTokens;
-  outputTokenLimit=Math.min(config.maxTokens,storyLengths[claim.length].tokens,storyLimits.outputTokens);
+  // Story generation has its own output budget: the chat UI's 1024-token default is insufficient for a structured opening.
+  // The provider may enforce a lower model-specific ceiling; report that API error rather than silently truncating.
+  outputTokenLimit=Math.min(storyLengths[claim.length].tokens,storyLimits.outputTokens);
 
   const input=simulatorInput;if(new TextEncoder().encode(effectivePrompt+input).length>storyLimits.inputBytes)throw new StoryGenerationError(makeStoryFailure('budget','admission',false));
   const messages:ContextMessage[]=[{role:'system',content:effectivePrompt},{role:'user',content:input}];
