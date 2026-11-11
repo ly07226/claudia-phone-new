@@ -1,4 +1,5 @@
 import {resolveStorySegments} from './storySegments';
+import {validateSimulatorChanges,replaySimulatorState} from './wizardSimulatorState';
 import {validStoryFailure} from './storyFailure';
 import {validateStoryParticipants} from './storyParticipants';
 import type Dexie from 'dexie';
@@ -13,6 +14,7 @@ export function validateStoryNode(n:StoryNode){
  check(n&&id(n.id)&&id(n.worldId)&&id(n.sessionId)&&id(n.requestId)&&num(n.createdAt)&&num(n.sequence)&&n.sequence>0&&num(n.definitionRevision)&&n.definitionRevision>0);
  check(typeof n.body==='string'&&!!n.body.trim()&&n.body.length<=storyLimits.body&&Array.isArray(n.choices)&&n.choices.length===4);
  if(n.segments!==undefined)check(resolveStorySegments(n.body,n.segments));
+ if(n.simulatorChanges!==undefined)validateSimulatorChanges(n.simulatorChanges);
  check(n.parentNodeId===undefined||id(n.parentNodeId));check(n.fromChoiceId===undefined||id(n.fromChoiceId));
  if(n.narrativeLength!==undefined)check(['brief','standard','detailed'].includes(n.narrativeLength));
  if(n.action!==undefined){check(n.action&&typeof n.action==='object'&&!Array.isArray(n.action));check(Object.keys(n.action).every(k=>['kind',n.action!.kind==='custom'?'text':'choiceId'].includes(k)));if(n.action.kind==='custom')check(typeof n.action.text==='string'&&!!n.action.text.trim()&&n.action.text.length<=storyLimits.action&&n.fromChoiceId===undefined&&!!n.parentNodeId);else check(n.action.kind==='choice'&&id(n.action.choiceId)&&n.action.choiceId===n.fromChoiceId&&!!n.parentNodeId);}
@@ -35,7 +37,7 @@ export async function validateStoryDatabase(d:Dexie){
  const byId=new Map(nodes.map(n=>[n.id,n])),owners=new Map(sessions.map(s=>[s.id,s]));const requests=new Set<string>(),worlds=new Set<string>(),visited=new Set<string>();
  for(const s of sessions){validateStorySession(s);check(!worlds.has(s.worldId)&&await d.table('worlds').get(s.worldId));worlds.add(s.worldId);let node=s.headNodeId,count=0;const seen=new Set<string>();
   while(node){check(!seen.has(node));seen.add(node);visited.add(node);const n=byId.get(node);check(n&&n.sessionId===s.id&&n.worldId===s.worldId&&n.definitionRevision===s.definitionRevision&&n.sequence===s.revision-count);count++;node=n.parentNodeId;}
-  check(count===s.revision);if(s.actionDraft?.choiceId)check(byId.get(s.headNodeId!)?.choices.some(c=>c.id===s.actionDraft!.choiceId));
+  check(count===s.revision);const activePath=[...seen].reverse().map(id=>byId.get(id)!);replaySimulatorState(activePath);if(s.actionDraft?.choiceId)check(byId.get(s.headNodeId!)?.choices.some(c=>c.id===s.actionDraft!.choiceId));
  }
  for(const n of nodes){validateStoryNode(n);check(owners.has(n.sessionId)&&visited.has(n.id)&&!requests.has(n.requestId));requests.add(n.requestId);
   if(n.parentNodeId){const p=byId.get(n.parentNodeId);check(p&&p.sessionId===n.sessionId&&p.worldId===n.worldId&&(n.action?.kind==='custom'?n.fromChoiceId===undefined:p.choices.some(c=>c.id===n.fromChoiceId))&&n.sequence===p.sequence+1);}else check(n.sequence===1&&n.fromChoiceId===undefined&&n.action===undefined);
