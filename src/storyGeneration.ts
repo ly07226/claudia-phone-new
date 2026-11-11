@@ -16,10 +16,11 @@ import {storyLimits,storyLengths,type StoryNode,type StoryAction,type StoryExpec
 import {storyPrompt} from './storyContext';
 import {compileSimulatorRuntime} from './wizardSimulatorRuntime';
 import {deriveSimulatorProgress} from './wizardSimulatorProgress';
-import {replaySimulatorState} from './wizardSimulatorState';
+import {replaySimulatorState,applySimulatorChanges} from './wizardSimulatorState';
 export {storyPrompt,storyInput} from './storyContext';
 const schema={type:'OBJECT',properties:{segments:{type:'ARRAY',maxItems:256,items:{type:'OBJECT',properties:{type:{type:'STRING',enum:['narration','action','dialogue']},text:{type:'STRING'},speaker:{type:'STRING'}},required:['type','text']}},body:{type:'STRING'},choices:{type:'ARRAY',minItems:4,maxItems:4,items:{type:'OBJECT',properties:{id:{type:'STRING',enum:['A','B','C','D']},text:{type:'STRING'}},required:['id','text']}}},required:['body','choices']};
 
+const simulatorSchema={...schema,properties:{...schema.properties,stateChanges:{type:'ARRAY',maxItems:40,items:{type:'OBJECT',properties:{key:{type:'STRING'},op:{type:'STRING',enum:['set','increment','remove']},value:{type:'STRING'}},required:['key','op']}}},required:[...schema.required,'stateChanges']};
 export async function generateStory(worldId:string,actionInput?:string|StoryAction,options:{signal?:AbortSignal;allowOldDefinition?:boolean;expected?:StoryExpectedProgress;firstAttemptOnly?:boolean;operation?:'advance'|'regenerate'}={}){
  if(options.signal?.aborted)throw Error('生成已取消，原主线未改变。');
  const initialWorld=await db.worlds.get(worldId);
@@ -34,7 +35,7 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
  const controller=new AbortController(),abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
  let timedOut=false;const timer=setTimeout(()=>{timedOut=true;abort();},storyLimits.leaseMs);let failure:'cancelled'|'request'|'invalid'|'stale'|'budget'='request',phase:StoryFailureStage='configuration';
  let configuredOutputTokens=0,diagnosticRecorded=false,credentialForRedaction='\u0000';
- const simulatorInput=simulatorPolicy?JSON.stringify({...JSON.parse(claim.input),simulatorProgress:deriveSimulatorProgress(claim.path),simulatorState:replaySimulatorState(claim.path),simulatorRules:{sourceName:simulatorPolicy.sourceName,reviewedChunks:simulatorPolicy.reviewedChunks,rules:simulatorPolicy.publicRules.map(r=>({kind:r.kind,text:r.text})),instruction:'仅使用已人工确认的公开规则；未提供的原文和角色秘密不得推断为事实。'}}):claim.input;
+ const simulatorInput=simulatorPolicy?JSON.stringify({...JSON.parse(claim.input),simulatorProgress:deriveSimulatorProgress(claim.path),simulatorState:replaySimulatorState(claim.path),simulatorRules:{sourceName:simulatorPolicy.sourceName,reviewedChunks:simulatorPolicy.reviewedChunks,rules:simulatorPolicy.publicRules.map(r=>({kind:r.kind,text:r.text})),instruction:'仅使用已人工确认的公开规则；未提供的原文和角色秘密不得推断为事实。仅在本次正文明确发生状态变化时输出stateChanges数组；每项包含key、op(set/increment/remove)、value，value可为字符串、有限数字或布尔值；无变化输出空数组，不推断秘密状态。'}}):claim.input;
  const inputData=JSON.parse(simulatorInput);
  const record=(outcome:'complete'|'failed',body?:string)=>{if(diagnosticRecorded||!structured?.getResponseInfo().attempted)return;diagnosticRecorded=true;const info=structured.getResponseInfo();recordStoryGeneration({outcome,length:claim.length,inputBytes:new TextEncoder().encode(storyPrompt+simulatorInput).length,configuredOutputTokens,outputTokenLimit:outputTokenLimit??0,...(info.finishReason?{finishReason:info.finishReason}:{}),...(info.outputTokens!==undefined?{returnedOutputTokens:info.outputTokens}:{}),...(info.textCharacters!==undefined?{responseCharacters:info.textCharacters}:{}),...(body!==undefined?{bodyCharacters:Array.from(body.replace(/\s/gu,'')).length,chineseCharacters:(body.match(/\p{Script=Han}/gu)||[]).length,belowTarget:Array.from(body.replace(/\s/gu,'')).length<Number(storyLengths[claim.length].target.split('～')[0])}:{}),recentNodes:inputData.confirmedHistory.length,omittedNodes:inputData.historyOmitted,memoryExcerpts:inputData.longTermStoryMemory?.excerpts.length??0});};
  let structured:ReturnType<typeof storyJSONTransport>|undefined,outputTokenLimit:number|undefined;
@@ -45,7 +46,7 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
   const {config}=await reconcileApiDefault();if(!config)throw new StoryGenerationError(makeStoryFailure(await db.apiConfigs.count()?'config-invalid':'config-missing','configuration',false));const credential=await db.apiCredentials.get(config.id);if(!credential?.apiKey||!usableApi(config,credential.apiKey))throw new StoryGenerationError(makeStoryFailure('config-invalid','configuration',false));
   credentialForRedaction=credential.apiKey;
   if(controller.signal.aborted)throw Error('cancelled');
-  structured=storyJSONTransport(config,schema,async()=>{
+  structured=storyJSONTransport(config,simulatorPolicy?simulatorSchema:schema,async()=>{
    const admitted=await db.transaction('r',storyTables(),async()=>{
     const current=await db.storySessions.get(s.id),world=await db.worlds.get(worldId);
     return !controller.signal.aborted&&current?.pending?.token===token&&current.pending.expiresAt>Date.now()&&current.revision===s.revision&&current.headNodeId===s.headNodeId&&world?.script?.playMode==='story'&&JSON.stringify(await resolveStoryDefinition(world))===claim.worldSnapshot&&JSON.stringify(world.storyPreferences?.guidance??null)===claim.guidanceSnapshot&&(!claim.replacement||JSON.stringify(await db.storyNodes.get(claim.replacement.id))===JSON.stringify(claim.replacement));
@@ -57,12 +58,14 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
   const messages:ContextMessage[]=[{role:'system',content:storyPrompt},{role:'user',content:input}];
   if(requestDebugEnabled())registerRequestDiagnostics('story',messages,[{source:'story-instruction',text:storyPrompt,role:'system'},{source:'story-input',text:input,role:'user'}]);
   phase='request';const raw=await requestReply({...config,maxTokens:outputTokenLimit},credential.apiKey,messages,controller.signal,structured.transport,false);
-  failure='invalid';phase='parse';if(structured.getResponseInfo().transportInterrupted)throw new StoryGenerationError(makeStoryFailure('network','response',true));if(structured.getResponseInfo().blocked)throw new StoryResponseError('blocked');if(structured.isTruncated())throw new StoryResponseError('truncated',{responseCharacters:raw.length});const participants=s.definition.participants;const result=parseStoryReply(raw,participants?[participants.protagonist.name,...participants.characters.map(c=>c.name)]:[]);
+  failure='invalid';phase='parse';if(structured.getResponseInfo().transportInterrupted)throw new StoryGenerationError(makeStoryFailure('network','response',true));if(structured.getResponseInfo().blocked)throw new StoryResponseError('blocked');if(structured.isTruncated())throw new StoryResponseError('truncated',{responseCharacters:raw.length});const participants=s.definition.participants;const result=parseStoryReply(raw,participants?[participants.protagonist.name,...participants.characters.map(c=>c.name)]:[],!!simulatorPolicy);
   // A model can still hallucinate private source evidence even when it was not in its prompt.
   // Never persist or display a response containing a verified private passage.
   if(simulatorPolicy?.secretEvidence.some(secret=>secret.trim().length>0&&(result.body.includes(secret)||result.choices.some(c=>c.text.includes(secret)))))throw Error('剧情生成结果包含尚未授权公开的秘密原文，已拒绝保存本回合。');
+  const simulatorChanges=result.stateChanges;
+  if(simulatorChanges)applySimulatorChanges(replaySimulatorState(claim.path),simulatorChanges);
   const id=crypto.randomUUID();phase='validation';
-  const node:StoryNode={id,worldId,sessionId:s.id,body:result.body,...(result.segments?{segments:result.segments}:{}),choices:result.choices.map(c=>({id:`${id}:${c.id}`,label:c.id,text:c.text})),...(claim.parentNodeId?{parentNodeId:claim.parentNodeId,action:claim.action,...(claim.action?.kind==='choice'?{fromChoiceId:claim.action.choiceId}:{})}:{}),narrativeLength:claim.length,requestId:token,createdAt:Date.now(),definitionRevision:s.definitionRevision,sequence:claim.nextRevision};validateStoryNode(node);
+  const node:StoryNode={...(simulatorChanges?{simulatorChanges}:{}),id,worldId,sessionId:s.id,body:result.body,...(result.segments?{segments:result.segments}:{}),choices:result.choices.map(c=>({id:`${id}:${c.id}`,label:c.id,text:c.text})),...(claim.parentNodeId?{parentNodeId:claim.parentNodeId,action:claim.action,...(claim.action?.kind==='choice'?{fromChoiceId:claim.action.choiceId}:{})}:{}),narrativeLength:claim.length,requestId:token,createdAt:Date.now(),definitionRevision:s.definitionRevision,sequence:claim.nextRevision};validateStoryNode(node);
   failure='stale';phase='commit';let abortCommit=()=>{};const cancelCommit=()=>abortCommit();controller.signal.addEventListener('abort',cancelCommit,{once:true});
   try{await db.transaction('rw',storyTables(),async tx=>{
    abortCommit=()=>{try{tx.abort();}catch{/* Transaction already settled. */}};
