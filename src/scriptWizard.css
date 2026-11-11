@@ -21,3 +21,10 @@
 .space-selection:has(.wizard-setup){padding-bottom:0}
 .wizard-setup .wizard-content{min-height:0}
 .wizard-setup .wizard-summary dd{max-height:none;overflow:visible}
+
+/* Anchor the wizard to the actual visible viewport rather than a fixed 140px deduction.
+   The React layout measures visualViewport on iOS, including keyboard changes. */
+.script-wizard{max-height:100%;margin-bottom:0;align-self:stretch}
+.script-wizard .wizard-content{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.script-wizard .wizard-footer{flex:0 0 auto;position:relative;margin-top:auto;padding-bottom:max(12px,env(safe-area-inset-bottom));background:var(--wizard-surface);z-index:1}
+@media(max-height:540px){.script-wizard{min-height:0}.script-wizard .wizard-footer{max-height:55%}}
