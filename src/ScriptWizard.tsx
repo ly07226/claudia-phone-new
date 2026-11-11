@@ -50,7 +50,7 @@ export function ScriptWizard(){
  function go(step:number){if(step>draft.step){const message=wizardStepError(draft,draft.step,available);if(message){setError(message);return;}}update({step});content.current?.scrollTo({top:0});}
  async function importFile(selected?:File){
   if(!selected)return;const ticket=++request.current;setReading(true);setError('');
-  try{if(selected.size>wizardLimits.fileBytes)throw Error('文件超过 2 MB，请缩小后重试。');const patch=await readWizardDocument(selected);
+  try{if(selected.size>wizardLimits.fileBytes)throw Error('文件超过 20 MB，请缩小后重试。');const patch=await readWizardDocument(selected);
    if(!alive.current||ticket!==request.current)return;
    if((draft.title||draft.synopsis||draft.rules||draft.direction)&&!confirm('用文件内容替换对应草稿字段？不会修改任何现有世界。'))return;
    if(patch.longBody){const source=await saveLongNarrative(selected.name,patch.longBody);setLongSource({name:source.name,characters:source.body.length,sections:source.sections.length});setSimulatorSections(indexSimulatorDocument(source.body));setSourceAnalysis('');update({synopsis:synopsisPreview(source.body),longSourceId:source.id,longSourceName:source.name});}
@@ -100,7 +100,7 @@ export function ScriptWizard(){
     {longSource&&<div className="wizard-source-analysis"><button type="button" disabled={analyzingSource||reading||creating} onClick={()=>{if(!draft.longSourceId)return;const controller=new AbortController();setAnalyzingSource(true);setError('');void analyzeLongNarrative(draft.longSourceId,controller.signal).then(result=>setSourceAnalysis(result)).catch(e=>setError(e instanceof Error?e.message:'原文分析失败')).finally(()=>setAnalyzingSource(false));}}>{analyzingSource?'正在分析原文片段…':'AI 片段整理（非完整模拟器规则解析）'}</button>
     {sourceAnalysis&&<><label>分析草稿（可编辑，尚未应用）<textarea aria-label="原文分析草稿" rows={10} value={sourceAnalysis} onChange={e=>setSourceAnalysis(e.target.value)}/></label><button type="button" onClick={()=>{if(!confirm('用审核后的分析结果替换剧情梗概？原始长篇文件仍保留。'))return;update({synopsis:sourceAnalysis.slice(0,10000)});setSourceAnalysis('');}}>确认并填入剧情梗概</button></>}
     <p className="wizard-note">此旧功能仅对部分片段做摘要，不适合直接作为模拟器运行规则。请核对人物、时间线与开场建议；未确认前不会修改设定。</p></div>}
-    <p className="wizard-note">DOCX/TXT/MD 支持最长 500000 字符，长篇原文另存于本机浏览器；梗概仅显示预览。JSON 使用 version:1、synopsis，可选 title、rules、direction；不会导入世界或世界书。</p>
+    <p className="wizard-note">DOCX/TXT/MD 支持最长 200 万字符，长篇原文另存于本机浏览器；梗概仅显示预览。JSON 使用 version:1、synopsis，可选 title、rules、direction；不会导入世界或世界书。</p>
     <label>自定义内容与补充规则<textarea aria-label="补充规则" maxLength={4000} value={draft.rules} onChange={e=>update({rules:e.target.value})}/></label>
     <label>叙事人称<select aria-label="叙事人称" value={draft.perspective??'second'} onChange={e=>update({perspective:e.target.value as StoryPerspective})}>{Object.entries(storyPerspectives).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
     <label>剧情节奏<select aria-label="剧情节奏" value={draft.pace} onChange={e=>update({pace:e.target.value as ScriptWizardDraft['pace']})}>{Object.entries(wizardPaces).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
