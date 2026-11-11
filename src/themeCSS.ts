@@ -4,7 +4,7 @@ import {validatePalette} from './themePalette';
  * enumerated properties and canonical colors/bounded numbers. No raw selector/value is emitted. */
 const targets:Record<string,string[]>={'.theme-page':['&'],'.theme-card':['.card','.story-reading-card','.memory-card','.lore-book-card','.lore-entry-card','.space-card'],'.theme-button':['.primary'],'.theme-user-bubble':['.chat-user .chat-bubble-surface'],'.theme-role-bubble':['.chat-assistant .chat-bubble-surface'],'.chat-user':['.chat-user .chat-bubble-surface'],'.chat-assistant':['.chat-assistant .chat-bubble-surface'],'.chat-bubble':['.chat-bubble-surface'],'.chat-bubble-surface':['.chat-bubble-surface'],'.theme-dialogue':['.story-dialogue'],'.theme-action':['.story-action-description'],'.theme-speaker':['.story-speaker']};
 const colorProperties=new Set(['color','background-color','border-color','outline-color']);
-const ranges:Record<string,{min:number;max:number;unit:string}>={'border-radius':{min:0,max:28,unit:'px'},'font-size':{min:16,max:20,unit:'px'},'line-height':{min:1.2,max:2,unit:''}};
+const ranges:Record<string,{min:number;max:number;unit:string}>={'border-radius':{min:0,max:28,unit:'px'},'font-size':{min:12,max:24,unit:'px'},'line-height':{min:1.2,max:2,unit:''}};
 const bubbleSelectors=new Set(['.theme-user-bubble','.theme-role-bubble','.chat-user','.chat-assistant','.chat-bubble','.chat-bubble-surface']);
 const bubbleProperties=new Set(['background','background-image','box-shadow','border','border-width','border-style','padding','letter-spacing','font-weight','font-style','text-align','opacity','text-shadow']);
 const safeBubbleValue=(property:string,value:string):boolean=>{
@@ -20,7 +20,7 @@ const safeBubbleValue=(property:string,value:string):boolean=>{
  if(property==='opacity')return /^0(?:\.\d+)?$|^1(?:\.0+)?$/.test(value);
  return false;
 };
-const invalid=():never=>{throw Error('CSS 不符合受限规则：仅支持列出的选择器、HEX 颜色和规定范围的数值；不支持外部资源、嵌套规则或布局控制。');};
+const invalid=():never=>{throw Error('CSS 校验未通过：请检查选择器、属性或属性值。气泡支持 12～24px 字号、颜色、边框、阴影及内边距；不支持外部资源、嵌套规则或页面布局控制。');};
 export function compileThemeCSS(source:string,preview=false):string{
  if(typeof source!=='string'||source.length>8000)throw Error('自定义 CSS 最多 8000 字符。');
  let i=0;const rules:string[]=[];
