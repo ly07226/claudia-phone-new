@@ -30,3 +30,21 @@ export function applySimulatorChanges(previous:SimulatorState,changes:readonly S
  if(Object.keys(next).length>200)throw Error('世界状态字段超过上限。');
  return next;
 }
+
+/** Reconstruct state solely from committed nodes on the active branch.
+ * Discarded/regenerated branches never contribute to this projection. */
+export function replaySimulatorState(path:readonly {simulatorChanges?:SimulatorStateChange[]}[]):SimulatorState{
+ let state:SimulatorState=Object.create(null);
+ for(const node of path)if(node.simulatorChanges!==undefined)state=applySimulatorChanges(state,node.simulatorChanges);
+ return state;
+}
+export function validateSimulatorChanges(changes:unknown):asserts changes is SimulatorStateChange[]{
+ if(!Array.isArray(changes)||changes.length>40)throw Error('世界状态变更列表无效。');
+ for(const change of changes){
+  if(!change||typeof change!=='object'||Array.isArray(change)||typeof change.key!=='string'||!validKey(change.key)||
+    !['set','increment','remove'].includes(change.op)||
+    Object.keys(change).some(k=>!['key','op','value'].includes(k)))throw Error('世界状态变更字段无效。');
+  if(change.op==='remove'?change.value!==undefined:!validValue(change.value)||
+    change.op==='increment'&&typeof change.value!=='number')throw Error('世界状态变更数值无效。');
+ }
+}
