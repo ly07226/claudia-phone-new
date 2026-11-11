@@ -16,6 +16,9 @@ export function ScriptWizard(){
  const s=usePhone(),nav=useSpaces(),key=wizardDraftKey(db.name);
  const [initial]=useState(()=>{try{return {...loadWizardDraft(localStorage,key),error:''};}catch{return {draft:newWizardDraft(),raw:undefined,error:'无法读取草稿，未覆盖原数据。请检查浏览器存储或主动丢弃损坏草稿。'};}});
  const [draft,setDraft]=useState(initial.draft),[error,setError]=useState(initial.error),[saved,setSaved]=useState(false),[reading,setReading]=useState(false),[creating,setCreating]=useState(false),[createdId,setCreatedId]=useState(initial.draft.createdWorldId),[recovering,setRecovering]=useState(true),[assisting,setAssisting]=useState(false),[openingError,setOpeningError]=useState('');
+ const wizardRoot=useRef<HTMLElement>(null);
+ const [visibleHeight,setVisibleHeight]=useState<number|null>(null);
+ useEffect(()=>{const measure=()=>{const el=wizardRoot.current;if(!el)return;const vp=window.visualViewport;const bottom=(vp?.offsetTop??0)+(vp?.height??window.innerHeight);setVisibleHeight(Math.max(240,Math.floor(bottom-el.getBoundingClientRect().top)));};measure();window.visualViewport?.addEventListener('resize',measure);window.visualViewport?.addEventListener('scroll',measure);window.addEventListener('resize',measure);return()=>{window.visualViewport?.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('scroll',measure);window.removeEventListener('resize',measure);};},[]);
  const assistant=useRef<AbortController|null>(null);
  const creationLock=useRef(false);
  const stored=useRef(initial.raw),alive=useRef(true),request=useRef(0),content=useRef<HTMLDivElement>(null),file=useRef<HTMLInputElement>(null);
@@ -63,7 +66,7 @@ export function ScriptWizard(){
  const identityFields=[['name','姓名'],['gender','性别'],['appearance','外貌特征'],['personality','性格'],['occupation','身份与职业'],['experience','人物经历'],['bio','简介'],['customSetting','补充设定']] as const;
  if(createdId)return <WizardSetupStatus worldId={createdId} openingError={openingError} onNewDraft={()=>{try{const next=loadWizardDraft(localStorage,key);stored.current=next.raw;setDraft(next.draft);setCreatedId(undefined);setOpeningError('');setSaved(true);setError('');}catch{setError('新草稿读取失败。');}}}/>;
  if(recovering)return <p role="status">正在复核创作草稿与创建状态…</p>;
- return <section className="script-wizard" aria-label="AI 剧本创建向导" aria-busy={reading||creating||assisting}>
+ return <section ref={wizardRoot} style={visibleHeight?{height:visibleHeight,maxHeight:visibleHeight}:undefined} className="script-wizard" aria-label="AI 剧本创建向导" aria-busy={reading||creating||assisting}>
   <header className="wizard-heading"><h1>{draft.title||'创建新剧本'}</h1><p>第 {draft.step+1} 步 / 5 · {steps[draft.step]}</p><ol aria-label="创建进度">{steps.map((name,i)=><li key={name} aria-current={i===draft.step?'step':undefined}><span>{i+1}</span><small>{name}</small></li>)}</ol></header>
   <div className="wizard-content" ref={content} inert={reading||creating||assisting}>
    <p className="wizard-note">创建前的草稿仅保存在当前浏览器，不包含在 ZIP 备份中；确认创建后，世界、身份和角色关联将写入数据库。仅主动点击推荐或确认开局时调用 AI。</p>
