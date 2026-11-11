@@ -18,7 +18,7 @@ import {indexSimulatorDocument,simulatorEvidence} from './wizardSimulatorDocumen
 import {extractSimulatorRuleCandidates} from './wizardSimulatorRules';
 import {planSimulatorAnalysis,checkSimulatorCoverage} from './wizardSimulatorCoverage';
 import {reviewSimulatorChunk,type SimulatorChunkReview} from './wizardSimulatorReview';
-import {saveSimulatorReview,listSimulatorReviews,saveSimulatorDecision,listSimulatorDecisions,type SimulatorDecision,type SimulatorFindingDecision,type SavedSimulatorReview} from './wizardSimulatorReviewStore';
+import {saveSimulatorReview,listSimulatorReviews,saveSimulatorDecision,listSimulatorDecisions,type SimulatorDecision,type SimulatorFindingDecision,type SavedSimulatorReview,validSimulatorDecisions} from './wizardSimulatorReviewStore';
 import {findSimulatorReviewPairs} from './wizardSimulatorConflicts';
 const steps=['剧情设定','主控面具','关联角色','开局方向','生成与进入'];
 export function ScriptWizard(){
@@ -35,6 +35,7 @@ export function ScriptWizard(){
  const [reviewBusy,setReviewBusy]=useState(false);
  const [savedReviews,setSavedReviews]=useState<SavedSimulatorReview[]>([]);
  const [reviewDecisions,setReviewDecisions]=useState<SimulatorDecision[]>([]);
+ const activeDecisions=validSimulatorDecisions(savedReviews,reviewDecisions);
  const reviewAbort=useRef<AbortController|null>(null);
  const [draft,setDraft]=useState(initial.draft),[error,setError]=useState(initial.error),[saved,setSaved]=useState(false),[reading,setReading]=useState(false),[creating,setCreating]=useState(false),[createdId,setCreatedId]=useState(initial.draft.createdWorldId),[recovering,setRecovering]=useState(true),[assisting,setAssisting]=useState(false),[openingError,setOpeningError]=useState('');
  const wizardRoot=useRef<HTMLElement>(null);
@@ -112,6 +113,8 @@ export function ScriptWizard(){
       <h4>AI 逐段规则核对（主动调用，可能产生 API 费用）</h4>
       <p className="wizard-note">每次只分析一个片段，逐字核验 AI 引用是否出现在原文中；不自动修改世界设定，也不代表已分析全文。</p>
       <p className="wizard-note">已持久保存 {savedReviews.length}/{sourceCoverage?.chunks??0} 个片段的 AI 审核记录。结果保存在本机浏览器，不包含在 ZIP 备份中。</p>
+      <p className="wizard-note">人工确认 {activeDecisions.filter(d=>d.decision==='accepted').length} 条 · 拒绝 {activeDecisions.filter(d=>d.decision==='rejected').length} 条 · 其余仍待核对。重新分析后，旧引用不匹配的决定不会被当作有效审核。</p>
+      {sourceCoverage&&savedReviews.length<sourceCoverage.chunks&&<button type="button" disabled={reviewBusy} onClick={()=>{const done=new Set(savedReviews.map(x=>x.review.chunkIndex));const next=Array.from({length:sourceCoverage.chunks},(_,i)=>i).find(i=>!done.has(i));if(next!==undefined){setReviewChunk(next);setSimulatorReview(null);}}}>跳到下一段未分析片段</button>}
       {savedReviews.length>0&&<p className="wizard-note">潜在规则冲突提示：{findSimulatorReviewPairs(savedReviews).length} 组（仅作人工复核参考，不自动裁决）。</p>}
       {savedReviews.some(x=>x.review.chunkIndex===reviewChunk)&&<button type="button" disabled={reviewBusy} onClick={()=>{const saved=savedReviews.find(x=>x.review.chunkIndex===reviewChunk);if(saved)setSimulatorReview(saved.review);}}>查看本段已保存结果</button>}
       <label>片段编号（从 1 开始）<input type="number" min={1} max={sourceCoverage?.chunks??1} value={reviewChunk+1} onChange={e=>{const value=Number(e.target.value);if(Number.isInteger(value))setReviewChunk(Math.max(0,Math.min((sourceCoverage?.chunks??1)-1,value-1)));}}/></label>
@@ -119,7 +122,7 @@ export function ScriptWizard(){
       {reviewBusy&&<button type="button" onClick={()=>reviewAbort.current?.abort()}>取消本段分析</button>}
       {simulatorReview&&<div aria-live="polite"><p>第 {simulatorReview.chunkIndex+1}/{simulatorReview.chunkCount} 段 · 原文可核对条目 {simulatorReview.findings.length} 条 · 未通过原文核验 {simulatorReview.rejected} 条</p>{simulatorReview.findings.map((finding,i)=><article key={i}><strong>{finding.kind}</strong><blockquote>{finding.quote}</blockquote><p>{finding.interpretation}</p><small>原文位置 {finding.start}–{finding.end} · 仅引用核验通过，语义仍需人工审核</small>
        <label>人工审核结果
-        <select value={reviewDecisions.find(d=>d.sourceId===draft.longSourceId&&d.chunkIndex===simulatorReview.chunkIndex&&d.findingStart===finding.start&&d.findingEnd===finding.end&&d.quote===finding.quote)?.decision??'needs_review'} onChange={e=>{if(!draft.longSourceId||!longSource)return;const decision=e.target.value as SimulatorFindingDecision;const item={sourceId:draft.longSourceId,sourceLength:longSource.characters,chunkIndex:simulatorReview.chunkIndex,findingStart:finding.start,findingEnd:finding.end,quote:finding.quote,decision};void saveSimulatorDecision(item).then(()=>listSimulatorDecisions(item.sourceId,item.sourceLength)).then(items=>{if(alive.current)setReviewDecisions(items);}).catch(err=>{if(alive.current)setError(err instanceof Error?err.message:'审核决定保存失败');});}}>
+        <select value={activeDecisions.find(d=>d.sourceId===draft.longSourceId&&d.chunkIndex===simulatorReview.chunkIndex&&d.findingStart===finding.start&&d.findingEnd===finding.end&&d.quote===finding.quote)?.decision??'needs_review'} onChange={e=>{if(!draft.longSourceId||!longSource)return;const decision=e.target.value as SimulatorFindingDecision;const item={sourceId:draft.longSourceId,sourceLength:longSource.characters,chunkIndex:simulatorReview.chunkIndex,findingStart:finding.start,findingEnd:finding.end,quote:finding.quote,decision};void saveSimulatorDecision(item).then(()=>listSimulatorDecisions(item.sourceId,item.sourceLength)).then(items=>{if(alive.current)setReviewDecisions(items);}).catch(err=>{if(alive.current)setError(err instanceof Error?err.message:'审核决定保存失败');});}}>
          <option value="needs_review">待审核</option><option value="accepted">确认符合原文</option><option value="rejected">拒绝此条解释</option>
         </select>
        </label></article>)}</div>}
