@@ -31,3 +31,18 @@ test('audit refuses missing reviews and duplicated reviews',()=>{
  const duplicate={...review,id:'duplicate'};
  expect(simulatorAuditStatus(chunks,[review,duplicate],[]).ready).toBe(false);
 });
+
+test('rejected hallucinated quotes do not permanently block approved evidence',()=>{
+ const chunks=[{id:'chunk-0',start:0,end:3,text:'abc',headings:[]}];
+ const review={id:'s:0',sourceId:'s',sourceLength:3,sourceName:'s',
+  review:{chunkIndex:0,chunkCount:1,start:0,end:3,findings:[],rejected:2},savedAt:1};
+ const status=simulatorAuditStatus(chunks,[review],[]);
+ expect(status.rejectedEvidence).toBe(2);
+ expect(status.ready).toBe(true);
+});
+test('invalid review evidence fails closed',()=>{
+ const chunks=[{id:'chunk-0',start:0,end:3,text:'abc',headings:[]}];
+ const review={id:'s:0',sourceId:'s',sourceLength:3,sourceName:'s',
+  review:{chunkIndex:0,chunkCount:1,start:0,end:3,findings:[{kind:'secret',quote:'xyz',start:0,end:3,interpretation:'bad',confidence:'source-verified' as const}],rejected:0},savedAt:1};
+ expect(simulatorAuditStatus(chunks,[review],[]).ready).toBe(false);
+});
