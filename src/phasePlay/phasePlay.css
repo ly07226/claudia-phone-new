@@ -9,7 +9,7 @@
 .phase-play .phase-play-primary{background:var(--theme-button,#59745d);color:var(--theme-buttonText,#fff)}
 .phase-play-stage{display:flex;flex-direction:column;align-items:center;gap:10px;margin:14px 0;padding:24px 16px;border:1px solid var(--theme-border,#d9e2d3);border-radius:22px;background:var(--theme-card,#fffdf4);text-align:center}
 .phase-play-light{width:20px;height:20px;border-radius:50%;background:#bf6d6d}.phase-play-stage[data-phase=yellow] .phase-play-light{background:#b18a37}.phase-play-stage[data-phase=green] .phase-play-light{background:#5c936d}
-.phase-play output{font-size:46px;font-variant-numeric:tabular-nums;line-height:1.2}.phase-play-stage strong{font-weight:500}.phase-play-stage small{color:var(--theme-muted,inherit);font-size:12px}
+.phase-play-stage output{font-size:46px;font-variant-numeric:tabular-nums;line-height:1.2}.phase-play-stage strong{font-weight:500}.phase-play-stage small{color:var(--theme-muted,inherit);font-size:12px}
 .phase-play-prompt{white-space:pre-wrap;line-height:1.65;font-size:16px;margin:4px 0;max-width:100%}
 .phase-play-actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.phase-play-actions>button{flex:1}
 .phase-play details{margin-top:14px;border-top:1px solid var(--theme-border,#d9e2d3);padding-top:12px}.phase-play summary{font-size:14px;min-height:36px;cursor:pointer}
@@ -55,7 +55,7 @@
 .phase-play-stage output{font-size:44px;font-weight:700;color:#fff4fc}
 .phase-play-stage small{color:#d6c1d9}
 .phase-play-instruction{background:#392b42;border:1px solid #644d6c;border-radius:18px;padding:18px;text-align:center}
-.phase-play-instruction small{color:#e4b4db}.phase-play-instruction .phase-play-prompt{margin:10px 0 0;color:#fff0fc}
+.phase-play-instruction small{display:block;color:#e4b4db}.phase-play-instruction .phase-play-prompt{margin:10px 0 0;color:#fff0fc}
 .phase-play[data-screen=running] .phase-play-actions{margin:0}
 .phase-play [role=alert]{color:#ff9aab}
 @media(max-width:360px){.phase-play{padding:14px 12px}.phase-play-tabs{gap:3px}.phase-play-tabs button{font-size:12px}.phase-play-orb{width:160px;height:160px}}
@@ -76,3 +76,10 @@
 .phase-play-mode-options input{accent-color:#d99bcc}
 .phase-play-character-settings{display:grid;gap:10px;padding:12px;border-radius:14px;background:#281f31}
 .phase-play-character-settings button{width:100%}
+
+/* Keep this app within the existing phone scroll area, including standalone safe area. */
+.phase-play {box-sizing:border-box;max-width:100%;padding-bottom:calc(30px + env(safe-area-inset-bottom,0px));overflow-wrap:anywhere;}
+.phase-play fieldset {min-width:0;}
+.phase-play select,.phase-play textarea {max-width:100%;}
+.phase-play-versions {max-height:240px;overflow-y:auto;}
+@media(prefers-reduced-motion:reduce){.phase-play-orb-pulse,.phase-play-beat {animation:none!important;}}
