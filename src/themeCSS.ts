@@ -6,12 +6,19 @@ const targets:Record<string,string[]>={'.theme-page':['&'],'.theme-card':['.card
 const colorProperties=new Set(['color','background-color','border-color','outline-color']);
 const ranges:Record<string,{min:number;max:number;unit:string}>={'border-radius':{min:0,max:28,unit:'px'},'font-size':{min:12,max:24,unit:'px'},'line-height':{min:1.2,max:2,unit:''}};
 export function normalizeBubbleCSS(source:string):string{
- return source.replace(/\.message-container\s*\.sent\s+\.message-bubble|\.message-container\.sent\s+\.message-bubble/g,'.theme-user-bubble')
- .replace(/\.message-container\s*\.received\s+\.message-bubble|\.message-container\.received\s+\.message-bubble/g,'.theme-role-bubble')
- .replace(/\.message-container\s*\.assistant\s+\.message-bubble|\.message-container\.assistant\s+\.message-bubble/g,'.theme-role-bubble')
- .replace(/\.message-container\s*\.user\s+\.message-bubble|\.message-container\.user\s+\.message-bubble/g,'.theme-user-bubble');
+ return source
+ .replace(/\.message-container\.(?:sent|user)\s+\.message-bubble/g,'.theme-user-bubble')
+ .replace(/\.message-container\.(?:received|assistant)\s+\.message-bubble/g,'.theme-role-bubble')
+ .replace(/\.message-bubble:hover::before/g,'.theme-user-bubble:hover::before')
+ .replace(/\.message-bubble:hover::after/g,'.theme-role-bubble:hover::after')
+ .replace(/\.message-bubble:active/g,'.theme-user-bubble:active, .theme-role-bubble:active')
+ .replace(/\.message-container\.(?:sent|user)/g,'.theme-user-row')
+ .replace(/\.message-container\.(?:received|assistant)/g,'.theme-role-row')
+ .replace(/\.message-container/g,'.theme-message-row')
+ .replace(/^[^\n{}]*无边框版[^\n{}]*$/gm,'');
 }
 const effectSelectors:Record<string,string[]>={
+ '.theme-user-row':['.chat-message-row-user'],'.theme-role-row':['.chat-message-row-assistant'],'.theme-message-row':['.chat-message-row'],
  '.theme-user-bubble::before':['.chat-user .chat-bubble-surface::before'],
  '.theme-role-bubble::after':['.chat-assistant .chat-bubble-surface::after'],
  '.theme-user-bubble:active':['.chat-user .chat-bubble-surface:active'],
@@ -22,6 +29,10 @@ const effectSelectors:Record<string,string[]>={
 const safeStickerUrl=(v:string)=>{const m=/^url\(["']?(https:\/\/[^"'()\s]+)["']?\)$/.exec(v);if(!m)return false;try{const u=new URL(m[1]);return u.protocol==='https:'&&u.hostname.length<150&&/\.(png|webp|gif|jpg|jpeg)$/i.test(u.pathname)&&!u.username&&!u.password;}catch{return false;}};
 const safeEffect=(p:string,v:string,sticker:boolean)=>{
  if(p==='content')return sticker&&v==='""';
+ if(p==='margin-bottom')return /^(?:[0-9]|1[0-9]|20)px$/.test(v);
+ if(p==='display')return v==='flex';
+ if(p==='justify-content')return v==='flex-start'||v==='flex-end';
+ if(p==='animation')return v==='jellyIn 0.4s ease-out forwards';
  if(p==='background-image')return sticker&&safeStickerUrl(v);
  if(p==='position')return sticker&&v==='absolute';
  if(['top','left','right','bottom'].includes(p))return /^-?(?:[0-9]|[12][0-9])px$/.test(v);
@@ -73,8 +84,8 @@ export function compileThemeCSS(source:string,preview=false):string{
  const scope=preview?'.phone[data-theme-editing="true"] .theme-editor [data-theme-preview]':'.phone.phone[data-theme-editing="false"]';
  skip();while(i<source.length){
   const selectors:string[]=[];let effect=false,sticker=false;
-  do{const selector=token(/\.[a-z][a-z-]*(?:(?:::before|::after|:active|:hover::before|:hover::after))?/y);if(Object.hasOwn(effectSelectors,selector)){effect=true;if(selector.includes('::'))sticker=true;selectors.push(...effectSelectors[selector]);}else if(Object.hasOwn(targets,selector)){selectors.push(...targets[selector]);}else invalid();skip();if(source[i]!==',')break;i++;}while(true);
-  mark('{');const declarations:string[]=[];skip();const isBubble=selectors.every(s=>s.includes('chat-bubble-surface'));if(effect&&selectors.some(s=>!s.includes('::')&&!s.endsWith(':active')))invalid();if(isBubble)hasBubbleRule=true;
+  do{const selector=token(/\.[a-z][a-z-]*(?::hover::before|:hover::after|::before|::after|:active)?/y);if(Object.hasOwn(effectSelectors,selector)){effect=true;if(selector.includes('::'))sticker=true;selectors.push(...effectSelectors[selector]);}else if(Object.hasOwn(targets,selector)){selectors.push(...targets[selector]);}else invalid();skip();if(source[i]!==',')break;i++;}while(true);
+  mark('{');const declarations:string[]=[];skip();const isBubble=selectors.every(s=>s.includes('chat-bubble-surface'));if(isBubble)hasBubbleRule=true;
   while(source[i]!=='}'){
    const property=token(/-?[a-z][a-z-]*/y);mark(':');let value:string;
    if(colorProperties.has(property)){const start=i;skip();const end=source.indexOf(';',i),close=source.indexOf('}',i);const stop=end>=0&&end<close?end:close;const candidate=source.slice(i,stop).trim().replace(/\s*!important\s*$/i,'');if(isBubble&&/^(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\))$/i.test(candidate)){value=candidate;i=stop;}else if(/^#[0-9a-fA-F]{6}$/.test(candidate)){value=candidate.toUpperCase();i=stop;}else{i=start;value=token(/#[0-9a-fA-F]{6}(?![0-9a-fA-F])/y).toUpperCase();}}
