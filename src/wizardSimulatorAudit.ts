@@ -3,7 +3,7 @@ import type {SimulatorAnalysisChunk} from './wizardSimulatorCoverage';
 
 export interface SimulatorAuditStatus {
  totalChunks:number;reviewedChunks:number;missingChunks:number[];invalidChunks:number[];
- findings:number;accepted:number;rejected:number;pending:number;secretFindings:number;
+ findings:number;accepted:number;rejected:number;pending:number;secretFindings:number;rejectedEvidence:number;
  ready:boolean;
 }
 /** Pure readiness check. A saved review is not proof of complete rule extraction. */
@@ -17,8 +17,9 @@ export function simulatorAuditStatus(chunks:SimulatorAnalysisChunk[],reviews:Sav
  }
  const missingChunks=chunks.flatMap((_,i)=>byIndex.has(i)?[]:[i]);
  const invalidChunks=reviews.filter(r=>!byIndex.has(r.review.chunkIndex)).map(r=>r.review.chunkIndex);
- let findings=0,accepted=0,rejected=0,pending=0,secretFindings=0;
+ let findings=0,accepted=0,rejected=0,pending=0,secretFindings=0,rejectedEvidence=0;
  for(const [index,r] of byIndex){
+  rejectedEvidence+=r.review.rejected;
   for(const f of r.review.findings){
    findings++;
    if(f.kind==='secret')secretFindings++;
@@ -26,5 +27,5 @@ export function simulatorAuditStatus(chunks:SimulatorAnalysisChunk[],reviews:Sav
    if(decision==='accepted')accepted++;else if(decision==='rejected')rejected++;else pending++;
   }
  }
- return {totalChunks:chunks.length,reviewedChunks:byIndex.size,missingChunks,invalidChunks,findings,accepted,rejected,pending,secretFindings,ready:chunks.length>0&&missingChunks.length===0&&invalidChunks.length===0&&pending===0};
+ return {totalChunks:chunks.length,reviewedChunks:byIndex.size,missingChunks,invalidChunks,findings,accepted,rejected,pending,secretFindings,rejectedEvidence,ready:chunks.length>0&&missingChunks.length===0&&invalidChunks.length===0&&pending===0&&rejectedEvidence===0};
 }
