@@ -5,6 +5,12 @@ import {validatePalette} from './themePalette';
 const targets:Record<string,string[]>={'.theme-page':['&'],'.theme-card':['.card','.story-reading-card','.memory-card','.lore-book-card','.lore-entry-card','.space-card'],'.theme-button':['.primary'],'.theme-user-bubble':['.chat-user .chat-bubble-surface'],'.theme-role-bubble':['.chat-assistant .chat-bubble-surface'],'.chat-user':['.chat-user .chat-bubble-surface'],'.chat-assistant':['.chat-assistant .chat-bubble-surface'],'.chat-bubble':['.chat-bubble-surface'],'.chat-bubble-surface':['.chat-bubble-surface'],'.theme-dialogue':['.story-dialogue'],'.theme-action':['.story-action-description'],'.theme-speaker':['.story-speaker']};
 const colorProperties=new Set(['color','background-color','border-color','outline-color']);
 const ranges:Record<string,{min:number;max:number;unit:string}>={'border-radius':{min:0,max:28,unit:'px'},'font-size':{min:12,max:24,unit:'px'},'line-height':{min:1.2,max:2,unit:''}};
+export function normalizeBubbleCSS(source:string):string{
+ return source.replace(/\.message-container\s*\.sent\s+\.message-bubble|\.message-container\.sent\s+\.message-bubble/g,'.theme-user-bubble')
+ .replace(/\.message-container\s*\.received\s+\.message-bubble|\.message-container\.received\s+\.message-bubble/g,'.theme-role-bubble')
+ .replace(/\.message-container\s*\.assistant\s+\.message-bubble|\.message-container\.assistant\s+\.message-bubble/g,'.theme-role-bubble')
+ .replace(/\.message-container\s*\.user\s+\.message-bubble|\.message-container\.user\s+\.message-bubble/g,'.theme-user-bubble');
+}
 const bubbleSelectors=new Set(['.theme-user-bubble','.theme-role-bubble','.chat-user','.chat-assistant','.chat-bubble','.chat-bubble-surface']);
 const bubbleProperties=new Set(['background','background-image','box-shadow','border','border-width','border-style','padding','letter-spacing','font-weight','font-style','text-align','opacity','text-shadow','backdrop-filter','-webkit-backdrop-filter']);
 const safeBubbleValue=(property:string,value:string):boolean=>{
@@ -24,6 +30,7 @@ const safeBubbleValue=(property:string,value:string):boolean=>{
 const invalid=():never=>{throw Error('CSS 校验未通过：请检查选择器、属性或属性值。气泡支持 12～24px 字号、颜色、边框、阴影、内边距及 blur(0～20px) 毛玻璃；不支持外部资源、嵌套规则或页面布局控制。');};
 export function compileThemeCSS(source:string,preview=false):string{
  if(typeof source!=='string'||source.length>8000)throw Error('自定义 CSS 最多 8000 字符。');
+ source=normalizeBubbleCSS(source);
  let i=0;const rules:string[]=[];let hasBubbleRule=false;
  const invalid=():never=>{const line=source.slice(0,i).split('\n').length;const excerpt=source.slice(Math.max(0,i-20),Math.min(source.length,i+55)).replace(/\s+/g,' ').trim();throw Error(`CSS 第 ${line} 行附近不受支持：${excerpt||'(空内容)'}。请检查选择器、属性和值。`);};
  const skip=()=>{while(i<source.length){if(/\s/.test(source[i])){i++;continue;}if(source.slice(i,i+2)==='/*'){const end=source.indexOf('*/',i+2);if(end<0)invalid();i=end+2;continue;}break;}};
@@ -36,9 +43,9 @@ export function compileThemeCSS(source:string,preview=false):string{
   mark('{');const declarations:string[]=[];skip();const isBubble=selectors.every(s=>s.includes('chat-bubble-surface'));if(isBubble)hasBubbleRule=true;
   while(source[i]!=='}'){
    const property=token(/-?[a-z][a-z-]*/y);mark(':');let value:string;
-   if(colorProperties.has(property)){const start=i;skip();const end=source.indexOf(';',i),close=source.indexOf('}',i);const stop=end>=0&&end<close?end:close;const candidate=source.slice(i,stop).trim();if(isBubble&&/^(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\))$/i.test(candidate)){value=candidate;i=stop;}else{i=start;value=token(/#[0-9a-fA-F]{6}(?![0-9a-fA-F])/y).toUpperCase();}}
+   if(colorProperties.has(property)){const start=i;skip();const end=source.indexOf(';',i),close=source.indexOf('}',i);const stop=end>=0&&end<close?end:close;const candidate=source.slice(i,stop).trim().replace(/\s*!important\s*$/i,'');if(isBubble&&/^(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\))$/i.test(candidate)){value=candidate;i=stop;}else if(/^#[0-9a-fA-F]{6}$/.test(candidate)){value=candidate.toUpperCase();i=stop;}else{i=start;value=token(/#[0-9a-fA-F]{6}(?![0-9a-fA-F])/y).toUpperCase();}}
    else if(Object.hasOwn(ranges,property)){const rule=ranges[property],number=token(/(?:\d+(?:\.\d+)?)/y);const n=Number(number);if(n<rule.min||n>rule.max)invalid();if(rule.unit){mark('p');mark('x');}value=String(n)+rule.unit;}
-   else if(isBubble&&bubbleProperties.has(property)){skip();const end=source.indexOf(';',i),close=source.indexOf('}',i);const stop=end>=0&&end<close?end:close;if(stop<0)invalid();value=source.slice(i,stop).trim();if(!safeBubbleValue(property,value))invalid();i=stop;}
+   else if(isBubble&&bubbleProperties.has(property)){skip();const end=source.indexOf(';',i),close=source.indexOf('}',i);const stop=end>=0&&end<close?end:close;if(stop<0)invalid();value=source.slice(i,stop).trim();if(!safeBubbleValue(property,value))invalid();value=value.replace(/\s*!important\s*$/i,'');i=stop;}
    else invalid();
    declarations.push(`${property}:${value!}`);skip();if(source[i]===';'){i++;skip();}else if(source[i]!=='}')invalid();
    if(declarations.length>24)invalid();
