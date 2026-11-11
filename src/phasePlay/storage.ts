@@ -16,10 +16,15 @@ export function loadPhaseData(database:string):{data:PhaseData;error:string}{
     const mapped=legacy.map(p=>({...p,id:newPrefix+p.id.slice(legacyPrefix.length)}));
     const seen=new Set(safe.settings.prompts.map(p=>p.id));
     const migrated=mapped.filter(p=>!seen.has(p.id));
-    const updated:PhaseData={...safe,settings:{...safe.settings,prompts:[...safe.settings.prompts,...migrated]}};
-    // Preserve the original legacy records until a verified write succeeds.
-    if(migrated.length&&validData(updated)){
-     try{localStorage.setItem(storageKey(database),JSON.stringify(updated));return {data:updated,error:''};}catch{return {data:safe,error:'旧角色指令仍可读取，但迁移备份未能保存。请检查本地存储空间。'};}
+    const updated:PhaseData={...safe,settings:{...safe.settings,prompts:[...safe.settings.prompts.filter(p=>!legacy.includes(p)),...migrated]}};
+    // Backup the original before replacing legacy IDs, including when already at capacity.
+    if(legacy.length&&validData(updated)){
+     try{
+      const backupKey=storageKey(database)+':pre-scope-migration';
+      if(localStorage.getItem(backupKey)===null)localStorage.setItem(backupKey,raw);
+      localStorage.setItem(storageKey(database),JSON.stringify(updated));
+      return {data:updated,error:''};
+     }catch{return {data:safe,error:'旧指令可读取，但迁移未能完成；原记录未主动删除。'};}
     }
    }
   }
