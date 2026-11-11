@@ -12,8 +12,14 @@ export async function listSimulatorReviews(sourceId:string,sourceLength:number):
 }
 
 export async function saveSimulatorDecision(input:Omit<SimulatorDecision,'id'|'updatedAt'>):Promise<void>{
- const db=await open();return new Promise<void>((resolve,reject)=>{const tx=db.transaction(decisions,'readwrite');const id=[input.sourceId,input.chunkIndex,input.findingStart,input.findingEnd].join(':');tx.objectStore(decisions).put({...input,id,updatedAt:Date.now()} satisfies SimulatorDecision);tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>{db.close();reject(tx.error??Error('审核决定保存失败'));};tx.onabort=()=>{db.close();reject(tx.error??Error('审核决定保存已取消'));};});
+ const db=await open();return new Promise<void>((resolve,reject)=>{const tx=db.transaction(decisions,'readwrite');const id=[input.sourceId,input.sourceLength,input.chunkIndex,input.findingStart,input.findingEnd,input.quote].join(':');tx.objectStore(decisions).put({...input,id,updatedAt:Date.now()} satisfies SimulatorDecision);tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>{db.close();reject(tx.error??Error('审核决定保存失败'));};tx.onabort=()=>{db.close();reject(tx.error??Error('审核决定保存已取消'));};});
 }
 export async function listSimulatorDecisions(sourceId:string,sourceLength:number):Promise<SimulatorDecision[]>{
  const db=await open();return new Promise((resolve,reject)=>{const tx=db.transaction(decisions,'readonly');const request=tx.objectStore(decisions).getAll();let items:SimulatorDecision[]=[];request.onsuccess=()=>{items=(request.result as SimulatorDecision[]).filter(x=>x.sourceId===sourceId&&x.sourceLength===sourceLength);};tx.oncomplete=()=>{db.close();resolve(items);};tx.onerror=()=>{db.close();reject(tx.error??Error('审核决定读取失败'));};tx.onabort=()=>{db.close();reject(tx.error??Error('审核决定读取已取消'));};});
+}
+
+/** Re-analysis invalidates decisions whose evidence is no longer present in the latest chunk. */
+export function validSimulatorDecisions(reviews:SavedSimulatorReview[],items:SimulatorDecision[]):SimulatorDecision[]{
+ const byChunk=new Map(reviews.map(r=>[r.review.chunkIndex,r.review]));
+ return items.filter(d=>byChunk.get(d.chunkIndex)?.findings.some(f=>f.start===d.findingStart&&f.end===d.findingEnd&&f.quote===d.quote));
 }
