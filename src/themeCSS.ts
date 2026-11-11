@@ -30,7 +30,7 @@ const safeBubbleValue=(property:string,value:string):boolean=>{
 const invalid=():never=>{throw Error('CSS 校验未通过：请检查选择器、属性或属性值。气泡支持 12～24px 字号、颜色、边框、阴影、内边距及 blur(0～20px) 毛玻璃；不支持外部资源、嵌套规则或页面布局控制。');};
 export function compileThemeCSS(source:string,preview=false):string{
  if(typeof source!=='string'||source.length>8000)throw Error('自定义 CSS 最多 8000 字符。');
- source=normalizeBubbleCSS(source);
+ source=normalizeBubbleCSS(source).replace(/\s*!important\s*(?=;|})/gi,'');
  let i=0;const rules:string[]=[];let hasBubbleRule=false;
  const invalid=():never=>{const line=source.slice(0,i).split('\n').length;const excerpt=source.slice(Math.max(0,i-20),Math.min(source.length,i+55)).replace(/\s+/g,' ').trim();throw Error(`CSS 第 ${line} 行附近不受支持：${excerpt||'(空内容)'}。请检查选择器、属性和值。`);};
  const skip=()=>{while(i<source.length){if(/\s/.test(source[i])){i++;continue;}if(source.slice(i,i+2)==='/*'){const end=source.indexOf('*/',i+2);if(end<0)invalid();i=end+2;continue;}break;}};
