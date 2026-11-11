@@ -14,12 +14,15 @@ import './scriptWizard.css';
 import {readWizardDocument} from './wizardDocumentImport';
 import {saveLongNarrative,readLongNarrative,synopsisPreview} from './wizardLongNarrative';
 import {analyzeLongNarrative} from './wizardSourceAnalysis';
+import {indexSimulatorDocument,simulatorEvidence,type SimulatorSectionKind} from './wizardSimulatorDocument';
 const steps=['剧情设定','主控面具','关联角色','开局方向','生成与进入'];
 export function ScriptWizard(){
  const s=usePhone(),nav=useSpaces(),key=wizardDraftKey(db.name);
  const [initial]=useState(()=>{try{return {...loadWizardDraft(localStorage,key),error:''};}catch{return {draft:newWizardDraft(),raw:undefined,error:'无法读取草稿，未覆盖原数据。请检查浏览器存储或主动丢弃损坏草稿。'};}});
  const [longSource,setLongSource]=useState<{name:string;characters:number;sections:number}|null>(null);
  const [sourceAnalysis,setSourceAnalysis]=useState('');
+ const [simulatorSections,setSimulatorSections]=useState<ReturnType<typeof indexSimulatorDocument>>([]);
+ const [sourceSearch,setSourceSearch]=useState('');
  const [analyzingSource,setAnalyzingSource]=useState(false);
  const [draft,setDraft]=useState(initial.draft),[error,setError]=useState(initial.error),[saved,setSaved]=useState(false),[reading,setReading]=useState(false),[creating,setCreating]=useState(false),[createdId,setCreatedId]=useState(initial.draft.createdWorldId),[recovering,setRecovering]=useState(true),[assisting,setAssisting]=useState(false),[openingError,setOpeningError]=useState('');
  const wizardRoot=useRef<HTMLElement>(null);
@@ -31,7 +34,7 @@ export function ScriptWizard(){
  useEffect(()=>{alive.current=true;
   void (async()=>{try{if(!initial.draft.createdWorldId&&initial.draft.creationToken){const world=await findWizardCreation(initial.draft.creationToken);if(world&&alive.current)setCreatedId(world.id);}}catch(e){if(alive.current)setError(e instanceof Error?e.message:'无法复核创建状态。');}finally{if(alive.current)setRecovering(false);}})();
   const hide=()=>assistant.current?.abort();window.addEventListener('pagehide',hide);return()=>{alive.current=false;request.current++;assistant.current?.abort();window.removeEventListener('pagehide',hide);};},[]);
- useEffect(()=>{const id=draft.longSourceId;if(!id){setLongSource(null);return;}let live=true;void readLongNarrative(id).then(source=>{if(live)setLongSource(source?{name:source.name,characters:source.body.length,sections:source.sections.length}:null);}).catch(()=>{if(live)setLongSource(null);});return()=>{live=false;};},[draft.longSourceId]);
+ useEffect(()=>{const id=draft.longSourceId;if(!id){setLongSource(null);setSimulatorSections([]);return;}let live=true;void readLongNarrative(id).then(source=>{if(live){setLongSource(source?{name:source.name,characters:source.body.length,sections:source.sections.length}:null);setSimulatorSections(source?indexSimulatorDocument(source.body):[]);}}).catch(()=>{if(live)setLongSource(null);});return()=>{live=false;};},[draft.longSourceId]);
  const available=new Set(s.characters.map(c=>c.id));
  function update(patch:Partial<ScriptWizardDraft>){
   const next={...draft,...patch,confirmed:patch.confirmed??false};setDraft(next);setSaved(false);setError('');
@@ -47,10 +50,10 @@ export function ScriptWizard(){
  function go(step:number){if(step>draft.step){const message=wizardStepError(draft,draft.step,available);if(message){setError(message);return;}}update({step});content.current?.scrollTo({top:0});}
  async function importFile(selected?:File){
   if(!selected)return;const ticket=++request.current;setReading(true);setError('');
-  try{if(selected.size>wizardLimits.fileBytes)throw Error('文件超过 256 KB，请缩小后重试。');const patch=await readWizardDocument(selected);
+  try{if(selected.size>wizardLimits.fileBytes)throw Error('文件超过 2 MB，请缩小后重试。');const patch=await readWizardDocument(selected);
    if(!alive.current||ticket!==request.current)return;
    if((draft.title||draft.synopsis||draft.rules||draft.direction)&&!confirm('用文件内容替换对应草稿字段？不会修改任何现有世界。'))return;
-   if(patch.longBody){const source=await saveLongNarrative(selected.name,patch.longBody);setLongSource({name:source.name,characters:source.body.length,sections:source.sections.length});update({synopsis:synopsisPreview(source.body),longSourceId:source.id,longSourceName:source.name});}
+   if(patch.longBody){const source=await saveLongNarrative(selected.name,patch.longBody);setLongSource({name:source.name,characters:source.body.length,sections:source.sections.length});setSimulatorSections(indexSimulatorDocument(source.body));setSourceAnalysis('');update({synopsis:synopsisPreview(source.body),longSourceId:source.id,longSourceName:source.name});}
    else update(patch);
   }catch(e){if(alive.current&&ticket===request.current)setError(e instanceof Error?e.message:'读取失败，原草稿未改变。');}
   finally{if(alive.current&&ticket===request.current)setReading(false);}
@@ -83,13 +86,20 @@ export function ScriptWizard(){
     <label>故事标题<input aria-label="故事标题" maxLength={80} value={draft.title} onChange={e=>update({title:e.target.value})}/></label>
     <label>整体剧情梗概<textarea aria-label="整体剧情梗概" rows={7} maxLength={10000} value={draft.synopsis} onChange={e=>update({synopsis:e.target.value})}/></label>
     <label>世界背景与补充（可选）<textarea aria-label="世界背景" rows={4} maxLength={6000} value={draft.background??''} onChange={e=>update({background:e.target.value})}/></label>
-    <button type="button" disabled={reading||creating||assisting} onClick={()=>file.current?.click()}>导入剧情文件（Word / TXT / MD / JSON）</button>
+    <button type="button" disabled={reading||creating||assisting} onClick={()=>file.current?.click()}>导入世界设定 / 模拟器规则 / 剧情文件（Word / TXT / MD / JSON）</button>
     <input hidden ref={file} type="file" accept=".docx,.txt,.md,.json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,application/json" aria-label="剧情文件" onChange={e=>{const selected=e.target.files?.[0];e.target.value='';void importFile(selected);}}/>
     {reading&&<p role="status">正在读取本地文件…</p>}
     {longSource&&<p role="status" className="wizard-note">已保存长篇原文：{longSource.name}，{longSource.characters.toLocaleString()} 字符，识别 {longSource.sections} 个章节或片段。梗概框显示可编辑的前段预览；尚未进行 AI 重点提取，生成时不会自动读取全文。</p>}
-    {longSource&&<div className="wizard-source-analysis"><button type="button" disabled={analyzingSource||reading||creating} onClick={()=>{if(!draft.longSourceId)return;const controller=new AbortController();setAnalyzingSource(true);setError('');void analyzeLongNarrative(draft.longSourceId,controller.signal).then(result=>setSourceAnalysis(result)).catch(e=>setError(e instanceof Error?e.message:'原文分析失败')).finally(()=>setAnalyzingSource(false));}}>{analyzingSource?'正在分析原文片段…':'AI 提取原文重要信息与开场设定'}</button>
+    {longSource&&<section className="wizard-source-analysis" aria-label="模拟器设定原文索引">
+     <h3>模拟器原文索引（不改写规则）</h3>
+     <p className="wizard-note">这是按标题和关键词生成的初步分类，并非 AI 已完整理解。原文仍保存在本机；尚未接入世界运行引擎。</p>
+     <p className="wizard-note">{simulatorSections.length} 个标题区块 · {simulatorSections.filter(x=>x.kind==='mechanics').length} 个机制候选 · {simulatorSections.filter(x=>x.kind==='characters').length} 个角色候选 · {simulatorSections.filter(x=>x.kind==='opening_gate').length} 个开局条件候选</p>
+     <label>搜索原文规则（关键词）<input aria-label="搜索模拟器原文" value={sourceSearch} onChange={e=>setSourceSearch(e.target.value)} placeholder="例如：感染、角色卡、禁止、资源"/></label>
+     {sourceSearch.trim()&&<div aria-live="polite">{simulatorEvidence(simulatorSections,[sourceSearch.trim()],8).map(hit=><article key={hit.sectionId}><h4>{hit.heading} · {hit.kind}</h4><p>{hit.excerpt}</p><small>原文字符位置 {hit.start}–{hit.end}</small></article>)}</div>}
+    </section>}
+    {longSource&&<div className="wizard-source-analysis"><button type="button" disabled={analyzingSource||reading||creating} onClick={()=>{if(!draft.longSourceId)return;const controller=new AbortController();setAnalyzingSource(true);setError('');void analyzeLongNarrative(draft.longSourceId,controller.signal).then(result=>setSourceAnalysis(result)).catch(e=>setError(e instanceof Error?e.message:'原文分析失败')).finally(()=>setAnalyzingSource(false));}}>{analyzingSource?'正在分析原文片段…':'AI 片段整理（非完整模拟器规则解析）'}</button>
     {sourceAnalysis&&<><label>分析草稿（可编辑，尚未应用）<textarea aria-label="原文分析草稿" rows={10} value={sourceAnalysis} onChange={e=>setSourceAnalysis(e.target.value)}/></label><button type="button" onClick={()=>{if(!confirm('用审核后的分析结果替换剧情梗概？原始长篇文件仍保留。'))return;update({synopsis:sourceAnalysis.slice(0,10000)});setSourceAnalysis('');}}>确认并填入剧情梗概</button></>}
-    <p className="wizard-note">AI 只读取原文中选取的片段，不代表完整理解全文。请核对人物、时间线与开场建议；未确认前不会修改设定。</p></div>}
+    <p className="wizard-note">此旧功能仅对部分片段做摘要，不适合直接作为模拟器运行规则。请核对人物、时间线与开场建议；未确认前不会修改设定。</p></div>}
     <p className="wizard-note">DOCX/TXT/MD 支持最长 500000 字符，长篇原文另存于本机浏览器；梗概仅显示预览。JSON 使用 version:1、synopsis，可选 title、rules、direction；不会导入世界或世界书。</p>
     <label>自定义内容与补充规则<textarea aria-label="补充规则" maxLength={4000} value={draft.rules} onChange={e=>update({rules:e.target.value})}/></label>
     <label>叙事人称<select aria-label="叙事人称" value={draft.perspective??'second'} onChange={e=>update({perspective:e.target.value as StoryPerspective})}>{Object.entries(storyPerspectives).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
