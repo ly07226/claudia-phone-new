@@ -65,3 +65,9 @@
 .phase-play-tone-card span{display:grid;gap:8px}.phase-play-tone-card strong{font-size:19px}.phase-play-tone-card small{font-size:13px;color:#cbb4cb;line-height:1.6}
 .phase-play-tone-card:has(input:checked){background:linear-gradient(115deg,#60374e,#40304f);border-color:#ce8ebc}
 .phase-play .phase-play-tone-card input{flex:none;width:44px;height:28px;accent-color:#dca3d8}
+
+.phase-play-mode-options{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.phase-play .phase-play-mode-options label{display:flex;align-items:center;gap:7px;background:#241c2c;border:1px solid #6c5370;border-radius:14px;padding:12px 8px;font-size:13px;margin:0}
+.phase-play-mode-options input{accent-color:#d99bcc}
+.phase-play-character-settings{display:grid;gap:10px;padding:12px;border-radius:14px;background:#281f31}
+.phase-play-character-settings button{width:100%}
