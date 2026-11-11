@@ -12,12 +12,15 @@ import {useSpaces} from './spaces';
 import {copyWizardIdentity,emptyWizardIdentity,loadWizardDraft,newWizardDraft,validateWizardDraft,wizardDraftKey,wizardLimits,wizardPaces,wizardStepError,type ScriptWizardDraft} from './scriptWizardDraft';
 import './scriptWizard.css';
 import {readWizardDocument} from './wizardDocumentImport';
-import {saveLongNarrative,synopsisPreview} from './wizardLongNarrative';
+import {saveLongNarrative,readLongNarrative,synopsisPreview} from './wizardLongNarrative';
+import {analyzeLongNarrative} from './wizardSourceAnalysis';
 const steps=['剧情设定','主控面具','关联角色','开局方向','生成与进入'];
 export function ScriptWizard(){
  const s=usePhone(),nav=useSpaces(),key=wizardDraftKey(db.name);
  const [initial]=useState(()=>{try{return {...loadWizardDraft(localStorage,key),error:''};}catch{return {draft:newWizardDraft(),raw:undefined,error:'无法读取草稿，未覆盖原数据。请检查浏览器存储或主动丢弃损坏草稿。'};}});
  const [longSource,setLongSource]=useState<{name:string;characters:number;sections:number}|null>(null);
+ const [sourceAnalysis,setSourceAnalysis]=useState('');
+ const [analyzingSource,setAnalyzingSource]=useState(false);
  const [draft,setDraft]=useState(initial.draft),[error,setError]=useState(initial.error),[saved,setSaved]=useState(false),[reading,setReading]=useState(false),[creating,setCreating]=useState(false),[createdId,setCreatedId]=useState(initial.draft.createdWorldId),[recovering,setRecovering]=useState(true),[assisting,setAssisting]=useState(false),[openingError,setOpeningError]=useState('');
  const wizardRoot=useRef<HTMLElement>(null);
  const [visibleHeight,setVisibleHeight]=useState<number|null>(null);
@@ -28,6 +31,7 @@ export function ScriptWizard(){
  useEffect(()=>{alive.current=true;
   void (async()=>{try{if(!initial.draft.createdWorldId&&initial.draft.creationToken){const world=await findWizardCreation(initial.draft.creationToken);if(world&&alive.current)setCreatedId(world.id);}}catch(e){if(alive.current)setError(e instanceof Error?e.message:'无法复核创建状态。');}finally{if(alive.current)setRecovering(false);}})();
   const hide=()=>assistant.current?.abort();window.addEventListener('pagehide',hide);return()=>{alive.current=false;request.current++;assistant.current?.abort();window.removeEventListener('pagehide',hide);};},[]);
+ useEffect(()=>{const id=draft.longSourceId;if(!id){setLongSource(null);return;}let live=true;void readLongNarrative(id).then(source=>{if(live)setLongSource(source?{name:source.name,characters:source.body.length,sections:source.sections.length}:null);}).catch(()=>{if(live)setLongSource(null);});return()=>{live=false;};},[draft.longSourceId]);
  const available=new Set(s.characters.map(c=>c.id));
  function update(patch:Partial<ScriptWizardDraft>){
   const next={...draft,...patch,confirmed:patch.confirmed??false};setDraft(next);setSaved(false);setError('');
@@ -46,7 +50,7 @@ export function ScriptWizard(){
   try{if(selected.size>wizardLimits.fileBytes)throw Error('文件超过 256 KB，请缩小后重试。');const patch=await readWizardDocument(selected);
    if(!alive.current||ticket!==request.current)return;
    if((draft.title||draft.synopsis||draft.rules||draft.direction)&&!confirm('用文件内容替换对应草稿字段？不会修改任何现有世界。'))return;
-   if(patch.longBody){const source=await saveLongNarrative(selected.name,patch.longBody);setLongSource({name:source.name,characters:source.body.length,sections:source.sections.length});update({synopsis:synopsisPreview(source.body)});}
+   if(patch.longBody){const source=await saveLongNarrative(selected.name,patch.longBody);setLongSource({name:source.name,characters:source.body.length,sections:source.sections.length});update({synopsis:synopsisPreview(source.body),longSourceId:source.id,longSourceName:source.name});}
    else update(patch);
   }catch(e){if(alive.current&&ticket===request.current)setError(e instanceof Error?e.message:'读取失败，原草稿未改变。');}
   finally{if(alive.current&&ticket===request.current)setReading(false);}
@@ -83,6 +87,9 @@ export function ScriptWizard(){
     <input hidden ref={file} type="file" accept=".docx,.txt,.md,.json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,application/json" aria-label="剧情文件" onChange={e=>{const selected=e.target.files?.[0];e.target.value='';void importFile(selected);}}/>
     {reading&&<p role="status">正在读取本地文件…</p>}
     {longSource&&<p role="status" className="wizard-note">已保存长篇原文：{longSource.name}，{longSource.characters.toLocaleString()} 字符，识别 {longSource.sections} 个章节或片段。梗概框显示可编辑的前段预览；尚未进行 AI 重点提取，生成时不会自动读取全文。</p>}
+    {longSource&&<div className="wizard-source-analysis"><button type="button" disabled={analyzingSource||reading||creating} onClick={()=>{if(!draft.longSourceId)return;const controller=new AbortController();setAnalyzingSource(true);setError('');void analyzeLongNarrative(draft.longSourceId,controller.signal).then(result=>setSourceAnalysis(result)).catch(e=>setError(e instanceof Error?e.message:'原文分析失败')).finally(()=>setAnalyzingSource(false));}}>{analyzingSource?'正在分析原文片段…':'AI 提取原文重要信息与开场设定'}</button>
+    {sourceAnalysis&&<><label>分析草稿（可编辑，尚未应用）<textarea aria-label="原文分析草稿" rows={10} value={sourceAnalysis} onChange={e=>setSourceAnalysis(e.target.value)}/></label><button type="button" onClick={()=>{if(!confirm('用审核后的分析结果替换剧情梗概？原始长篇文件仍保留。'))return;update({synopsis:sourceAnalysis.slice(0,10000)});setSourceAnalysis('');}}>确认并填入剧情梗概</button></>}
+    <p className="wizard-note">AI 只读取原文中选取的片段，不代表完整理解全文。请核对人物、时间线与开场建议；未确认前不会修改设定。</p></div>}
     <p className="wizard-note">DOCX/TXT/MD 支持最长 500000 字符，长篇原文另存于本机浏览器；梗概仅显示预览。JSON 使用 version:1、synopsis，可选 title、rules、direction；不会导入世界或世界书。</p>
     <label>自定义内容与补充规则<textarea aria-label="补充规则" maxLength={4000} value={draft.rules} onChange={e=>update({rules:e.target.value})}/></label>
     <label>叙事人称<select aria-label="叙事人称" value={draft.perspective??'second'} onChange={e=>update({perspective:e.target.value as StoryPerspective})}>{Object.entries(storyPerspectives).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
