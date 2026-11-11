@@ -5,10 +5,12 @@ export interface SimulatorRule {id:string;mode:RuleMode;sectionId:string;section
 export function extractSimulatorRuleCandidates(sections:SimulatorSection[]):SimulatorRule[]{
  const rules:SimulatorRule[]=[];
  for(const section of sections){
-  const lines=section.body.split(/\r\n|\r|\n/);let cursor=0;
-  for(const line of lines){
-   const trimmed=line.trim().replace(/^[-*•]\s*/,'');const start=section.start+cursor+line.indexOf(line.trim());
-   cursor+=line.length+((section.body.slice(cursor+line.length).match(/^(\r\n|\r|\n)/)?.[0].length)??0);
+  const linePattern=/[^\r\n]*(?:\r\n|\r|\n|$)/g;let lineMatch:RegExpExecArray|null;
+  while((lineMatch=linePattern.exec(section.body))){
+   const raw=lineMatch[0];if(!raw)break;
+   const line=raw.replace(/[\r\n]+$/,'');
+   const trimmed=line.trim().replace(/^[-*•]\s*/,'');
+   const start=section.start+lineMatch.index+Math.max(0,line.search(/\S/));
    if(trimmed.length<5||trimmed.length>600||/^#{1,6}\s/.test(trimmed))continue;
    const mode:RuleMode=/禁止|不得|不可|不允许|不能擅自/.test(trimmed)?'prohibition':/必须|务必|应当|需要|严格遵守/.test(trimmed)?'requirement':/如果|当.{1,40}时|一旦|除非|若|在.{1,40}情况下/.test(trimmed)?'conditional':/可以|允许|可根据|可自由/.test(trimmed)?'permission':section.kind==='world'||section.kind==='characters'?'world_fact':'unclassified';
    if(mode==='unclassified')continue;
