@@ -11,12 +11,13 @@ export function simulatorAuditStatus(chunks:SimulatorAnalysisChunk[],reviews:Sav
  const byIndex=new Map<number,SavedSimulatorReview>();
  for(const r of reviews){
   const chunk=chunks[r.review.chunkIndex];
-  if(!chunk||r.review.start!==chunk.start||r.review.end!==chunk.end||r.review.chunkCount!==chunks.length||r.sourceLength!==chunks.reduce((n,c)=>n+c.text.length,0))continue;
+  if(!chunk||r.review.chunkIndex<0||!Number.isInteger(r.review.chunkIndex)||r.review.start!==chunk.start||r.review.end!==chunk.end||r.review.chunkCount!==chunks.length||r.sourceLength!==chunks.reduce((n,c)=>n+c.text.length,0))continue;
   if(r.review.findings.some(f=>f.start<chunk.start||f.end>chunk.end||f.end<=f.start||chunk.text.slice(f.start-chunk.start,f.end-chunk.start)!==f.quote))continue;
+  if(byIndex.has(r.review.chunkIndex))continue;
   byIndex.set(r.review.chunkIndex,r);
  }
  const missingChunks=chunks.flatMap((_,i)=>byIndex.has(i)?[]:[i]);
- const invalidChunks=reviews.filter(r=>!byIndex.has(r.review.chunkIndex)).map(r=>r.review.chunkIndex);
+ const invalidChunks=reviews.filter(r=>byIndex.get(r.review.chunkIndex)!==r).map(r=>r.review.chunkIndex);
  let findings=0,accepted=0,rejected=0,pending=0,secretFindings=0,rejectedEvidence=0;
  for(const [index,r] of byIndex){
   rejectedEvidence+=r.review.rejected;
