@@ -74,7 +74,9 @@ const safeBubbleValue=(property:string,value:string):boolean=>{
 };
 const invalid=():never=>{throw Error('CSS 校验未通过：请检查选择器、属性或属性值。气泡支持 12～24px 字号、颜色、边框、阴影、内边距及 blur(0～20px) 毛玻璃；不支持外部资源、嵌套规则或页面布局控制。');};
 export function compileThemeCSS(source:string,preview=false):string{
- if(typeof source!=='string'||source.length>16000)throw Error('自定义 CSS 最多 16000 字符。');
+ if(typeof source!=='string'||source.length>24000)throw Error('自定义 CSS 最多 24000 字符。');
+ const hasJelly=/@keyframes\s+jellyIn\s*\{/.test(source);
+ source=source.replace(/@keyframes\s+jellyIn\s*\{\s*from\s*\{\s*opacity:\s*0;\s*transform:\s*translateY\(8px\) scale\(0\.95\);\s*\}\s*to\s*\{\s*opacity:\s*1;\s*transform:\s*translateY\(0\) scale\(1\);\s*\}\s*\}/g,'');
  source=normalizeBubbleCSS(source).replace(/^[^{}\n]*无边框版[^{}\n]*$/gm,'').replace(/\s*!important\s*(?=;|})/gi,'');
  let i=0;const rules:string[]=[];let hasBubbleRule=false;
  const invalid=():never=>{const line=source.slice(0,i).split('\n').length;const excerpt=source.slice(Math.max(0,i-20),Math.min(source.length,i+55)).replace(/\s+/g,' ').trim();throw Error(`CSS 第 ${line} 行附近不受支持：${excerpt||'(空内容)'}。请检查选择器、属性和值。`);};
@@ -101,6 +103,7 @@ export function compileThemeCSS(source:string,preview=false):string{
  }
  if(hasBubbleRule){rules.unshift(`${scope} .chat-bubble-surface{position:relative;overflow:visible}`);}
  if(hasBubbleRule){rules.unshift(`${scope} .chat-bubble.chat-user:has(> .chat-bubble-surface),${scope} .chat-bubble.chat-assistant:has(> .chat-bubble-surface){background:transparent!important;background-image:none!important;border:0!important;box-shadow:none!important;padding:0!important}`);}
+ if(hasJelly){rules.unshift('@keyframes jellyIn{from{opacity:0;transform:translateY(8px) scale(0.95)}to{opacity:1;transform:translateY(0) scale(1)}}');}
  return rules.join('\n');
 }
 export function validateThemeAppearance(value:unknown){
