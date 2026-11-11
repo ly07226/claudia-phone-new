@@ -1,10 +1,13 @@
 import {useEffect,useRef,useState} from 'react';
 import {db} from '../store';
+import {baseInstructions} from './instructions';
 import {advance,defaults,initial,next,phases,phaseNames,start,type Phase,type PhaseData,type PhaseSettings,validData} from './engine';
 import {loadPhaseData,savePhaseData} from './storage';
 import {PhaseFeedback} from './feedback';
 import './phasePlay.css';
 export function PhasePlayApp({onBack}:{onBack:()=>void}){
+ const [characters,setCharacters]=useState<{id:string;name:string}[]>([]);
+ useEffect(()=>{let active=true;void db.characters.toArray().then(rows=>{if(active)setCharacters(rows.map(x=>({id:x.id,name:x.name})));});return()=>{active=false;};},[]);
  const [screen,setScreen]=useState<'settings'|'running'>('settings'),[tab,setTab]=useState<'玩法'|'节奏'|'指令'|'其他'>('节奏');
  const [loaded]=useState(()=>loadPhaseData(db.name)),[data,setData]=useState(loaded.data),[error,setError]=useState(loaded.error),[blocked,setBlocked]=useState(!!loaded.error),[notice,setNotice]=useState(''),[editId,setEditId]=useState<string|null>(null),[text,setText]=useState(''),[scope,setScope]=useState<Phase|'all'>('all'),[pulse,setPulse]=useState(0);
  const current=useRef(data),feedback=useRef<PhaseFeedback|null>(null),last=useRef(performance.now()),saved=useRef(0),beat=useRef(0);
@@ -31,7 +34,18 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
  const exit=()=>{pause();onBack();};
  const enter=async()=>{await run();setScreen('running');};
  const backToSettings=()=>{pause();setScreen('settings');};
- function savePrompt(){if(!text.trim())return setError('请输入提示文本。');if(!editId&&s.prompts.length>=100)return setError('最多保存 100 条提示。');const item={id:editId??crypto.randomUUID(),phase:scope,text};setting({prompts:editId?s.prompts.map(p=>p.id===editId?item:p):[...s.prompts,item]});setEditId(null);setText('');}
+ function makeCharacterDraft(){
+  const id=s.instructionCharacterId;
+  if(!id)return setError('请先选择角色。');
+  const existing=s.prompts.filter(p=>p.id.startsWith('character:'+id+':'));
+  if(existing.length&&!confirm('将重新建立此角色的基础指令草稿，覆盖此前编辑的角色指令。继续吗？'))return;
+  const others=s.prompts.filter(p=>!p.id.startsWith('character:'+id+':'));
+  const drafted=baseInstructions.map(item=>({id:'character:'+id+':'+item.id,phase:item.phase,text:item.text}));
+  if(others.length+drafted.length>100)return setError('指令数量超出100条限制。');
+  setting({prompts:[...others,...drafted],instructionMode:'character'});
+  setNotice('已建立可编辑的角色指令草稿。AI 人设生成尚未接通，这些是基础文案，不是 AI 生成结果。');
+ }
+ function savePrompt(){if(!text.trim())return setError('请输入提示文本。');if(!editId&&s.prompts.length>=100)return setError('最多保存 100 条提示。');const item={id:editId??(s.instructionMode==='character'?'character:'+(s.instructionCharacterId||'unselected')+':'+crypto.randomUUID():crypto.randomUUID()),phase:scope,text};setting({prompts:editId?s.prompts.map(p=>p.id===editId?item:p):[...s.prompts,item]});setEditId(null);setText('');}
  return <section className="phase-play" aria-label="忍一下嘛应用" data-screen={screen}>
  <header className="phase-play-heading"><div><h2>忍一下嘛</h2><p>{screen==='settings'?'选择玩法与节奏，再开启一场游戏':'跟随灯光与指令，按自己的节奏来'}</p></div><button onClick={screen==='running'?backToSettings:exit}>{screen==='running'?'返回设置':'退出应用'}</button></header>
  {error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
@@ -48,7 +62,10 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
  {tab==='节奏'&&<div className="phase-play-card"><h3>灯光节奏</h3><p className="phase-play-note">默认红灯最短。调整每种灯光的持续时间。</p>
   {(['green','yellow','red'] as const).map(p=><div className="phase-play-duration" data-color={p} key={p}><strong>{phaseNames[p]}</strong>{(s.randomDuration?['min','max']:['seconds']).map(k=><label key={k}>{k==='min'?'最短':k==='max'?'最长':'时长'}<input aria-label={phaseNames[p]+(k==='min'?'最短秒数':k==='max'?'最长秒数':'秒数')} type="number" min={1} max={600} step={1} value={s.duration[p][k as 'seconds'|'min'|'max']} onChange={e=>setting({duration:{...s.duration,[p]:{...s.duration[p],[k]:Number(e.target.value)}}})}/></label>)}</div>)}
   <label>节拍速度 · {s.bpm} BPM<input aria-label="节拍速度" type="range" min={30} max={180} step={1} value={s.bpm} onChange={e=>setting({bpm:Number(e.target.value)})}/></label></div>}
-  {tab==='指令'&&<div className="phase-play-card"><h3>内置阶段指令</h3><p className="phase-play-note">默认自动从各阶段内置指令库抽取。下面可额外添加、编辑或删除自己的提示，不必手动填写才能开始。</p><label>适用阶段<select aria-label="提示适用阶段" value={scope} onChange={e=>setScope(e.target.value as Phase|'all')}><option value="all">所有阶段</option>{phases.map(p=><option key={p} value={p}>{phaseNames[p]}</option>)}</select></label><label>附加提示<textarea aria-label="提示文本" maxLength={1000} value={text} onChange={e=>setText(e.target.value)} placeholder="选填：增加自己的提示"/></label><div className="phase-play-actions"><button disabled={!text.trim()} onClick={savePrompt}>{editId?'保存修改':'添加提示'}</button>{editId&&<button onClick={()=>{setEditId(null);setText('');}}>取消编辑</button>}</div><ul>{s.prompts.map(p=><li key={p.id}><small>{p.phase==='all'?'所有阶段':phaseNames[p.phase]}</small><p>{p.text}</p><div className="phase-play-actions"><button onClick={()=>{setEditId(p.id);setText(p.text);setScope(p.phase);}}>编辑提示</button><button onClick={()=>{setting({prompts:s.prompts.filter(x=>x.id!==p.id)});if(editId===p.id){setEditId(null);setText('');}}}>删除提示</button></div></li>)}</ul></div>}
+  {tab==='指令'&&<div className="phase-play-card"><h3>指令来源</h3>
+ <div className="phase-play-mode-options"><label><input type="radio" name="phase-instruction-mode" checked={(s.instructionMode??'default')==='default'} onChange={()=>setting({instructionMode:'default'})}/> 默认指令</label><label><input type="radio" name="phase-instruction-mode" checked={s.instructionMode==='character'} onChange={()=>setting({instructionMode:'character'})}/> 根据角色生成指令</label></div>
+ {s.instructionMode==='character'&&<div className="phase-play-character-settings"><label>选择角色<select aria-label="指令角色" value={s.instructionCharacterId??''} onChange={e=>setting({instructionCharacterId:e.target.value})}><option value="">请选择角色</option>{characters.map(character=><option key={character.id} value={character.id}>{character.name}</option>)}</select></label><p className="phase-play-note">每个角色的指令独立保存，可长期使用、编辑和重新建立。当前尚未接入 AI 生成人设的调用；先提供可编辑的基础草稿，不会冒充 AI 结果。</p><button type="button" onClick={makeCharacterDraft}>建立／更新角色指令草稿</button></div>}
+ <p className="phase-play-note">默认指令自动从内置库抽取；角色模式使用选定角色已保存的指令。下方可以编辑指令。</p><label>适用阶段<select aria-label="提示适用阶段" value={scope} onChange={e=>setScope(e.target.value as Phase|'all')}><option value="all">所有阶段</option>{phases.map(p=><option key={p} value={p}>{phaseNames[p]}</option>)}</select></label><label>附加提示<textarea aria-label="提示文本" maxLength={1000} value={text} onChange={e=>setText(e.target.value)} placeholder="选填：增加自己的提示"/></label><div className="phase-play-actions"><button disabled={!text.trim()} onClick={savePrompt}>{editId?'保存修改':'添加提示'}</button>{editId&&<button onClick={()=>{setEditId(null);setText('');}}>取消编辑</button>}</div><ul>{s.prompts.filter(p=>s.instructionMode==='character'?p.id.startsWith('character:'+(s.instructionCharacterId||'unselected')+':'):!p.id.startsWith('character:')).map(p=><li key={p.id}><small>{p.phase==='all'?'所有阶段':phaseNames[p.phase]}</small><p>{p.text}</p><div className="phase-play-actions"><button onClick={()=>{setEditId(p.id);setText(p.text);setScope(p.phase);}}>编辑提示</button><button onClick={()=>{setting({prompts:s.prompts.filter(x=>x.id!==p.id)});if(editId===p.id){setEditId(null);setText('');}}}>删除提示</button></div></li>)}</ul></div>}
   {tab==='其他'&&<div className="phase-play-card"><h3>声音与反馈</h3><label className="phase-play-toggle">节拍反馈<input type="checkbox" checked={s.beat} onChange={e=>setting({beat:e.target.checked})}/></label><label className="phase-play-toggle">音效<input type="checkbox" aria-label="音效" checked={s.sound} onChange={e=>{setting({sound:e.target.checked});if(e.target.checked)void feedback.current!.unlock().then(ok=>{if(!ok)setNotice('音频不可用，计时仍可正常使用。');});else feedback.current?.stop();}}/></label><label>音量 · {Math.round(s.volume*100)}%<input aria-label="音量" type="range" min={0} max={100} step={5} value={Math.round(s.volume*100)} onChange={e=>setting({volume:Number(e.target.value)/100})}/></label><label className="phase-play-toggle">震动反馈<input type="checkbox" checked={s.vibration} onChange={e=>setting({vibration:e.target.checked})}/></label><p className="phase-play-note">{typeof navigator.vibrate==='function'?'设备提供震动接口，实际效果取决于浏览器。':'此浏览器未提供震动接口，将只使用可用的声音与视觉反馈。'}</p></div>}
   </fieldset>
   <button className="phase-play-primary phase-play-start" disabled={blocked||running} onClick={()=>void enter()}>我准备好了 · 开始</button>
