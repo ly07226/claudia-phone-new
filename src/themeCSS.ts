@@ -8,10 +8,10 @@ const ranges:Record<string,{min:number;max:number;unit:string}>={'border-radius'
 const bubbleSelectors=new Set(['.theme-user-bubble','.theme-role-bubble','.chat-user','.chat-assistant','.chat-bubble','.chat-bubble-surface']);
 const bubbleProperties=new Set(['background','background-image','box-shadow','border','border-width','border-style','padding','letter-spacing','font-weight','font-style','text-align','opacity','text-shadow','backdrop-filter','-webkit-backdrop-filter']);
 const safeBubbleValue=(property:string,value:string):boolean=>{
- if(value.length>240||/[{};<>\\]/.test(value)||/url\s*\(|@import|expression\s*\(|var\s*\(|!important|position|calc\s*\(/i.test(value))return false;
+ if(value.length>240||/[{};<>\\]/.test(value)||/url\s*\(|@import|expression\s*\(|var\s*\(|position|calc\s*\(/i.test(value))return false;
  if(property==='backdrop-filter'||property==='-webkit-backdrop-filter')return /^blur\((?:0|[1-9]|1[0-9]|20)(?:\.\d+)?px\)$/.test(value)&&Number(value.slice(5,-3))<=20;
  if(property==='background'||property==='background-image')return /^(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|linear-gradient\([#\w\d\s.,%()\-]+\)|none)$/i.test(value);
- if(property==='box-shadow'||property==='text-shadow')return /^(?:none|[\d\s.,#%a-z()\-]+)$/i.test(value)&&!/[a-z]+\s*\(/i.test(value.replace(/rgba?\([\d\s.,%]+\)/gi,''));
+ if(property==='box-shadow'||property==='text-shadow'){const v=value.replace(/\s*!important\s*$/i,'').trim();return /^(?:none|[\d\s.,#%a-z()\-]+)$/i.test(v)&&!/[a-z]+\s*\(/i.test(v.replace(/rgba?\([\d\s.,%]+\)/gi,''));}
  if(property==='border')return /^(?:none|(?:\d{1,2}px\s+)?(?:solid|dashed|dotted)\s+(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)))$/i.test(value);
  if(property==='border-width'||property==='padding'||property==='letter-spacing')return /^(?:\d{1,2}(?:\.\d+)?px)(?:\s+\d{1,2}(?:\.\d+)?px){0,3}$/.test(value);
  if(property==='border-style')return /^(none|solid|dashed|dotted)$/.test(value);
