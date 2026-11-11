@@ -7,10 +7,16 @@ const validValue=(value:unknown):value is SimulatorValue=>
  typeof value==='boolean'||typeof value==='string'&&value.length<=500||
  typeof value==='number'&&Number.isFinite(value)&&Math.abs(value)<=1e9;
 export function applySimulatorChanges(previous:SimulatorState,changes:readonly SimulatorStateChange[]):SimulatorState{
- if(changes.length>40)throw Error('单回合世界状态变更超过上限。');
- const next:SimulatorState=Object.assign(Object.create(null),previous);
+ if(!Array.isArray(changes)||changes.length>40)throw Error('单回合世界状态变更超过上限。');
+ const next:SimulatorState=Object.create(null);
+ // Treat restored/foreign snapshots as untrusted: never copy prototype keys or invalid values.
+ for(const [key,value] of Object.entries(previous)){
+  if(!validKey(key)||!validValue(value))throw Error('已有世界状态包含无效字段。');
+  next[key]=value;
+ }
+ if(Object.keys(next).length>200)throw Error('已有世界状态字段超过上限。');
  for(const change of changes){
-  if(!change||!validKey(change.key))throw Error('世界状态字段无效。');
+  if(!change||typeof change.key!=='string'||!validKey(change.key))throw Error('世界状态字段无效。');
   if(change.op==='remove'){if(change.value!==undefined)throw Error('删除状态不能携带数值。');delete next[change.key];continue;}
   if(!validValue(change.value))throw Error('世界状态数值无效。');
   if(change.op==='set')next[change.key]=change.value;
