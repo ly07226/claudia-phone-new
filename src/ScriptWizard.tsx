@@ -15,6 +15,7 @@ import {readWizardDocument} from './wizardDocumentImport';
 import {saveLongNarrative,readLongNarrative,synopsisPreview} from './wizardLongNarrative';
 import {analyzeLongNarrative} from './wizardSourceAnalysis';
 import {indexSimulatorDocument,simulatorEvidence} from './wizardSimulatorDocument';
+import {extractSimulatorRuleCandidates} from './wizardSimulatorRules';
 const steps=['剧情设定','主控面具','关联角色','开局方向','生成与进入'];
 export function ScriptWizard(){
  const s=usePhone(),nav=useSpaces(),key=wizardDraftKey(db.name);
@@ -94,6 +95,7 @@ export function ScriptWizard(){
      <h3>模拟器原文索引（不改写规则）</h3>
      <p className="wizard-note">这是按标题和关键词生成的初步分类，并非 AI 已完整理解。原文仍保存在本机；尚未接入世界运行引擎。</p>
      <p className="wizard-note">{simulatorSections.length} 个标题区块 · {simulatorSections.filter(x=>x.kind==='mechanics').length} 个机制候选 · {simulatorSections.filter(x=>x.kind==='characters').length} 个角色候选 · {simulatorSections.filter(x=>x.kind==='opening_gate').length} 个开局条件候选</p>
+     <p className="wizard-note">规则候选：{extractSimulatorRuleCandidates(simulatorSections).length} 条（关键词初筛，未进行 AI 语义验证或执行）</p>
      <label>搜索原文规则（关键词）<input aria-label="搜索模拟器原文" value={sourceSearch} onChange={e=>setSourceSearch(e.target.value)} placeholder="例如：感染、角色卡、禁止、资源"/></label>
      {sourceSearch.trim()&&<div aria-live="polite">{simulatorEvidence(simulatorSections,[sourceSearch.trim()],8).map(hit=><article key={hit.sectionId}><h4>{hit.heading} · {hit.kind}</h4><p>{hit.excerpt}</p><small>原文字符位置 {hit.start}–{hit.end}</small></article>)}</div>}
     </section>}
