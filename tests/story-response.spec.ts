@@ -36,3 +36,28 @@ for(const provider of ['openai-compatible','gemini'])test(`${provider} 格式失
  }
  expect(calls).toBe(7);await page.reload();expect(calls).toBe(7);
 });
+
+test('simulator-only state protocol rejects malformed changes without changing normal story mode',async({page})=>{
+ await storySeed(page);
+ const results=await page.evaluate(async good=>{
+  const {parseStoryReply}=await import('/src/storyGeneration.ts');
+  const parse=(data:unknown,simulator:boolean)=>{try{return parseStoryReply(JSON.stringify(data),[],simulator);}catch{return null;}};
+  const valid={...good,stateChanges:[{key:'supplies',op:'set',value:5},{key:'doorOpen',op:'set',value:false}]};
+  return {
+   valid:parse(valid,true)?.stateChanges?.length,
+   empty:parse({...good,stateChanges:[]},true)?.stateChanges?.length,
+   missing:parse(good,true),
+   invalid:parse({...good,stateChanges:[{key:'__proto__',op:'set',value:1}]},true),
+   unknown:parse({...good,stateChanges:[{key:'supplies',op:'set',value:1,extra:true}]},true),
+   normal:parse(good,false)?.body===good.body,
+   normalRejectsSimulator:parse(valid,false)
+  };
+ },reply());
+ expect(results.valid).toBe(2);
+ expect(results.empty).toBe(0);
+ expect(results.missing).toBeNull();
+ expect(results.invalid).toBeNull();
+ expect(results.unknown).toBeNull();
+ expect(results.normal).toBe(true);
+ expect(results.normalRejectsSimulator).toBeNull();
+});
