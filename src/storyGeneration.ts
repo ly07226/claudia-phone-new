@@ -33,7 +33,7 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
  let simulatorPolicy=simulatorSource?await compileSimulatorRuntime(simulatorSource.id,document):undefined;
  // Never claim a generation lease if the supplied public world metadata already contains secret evidence.
  if(containsHiddenEvidence([initialWorld?.description,initialWorld?.background,initialWorld?.rules,initialWorld?.script],simulatorPolicy))throw Error('公开世界设定包含未公开的秘密证据，未请求模型。');
- const claim=await claimStory(worldId,actionInput,!!options.allowOldDefinition,options.expected,!!options.firstAttemptOnly,options.operation,simulatorPolicy?Math.min(24000,new TextEncoder().encode(JSON.stringify({rules:simulatorPolicy.publicRules,runtime:document?.runtime})).length+3000):0),s=claim.session,token=s.pending!.token;
+ const claim=await claimStory(worldId,actionInput,!!options.allowOldDefinition,options.expected,!!options.firstAttemptOnly,options.operation,simulatorPolicy?(simulatorPolicy.referenceOnly?5000:Math.min(24000,new TextEncoder().encode(JSON.stringify({rules:simulatorPolicy.publicRules,runtime:document?.runtime})).length+3000)):0),s=claim.session,token=s.pending!.token;
  const controller=new AbortController(),abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
  let timedOut=false;const timer=setTimeout(()=>{timedOut=true;abort();},storyLimits.leaseMs);let failure:'cancelled'|'request'|'invalid'|'stale'|'budget'='request',phase:StoryFailureStage='configuration';
  let configuredOutputTokens=0,diagnosticRecorded=false,credentialForRedaction='\u0000';
