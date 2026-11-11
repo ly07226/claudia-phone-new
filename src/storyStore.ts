@@ -1,6 +1,7 @@
 import {readStoryParticipants} from './storyParticipants';
 import {normalizeStoryAction} from './storyActions';
 import {storyInput} from './storyContext';
+import {replaySimulatorState} from './wizardSimulatorState';
 import {db,type World} from './store';
 import {validateScriptConfig} from './scriptValidation';
 import {validateStoryNode,validateStorySession,validateStoryPreferences,validateStoryGuidance} from './storyValidation';
@@ -14,7 +15,7 @@ export const storyTables=()=>[db.worlds,db.storySessions,db.storyNodes,db.themes
 export async function readStoryPath(s:StorySession){
  const path:StoryNode[]=[],seen=new Set<string>();let id=s.headNodeId;
  while(id){if(seen.has(id))throw Error('主线路径循环。');seen.add(id);const n=await db.storyNodes.get(id);if(!n||n.worldId!==s.worldId||n.sessionId!==s.id||n.sequence!==s.revision-path.length)throw Error('主线路径无效。');validateStoryNode(n);path.push(n);id=n.parentNodeId;}
- if(path.length!==s.revision)throw Error('主线路径断链。');return path.reverse();
+ if(path.length!==s.revision)throw Error('主线路径断链。');const ordered=path.reverse();replaySimulatorState(ordered);return ordered;
 }
 export interface StoryReadResult {world:World;session?:StorySession;path:StoryNode[]}
 /** A view may reuse an immutable path when only its draft/settings changed.
