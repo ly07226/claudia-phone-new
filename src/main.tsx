@@ -211,6 +211,8 @@ function App() {
   const firstPage=s.pages[0]?.id;
   const displayItems=s.items.filter(i=>i.app!=='剧本'||canStory);
   if(canStory&&!displayItems.some(i=>i.app==='剧本')&&firstPage)displayItems.push({id:'virtual-story-app',kind:'app',app:'剧本',pageId:firstPage,position:Math.max(0,...displayItems.filter(i=>i.pageId===firstPage).map(i=>i.position))+1,size:1});
+  // Existing users retain their customized desktop; expose the new app without resetting their layout.
+  if(!displayItems.some(i=>i.kind==='app'&&i.app==='忍一下嘛')&&firstPage)displayItems.push({id:'virtual-phase-play-app',kind:'app',app:'忍一下嘛',pageId:firstPage,position:Math.max(0,...displayItems.filter(i=>i.pageId===firstPage).map(i=>i.position))+1,size:1});
   const pageItems = displayItems
     .filter((i) => i.pageId === s.pageId)
     .sort((a, b) => a.position - b.position);
@@ -414,7 +416,7 @@ function App() {
                 <IdentityEditor key={space?.spaceId || "daily"} spaceId={space?.spaceId || "daily"}/>
               ) : s.activeApp === "聊天" || s.activeApp === "世界聊天" ? (
                 <Chat worldId={space?.worldId} />
-              ) : s.activeApp === "忍一下嘛" && !space?.worldId ? (
+              ) : s.activeApp === "忍一下嘛" ? (
                 <PhasePlayApp onBack={phoneNavigation.back}/>
               ) : s.activeApp === "世界书 / Lorebook" ? (
                 <Lorebooks />
@@ -657,7 +659,7 @@ function App() {
             )}
             <div className="grid" key={s.pageId}>
               {pageItems.map((item) => {
-                const Icon = item.app==='剧本'?BookOpen:icons[apps.indexOf(item.app || "")] || Flower2;
+                const Icon = item.app==='剧本'?BookOpen:item.app==='忍一下嘛'?Flower2:icons[apps.indexOf(item.app || "")] || Flower2;
                 return (
                   <div
                     key={item.id}
@@ -666,7 +668,7 @@ function App() {
                     style={{
                       gridColumn: `span ${item.kind === "widget" ? item.size : 1}`,
                     }}
-                    onPointerDown={(e) => {if(item.id!=='virtual-story-app')start(e, item.id);}}
+                    onPointerDown={(e) => {if(item.id!=='virtual-story-app'&&item.id!=='virtual-phase-play-app')start(e, item.id);}}
                     onPointerMove={motion}
                     onPointerUp={end}
                     onPointerCancel={() => {
