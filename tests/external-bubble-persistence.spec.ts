@@ -2,6 +2,7 @@ import {test,expect} from '@playwright/test';
 
 test('external bubble CSS survives save, reload, and compiles to real chat selectors',async({page})=>{
  await page.goto('/');
+ await page.waitForFunction(async()=>{const {usePhone}=await import('/src/store.ts');return usePhone.getState().ready;});
  const source=`.message-container.sent .message-bubble { background: #e8f5e9 !important; border-radius: 19px !important; box-shadow: 0 2px 8px rgba(200, 220, 200, 0.2), inset 0 1px 2px rgba(255, 255, 255, 0.6) !important; }
 .message-container.received .message-bubble { background: rgba(255, 230, 240, 0.5) !important; }`;
  await page.evaluate(async(source)=>{

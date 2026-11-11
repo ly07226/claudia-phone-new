@@ -1,5 +1,5 @@
 /** Long narrative source storage is independent of the short AI synopsis. */
-export interface LongNarrative {id:string;name:string;body:string;createdAt:number;sections:{heading:string;start:number;end:number}[];originalFile?:{mime:string;base64:string}}
+export interface LongNarrative {preparation?:import('./wizardAutomaticDocument').AutomaticPreparation;id:string;name:string;body:string;createdAt:number;sections:{heading:string;start:number;end:number}[];originalFile?:{mime:string;base64:string}}
 const database='claudia-wizard-long-sources-v1',store='sources';
 function openDb():Promise<IDBDatabase>{return new Promise((resolve,reject)=>{const req=indexedDB.open(database,1);req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(store))req.result.createObjectStore(store,{keyPath:'id'});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error??Error('无法打开长篇存储'));});}
 function transact<T>(mode:IDBTransactionMode,action:(objectStore:IDBObjectStore,resolve:(v:T)=>void,reject:(e:unknown)=>void)=>void):Promise<T>{
@@ -16,3 +16,5 @@ export function segmentNarrative(body:string){const sections:{heading:string;sta
 export async function saveLongNarrative(name:string,body:string,originalFile?:LongNarrative['originalFile']):Promise<LongNarrative>{if(!body.trim()||body.length>2000000)throw Error('长篇正文需在 1 至 200 万字符之间。');const item={id:crypto.randomUUID(),name,body,createdAt:Date.now(),sections:segmentNarrative(body),...(originalFile?{originalFile}:{})};await transact<void>('readwrite',(s,resolve,reject)=>{const r=s.put(item);r.onsuccess=()=>resolve();r.onerror=()=>reject(r.error);});return item;}
 export function readLongNarrative(id:string):Promise<LongNarrative|undefined>{return transact('readonly',(s,resolve,reject)=>{const r=s.get(id);r.onsuccess=()=>resolve(r.result as LongNarrative|undefined);r.onerror=()=>reject(r.error);});}
 export function synopsisPreview(body:string,max=9000){const paragraphs=body.split(/\n\s*\n/).filter(Boolean),selected:string[]=[];let used=0;for(const paragraph of paragraphs){if(used+paragraph.length>max)break;selected.push(paragraph);used+=paragraph.length+2;}return (selected.join('\n\n')||body.slice(0,max)).trim();}
+
+export async function storePreparedSource(source:LongNarrative){await transact<void>('readwrite',(s,resolve,reject)=>{const r=s.put(source);r.onsuccess=()=>resolve();r.onerror=()=>reject(r.error);});}

@@ -22,7 +22,7 @@ export interface SimulatorRuntimePolicy {
 export async function compileSimulatorRuntime(sourceId:string,snapshot?:StoryDocumentSnapshot,state:SimulatorState={},history:readonly SimulatorState[]=[]):Promise<SimulatorRuntimePolicy>{
  const source=snapshot?.source??await readLongNarrative(sourceId);
  if(!source)throw Error('模拟器原文已丢失，不能启用规则。');
- const chunks=planSimulatorAnalysis(source.body,indexSimulatorDocument(source.body));
+ const chunks=planSimulatorAnalysis(source.body,indexSimulatorDocument(source.body),snapshot?.automation?.chunkChars);
  if(!checkSimulatorCoverage(source.body,chunks).complete)throw Error('模拟器原文覆盖校验失败。');
  const reviews=snapshot?.reviews??await listSimulatorReviews(source.id,source.body.length);
  const decisions=snapshot?.decisions??await listSimulatorDecisions(source.id,source.body.length);

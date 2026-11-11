@@ -29,8 +29,9 @@ export async function createWizardWorld(input:Readonly<ScriptWizardDraft>):Promi
  const d=structuredClone(input);validateWizardDraft(d);
  if(!d.creationToken)throw Error('请先保存草稿创建标识，再确认创建。');
  const source=d.longSourceId?await readLongNarrative(d.longSourceId):undefined;
+ if(source&&!source.preparation){const {listSimulatorReviews}=await import('./wizardSimulatorReviewStore');if(!(await listSimulatorReviews(source.id,source.body.length)).length)throw Error('剧本尚未准备完成，请返回第一步点击重新准备。');}
  if(d.longSourceId&&!source)throw Error('原始模拟器文档不存在，未创建不完整世界。');
- let runtime:DocumentRuntimeConfig|undefined;if(d.documentMode==='simulation'){try{runtime=JSON.parse(d.runtimeConfig??'');}catch{throw Error('请填写有效的模拟状态 JSON，未创建世界。');}}
+ let runtime:DocumentRuntimeConfig|undefined;if(d.documentMode==='simulation'&&!source?.preparation){try{runtime=JSON.parse(d.runtimeConfig??'');}catch{throw Error('请填写有效的模拟状态 JSON，未创建世界。');}}
  const document=source?await createDocumentSnapshot(source.id,d.documentMode??'narrative',runtime):undefined;
  const policy=document?await compileSimulatorRuntime(document.source.id,document):undefined;
  const publicSummary:string[]=[];let summaryLength=0;for(const rule of policy?.publicRules??[]){if(summaryLength+rule.text.length+1>10000)break;publicSummary.push(rule.text);summaryLength+=rule.text.length+1;}
