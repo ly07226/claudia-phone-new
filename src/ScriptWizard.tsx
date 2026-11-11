@@ -19,6 +19,7 @@ import {extractSimulatorRuleCandidates} from './wizardSimulatorRules';
 import {planSimulatorAnalysis,checkSimulatorCoverage} from './wizardSimulatorCoverage';
 import {reviewSimulatorChunk,type SimulatorChunkReview} from './wizardSimulatorReview';
 import {saveSimulatorReview,listSimulatorReviews,type SavedSimulatorReview} from './wizardSimulatorReviewStore';
+import {findSimulatorReviewPairs} from './wizardSimulatorConflicts';
 const steps=['剧情设定','主控面具','关联角色','开局方向','生成与进入'];
 export function ScriptWizard(){
  const s=usePhone(),nav=useSpaces(),key=wizardDraftKey(db.name);
@@ -110,6 +111,10 @@ export function ScriptWizard(){
       <h4>AI 逐段规则核对（主动调用，可能产生 API 费用）</h4>
       <p className="wizard-note">每次只分析一个片段，逐字核验 AI 引用是否出现在原文中；不自动修改世界设定，也不代表已分析全文。</p>
       <p className="wizard-note">已持久保存 {savedReviews.length}/{sourceCoverage?.chunks??0} 个片段的 AI 审核记录。结果保存在本机浏览器，不包含在 ZIP 备份中。</p>
+      {savedReviews.length>0&&<details><summary>待人工核对的潜在规则冲突：{findSimulatorReviewPairs(savedReviews).length} 组（仅提示，不自动判定）</summary>
+       <p className="wizard-note">这里仅比较已经保存的片段。相反措辞不一定矛盾，可能涉及不同时间、角色、例外条件或秘密身份。未核对前不会覆盖任何原文。</p>
+       {findSimulatorReviewPairs(savedReviews).slice(0,15).map(pair=><article key={pair.id}><p>{pair.reason}</p><blockquote>{pair.left.quote}</blockquote><small>原文位置 {pair.left.start}–{pair.left.end}</small><blockquote>{pair.right.quote}</blockquote><small>原文位置 {pair.right.start}–{pair.right.end}</small></article>)}
+      </details>
       {savedReviews.some(x=>x.review.chunkIndex===reviewChunk)&&<button type="button" disabled={reviewBusy} onClick={()=>{const saved=savedReviews.find(x=>x.review.chunkIndex===reviewChunk);if(saved)setSimulatorReview(saved.review);}}>查看本段已保存结果</button>}
       <label>片段编号（从 1 开始）<input type="number" min={1} max={sourceCoverage?.chunks??1} value={reviewChunk+1} onChange={e=>{const value=Number(e.target.value);if(Number.isInteger(value))setReviewChunk(Math.max(0,Math.min((sourceCoverage?.chunks??1)-1,value-1)));}}/></label>
       <button type="button" disabled={reviewBusy||reading||creating||analyzingSource||!draft.longSourceId||!sourceCoverage?.complete} onClick={()=>{if(!draft.longSourceId)return;const controller=new AbortController();reviewAbort.current=controller;setReviewBusy(true);setSimulatorReview(null);setError('');void reviewSimulatorChunk(draft.longSourceId,reviewChunk,controller.signal).then(async result=>{if(controller.signal.aborted)return;const source=await readLongNarrative(draft.longSourceId!);if(!source)throw Error('原文已丢失，审核结果未保存。');await saveSimulatorReview(source.id,source.body.length,source.name,result);const items=await listSimulatorReviews(source.id,source.body.length);if(alive.current&&!controller.signal.aborted){setSimulatorReview(result);setSavedReviews(items);}}).catch(e=>{if(alive.current)setError(e instanceof Error?e.message:'本段分析失败。');}).finally(()=>{if(reviewAbort.current===controller)reviewAbort.current=null;if(alive.current)setReviewBusy(false);});}}>{reviewBusy?'正在核验本段…':'AI 核对当前片段'}</button>
