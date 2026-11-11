@@ -5,27 +5,24 @@ export function loadPhaseData(database:string):{data:PhaseData;error:string}{
  const settings=defaults(),fallback:PhaseData={version:1,settings,session:initial(settings)};
  try{const raw=localStorage.getItem(storageKey(database));if(!raw)return {data:fallback,error:''};const parsed:unknown=JSON.parse(raw);if(!validData(parsed))return {data:fallback,error:'本应用保存的数据无法读取，原记录保留。修改或开始前请先确认重置本应用记录。'};
   const safe:PhaseData={...parsed,session:{...parsed.session,status:parsed.session.status==='running'?'paused':parsed.session.status}};
-  // Earlier builds used character:<id>:<instruction> without a world segment.
-  // Migrate only the currently selected character, and only when no scoped copy exists.
+  // Legacy IDs: character:<id>:<instruction>. New IDs include an encoded world segment.
+  // Only migrate the selected character; never guess which world older prompts belonged to.
   const id=safe.settings.instructionCharacterId;
   if(id){
    const legacyPrefix='character:'+id+':';
    const newPrefix='character:'+encodeURIComponent(id)+'::';
    const legacy=safe.settings.prompts.filter(p=>p.id.startsWith(legacyPrefix)&&!p.id.startsWith(newPrefix));
    if(legacy.length){
-    const mapped=legacy.map(p=>({...p,id:newPrefix+p.id.slice(legacyPrefix.length)}));
-    const seen=new Set(safe.settings.prompts.map(p=>p.id));
-    const migrated=mapped.filter(p=>!seen.has(p.id));
+    const existing=new Set(safe.settings.prompts.map(p=>p.id));
+    const migrated=legacy.map(p=>({...p,id:newPrefix+p.id.slice(legacyPrefix.length)})).filter(p=>!existing.has(p.id));
     const updated:PhaseData={...safe,settings:{...safe.settings,prompts:[...safe.settings.prompts.filter(p=>!legacy.includes(p)),...migrated]}};
-    // Backup the original before replacing legacy IDs, including when already at capacity.
-    if(legacy.length&&validData(updated)){
-     try{
-      const backupKey=storageKey(database)+':pre-scope-migration';
-      if(localStorage.getItem(backupKey)===null)localStorage.setItem(backupKey,raw);
-      localStorage.setItem(storageKey(database),JSON.stringify(updated));
-      return {data:updated,error:''};
-     }catch{return {data:safe,error:'旧指令可读取，但迁移未能完成；原记录未主动删除。'};}
-    }
+    if(!validData(updated))return {data:safe,error:'旧指令格式需要人工确认，自动迁移已跳过；原记录保留。'};
+    try{
+     const backupKey=storageKey(database)+':pre-scope-migration';
+     if(localStorage.getItem(backupKey)===null)localStorage.setItem(backupKey,raw);
+     localStorage.setItem(storageKey(database),JSON.stringify(updated));
+     return {data:updated,error:''};
+    }catch{return {data:safe,error:'旧指令可读取，但迁移未能完成；原记录未主动删除。'};}
    }
   }
   return {data:safe,error:''};
