@@ -6,9 +6,10 @@ const targets:Record<string,string[]>={'.theme-page':['&'],'.theme-card':['.card
 const colorProperties=new Set(['color','background-color','border-color','outline-color']);
 const ranges:Record<string,{min:number;max:number;unit:string}>={'border-radius':{min:0,max:28,unit:'px'},'font-size':{min:12,max:24,unit:'px'},'line-height':{min:1.2,max:2,unit:''}};
 const bubbleSelectors=new Set(['.theme-user-bubble','.theme-role-bubble','.chat-user','.chat-assistant','.chat-bubble','.chat-bubble-surface']);
-const bubbleProperties=new Set(['background','background-image','box-shadow','border','border-width','border-style','padding','letter-spacing','font-weight','font-style','text-align','opacity','text-shadow']);
+const bubbleProperties=new Set(['background','background-image','box-shadow','border','border-width','border-style','padding','letter-spacing','font-weight','font-style','text-align','opacity','text-shadow','backdrop-filter','-webkit-backdrop-filter']);
 const safeBubbleValue=(property:string,value:string):boolean=>{
  if(value.length>240||/[{};<>\\]/.test(value)||/url\s*\(|@import|expression\s*\(|var\s*\(|!important|position|calc\s*\(/i.test(value))return false;
+ if(property==='backdrop-filter'||property==='-webkit-backdrop-filter')return /^blur\((?:0|[1-9]|1[0-9]|20)(?:\.\d+)?px\)$/.test(value)&&Number(value.slice(5,-3))<=20;
  if(property==='background'||property==='background-image')return /^(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|linear-gradient\([#\w\d\s.,%()\-]+\)|none)$/i.test(value);
  if(property==='box-shadow'||property==='text-shadow')return /^(?:none|[\d\s.,#%a-z()\-]+)$/i.test(value)&&!/[a-z]+\s*\(/i.test(value.replace(/rgba?\([\d\s.,%]+\)/gi,''));
  if(property==='border')return /^(?:none|(?:\d{1,2}px\s+)?(?:solid|dashed|dotted)\s+(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)))$/i.test(value);
@@ -20,7 +21,7 @@ const safeBubbleValue=(property:string,value:string):boolean=>{
  if(property==='opacity')return /^0(?:\.\d+)?$|^1(?:\.0+)?$/.test(value);
  return false;
 };
-const invalid=():never=>{throw Error('CSS 校验未通过：请检查选择器、属性或属性值。气泡支持 12～24px 字号、颜色、边框、阴影及内边距；不支持外部资源、嵌套规则或页面布局控制。');};
+const invalid=():never=>{throw Error('CSS 校验未通过：请检查选择器、属性或属性值。气泡支持 12～24px 字号、颜色、边框、阴影、内边距及 blur(0～20px) 毛玻璃；不支持外部资源、嵌套规则或页面布局控制。');};
 export function compileThemeCSS(source:string,preview=false):string{
  if(typeof source!=='string'||source.length>8000)throw Error('自定义 CSS 最多 8000 字符。');
  let i=0;const rules:string[]=[];let hasBubbleRule=false;
@@ -33,7 +34,7 @@ export function compileThemeCSS(source:string,preview=false):string{
   do{const selector=token(/\.[a-z][a-z-]*/y);if(!Object.hasOwn(targets,selector))invalid();selectors.push(...targets[selector]);skip();if(source[i]!==',')break;i++;}while(true);
   mark('{');const declarations:string[]=[];skip();const isBubble=selectors.every(s=>s.includes('chat-bubble-surface'));if(isBubble)hasBubbleRule=true;
   while(source[i]!=='}'){
-   const property=token(/[a-z][a-z-]*/y);mark(':');let value:string;
+   const property=token(/-?[a-z][a-z-]*/y);mark(':');let value:string;
    if(colorProperties.has(property)){const start=i;skip();const end=source.indexOf(';',i),close=source.indexOf('}',i);const stop=end>=0&&end<close?end:close;const candidate=source.slice(i,stop).trim();if(isBubble&&/^(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\))$/i.test(candidate)){value=candidate;i=stop;}else{i=start;value=token(/#[0-9a-fA-F]{6}(?![0-9a-fA-F])/y).toUpperCase();}}
    else if(Object.hasOwn(ranges,property)){const rule=ranges[property],number=token(/(?:\d+(?:\.\d+)?)/y);const n=Number(number);if(n<rule.min||n>rule.max)invalid();if(rule.unit){mark('p');mark('x');}value=String(n)+rule.unit;}
    else if(isBubble&&bubbleProperties.has(property)){skip();const end=source.indexOf(';',i),close=source.indexOf('}',i);const stop=end>=0&&end<close?end:close;if(stop<0)invalid();value=source.slice(i,stop).trim();if(!safeBubbleValue(property,value))invalid();i=stop;}
