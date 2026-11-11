@@ -17,6 +17,7 @@ import {analyzeLongNarrative} from './wizardSourceAnalysis';
 import {indexSimulatorDocument,simulatorEvidence} from './wizardSimulatorDocument';
 import {extractSimulatorRuleCandidates} from './wizardSimulatorRules';
 import {planSimulatorAnalysis,checkSimulatorCoverage} from './wizardSimulatorCoverage';
+import {reviewSimulatorChunk,type SimulatorChunkReview} from './wizardSimulatorReview';
 const steps=['剧情设定','主控面具','关联角色','开局方向','生成与进入'];
 export function ScriptWizard(){
  const s=usePhone(),nav=useSpaces(),key=wizardDraftKey(db.name);
@@ -27,6 +28,10 @@ export function ScriptWizard(){
  const [sourceSearch,setSourceSearch]=useState('');
  const [sourceCoverage,setSourceCoverage]=useState<{total:number;covered:number;complete:boolean;chunks:number}|null>(null);
  const [analyzingSource,setAnalyzingSource]=useState(false);
+ const [simulatorReview,setSimulatorReview]=useState<SimulatorChunkReview|null>(null);
+ const [reviewChunk,setReviewChunk]=useState(0);
+ const [reviewBusy,setReviewBusy]=useState(false);
+ const reviewAbort=useRef<AbortController|null>(null);
  const [draft,setDraft]=useState(initial.draft),[error,setError]=useState(initial.error),[saved,setSaved]=useState(false),[reading,setReading]=useState(false),[creating,setCreating]=useState(false),[createdId,setCreatedId]=useState(initial.draft.createdWorldId),[recovering,setRecovering]=useState(true),[assisting,setAssisting]=useState(false),[openingError,setOpeningError]=useState('');
  const wizardRoot=useRef<HTMLElement>(null);
  const [visibleHeight,setVisibleHeight]=useState<number|null>(null);
@@ -36,7 +41,7 @@ export function ScriptWizard(){
  const stored=useRef(initial.raw),alive=useRef(true),request=useRef(0),content=useRef<HTMLDivElement>(null),file=useRef<HTMLInputElement>(null);
  useEffect(()=>{alive.current=true;
   void (async()=>{try{if(!initial.draft.createdWorldId&&initial.draft.creationToken){const world=await findWizardCreation(initial.draft.creationToken);if(world&&alive.current)setCreatedId(world.id);}}catch(e){if(alive.current)setError(e instanceof Error?e.message:'无法复核创建状态。');}finally{if(alive.current)setRecovering(false);}})();
-  const hide=()=>assistant.current?.abort();window.addEventListener('pagehide',hide);return()=>{alive.current=false;request.current++;assistant.current?.abort();window.removeEventListener('pagehide',hide);};},[]);
+  const hide=()=>{assistant.current?.abort();reviewAbort.current?.abort();};window.addEventListener('pagehide',hide);return()=>{alive.current=false;request.current++;assistant.current?.abort();reviewAbort.current?.abort();window.removeEventListener('pagehide',hide);};},[]);
  useEffect(()=>{const id=draft.longSourceId;if(!id){setLongSource(null);setSimulatorSections([]);setSourceCoverage(null);return;}let live=true;void readLongNarrative(id).then(source=>{if(live){setLongSource(source?{name:source.name,characters:source.body.length,sections:source.sections.length}:null);setSimulatorSections(source?indexSimulatorDocument(source.body):[]);if(source){const chunks=planSimulatorAnalysis(source.body,indexSimulatorDocument(source.body));const result=checkSimulatorCoverage(source.body,chunks);setSourceCoverage({...result,chunks:chunks.length});}else setSourceCoverage(null);}}).catch(()=>{if(live)setLongSource(null);});return()=>{live=false;};},[draft.longSourceId]);
  const available=new Set(s.characters.map(c=>c.id));
  function update(patch:Partial<ScriptWizardDraft>){
@@ -56,7 +61,7 @@ export function ScriptWizard(){
   try{if(selected.size>wizardLimits.fileBytes)throw Error('文件超过 20 MB，请缩小后重试。');const patch=await readWizardDocument(selected);
    if(!alive.current||ticket!==request.current)return;
    if((draft.title||draft.synopsis||draft.rules||draft.direction)&&!confirm('用文件内容替换对应草稿字段？不会修改任何现有世界。'))return;
-   if(patch.longBody){const source=await saveLongNarrative(selected.name,patch.longBody);setLongSource({name:source.name,characters:source.body.length,sections:source.sections.length});setSimulatorSections(indexSimulatorDocument(source.body));const chunks=planSimulatorAnalysis(source.body,indexSimulatorDocument(source.body));const coverage=checkSimulatorCoverage(source.body,chunks);if(!coverage.complete)throw Error('全文分段覆盖校验失败，未导入草稿。');setSourceCoverage({...coverage,chunks:chunks.length});setSourceAnalysis('');update({synopsis:synopsisPreview(source.body),longSourceId:source.id,longSourceName:source.name});}
+   if(patch.longBody){const source=await saveLongNarrative(selected.name,patch.longBody);setLongSource({name:source.name,characters:source.body.length,sections:source.sections.length});setSimulatorSections(indexSimulatorDocument(source.body));const chunks=planSimulatorAnalysis(source.body,indexSimulatorDocument(source.body));const coverage=checkSimulatorCoverage(source.body,chunks);if(!coverage.complete)throw Error('全文分段覆盖校验失败，未导入草稿。');setSourceCoverage({...coverage,chunks:chunks.length});setSourceAnalysis('');setSimulatorReview(null);setReviewChunk(0);update({synopsis:synopsisPreview(source.body),longSourceId:source.id,longSourceName:source.name});}
    else update(patch);
   }catch(e){if(alive.current&&ticket===request.current)setError(e instanceof Error?e.message:'读取失败，原草稿未改变。');}
   finally{if(alive.current&&ticket===request.current)setReading(false);}
@@ -99,6 +104,14 @@ export function ScriptWizard(){
      <p className="wizard-note">这是按标题和关键词生成的初步分类，并非 AI 已完整理解。原文仍保存在本机；尚未接入世界运行引擎。</p>
      <p className="wizard-note">{simulatorSections.length} 个标题区块 · {simulatorSections.filter(x=>x.kind==='mechanics').length} 个机制候选 · {simulatorSections.filter(x=>x.kind==='characters').length} 个角色候选 · {simulatorSections.filter(x=>x.kind==='opening_gate').length} 个开局条件候选</p>
      <p className="wizard-note">规则候选：{extractSimulatorRuleCandidates(simulatorSections).length} 条（关键词初筛，未进行 AI 语义验证或执行）</p>
+     <div className="wizard-source-analysis">
+      <h4>AI 逐段规则核对（主动调用，可能产生 API 费用）</h4>
+      <p className="wizard-note">每次只分析一个片段，逐字核验 AI 引用是否出现在原文中；不自动修改世界设定，也不代表已分析全文。</p>
+      <label>片段编号（从 1 开始）<input type="number" min={1} max={sourceCoverage?.chunks??1} value={reviewChunk+1} onChange={e=>{const value=Number(e.target.value);if(Number.isInteger(value))setReviewChunk(Math.max(0,Math.min((sourceCoverage?.chunks??1)-1,value-1)));}}/></label>
+      <button type="button" disabled={reviewBusy||reading||creating||analyzingSource||!draft.longSourceId||!sourceCoverage?.complete} onClick={()=>{if(!draft.longSourceId)return;const controller=new AbortController();reviewAbort.current=controller;setReviewBusy(true);setSimulatorReview(null);setError('');void reviewSimulatorChunk(draft.longSourceId,reviewChunk,controller.signal).then(result=>{if(alive.current&&!controller.signal.aborted)setSimulatorReview(result);}).catch(e=>{if(alive.current)setError(e instanceof Error?e.message:'本段分析失败。');}).finally(()=>{if(reviewAbort.current===controller)reviewAbort.current=null;if(alive.current)setReviewBusy(false);});}}>{reviewBusy?'正在核验本段…':'AI 核对当前片段'}</button>
+      {reviewBusy&&<button type="button" onClick={()=>reviewAbort.current?.abort()}>取消本段分析</button>}
+      {simulatorReview&&<div aria-live="polite"><p>第 {simulatorReview.chunkIndex+1}/{simulatorReview.chunkCount} 段 · 原文可核对条目 {simulatorReview.findings.length} 条 · 未通过原文核验 {simulatorReview.rejected} 条</p>{simulatorReview.findings.map((finding,i)=><article key={i}><strong>{finding.kind}</strong><blockquote>{finding.quote}</blockquote><p>{finding.interpretation}</p><small>原文位置 {finding.start}–{finding.end} · 仅引用核验通过，语义仍需人工审核</small></article>)}</div>}
+     </div>
      <label>搜索原文规则（关键词）<input aria-label="搜索模拟器原文" value={sourceSearch} onChange={e=>setSourceSearch(e.target.value)} placeholder="例如：感染、角色卡、禁止、资源"/></label>
      {sourceSearch.trim()&&<div aria-live="polite">{simulatorEvidence(simulatorSections,[sourceSearch.trim()],8).map(hit=><article key={hit.sectionId}><h4>{hit.heading} · {hit.kind}</h4><p>{hit.excerpt}</p><small>原文字符位置 {hit.start}–{hit.end}</small></article>)}</div>}
     </section>}
