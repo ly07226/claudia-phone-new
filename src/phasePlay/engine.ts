@@ -33,8 +33,8 @@ export function validData(x:unknown):x is PhaseData{
  for(const p of phases){const d=s.duration[p];if(!object(d)||!number(d.seconds,1,600)||!number(d.min,1,600)||!number(d.max,1,600)||Number(d.min)>Number(d.max))return false;}
  if(!Array.isArray(s.prompts)||s.prompts.length>100||!s.prompts.every(p=>object(p)&&typeof p.id==='string'&&p.id.length<=240&&['all',...phases].includes(String(p.phase))&&typeof p.text==='string'&&p.text.trim().length>0&&p.text.length<=1000))return false;
  if(new Set(s.prompts.map(p=>p.id)).size!==s.prompts.length)return false;
- if((s.sweetMode!==undefined&&typeof s.sweetMode!=='boolean')||(s.commandMode!==undefined&&typeof s.commandMode!=='boolean')||(s.address!==undefined&&(typeof s.address!=='string'||s.address.length>60))||(s.intensity!==undefined&&!['soft','medium','strong','dramatic'].includes(s.intensity)))return false;
- if(s.instructionMode!==undefined&&!['default','character'].includes(s.instructionMode)||s.instructionCharacterId!==undefined&&(typeof s.instructionCharacterId!=='string'||s.instructionCharacterId.length>100))return false;
+ if((s.sweetMode!==undefined&&typeof s.sweetMode!=='boolean')||(s.commandMode!==undefined&&typeof s.commandMode!=='boolean')||(s.address!==undefined&&(typeof s.address!=='string'||s.address.length>60))||(s.intensity!==undefined&&!['soft','medium','strong','dramatic'].includes(String(s.intensity))))return false;
+ if(s.instructionMode!==undefined&&!['default','character'].includes(String(s.instructionMode))||s.instructionCharacterId!==undefined&&(typeof s.instructionCharacterId!=='string'||s.instructionCharacterId.length>100))return false;
  if(s.instructionWorldId!==undefined&&(typeof s.instructionWorldId!=='string'||s.instructionWorldId.length>100))return false;
  return ['idle','running','paused'].includes(String(r.status))&&phases.includes(r.phase as Phase)&&number(r.remainingMs,0,600000)&&Number.isInteger(r.step)&&number(r.step,0,1e9)&&typeof r.prompt==='string'&&r.prompt.length<=1000;
 }
