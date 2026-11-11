@@ -34,7 +34,21 @@ export async function reviewSimulatorChunk(sourceId:string,chunkIndex:number,sig
    if(interrupted)throw Error('本段审核输出未完整结束，未保存审核。');
    if(controller.signal.aborted)throw Error('本段分析取消或超时。');
    const cleaned=response.trim().replace(/^\x60\x60\x60(?:json)?\s*/i,'').replace(/\s*\x60\x60\x60$/,'');
-   let parsed:unknown;try{parsed=JSON.parse(cleaned);}catch{throw Error('AI 未返回有效 JSON，本段未记录结果。');}
+   // Models may wrap otherwise valid JSON in prose or markdown. Extract the first
+   // complete JSON object without treating arbitrary prose as structured findings.
+   let parsed:unknown;
+   try{parsed=JSON.parse(cleaned);}catch{
+    const start=cleaned.indexOf('{');let end=-1,depth=0,inString=false,escaped=false;
+    for(let i=start;i>=0&&i<cleaned.length;i++){
+     const ch=cleaned[i];
+     if(inString){if(escaped)escaped=false;else if(ch==='\\\\')escaped=true;else if(ch==='"')inString=false;continue;}
+     if(ch==='"'){inString=true;continue;}
+     if(ch==='{')depth++;
+     else if(ch==='}'&&--depth===0){end=i+1;break;}
+    }
+    if(start<0||end<0)throw Error('模型返回内容无法解析为结构化资料，原文与已完成进度保留。');
+    try{parsed=JSON.parse(cleaned.slice(start,end));}catch{throw Error('模型返回的结构化资料不完整，原文与已完成进度保留。');}
+   }
    if(!parsed||typeof parsed!=='object'||!Array.isArray((parsed as {findings?:unknown}).findings))throw Error('AI 返回结构无效。');
    const entries=(parsed as {findings:unknown[]}).findings;
    if(entries.length>(chunkChars?64:12))throw Error('AI 返回条目超出上限，请重新分析。');
