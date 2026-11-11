@@ -7,9 +7,10 @@ const validValue=(value:unknown):value is SimulatorValue=>
  typeof value==='boolean'||typeof value==='string'&&value.length<=500||
  typeof value==='number'&&Number.isFinite(value)&&Math.abs(value)<=1e9;
 export function applySimulatorChanges(previous:SimulatorState,changes:readonly SimulatorStateChange[]):SimulatorState{
- if(!Array.isArray(changes)||changes.length>40)throw Error('单回合世界状态变更超过上限。');
+ validateSimulatorChanges(changes);
  const next:SimulatorState=Object.create(null);
  // Treat restored/foreign snapshots as untrusted: never copy prototype keys or invalid values.
+ if(!previous||typeof previous!=='object'||Array.isArray(previous))throw Error('已有世界状态结构无效。');
  for(const [key,value] of Object.entries(previous)){
   if(!validKey(key)||!validValue(value))throw Error('已有世界状态包含无效字段。');
   next[key]=value;
