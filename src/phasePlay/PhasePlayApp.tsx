@@ -82,7 +82,10 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
     localStorage.setItem(versionKey,JSON.stringify([...history.slice(-9),{savedAt:Date.now(),prompts:previous}]));
    }
    const newPrompts=tasks.map(t=>({id:prefix+t.id,phase:t.phase,text:map.get(t.id)!}));
-   change({...latest,settings:{...latest.settings,prompts:[...others,...newPrompts],instructionMode:'character'}});
+   const updated:PhaseData={...latest,settings:{...latest.settings,prompts:[...others,...newPrompts],instructionMode:'character'}};
+   if(!validData(updated))throw Error('生成结果未通过本地数据校验，旧指令未更改。');
+   savePhaseData(db.name,updated);
+   current.current=updated;setData(updated);setError('');
    setNotice('角色指令库已生成并保存。可逐条编辑；下次直接复用。更新前的版本已保留。');
   }catch(e){setError(e instanceof Error?e.message:'生成失败，旧指令未更改。');}
   finally{setGenerating(false);}
