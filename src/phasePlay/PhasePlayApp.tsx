@@ -81,7 +81,7 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
    const prefix=scopePrefix;
    const previous=old.filter(p=>p.id.startsWith(prefix));
    const others=old.filter(p=>!p.id.startsWith(prefix));
-   if(others.length+tasks.length>100)throw Error('指令总数超过100条，请先清理不需要的自定义指令。');
+   if(others.length+tasks.length>1000)throw Error('指令总数超过1000条，请先清理不需要的自定义指令。');
    if(previous.length&&!confirm('更新将覆盖此角色与世界的当前指令，已编辑内容会先备份到历史版本。确定更新吗？')){setNotice('已取消更新，当前指令保留。');return;}
    const versionKey='claudia.phasePlay.versions.v2:'+db.name+':'+encodeURIComponent(id)+':'+encodeURIComponent(s.instructionWorldId??'');
    if(previous.length){
@@ -105,14 +105,14 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
   if(existing.length&&!confirm('将重新建立此角色的基础指令草稿，覆盖此前编辑的角色指令。继续吗？'))return;
   const others=s.prompts.filter(p=>!p.id.startsWith(scopePrefix));
   const drafted=baseInstructions.map(item=>({id:scopePrefix+item.id,phase:item.phase,text:item.text}));
-  if(others.length+drafted.length>100)return setError('指令数量超出100条限制。');
+  if(others.length+drafted.length>1000)return setError('指令数量超出1000条限制。');
   const updated:PhaseData={...current.current,settings:{...current.current.settings,prompts:[...others,...drafted],instructionMode:'character'}};
   try{savePhaseData(db.name,updated);current.current=updated;setData(updated);setError('');setNotice('已建立并保存基础指令草稿，尚未调用 AI。');}catch(e){setError(e instanceof Error?e.message:'草稿保存失败。');}
  }
  function savePrompt(){
   if(!text.trim())return setError('请输入提示文本。');
   if(s.instructionMode==='character'&&!s.instructionCharacterId)return setError('请先选择角色。');
-  if(!editId&&s.prompts.length>=100)return setError('最多保存 100 条提示。');
+  if(!editId&&s.prompts.length>=1000)return setError('最多保存 1000 条提示。');
   const item={id:editId??(s.instructionMode==='character'?scopePrefix+crypto.randomUUID():crypto.randomUUID()),phase:scope,text:text.trim()};
   const updated:PhaseData={...current.current,settings:{...current.current.settings,prompts:editId?s.prompts.map(p=>p.id===editId?item:p):[...s.prompts,item]}};
   try{savePhaseData(db.name,updated);current.current=updated;setData(updated);setError('');setEditId(null);setText('');setNotice('指令已保存。');}catch(e){setError(e instanceof Error?e.message:'保存失败，编辑内容仍保留。');}
