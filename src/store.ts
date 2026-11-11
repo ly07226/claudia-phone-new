@@ -20,6 +20,9 @@ import type {
   ConversationSnapshot,
 } from "./chatTypes";
 export interface World {
+  /** Local document archive included in ZIP backups; raw source is never sent directly to story prompts. */
+  storyDocument?: import('./wizardDocumentSnapshot').StoryDocumentSnapshot;
+  simulatorSource?: {id:string;name:string;characters:number};
   script?: ScriptConfig;
   storyPreferences?: StoryPreferences;
   id: string;

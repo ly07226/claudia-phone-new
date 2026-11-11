@@ -1,34 +1,37 @@
+import {replayDocumentState} from './wizardRuntimeConfig';
 import {readStoryParticipants} from './storyParticipants';
 import {normalizeStoryAction} from './storyActions';
 import {storyInput} from './storyContext';
+import {replaySimulatorState} from './wizardSimulatorState';
 import {db,type World} from './store';
 import {validateScriptConfig} from './scriptValidation';
 import {validateStoryNode,validateStorySession,validateStoryPreferences,validateStoryGuidance} from './storyValidation';
 import {storyLimits,type StoryDefinition,type StoryNode,type StorySession,type StoryAction,type StoryDraft,type StoryLength,type StoryExpectedProgress,type StoryGuidance} from './storyTypes';
 export function storyDefinition(w:World):StoryDefinition {
  validateScriptConfig(w.script);if(w.script.playMode!=='story')throw Error('此世界未开启剧情模式。');
- return {name:w.name,description:w.description,rules:w.rules??'',background:w.background??'',script:structuredClone(w.script)};
+ return {...(w.storyDocument?{documentRevision:w.storyDocument.revision}:{}),name:w.name,description:w.description,rules:w.rules??'',background:w.background??'',script:structuredClone(w.script)};
 }
 export async function resolveStoryDefinition(w:World):Promise<StoryDefinition>{const definition=storyDefinition(w),participants=await readStoryParticipants(w);return participants?{...definition,participants}:definition;}
 export const storyTables=()=>[db.worlds,db.storySessions,db.storyNodes,db.themes,db.characters,db.worldProfiles];
 export async function readStoryPath(s:StorySession){
  const path:StoryNode[]=[],seen=new Set<string>();let id=s.headNodeId;
  while(id){if(seen.has(id))throw Error('主线路径循环。');seen.add(id);const n=await db.storyNodes.get(id);if(!n||n.worldId!==s.worldId||n.sessionId!==s.id||n.sequence!==s.revision-path.length)throw Error('主线路径无效。');validateStoryNode(n);path.push(n);id=n.parentNodeId;}
- if(path.length!==s.revision)throw Error('主线路径断链。');return path.reverse();
+ if(path.length!==s.revision)throw Error('主线路径断链。');const ordered=path.reverse();const world=await db.worlds.get(s.worldId);if(world?.storyDocument?.runtime)replayDocumentState(ordered,world.storyDocument.runtime);else replaySimulatorState(ordered);return ordered;
 }
 export interface StoryReadResult {world:World;session?:StorySession;path:StoryNode[]}
 /** A view may reuse an immutable path when only its draft/settings changed.
  * Mutation/generation and default callers still resolve and validate the full path. */
 export async function readStory(worldId:string,previous?:StoryReadResult):Promise<StoryReadResult>{return db.transaction('r',storyTables(),async()=>{
  const world=await db.worlds.get(worldId);if(!world)throw Error('世界已不存在。');const session=await db.storySessions.where('worldId').equals(worldId).first();if(session)validateStorySession(session);
- const same=session&&previous?.world.id===worldId&&previous.session?.id===session.id&&previous.session.headNodeId===session.headNodeId&&previous.session.revision===session.revision;
+ const same=session&&previous?.world.storyDocument?.revision===world.storyDocument?.revision&&previous?.world.id===worldId&&previous.session?.id===session.id&&previous.session.headNodeId===session.headNodeId&&previous.session.revision===session.revision;
  return {world,session,path:session?same?previous!.path:await readStoryPath(session):[]};
 });}
-export async function claimStory(worldId:string,actionInput:string|StoryAction|undefined,allowOldDefinition:boolean,expected?:StoryExpectedProgress,firstAttemptOnly=false,operation:'advance'|'regenerate'='advance'){
+export async function claimStory(worldId:string,actionInput:string|StoryAction|undefined,allowOldDefinition:boolean,expected?:StoryExpectedProgress,firstAttemptOnly=false,operation:'advance'|'regenerate'='advance',reservedBytes=0){
  if(!['advance','regenerate'].includes(operation))throw Error('主线操作无效，未修改进度。');
  return db.transaction('rw',storyTables(),async()=>{
   const world=await db.worlds.get(worldId);if(!world)throw Error('世界已不存在。');const currentDefinition=await resolveStoryDefinition(world);
   let s=await db.storySessions.where('worldId').equals(worldId).first();
+  if(s&&s.definition.documentRevision!==currentDefinition.documentRevision)throw Error('文档归档版本已变化，未使用旧主线推进新设定。');
   if(firstAttemptOnly&&s)throw Error('开场已有生成记录，不会自动重复调用；请检查状态并主动决定是否重试。');
   if(s?.pending&&s.pending.expiresAt>Date.now())throw Error('本世界主线正在生成，请勿重复请求。');
   if(s)validateStorySession(s);
@@ -47,8 +50,8 @@ export async function claimStory(worldId:string,actionInput:string|StoryAction|u
   if(operation==='advance'&&action&&head)s.actionDraft=action.kind==='custom'?{headNodeId:head.id,mode:'custom',customText:action.text}:{headNodeId:head.id,mode:'choice',customText:'',choiceId:action.choiceId};
   const length=world.storyPreferences?.length??'standard';if(world.storyPreferences)validateStoryPreferences(world.storyPreferences);
   const guidance=world.storyPreferences?.guidance;if(guidance?.enabled&&guidance.mode==='once'&&guidance.revision===Number.MAX_SAFE_INTEGER)throw Error('指导版本已达上限，未请求模型。');
-  let input:string;try{input=storyInput(s,path,action,length,guidance?.enabled?guidance:undefined);}catch{throw Error('必要身份、规则、开场、剧情指导或当前剧情仍超过48000字节安全输入预算，无法完整纳入。本次未请求模型、未推进主线，全部原文保留；不会自动重试。');}
-  await db.storySessions.put(s);return {session:s,path,input,action,length,replacement,parentNodeId:head?.id,nextRevision:path.length+1,guidance,guidanceSnapshot:JSON.stringify(guidance??null),choice:head?.choices.find(c=>c.id===choiceId),worldSnapshot:JSON.stringify(currentDefinition)};
+  let input:string;try{input=storyInput(s,path,action,length,guidance?.enabled?guidance:undefined,storyLimits.inputBytes-reservedBytes);}catch{throw Error('必要身份、规则、开场、剧情指导或当前剧情仍超过48000字节安全输入预算，无法完整纳入。本次未请求模型、未推进主线，全部原文保留；不会自动重试。');}
+  await db.storySessions.put(s);return {session:s,path,input,action,length,replacement,parentNodeId:head?.id,nextRevision:path.length+1,guidance,guidanceSnapshot:JSON.stringify(guidance??null),choice:head?.choices.find(c=>c.id===choiceId),documentSnapshot:JSON.stringify(world.storyDocument??world.simulatorSource??null),worldSnapshot:JSON.stringify(currentDefinition)};
  });
 }
 

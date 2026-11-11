@@ -1,0 +1,18 @@
+/** Long narrative source storage is independent of the short AI synopsis. */
+export interface LongNarrative {id:string;name:string;body:string;createdAt:number;sections:{heading:string;start:number;end:number}[];originalFile?:{mime:string;base64:string}}
+const database='claudia-wizard-long-sources-v1',store='sources';
+function openDb():Promise<IDBDatabase>{return new Promise((resolve,reject)=>{const req=indexedDB.open(database,1);req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(store))req.result.createObjectStore(store,{keyPath:'id'});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error??Error('无法打开长篇存储'));});}
+function transact<T>(mode:IDBTransactionMode,action:(objectStore:IDBObjectStore,resolve:(v:T)=>void,reject:(e:unknown)=>void)=>void):Promise<T>{
+ return openDb().then(db=>new Promise<T>((resolve,reject)=>{
+  const tx=db.transaction(store,mode);let result:T,hasResult=false,settled=false;
+  const fail=(e:unknown)=>{if(!settled){settled=true;db.close();reject(e);}};
+  tx.oncomplete=()=>{db.close();if(!settled){settled=true;hasResult?resolve(result):reject(Error('本地存储没有返回结果'));}};
+  tx.onerror=()=>fail(tx.error??Error('本地存储失败'));
+  tx.onabort=()=>fail(tx.error??Error('本地存储已取消'));
+  try{action(tx.objectStore(store),v=>{result=v;hasResult=true;},e=>{try{tx.abort();}catch{}fail(e);});}catch(e){try{tx.abort();}catch{}fail(e);}
+ }));
+}
+export function segmentNarrative(body:string){const sections:{heading:string;start:number;end:number}[]=[];let heading='开篇',start=0;const pattern=/[^\r\n]*(?:\r\n|\r|\n|$)/g;let m:RegExpExecArray|null;while((m=pattern.exec(body))){if(!m[0])break;if(/^\s*(?:第[一二三四五六七八九十百千万零〇0-9]+[章节回幕]|chapter\s+\d+|#{1,6}\s+).{0,80}$/i.test(m[0].trim())){if(m.index>start)sections.push({heading,start,end:m.index});heading=m[0].trim();start=m.index;}}if(body.length>start)sections.push({heading,start,end:body.length});return sections.length?sections:[{heading:'全文',start:0,end:body.length}];}
+export async function saveLongNarrative(name:string,body:string,originalFile?:LongNarrative['originalFile']):Promise<LongNarrative>{if(!body.trim()||body.length>2000000)throw Error('长篇正文需在 1 至 200 万字符之间。');const item={id:crypto.randomUUID(),name,body,createdAt:Date.now(),sections:segmentNarrative(body),...(originalFile?{originalFile}:{})};await transact<void>('readwrite',(s,resolve,reject)=>{const r=s.put(item);r.onsuccess=()=>resolve();r.onerror=()=>reject(r.error);});return item;}
+export function readLongNarrative(id:string):Promise<LongNarrative|undefined>{return transact('readonly',(s,resolve,reject)=>{const r=s.get(id);r.onsuccess=()=>resolve(r.result as LongNarrative|undefined);r.onerror=()=>reject(r.error);});}
+export function synopsisPreview(body:string,max=9000){const paragraphs=body.split(/\n\s*\n/).filter(Boolean),selected:string[]=[];let used=0;for(const paragraph of paragraphs){if(used+paragraph.length>max)break;selected.push(paragraph);used+=paragraph.length+2;}return (selected.join('\n\n')||body.slice(0,max)).trim();}

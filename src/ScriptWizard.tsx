@@ -1,3 +1,4 @@
+import {documentParagraphs} from './wizardDocumentUnderstanding';
 import {storyPerspectives,type StoryPerspective} from './scriptTypes';
 import {WizardAssistanceUI} from './WizardAssistanceUI';
 import {requestWizardAssistance} from './wizardAssistance';
@@ -9,22 +10,49 @@ import {storyLengths} from './storyTypes';
 import {useEffect,useRef,useState} from 'react';
 import {db,usePhone} from './store';
 import {useSpaces} from './spaces';
-import {copyWizardIdentity,emptyWizardIdentity,loadWizardDraft,newWizardDraft,parseWizardFile,validateWizardDraft,wizardDraftKey,wizardLimits,wizardPaces,wizardStepError,type ScriptWizardDraft} from './scriptWizardDraft';
+import {copyWizardIdentity,emptyWizardIdentity,loadWizardDraft,newWizardDraft,validateWizardDraft,wizardDraftKey,wizardLimits,wizardPaces,wizardStepError,type ScriptWizardDraft} from './scriptWizardDraft';
 import './scriptWizard.css';
+import {readWizardDocument,archiveWizardFile} from './wizardDocumentImport';
+import {saveLongNarrative,readLongNarrative,synopsisPreview} from './wizardLongNarrative';
+import {analyzeLongNarrative} from './wizardSourceAnalysis';
+import {indexSimulatorDocument,simulatorEvidence} from './wizardSimulatorDocument';
+import {extractSimulatorRuleCandidates} from './wizardSimulatorRules';
+import {planSimulatorAnalysis,checkSimulatorCoverage} from './wizardSimulatorCoverage';
+import {reviewSimulatorChunk,type SimulatorChunkReview} from './wizardSimulatorReview';
+import {saveSimulatorReview,listSimulatorReviews,saveSimulatorDecision,listSimulatorDecisions,type SimulatorDecision,type SimulatorFindingDecision,type SavedSimulatorReview,validSimulatorDecisions} from './wizardSimulatorReviewStore';
+import {findSimulatorReviewPairs} from './wizardSimulatorConflicts';
+import {simulatorAuditStatus} from './wizardSimulatorAudit';
+import type {SimulatorAnalysisChunk} from './wizardSimulatorCoverage';
 const steps=['剧情设定','主控面具','关联角色','开局方向','生成与进入'];
 export function ScriptWizard(){
  const s=usePhone(),nav=useSpaces(),key=wizardDraftKey(db.name);
  const [initial]=useState(()=>{try{return {...loadWizardDraft(localStorage,key),error:''};}catch{return {draft:newWizardDraft(),raw:undefined,error:'无法读取草稿，未覆盖原数据。请检查浏览器存储或主动丢弃损坏草稿。'};}});
+ const [longSource,setLongSource]=useState<{name:string;characters:number;sections:number}|null>(null);
+ const [sourceAnalysis,setSourceAnalysis]=useState('');
+ const [simulatorSections,setSimulatorSections]=useState<ReturnType<typeof indexSimulatorDocument>>([]);
+ const [sourceSearch,setSourceSearch]=useState('');
+ const [auditChunks,setAuditChunks]=useState<SimulatorAnalysisChunk[]>([]);
+ const [sourceCoverage,setSourceCoverage]=useState<{total:number;covered:number;complete:boolean;chunks:number}|null>(null);
+ const [analyzingSource,setAnalyzingSource]=useState(false);
+ const [simulatorReview,setSimulatorReview]=useState<SimulatorChunkReview|null>(null);
+ const [reviewChunk,setReviewChunk]=useState(0);
+ const [reviewBusy,setReviewBusy]=useState(false);
+ const [savedReviews,setSavedReviews]=useState<SavedSimulatorReview[]>([]);
+ const [reviewDecisions,setReviewDecisions]=useState<SimulatorDecision[]>([]);
+ const activeDecisions=validSimulatorDecisions(savedReviews,reviewDecisions);
+ const audit=simulatorAuditStatus(auditChunks,savedReviews,activeDecisions);
+ const reviewAbort=useRef<AbortController|null>(null);
  const [draft,setDraft]=useState(initial.draft),[error,setError]=useState(initial.error),[saved,setSaved]=useState(false),[reading,setReading]=useState(false),[creating,setCreating]=useState(false),[createdId,setCreatedId]=useState(initial.draft.createdWorldId),[recovering,setRecovering]=useState(true),[assisting,setAssisting]=useState(false),[openingError,setOpeningError]=useState('');
  const wizardRoot=useRef<HTMLElement>(null);
  const [visibleHeight,setVisibleHeight]=useState<number|null>(null);
- useEffect(()=>{const measure=()=>{const el=wizardRoot.current;if(!el)return;const vp=window.visualViewport;const bottom=(vp?.offsetTop??0)+(vp?.height??window.innerHeight);setVisibleHeight(Math.max(240,Math.floor(bottom-el.getBoundingClientRect().top)));};measure();window.visualViewport?.addEventListener('resize',measure);window.visualViewport?.addEventListener('scroll',measure);window.addEventListener('resize',measure);return()=>{window.visualViewport?.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('scroll',measure);window.removeEventListener('resize',measure);};},[]);
+ useEffect(()=>{const measure=()=>{const el=wizardRoot.current;if(!el)return;const vp=window.visualViewport;const bottom=(vp?.offsetTop??0)+(vp?.height??window.innerHeight);setVisibleHeight(Math.max(240,Math.floor(bottom-el.getBoundingClientRect().top)));};measure();window.visualViewport?.addEventListener('resize',measure);window.visualViewport?.addEventListener('scroll',measure);window.addEventListener('resize',measure);return()=>{window.visualViewport?.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('scroll',measure);window.removeEventListener('resize',measure);};},[recovering,createdId]);
  const assistant=useRef<AbortController|null>(null);
  const creationLock=useRef(false);
  const stored=useRef(initial.raw),alive=useRef(true),request=useRef(0),content=useRef<HTMLDivElement>(null),file=useRef<HTMLInputElement>(null);
  useEffect(()=>{alive.current=true;
   void (async()=>{try{if(!initial.draft.createdWorldId&&initial.draft.creationToken){const world=await findWizardCreation(initial.draft.creationToken);if(world&&alive.current)setCreatedId(world.id);}}catch(e){if(alive.current)setError(e instanceof Error?e.message:'无法复核创建状态。');}finally{if(alive.current)setRecovering(false);}})();
-  const hide=()=>assistant.current?.abort();window.addEventListener('pagehide',hide);return()=>{alive.current=false;request.current++;assistant.current?.abort();window.removeEventListener('pagehide',hide);};},[]);
+  const hide=()=>{assistant.current?.abort();reviewAbort.current?.abort();};window.addEventListener('pagehide',hide);return()=>{alive.current=false;request.current++;assistant.current?.abort();reviewAbort.current?.abort();window.removeEventListener('pagehide',hide);};},[]);
+ useEffect(()=>{const id=draft.longSourceId;if(!id){setLongSource(null);setSimulatorSections([]);setSourceCoverage(null);setAuditChunks([]);setSavedReviews([]);setReviewDecisions([]);return;}let live=true;void readLongNarrative(id).then(source=>{if(live){setLongSource(source?{name:source.name,characters:source.body.length,sections:source.sections.length}:null);setSimulatorSections(source?indexSimulatorDocument(source.body):[]);if(source){const chunks=planSimulatorAnalysis(source.body,indexSimulatorDocument(source.body));const result=checkSimulatorCoverage(source.body,chunks);setAuditChunks(chunks);setSourceCoverage({...result,chunks:chunks.length});void listSimulatorReviews(source.id,source.body.length).then(items=>{if(live)setSavedReviews(items);}).catch(()=>{if(live)setSavedReviews([]);});void listSimulatorDecisions(source.id,source.body.length).then(items=>{if(live)setReviewDecisions(items);}).catch(()=>{if(live)setReviewDecisions([]);});}else setSourceCoverage(null);}}).catch(()=>{if(live)setLongSource(null);});return()=>{live=false;};},[draft.longSourceId]);
  const available=new Set(s.characters.map(c=>c.id));
  function update(patch:Partial<ScriptWizardDraft>){
   const next={...draft,...patch,confirmed:patch.confirmed??false};setDraft(next);setSaved(false);setError('');
@@ -39,16 +67,17 @@ export function ScriptWizard(){
  }
  function go(step:number){if(step>draft.step){const message=wizardStepError(draft,draft.step,available);if(message){setError(message);return;}}update({step});content.current?.scrollTo({top:0});}
  async function importFile(selected?:File){
-  if(!selected)return;const ticket=++request.current;setReading(true);setError('');
-  try{if(selected.size>wizardLimits.fileBytes)throw Error('文件超过 256 KB，请缩小后重试。');const patch=parseWizardFile(selected.name,await selected.text());
+  if(!selected||reading||creating||assisting||reviewBusy||analyzingSource)return;const ticket=++request.current;setReading(true);setError('');
+  try{if(selected.size>wizardLimits.fileBytes)throw Error('文件超过 20 MB，请缩小后重试。');const patch=await readWizardDocument(selected);
    if(!alive.current||ticket!==request.current)return;
    if((draft.title||draft.synopsis||draft.rules||draft.direction)&&!confirm('用文件内容替换对应草稿字段？不会修改任何现有世界。'))return;
-   update(patch);
+   if(patch.longBody){const source=await saveLongNarrative(selected.name,patch.longBody,await archiveWizardFile(selected));setLongSource({name:source.name,characters:source.body.length,sections:source.sections.length});setSimulatorSections(indexSimulatorDocument(source.body));const chunks=planSimulatorAnalysis(source.body,indexSimulatorDocument(source.body));const coverage=checkSimulatorCoverage(source.body,chunks);if(!coverage.complete)throw Error('全文分段覆盖校验失败，未导入草稿。');setSourceCoverage({...coverage,chunks:chunks.length});setAuditChunks(chunks);setSourceAnalysis('');setSimulatorReview(null);setSavedReviews([]);setReviewDecisions([]);setReviewChunk(0);update({...(patch.title?{title:patch.title}:{}),...(patch.rules?{rules:patch.rules}:{}),...(patch.direction?{direction:patch.direction}:{}),synopsis:patch.synopsis??synopsisPreview(source.body),longSourceId:source.id,longSourceName:source.name,documentMode:'narrative',runtimeConfig:undefined} as Partial<ScriptWizardDraft>);}
+   else update(patch);
   }catch(e){if(alive.current&&ticket===request.current)setError(e instanceof Error?e.message:'读取失败，原草稿未改变。');}
   finally{if(alive.current&&ticket===request.current)setReading(false);}
  }
  async function confirmDraft(){
-  if(creationLock.current||reading||recovering)return;
+  if(creationLock.current||reading||recovering||reviewBusy||analyzingSource)return;
   for(let i=0;i<4;i++){const message=wizardStepError(draft,i,available);if(message){setError(message);return;}}
   const input={...draft,creationToken:draft.creationToken??crypto.randomUUID()};
   try{validateWizardDraft(input);if(stored.current===undefined||localStorage.getItem(key)!==stored.current)throw Error('conflict');const raw=JSON.stringify(input);localStorage.setItem(key,raw);stored.current=raw;setDraft(input);}
@@ -75,10 +104,43 @@ export function ScriptWizard(){
     <label>故事标题<input aria-label="故事标题" maxLength={80} value={draft.title} onChange={e=>update({title:e.target.value})}/></label>
     <label>整体剧情梗概<textarea aria-label="整体剧情梗概" rows={7} maxLength={10000} value={draft.synopsis} onChange={e=>update({synopsis:e.target.value})}/></label>
     <label>世界背景与补充（可选）<textarea aria-label="世界背景" rows={4} maxLength={6000} value={draft.background??''} onChange={e=>update({background:e.target.value})}/></label>
-    <button type="button" disabled={reading||creating||assisting} onClick={()=>file.current?.click()}>导入剧情文件（TXT / MD / JSON）</button>
-    <input hidden ref={file} type="file" accept=".txt,.md,.json,text/plain,text/markdown,application/json" aria-label="剧情文件" onChange={e=>{const selected=e.target.files?.[0];e.target.value='';void importFile(selected);}}/>
+    <button type="button" disabled={reading||creating||assisting||reviewBusy||analyzingSource} onClick={()=>file.current?.click()}>导入世界设定 / 模拟器规则 / 剧情文件（Word / TXT / MD / JSON）</button>
+    <input hidden ref={file} type="file" accept=".docx,.txt,.md,.json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,application/json" aria-label="剧情文件" onChange={e=>{const selected=e.target.files?.[0];e.target.value='';void importFile(selected);}}/>
     {reading&&<p role="status">正在读取本地文件…</p>}
-    <p className="wizard-note">TXT/MD 最多 10000 字符。JSON 使用 version:1、synopsis，可选 title、rules、direction；不会导入世界或世界书。</p>
+    {longSource&&<p role="status" className="wizard-note">已完整保存原文：{longSource.name}，{longSource.characters.toLocaleString()} 字符，识别 {longSource.sections} 个章节或片段。梗概框显示可编辑的前段预览；尚未进行 AI 重点提取，生成时不会自动读取全文。</p>}
+    {longSource&&<section className="wizard-source-analysis" aria-label="导入文档原文索引">
+     <h3>文档索引（混合内容，不改写原文）</h3>
+     <label>文档运行方式<select aria-label="文档运行方式" value={draft.documentMode??'narrative'} onChange={e=>update({documentMode:e.target.value as 'narrative'|'simulation',runtimeConfig:undefined})}><option value="narrative">原剧情模式 · 普通叙事</option><option value="simulation">原剧情模式 · 启用声明的状态规则</option></select></label>{draft.documentMode==='simulation'&&<label>运行状态声明 JSON<textarea aria-label="运行状态声明" maxLength={24000} value={draft.runtimeConfig??''} onChange={e=>update({runtimeConfig:e.target.value})} placeholder={'{"initial":{},"fields":{},"events":[]}'}/></label>}
+     {sourceCoverage&&<p role="status" className="wizard-note">全文分段校验：{sourceCoverage.complete?"完整覆盖":"覆盖异常"} · {sourceCoverage.covered.toLocaleString()}/{sourceCoverage.total.toLocaleString()} 字符 · {sourceCoverage.chunks} 个待分析片段。注意：这是读取覆盖率，不是 AI 理解完成率。</p>}
+     <p className="wizard-note">这是按标题和关键词生成的初步分类，并非 AI 已完整理解。原文仍完整保存在本机。创建前需逐段审核，确认后作为原剧情模式的设定资料；未确认内容不当作事实。</p>
+     <p className="wizard-note">{simulatorSections.length} 个标题区块 · {simulatorSections.filter(x=>x.kind==='mechanics').length} 个机制候选 · {simulatorSections.filter(x=>x.kind==='characters').length} 个角色候选 · {simulatorSections.filter(x=>x.kind==='opening_gate').length} 个开局条件候选</p>
+     <p className="wizard-note">段落候选（非确定事实）：{documentParagraphs(simulatorSections.map(x=>x.body).join('')).filter(p=>p.kinds.length).length} 段；规则候选：{extractSimulatorRuleCandidates(simulatorSections).length} 条（关键词初筛，未进行 AI 语义验证或执行）</p>
+     <div className="wizard-source-analysis">
+      <h4>AI 逐段规则核对（主动调用，可能产生 API 费用）</h4>
+      <p className="wizard-note">每次只分析一个片段，逐字核验 AI 引用是否出现在原文中；不自动修改世界设定，也不代表已分析全文。</p>
+      <p className="wizard-note">已持久保存 {savedReviews.length}/{sourceCoverage?.chunks??0} 个片段的 AI 审核记录。草稿审核保存在本机；确认创建后，原文件、全文、审核和决定随世界进入 ZIP 备份。</p>
+      <p className="wizard-note">人工确认 {activeDecisions.filter(d=>d.decision==='accepted').length} 条 · 拒绝 {activeDecisions.filter(d=>d.decision==='rejected').length} 条 · 其余仍待核对。重新分析后，旧引用不匹配的决定不会被当作有效审核。</p>
+      <p className="wizard-note">审核门槛：{audit.reviewedChunks}/{audit.totalChunks} 段已核验 · {audit.pending} 条待人工判定 · {audit.secretFindings} 条秘密类候选。{audit.ready?'全部已保存片段通过形式审核；仍不代表规则完整或可安全运行。':'尚未达到可进入规则执行层的审核条件；不会自动启用规则。'}</p>
+      {sourceCoverage&&savedReviews.length<sourceCoverage.chunks&&<button type="button" disabled={reviewBusy} onClick={()=>{const done=new Set(savedReviews.map(x=>x.review.chunkIndex));const next=Array.from({length:sourceCoverage.chunks},(_,i)=>i).find(i=>!done.has(i));if(next!==undefined){setReviewChunk(next);setSimulatorReview(null);}}}>跳到下一段未分析片段</button>}
+      {savedReviews.length>0&&<p className="wizard-note">潜在规则冲突提示：{findSimulatorReviewPairs(savedReviews).length} 组（仅作人工复核参考，不自动裁决）。</p>}
+      {savedReviews.some(x=>x.review.chunkIndex===reviewChunk)&&<button type="button" disabled={reviewBusy} onClick={()=>{const saved=savedReviews.find(x=>x.review.chunkIndex===reviewChunk);if(saved)setSimulatorReview(saved.review);}}>查看本段已保存结果</button>}
+      <label>片段编号（从 1 开始）<input type="number" min={1} max={sourceCoverage?.chunks??1} value={reviewChunk+1} onChange={e=>{const value=Number(e.target.value);if(Number.isInteger(value))setReviewChunk(Math.max(0,Math.min((sourceCoverage?.chunks??1)-1,value-1)));}}/></label>
+      <button type="button" disabled={reviewBusy||reading||creating||analyzingSource||!draft.longSourceId||!sourceCoverage?.complete} onClick={()=>{if(!draft.longSourceId)return;const controller=new AbortController();reviewAbort.current=controller;setReviewBusy(true);setSimulatorReview(null);setError('');void reviewSimulatorChunk(draft.longSourceId,reviewChunk,controller.signal).then(async result=>{if(controller.signal.aborted)return;const source=await readLongNarrative(draft.longSourceId!);if(!source)throw Error('原文已丢失，审核结果未保存。');await saveSimulatorReview(source.id,source.body.length,source.name,result);const items=await listSimulatorReviews(source.id,source.body.length);if(alive.current&&!controller.signal.aborted){setSimulatorReview(result);setSavedReviews(items);}}).catch(e=>{if(alive.current)setError(e instanceof Error?e.message:'本段分析失败。');}).finally(()=>{if(reviewAbort.current===controller)reviewAbort.current=null;if(alive.current)setReviewBusy(false);});}}>{reviewBusy?'正在核验本段…':'AI 核对当前片段'}</button>
+      {reviewBusy&&<button type="button" onClick={()=>reviewAbort.current?.abort()}>取消本段分析</button>}
+      {simulatorReview&&<div aria-live="polite"><p>第 {simulatorReview.chunkIndex+1}/{simulatorReview.chunkCount} 段 · 原文可核对条目 {simulatorReview.findings.length} 条 · 未通过原文核验 {simulatorReview.rejected} 条</p>{simulatorReview.findings.map((finding,i)=><article key={i}><strong>{finding.kind}</strong><blockquote>{finding.quote}</blockquote><p>{finding.interpretation} · {finding.certainty??'uncertain'}（引用验证不等于事实已发生）</p><small>原文位置 {finding.start}–{finding.end} · 仅引用核验通过，语义仍需人工审核</small>
+       <label>人工审核结果
+        <select value={activeDecisions.find(d=>d.sourceId===draft.longSourceId&&d.chunkIndex===simulatorReview.chunkIndex&&d.findingStart===finding.start&&d.findingEnd===finding.end&&d.quote===finding.quote)?.decision??'needs_review'} onChange={e=>{if(!draft.longSourceId||!longSource)return;const decision=e.target.value as SimulatorFindingDecision;const item={sourceId:draft.longSourceId,sourceLength:longSource.characters,chunkIndex:simulatorReview.chunkIndex,findingStart:finding.start,findingEnd:finding.end,quote:finding.quote,...activeDecisions.find(d=>d.chunkIndex===simulatorReview.chunkIndex&&d.findingStart===finding.start&&d.findingEnd===finding.end&&d.quote===finding.quote),decision};void saveSimulatorDecision(item).then(()=>listSimulatorDecisions(item.sourceId,item.sourceLength)).then(items=>{if(alive.current)setReviewDecisions(items);}).catch(err=>{if(alive.current)setError(err instanceof Error?err.message:'审核决定保存失败');});}}>
+         <option value="needs_review">待审核</option><option value="accepted">确认符合原文</option><option value="rejected">拒绝此条解释</option>
+        </select>
+       </label>{finding.kind==='secret'&&(()=>{const previous=activeDecisions.find(d=>d.chunkIndex===simulatorReview.chunkIndex&&d.findingStart===finding.start&&d.findingEnd===finding.end&&d.quote===finding.quote);const save=(extra:Partial<SimulatorDecision>)=>{if(!draft.longSourceId||!longSource)return;void saveSimulatorDecision({sourceId:draft.longSourceId,sourceLength:longSource.characters,chunkIndex:simulatorReview.chunkIndex,findingStart:finding.start,findingEnd:finding.end,quote:finding.quote,decision:previous?.decision??'needs_review',...previous,...extra}).then(()=>listSimulatorDecisions(draft.longSourceId!,longSource.characters)).then(setReviewDecisions).catch(e=>setError(e.message));};return <><label>玩家在开局已知<input type="checkbox" checked={previous?.playerKnown??false} onChange={e=>save({playerKnown:e.target.checked})}/></label><label>保密原文词组（逗号分隔，必须出现在此条引用中）<input defaultValue={(previous?.protectedTerms??finding.protectedTerms??[]).join('、')} onBlur={e=>{const words=e.target.value.split(/[、,，]/).map(x=>x.trim()).filter(Boolean);if(words.some(t=>t.length<2||!finding.quote.includes(t))){setError('保密词必须是此条引用内至少两个字符的连续原文。');return;}save({protectedTerms:words});}}/></label><label>已知此秘密的角色（仅作者审核，不向公共模型提供秘密）<input value={previous?.knownBy?.join('、')??''} onChange={e=>save({knownBy:e.target.value.split(/[、,，]/).map(x=>x.trim()).filter(Boolean)})}/></label><label>公开条件：声明状态字段<input value={previous?.revealWhen?.key??''} onChange={e=>save({revealWhen:e.target.value?{key:e.target.value,equals:previous?.revealWhen?.equals??true}:undefined})}/></label>{previous?.revealWhen&&<label>公开条件值（JSON 字符串／数字／布尔值）<input defaultValue={JSON.stringify(previous.revealWhen.equals)} onBlur={e=>{try{const value=JSON.parse(e.target.value);if(!['string','number','boolean'].includes(typeof value))throw Error();save({revealWhen:{key:previous.revealWhen!.key,equals:value}});}catch{setError('公开条件值必须是有效的 JSON 字符串、数字或布尔值。');}}}/></label>}</>;})()}</article>)}</div>}
+     </div>
+     <label>搜索原文规则（关键词）<input aria-label="搜索模拟器原文" value={sourceSearch} onChange={e=>setSourceSearch(e.target.value)} placeholder="输入原文关键词"/></label>
+     {sourceSearch.trim()&&<div aria-live="polite">{simulatorEvidence(simulatorSections,[sourceSearch.trim()],8).map(hit=><article key={hit.sectionId}><h4>{hit.heading} · {hit.kind}</h4><p>{hit.excerpt}</p><small>原文字符位置 {hit.start}–{hit.end}</small></article>)}</div>}
+    </section>}
+    {longSource&&<div className="wizard-source-analysis"><button type="button" disabled={analyzingSource||reading||creating} onClick={()=>{if(!draft.longSourceId)return;const controller=new AbortController();assistant.current=controller;setAnalyzingSource(true);setError('');void analyzeLongNarrative(draft.longSourceId,controller.signal).then(result=>setSourceAnalysis(result)).catch(e=>setError(e instanceof Error?e.message:'原文分析失败')).finally(()=>{if(assistant.current===controller)assistant.current=null;if(alive.current)setAnalyzingSource(false);});}}>{analyzingSource?'正在分析原文片段…':'AI 片段整理（非完整模拟器规则解析）'}</button>
+    {sourceAnalysis&&<><label>分析草稿（可编辑，尚未应用）<textarea aria-label="原文分析草稿" rows={10} value={sourceAnalysis} onChange={e=>setSourceAnalysis(e.target.value)}/></label><button type="button" onClick={()=>{if(!confirm('用审核后的分析结果替换剧情梗概？原始长篇文件仍保留。'))return;if(sourceAnalysis.length>10000){setError('分析草稿超过梗概容量，未截断或应用。');return;}update({synopsis:sourceAnalysis});setSourceAnalysis('');}}>确认并填入剧情梗概</button></>}
+    <p className="wizard-note">此旧功能仅对部分片段做摘要，不适合直接作为模拟器运行规则。请核对人物、时间线与开场建议；未确认前不会修改设定。</p></div>}
+    <p className="wizard-note">DOCX/TXT/MD 支持最长 200 万字符，长篇原文另存于本机浏览器；梗概仅显示预览。JSON 使用 version:1、synopsis，可选 title、rules、direction；不会导入世界或世界书。</p>
     <label>自定义内容与补充规则<textarea aria-label="补充规则" maxLength={4000} value={draft.rules} onChange={e=>update({rules:e.target.value})}/></label>
     <label>叙事人称<select aria-label="叙事人称" value={draft.perspective??'second'} onChange={e=>update({perspective:e.target.value as StoryPerspective})}>{Object.entries(storyPerspectives).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
     <label>剧情节奏<select aria-label="剧情节奏" value={draft.pace} onChange={e=>update({pace:e.target.value as ScriptWizardDraft['pace']})}>{Object.entries(wizardPaces).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
@@ -122,9 +184,9 @@ export function ScriptWizard(){
   </div>
   <footer className="wizard-footer">{assisting&&<button onClick={()=>assistant.current?.abort()}>取消本次推荐</button>}{error&&<p role="alert">{error}</p>}<small role="status">{saved?'草稿已保存在当前浏览器':initial.raw?'已读取本地草稿':'尚未保存新草稿'}</small><div>
    <button disabled={draft.step===0||reading||creating||assisting} onClick={()=>go(draft.step-1)}>上一步</button>
-   {draft.step<3&&<button className="primary" disabled={reading||creating||assisting} onClick={()=>go(draft.step+1)}>下一步</button>}
-   {draft.step===3&&<button className="primary" disabled={reading||creating||assisting} onClick={()=>void confirmDraft()}>{creating?'正在创建…':'确认开局'}</button>}
-   <button disabled={reading||creating||assisting} onClick={()=>{if(confirm('丢弃此浏览器中的创作草稿？现有世界和聊天不受影响。')){try{localStorage.removeItem(key);stored.current=null;setDraft(newWizardDraft());setSaved(false);setError('');}catch{setError('无法清除草稿，请检查存储权限。');}}}}>丢弃草稿</button>
+   {draft.step<3&&<button className="primary" disabled={reading||creating||assisting||reviewBusy||analyzingSource} onClick={()=>go(draft.step+1)}>下一步</button>}
+   {draft.step===3&&<button className="primary" disabled={reading||creating||assisting||reviewBusy||analyzingSource} onClick={()=>void confirmDraft()}>{creating?'正在创建…':'确认开局'}</button>}
+   <button disabled={reading||creating||assisting||reviewBusy||analyzingSource} onClick={()=>{if(confirm('丢弃此浏览器中的创作草稿？现有世界和聊天不受影响。')){try{localStorage.removeItem(key);stored.current=null;setDraft(newWizardDraft());setSaved(false);setError('');}catch{setError('无法清除草稿，请检查存储权限。');}}}}>丢弃草稿</button>
   </div></footer>
  </section>;
 }
