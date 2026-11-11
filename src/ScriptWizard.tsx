@@ -20,6 +20,8 @@ import {planSimulatorAnalysis,checkSimulatorCoverage} from './wizardSimulatorCov
 import {reviewSimulatorChunk,type SimulatorChunkReview} from './wizardSimulatorReview';
 import {saveSimulatorReview,listSimulatorReviews,saveSimulatorDecision,listSimulatorDecisions,type SimulatorDecision,type SimulatorFindingDecision,type SavedSimulatorReview,validSimulatorDecisions} from './wizardSimulatorReviewStore';
 import {findSimulatorReviewPairs} from './wizardSimulatorConflicts';
+import {simulatorAuditStatus} from './wizardSimulatorAudit';
+import type {SimulatorAnalysisChunk} from './wizardSimulatorCoverage';
 const steps=['剧情设定','主控面具','关联角色','开局方向','生成与进入'];
 export function ScriptWizard(){
  const s=usePhone(),nav=useSpaces(),key=wizardDraftKey(db.name);
@@ -28,6 +30,7 @@ export function ScriptWizard(){
  const [sourceAnalysis,setSourceAnalysis]=useState('');
  const [simulatorSections,setSimulatorSections]=useState<ReturnType<typeof indexSimulatorDocument>>([]);
  const [sourceSearch,setSourceSearch]=useState('');
+ const [auditChunks,setAuditChunks]=useState<SimulatorAnalysisChunk[]>([]);
  const [sourceCoverage,setSourceCoverage]=useState<{total:number;covered:number;complete:boolean;chunks:number}|null>(null);
  const [analyzingSource,setAnalyzingSource]=useState(false);
  const [simulatorReview,setSimulatorReview]=useState<SimulatorChunkReview|null>(null);
@@ -36,6 +39,7 @@ export function ScriptWizard(){
  const [savedReviews,setSavedReviews]=useState<SavedSimulatorReview[]>([]);
  const [reviewDecisions,setReviewDecisions]=useState<SimulatorDecision[]>([]);
  const activeDecisions=validSimulatorDecisions(savedReviews,reviewDecisions);
+ const audit=simulatorAuditStatus(auditChunks,savedReviews,activeDecisions);
  const reviewAbort=useRef<AbortController|null>(null);
  const [draft,setDraft]=useState(initial.draft),[error,setError]=useState(initial.error),[saved,setSaved]=useState(false),[reading,setReading]=useState(false),[creating,setCreating]=useState(false),[createdId,setCreatedId]=useState(initial.draft.createdWorldId),[recovering,setRecovering]=useState(true),[assisting,setAssisting]=useState(false),[openingError,setOpeningError]=useState('');
  const wizardRoot=useRef<HTMLElement>(null);
@@ -47,7 +51,7 @@ export function ScriptWizard(){
  useEffect(()=>{alive.current=true;
   void (async()=>{try{if(!initial.draft.createdWorldId&&initial.draft.creationToken){const world=await findWizardCreation(initial.draft.creationToken);if(world&&alive.current)setCreatedId(world.id);}}catch(e){if(alive.current)setError(e instanceof Error?e.message:'无法复核创建状态。');}finally{if(alive.current)setRecovering(false);}})();
   const hide=()=>{assistant.current?.abort();reviewAbort.current?.abort();};window.addEventListener('pagehide',hide);return()=>{alive.current=false;request.current++;assistant.current?.abort();reviewAbort.current?.abort();window.removeEventListener('pagehide',hide);};},[]);
- useEffect(()=>{const id=draft.longSourceId;if(!id){setLongSource(null);setSimulatorSections([]);setSourceCoverage(null);setSavedReviews([]);setReviewDecisions([]);return;}let live=true;void readLongNarrative(id).then(source=>{if(live){setLongSource(source?{name:source.name,characters:source.body.length,sections:source.sections.length}:null);setSimulatorSections(source?indexSimulatorDocument(source.body):[]);if(source){const chunks=planSimulatorAnalysis(source.body,indexSimulatorDocument(source.body));const result=checkSimulatorCoverage(source.body,chunks);setSourceCoverage({...result,chunks:chunks.length});void listSimulatorReviews(source.id,source.body.length).then(items=>{if(live)setSavedReviews(items);}).catch(()=>{if(live)setSavedReviews([]);});void listSimulatorDecisions(source.id,source.body.length).then(items=>{if(live)setReviewDecisions(items);}).catch(()=>{if(live)setReviewDecisions([]);});}else setSourceCoverage(null);}}).catch(()=>{if(live)setLongSource(null);});return()=>{live=false;};},[draft.longSourceId]);
+ useEffect(()=>{const id=draft.longSourceId;if(!id){setLongSource(null);setSimulatorSections([]);setSourceCoverage(null);setAuditChunks([]);setSavedReviews([]);setReviewDecisions([]);return;}let live=true;void readLongNarrative(id).then(source=>{if(live){setLongSource(source?{name:source.name,characters:source.body.length,sections:source.sections.length}:null);setSimulatorSections(source?indexSimulatorDocument(source.body):[]);if(source){const chunks=planSimulatorAnalysis(source.body,indexSimulatorDocument(source.body));const result=checkSimulatorCoverage(source.body,chunks);setAuditChunks(chunks);setSourceCoverage({...result,chunks:chunks.length});void listSimulatorReviews(source.id,source.body.length).then(items=>{if(live)setSavedReviews(items);}).catch(()=>{if(live)setSavedReviews([]);});void listSimulatorDecisions(source.id,source.body.length).then(items=>{if(live)setReviewDecisions(items);}).catch(()=>{if(live)setReviewDecisions([]);});}else setSourceCoverage(null);}}).catch(()=>{if(live)setLongSource(null);});return()=>{live=false;};},[draft.longSourceId]);
  const available=new Set(s.characters.map(c=>c.id));
  function update(patch:Partial<ScriptWizardDraft>){
   const next={...draft,...patch,confirmed:patch.confirmed??false};setDraft(next);setSaved(false);setError('');
@@ -66,7 +70,7 @@ export function ScriptWizard(){
   try{if(selected.size>wizardLimits.fileBytes)throw Error('文件超过 20 MB，请缩小后重试。');const patch=await readWizardDocument(selected);
    if(!alive.current||ticket!==request.current)return;
    if((draft.title||draft.synopsis||draft.rules||draft.direction)&&!confirm('用文件内容替换对应草稿字段？不会修改任何现有世界。'))return;
-   if(patch.longBody){const source=await saveLongNarrative(selected.name,patch.longBody);setLongSource({name:source.name,characters:source.body.length,sections:source.sections.length});setSimulatorSections(indexSimulatorDocument(source.body));const chunks=planSimulatorAnalysis(source.body,indexSimulatorDocument(source.body));const coverage=checkSimulatorCoverage(source.body,chunks);if(!coverage.complete)throw Error('全文分段覆盖校验失败，未导入草稿。');setSourceCoverage({...coverage,chunks:chunks.length});setSourceAnalysis('');setSimulatorReview(null);setSavedReviews([]);setReviewDecisions([]);setReviewChunk(0);update({synopsis:synopsisPreview(source.body),longSourceId:source.id,longSourceName:source.name});}
+   if(patch.longBody){const source=await saveLongNarrative(selected.name,patch.longBody);setLongSource({name:source.name,characters:source.body.length,sections:source.sections.length});setSimulatorSections(indexSimulatorDocument(source.body));const chunks=planSimulatorAnalysis(source.body,indexSimulatorDocument(source.body));const coverage=checkSimulatorCoverage(source.body,chunks);if(!coverage.complete)throw Error('全文分段覆盖校验失败，未导入草稿。');setSourceCoverage({...coverage,chunks:chunks.length});setAuditChunks(chunks);setSourceAnalysis('');setSimulatorReview(null);setSavedReviews([]);setReviewDecisions([]);setReviewChunk(0);update({synopsis:synopsisPreview(source.body),longSourceId:source.id,longSourceName:source.name});}
    else update(patch);
   }catch(e){if(alive.current&&ticket===request.current)setError(e instanceof Error?e.message:'读取失败，原草稿未改变。');}
   finally{if(alive.current&&ticket===request.current)setReading(false);}
@@ -114,6 +118,7 @@ export function ScriptWizard(){
       <p className="wizard-note">每次只分析一个片段，逐字核验 AI 引用是否出现在原文中；不自动修改世界设定，也不代表已分析全文。</p>
       <p className="wizard-note">已持久保存 {savedReviews.length}/{sourceCoverage?.chunks??0} 个片段的 AI 审核记录。结果保存在本机浏览器，不包含在 ZIP 备份中。</p>
       <p className="wizard-note">人工确认 {activeDecisions.filter(d=>d.decision==='accepted').length} 条 · 拒绝 {activeDecisions.filter(d=>d.decision==='rejected').length} 条 · 其余仍待核对。重新分析后，旧引用不匹配的决定不会被当作有效审核。</p>
+      <p className="wizard-note">审核门槛：{audit.reviewedChunks}/{audit.totalChunks} 段已核验 · {audit.pending} 条待人工判定 · {audit.secretFindings} 条秘密类候选。{audit.ready?'全部已保存片段通过形式审核；仍不代表规则完整或可安全运行。':'尚未达到可进入规则执行层的审核条件；不会自动启用规则。'}</p>
       {sourceCoverage&&savedReviews.length<sourceCoverage.chunks&&<button type="button" disabled={reviewBusy} onClick={()=>{const done=new Set(savedReviews.map(x=>x.review.chunkIndex));const next=Array.from({length:sourceCoverage.chunks},(_,i)=>i).find(i=>!done.has(i));if(next!==undefined){setReviewChunk(next);setSimulatorReview(null);}}}>跳到下一段未分析片段</button>}
       {savedReviews.length>0&&<p className="wizard-note">潜在规则冲突提示：{findSimulatorReviewPairs(savedReviews).length} 组（仅作人工复核参考，不自动裁决）。</p>}
       {savedReviews.some(x=>x.review.chunkIndex===reviewChunk)&&<button type="button" disabled={reviewBusy} onClick={()=>{const saved=savedReviews.find(x=>x.review.chunkIndex===reviewChunk);if(saved)setSimulatorReview(saved.review);}}>查看本段已保存结果</button>}
