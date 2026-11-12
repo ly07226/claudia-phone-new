@@ -125,7 +125,8 @@ function App() {
     | undefined
   >(undefined);
   const suppress = useRef(false);
-  const swipe = useRef<number | null>(null);
+  const swipe = useRef<{x:number;y:number;time:number}|null>(null);
+  const [swipeDirection,setSwipeDirection] = useState<"left"|"right">("left");
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => {
@@ -584,17 +585,24 @@ function App() {
           <section
             className="desktop"
             onTouchStart={(e) => {
-              if (!s.editing) swipe.current = e.touches[0].clientX;
+              if (!s.editing && e.touches.length === 1)
+                swipe.current = {x:e.touches[0].clientX,y:e.touches[0].clientY,time:Date.now()};
             }}
             onTouchEnd={(e) => {
-              if (swipe.current !== null && !s.editing) {
-                const dx = e.changedTouches[0].clientX - swipe.current;
-                if (Math.abs(dx) > 65) {
-                  const p = s.pages[pageIndex + (dx < 0 ? 1 : -1)];
-                  if (p) s.set({ pageId: p.id });
-                }
-              }
-              swipe.current = null;
+              const start=swipe.current;
+              swipe.current=null;
+              if (!start || s.editing || e.changedTouches.length!==1) return;
+              const dx=e.changedTouches[0].clientX-start.x;
+              const dy=e.changedTouches[0].clientY-start.y;
+              // Reject vertical/diagonal gestures; short quick flicks still switch pages.
+              if(Math.abs(dx)<48 || Math.abs(dx)<Math.abs(dy)*1.35) return;
+              const p=s.pages[pageIndex+(dx<0?1:-1)];
+              if(p){setSwipeDirection(dx<0?"left":"right");s.set({pageId:p.id});}
+            }}
+            onWheel={(e) => {
+              if(s.editing || Math.abs(e.deltaX)<35 || Math.abs(e.deltaX)<Math.abs(e.deltaY)*1.3)return;
+              const p=s.pages[pageIndex+(e.deltaX>0?1:-1)];
+              if(p){setSwipeDirection(e.deltaX>0?"left":"right");s.set({pageId:p.id});}
             }}
           >
             <div className="clock">
@@ -657,7 +665,7 @@ function App() {
                 </button>
               </div>
             )}
-            <div className="grid" key={s.pageId}>
+            <div className={`grid desktop-page desktop-page--${swipeDirection}`} key={s.pageId}>
               {pageItems.map((item) => {
                 const Icon = item.app==='剧本'?BookOpen:item.app==='忍一下嘛'?Flower2:icons[apps.indexOf(item.app || "")] || Flower2;
                 return (
