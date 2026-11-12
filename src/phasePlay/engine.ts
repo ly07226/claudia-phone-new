@@ -5,7 +5,7 @@ export const phases=['red','yellow','green'] as const;
 export type Phase=typeof phases[number];
 export const phaseNames:Record<Phase,string>={red:'红灯',yellow:'黄灯',green:'绿灯'};
 export interface Prompt {id:string;phase:Phase|'all';text:string}
-export interface PhaseSettings {mode:'sequence'|'random';randomDuration:boolean;duration:Record<Phase,{seconds:number;min:number;max:number}>;bpm:number;beat:boolean;sound:boolean;volume:number;vibration:boolean;prompts:Prompt[];sweetMode?:boolean;commandMode?:boolean;address?:string;intensity?:'soft'|'medium'|'strong'|'dramatic';contentLevel?:'light'|'medium'|'high';instructionMode?:'default'|'character';instructionCharacterId?:string;instructionWorldId?:string;autoAccelerate?:boolean;maxBpm?:number;accelerationSeconds?:number;gameMinutes?:number}
+export interface PhaseSettings {mode:'sequence'|'random';randomDuration:boolean;duration:Record<Phase,{seconds:number;min:number;max:number}>;bpm:number;beat:boolean;sound:boolean;volume:number;vibration:boolean;prompts:Prompt[];defaultTalkOverrides?:Partial<Record<'sweet'|'dirty',Prompt[]>>;sweetMode?:boolean;commandMode?:boolean;address?:string;intensity?:'soft'|'medium'|'strong'|'dramatic';contentLevel?:'light'|'medium'|'high';instructionMode?:'default'|'character';instructionCharacterId?:string;instructionWorldId?:string;autoAccelerate?:boolean;maxBpm?:number;accelerationSeconds?:number;gameMinutes?:number}
 export interface DrawBag {scope:string;used:string[];lastId?:string}
 export interface PhaseSession {status:'idle'|'running'|'paused'|'finished';phase:Phase;remainingMs:number;step:number;prompt:string;promptMarker?:string;phaseRun?:number;gameRemainingMs?:number;gameDurationMs?:number;elapsedMs?:number;draws?:Partial<Record<Phase,DrawBag>>}
 export interface PhaseData {version:1;revision?:string;settings:PhaseSettings;session:PhaseSession;libraryVersions?:Record<string,LibraryVersion[]>}
@@ -13,7 +13,7 @@ export function defaults():PhaseSettings{return {mode:'sequence',randomDuration:
 const unit=(random:()=>number)=>{const n=random();return Number.isFinite(n)?Math.min(.999999999,Math.max(0,n)):0;};
 export function duration(s:PhaseSettings,p:Phase,random=Math.random){const d=s.duration[p];return (s.randomDuration?d.min+Math.floor(unit(random)*(d.max-d.min+1)):d.seconds)*1000;}
 export function instructionPool(s:PhaseSettings,p:Phase){
- const mode=talkMode(s);if(mode){const seen=new Set<string>();return talkInstructions(mode,p).filter(x=>{if(seen.has(x.text))return false;seen.add(x.text);return true;});}
+ const mode=talkMode(s);if(mode){const seen=new Set<string>();const override=s.defaultTalkOverrides?.[mode];const source=override??talkInstructions(mode,p);return source.filter(x=>x.phase===p&&(!seen.has(normalizedInstruction(x.text))&&!!seen.add(normalizedInstruction(x.text))));}
  const scope=selectedScope(s),custom=s.prompts.filter(x=>(promptScope(x.id)==='default'||scope!=='default'&&promptScope(x.id)===scope)&&(x.phase==='all'||x.phase===p));
  const choices=custom.length?custom:baseInstructions.filter(x=>x.phase===p).map(x=>({...x,id:'builtin:'+x.id}));
  const seen=new Set<string>();return choices.filter(x=>{const text=normalizedInstruction(x.text);if(seen.has(text))return false;seen.add(text);return true;});
@@ -52,6 +52,7 @@ export function validData(x:unknown):x is PhaseData{
  const s=x.settings,r=x.session;
  if(!['sequence','random'].includes(String(s.mode))||!object(s.duration)||!number(s.bpm,30,180)||!number(s.volume,0,1)||!['randomDuration','beat','sound','vibration'].every(k=>typeof s[k]==='boolean'))return false;
  for(const p of phases){const d=s.duration[p];if(!object(d)||!number(d.seconds,1,600)||!number(d.min,1,600)||!number(d.max,1,600)||Number(d.min)>Number(d.max))return false;}
+ if(s.defaultTalkOverrides!==undefined){if(!object(s.defaultTalkOverrides)||Object.keys(s.defaultTalkOverrides).some(k=>k!=='sweet'&&k!=='dirty'))return false;for(const mode of ['sweet','dirty'] as const){const rows=s.defaultTalkOverrides[mode];if(rows!==undefined&&(!Array.isArray(rows)||rows.length>1000||!rows.every(p=>validPrompt(p)&&p.phase!=='all'&&p.id.startsWith('custom:'+mode+':'))||new Set(rows.map((p:Prompt)=>p.id)).size!==rows.length))return false;}}
  if(!Array.isArray(s.prompts)||s.prompts.length>libraryLimits.total||!s.prompts.every(validPrompt)||new Set(s.prompts.map(p=>p.id)).size!==s.prompts.length)return false;
  const counts=new Map<string,number>();for(const p of s.prompts){const key=promptScope(p.id),count=(counts.get(key)??0)+1;if(count>libraryLimits.perScope)return false;counts.set(key,count);}
  if(x.libraryVersions!==undefined){if(!object(x.libraryVersions)||Object.keys(x.libraryVersions).length>200)return false;for(const [scope,rows] of Object.entries(x.libraryVersions)){if(!Array.isArray(rows)||rows.length>libraryLimits.history||!rows.every(v=>object(v)&&number(v.savedAt,0,1e16)&&Array.isArray(v.prompts)&&v.prompts.length<=libraryLimits.perScope&&v.prompts.every(p=>validPrompt(p)&&promptScope(p.id)===scope)&&new Set(v.prompts.map((p:Prompt)=>p.id)).size===v.prompts.length))return false;}}
