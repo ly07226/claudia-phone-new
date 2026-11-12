@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {db} from '../store';
 import {baseInstructions} from './instructions';
-import {bpmAt,beatsBetween,advance,defaults,initial,next,phases,phaseNames,start,type Phase,type PhaseData,type PhaseSettings,validData} from './engine';
+import {bpmAt,beatsBetween,advance,defaults,initial,next,reroll,phases,phaseNames,start,type Phase,type PhaseData,type PhaseSettings,validData} from './engine';
 import {loadPhaseData,savePhaseData,savePhaseSession} from './storage';
 import {PhaseFeedback} from './feedback';
 import {reconcileApiDefault} from '../apiSelection';
@@ -113,6 +113,8 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
  </>:<>
   <div className="phase-play-stage" data-phase={r.phase}><span className="phase-play-orb" aria-hidden="true"><span key={pulse} className="phase-play-orb-pulse" data-active={pulse>0&&running&&s.beat} /></span><strong>{phaseNames[r.phase]}</strong><output aria-label="阶段剩余时间">{String(Math.floor(seconds/60)).padStart(2,'0')}:{String(seconds%60).padStart(2,'0')}</output><span key={pulse} className="phase-play-beat" data-active={pulse>0&&running&&s.beat} role="img" aria-label="节拍指示"/><small>{r.status==='idle'?'准备开始':r.status==='paused'?'已暂停':r.status==='finished'?'本局结束':'进行中'} · 第 {r.step} 阶段 · {Math.round(bpmAt(s,r.elapsedMs??0))} BPM</small></div>
   <div className="phase-play-instruction"><small>本局剩余时间：<output aria-label="整局剩余时间">{String(Math.floor(gameSeconds/60)).padStart(2,'0')}:{String(gameSeconds%60).padStart(2,'0')}</output></small><small>当前指令</small><p className="phase-play-prompt">{r.prompt||'准备好后，点击开始。'}</p></div>
+  <div className="phase-play-actions"><button type="button" disabled={blocked||r.status==='idle'||r.status==='finished'} onClick={()=>change({...current.current,session:reroll(current.current.settings,current.current.session)})}>换一条指令</button><button type="button" disabled={blocked} onClick={()=>setting({bpm:Math.max(30,s.bpm-10),autoAccelerate:false})}>慢 −10</button><button type="button" disabled={blocked} onClick={()=>setting({bpm:Math.min(180,s.bpm+10),autoAccelerate:false})}>快 +10</button></div>
+  <div className="phase-play-actions"><label>音量 {Math.round(s.volume*100)}% <input aria-label="游戏中音量" type="range" min="0" max="100" step="5" value={Math.round(s.volume*100)} onChange={e=>setting({volume:Number(e.target.value)/100})}/></label><button type="button" disabled={blocked} onClick={()=>{setting({sound:!s.sound});if(!s.sound)void feedback.current?.unlock();}}>音效{s.sound?'开':'关'}</button></div>
   <div className="phase-play-actions"><button className="phase-play-primary" disabled={blocked} onClick={()=>running?pause():void run()}>{running?'暂停':r.status==='idle'||r.status==='finished'?'开始新一局':'继续'}</button><button disabled={blocked||r.status==='idle'||r.status==='finished'} onClick={()=>{change({...current.current,session:next(s,current.current.session)});}}>下一阶段</button></div>
   <div className="phase-play-actions"><button disabled={blocked} onClick={()=>{pause();change({...current.current,session:initial(s)});}}>重置计时</button><button onClick={exit}>快速退出</button></div>
  </>}
