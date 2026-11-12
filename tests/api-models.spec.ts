@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 async function form(page: any) {
   await page.goto("/");
+  await page.getByRole("button", { name: "桌面第2页", exact: true }).click();
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page
     .getByRole("button", { name: "AI / API 设置", exact: true })

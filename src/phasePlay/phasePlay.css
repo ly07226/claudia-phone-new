@@ -62,7 +62,7 @@
 
  .phase-play-orb{position:relative;display:block;overflow:visible;flex:none}
 .phase-play-orb-pulse{position:absolute;inset:0;border-radius:50%;pointer-events:none}
-.phase-play-orb-pulse[data-active=true]{animation:phaseOrbBeat .34s ease-out both}
+.phase-play-orb-pulse[data-active=true]{animation:phaseOrbBeat var(--phase-beat-duration,.3s) ease-out both}
 @keyframes phaseOrbBeat{0%{transform:scale(1);opacity:.65;box-shadow:0 0 4px 2px #ffffff66}35%{transform:scale(1.08);opacity:.45;box-shadow:0 0 22px 10px #ffffff44}100%{transform:scale(1);opacity:0;box-shadow:0 0 0 0 transparent}}
 @media(prefers-reduced-motion:reduce){.phase-play-orb-pulse[data-active=true]{animation:none}}
 .phase-play-tone-settings{display:grid;gap:12px;margin-top:12px}
@@ -83,3 +83,124 @@
 .phase-play select,.phase-play textarea {max-width:100%;}
 .phase-play-versions {max-height:240px;overflow-y:auto;}
 @media(prefers-reduced-motion:reduce){.phase-play-orb-pulse,.phase-play-beat {animation:none!important;}}
+
+/* In-game controls share the instruction card and stay reachable on narrow phones. */
+.phase-play[data-screen=running] .phase-play-stage{min-height:170px;padding:14px;display:grid;grid-template-columns:100px 1fr;gap:6px 18px;align-items:center;text-align:center}
+.phase-play[data-screen=running] .phase-play-orb{width:90px;height:90px;grid-row:1/4}
+.phase-play[data-screen=running] .phase-play-stage output{font-size:32px}
+.phase-play[data-screen=running] .phase-play-stage small{grid-column:1/-1}
+.phase-play[data-screen=running] .phase-play-beat{display:none}
+.phase-play-instruction .phase-play-actions{display:flex;align-items:center;gap:8px;margin-top:12px!important;flex-wrap:wrap}
+.phase-play-instruction .phase-play-actions button{flex:1;white-space:nowrap;padding:9px 8px;font-size:13px;min-height:44px}
+.phase-play-instruction .phase-play-actions output{font-size:13px;white-space:nowrap}
+.phase-play-instruction .phase-play-actions label{flex:1;min-width:120px;margin:0}
+.phase-play-default-groups{display:grid;gap:10px;margin:12px 0}
+.phase-play-default-groups>div{border:1px solid #68506e;border-radius:12px;padding:12px}
+.phase-play-default-groups small{display:block;margin:7px 0}
+.phase-play-default-groups button[aria-pressed=true]{background:#684e6d;border-color:#dca3d8}
+.phase-play-source-list{max-height:240px;overflow-y:auto;text-align:left}
+.phase-play-history summary,.phase-play-default-groups summary{cursor:pointer;min-height:44px;display:flex;align-items:center}
+.phase-play-versions{overscroll-behavior:contain;padding:4px}
+.phase-play-version{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid #58435d}
+.phase-play-version button{width:auto;flex:none;min-height:44px}
+
+
+/* Phase Play v2 — centered light, separated cards and thumb-friendly controls. */
+.phase-play[data-screen=running]{gap:14px;padding-inline:16px}
+.phase-play[data-screen=running] .phase-play-stage{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:10px;min-height:315px;padding:24px 16px 20px;border-radius:28px;background:radial-gradient(ellipse at 50% 24%,#50344c 0%,#2b2032 70%,#241b2c 100%);text-align:center}
+.phase-play[data-screen=running] .phase-play-orb{width:min(46vw,176px);height:min(46vw,176px);grid-row:auto}
+.phase-play[data-screen=running] .phase-play-stage strong{font-size:16px;letter-spacing:.1em;color:#e8d5e6}
+.phase-play[data-screen=running] .phase-play-stage output{font-size:48px;line-height:1.05;font-variant-numeric:tabular-nums;letter-spacing:.025em}
+.phase-play[data-screen=running] .phase-play-stage small{grid-column:auto;font-size:12px;color:#bba8c1}
+.phase-play[data-screen=running] .phase-play-instruction{padding:20px 18px;border-radius:24px;background:#35283d;display:flex;flex-direction:column;align-items:center;gap:8px}
+.phase-play-instruction small{font-size:12px;letter-spacing:.02em}
+.phase-play-instruction .phase-play-prompt{font-size:19px;line-height:1.7;margin:8px 0 12px;max-width:34ch;font-weight:500;white-space:pre-wrap}
+.phase-play .phase-play-reroll{width:auto;min-height:42px;padding:9px 22px;border-radius:999px;border:1px solid #846687;background:#49344f;color:#f9e9f6;font-size:14px}
+.phase-play-tempo,.phase-play-sound{background:#302538;border:1px solid #624a68;border-radius:20px;padding:15px 17px}
+.phase-play-tempo-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;font-size:14px;color:#e8d6e8}
+.phase-play-tempo-heading output{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;color:#f4c4e8}
+.phase-play-tempo-buttons{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.phase-play-tempo-buttons button{min-height:48px;border-radius:14px;font-size:15px}
+.phase-play-sound{display:grid;grid-template-columns:minmax(0,1fr) 112px;align-items:center;gap:16px}
+.phase-play-sound label{display:grid;gap:8px;min-width:0;margin:0;font-size:13px;text-align:left}
+.phase-play-sound input[type=range]{width:100%;min-width:0;accent-color:#dba4cf}
+.phase-play-sound button{min-height:48px;border-radius:14px;font-size:14px}
+.phase-play[data-screen=running] .phase-play-main-actions,.phase-play[data-screen=running] .phase-play-secondary-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0}
+.phase-play-main-actions button{min-height:56px;font-size:16px;border-radius:16px}
+.phase-play-secondary-actions button{min-height:46px;font-size:14px;border-radius:15px}
+@media(max-width:360px){.phase-play[data-screen=running]{padding-inline:12px}.phase-play[data-screen=running] .phase-play-stage{min-height:295px}.phase-play[data-screen=running] .phase-play-orb{width:142px;height:142px}.phase-play-sound{grid-template-columns:minmax(0,1fr) 90px;gap:10px}}
+
+
+/* Approved interactive prototype: dark teal canvas, centered glow, floating prompt, timer and emergency action. */
+.phase-play[data-screen=running]{background:linear-gradient(160deg,#142322 0%,#101b1b 65%,#1b1823 100%);padding:18px 16px calc(34px + env(safe-area-inset-bottom,0px));gap:16px;color:#f8edf6}
+.phase-play[data-screen=running] .phase-play-heading{border:0;padding:0 2px}
+.phase-play[data-screen=running] .phase-play-heading p{display:none}
+.phase-play[data-screen=running] .phase-play-heading h2{font-size:17px}
+.phase-play[data-screen=running] .phase-play-heading button{min-height:38px;font-size:12px}
+.phase-play[data-screen=running] .phase-play-stage{min-height:208px;padding:6px 0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border:0;background:transparent;border-radius:0}
+.phase-play[data-screen=running] .phase-play-orb{width:min(49vw,190px);height:min(49vw,190px);grid-row:auto;box-shadow:0 0 38px #5dd7ac88,0 0 92px #43ad8d33}
+.phase-play[data-screen=running] .phase-play-stage[data-phase=red] .phase-play-orb{box-shadow:0 0 38px #ed789488,0 0 92px #ed789433}
+.phase-play[data-screen=running] .phase-play-stage[data-phase=yellow] .phase-play-orb{box-shadow:0 0 38px #e6c26788,0 0 92px #e6c26733}
+.phase-play-stage-label{color:#b5c7c0;font-size:12px}
+.phase-play[data-screen=running] .phase-play-instruction{padding:26px 18px 18px;border:1px solid #40504d;background:#202b2a;border-radius:30px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.phase-play-instruction-tag{background:linear-gradient(110deg,#f5a0c3,#a78af1);color:#2a1c2f;padding:10px 23px;border-radius:999px;font-size:14px;font-weight:700;letter-spacing:.04em}
+.phase-play-instruction .phase-play-prompt{margin:6px 0 0;color:#fff4fa;font-size:clamp(19px,5.1vw,25px);font-weight:600;line-height:1.65;max-width:28ch;white-space:pre-wrap;text-align:center}
+.phase-play .phase-play-reroll{background:transparent;border:1px solid #52615e;color:#c5bec8;padding:9px 20px;min-height:42px;border-radius:999px}
+.phase-play-instruction-footer{width:100%;padding-top:17px;border-top:1px solid #3b4846;color:#aab7b2;text-align:center;font-size:13px;line-height:1.6}
+.phase-play-timer{display:flex;flex-direction:column;align-items:center;gap:6px;margin:2px 0 0}
+.phase-play-timer output{font-size:clamp(52px,13vw,76px);font-weight:300;font-variant-numeric:tabular-nums;line-height:1.1;letter-spacing:.03em}
+.phase-play-timer small{color:#aabbb5;font-size:12px}
+.phase-play[data-screen=running] .phase-play-tempo-buttons{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:0 8px}
+.phase-play[data-screen=running] .phase-play-tempo-buttons button{min-height:55px;border-radius:999px;background:#283232;border:1px solid #586360;color:#f7e8f2;font-size:18px}
+.phase-play .phase-play-emergency{width:100%;min-height:76px;border:0;border-radius:22px;background:linear-gradient(110deg,#ff697c,#e63879);box-shadow:0 8px 24px #d93e7140;color:white;font-size:clamp(17px,5vw,22px);font-weight:750;letter-spacing:.03em}
+.phase-play-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.phase-play-stats>div{min-width:0;display:flex;flex-direction:column;align-items:center;gap:8px;border:1px solid #43504e;border-radius:18px;background:#26302f;padding:14px 4px}
+.phase-play-stats small{color:#abb9b5;font-size:11px;text-align:center}
+.phase-play-stats strong{font-size:16px;font-weight:600;white-space:nowrap}
+.phase-play[data-screen=running] .phase-play-main-actions,.phase-play[data-screen=running] .phase-play-secondary-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0}
+.phase-play[data-screen=running] .phase-play-main-actions button,.phase-play[data-screen=running] .phase-play-secondary-actions button{background:#273130;border:1px solid #596360;color:#f5edf2;border-radius:999px;min-height:50px;font-size:15px}
+.phase-play[data-screen=running] .phase-play-sound{background:transparent;border:0;padding:4px 2px;grid-template-columns:minmax(0,1fr) 94px}
+.phase-play[data-screen=running] .phase-play-sound button{border-radius:999px}
+@media(max-width:360px){.phase-play[data-screen=running]{padding-inline:12px}.phase-play[data-screen=running] .phase-play-stage{min-height:185px}.phase-play[data-screen=running] .phase-play-orb{width:150px;height:150px}.phase-play-instruction-tag{padding:8px 16px}}
+
+
+/* Compact iPhone layout correction: remove duplicate navigation and fit controls above the fold. */
+.phase-play[data-screen=running]{padding:0 14px calc(22px + env(safe-area-inset-bottom,0px));gap:10px}
+.phase-play[data-screen=running]>.phase-play-heading{display:none}
+.phase-play[data-screen=running] .phase-play-stage{min-height:0;height:184px;padding:8px 0 0;gap:0;margin:0}
+.phase-play[data-screen=running] .phase-play-orb{width:146px;height:146px;flex:none;box-shadow:0 0 24px #5dd7ac55}
+.phase-play[data-screen=running] .phase-play-stage[data-phase=red] .phase-play-orb{box-shadow:0 0 24px #ed789455}
+.phase-play[data-screen=running] .phase-play-stage[data-phase=yellow] .phase-play-orb{box-shadow:0 0 24px #e6c26755}
+.phase-play[data-screen=running] .phase-play-stage-label{font-size:11px;margin-top:5px}
+.phase-play[data-screen=running] .phase-play-instruction{padding:16px 16px 12px;border-radius:23px;gap:8px;min-height:0}
+.phase-play[data-screen=running] .phase-play-instruction-tag{font-size:12px;padding:7px 16px}
+.phase-play[data-screen=running] .phase-play-instruction .phase-play-prompt{font-size:clamp(16px,4.2vw,19px);line-height:1.55;margin:4px 0;max-width:100%;font-weight:600}
+.phase-play[data-screen=running] .phase-play-reroll{min-height:36px;padding:5px 16px;font-size:12px}
+.phase-play[data-screen=running] .phase-play-instruction-footer{font-size:11px;padding-top:10px}
+.phase-play[data-screen=running] .phase-play-timer{gap:2px;margin:0}
+.phase-play[data-screen=running] .phase-play-timer output{font-size:50px;line-height:1}
+.phase-play[data-screen=running] .phase-play-timer small{font-size:10px}
+.phase-play[data-screen=running] .phase-play-tempo-buttons{gap:10px;padding:0 4px}
+.phase-play[data-screen=running] .phase-play-tempo-buttons button{min-height:43px;font-size:15px}
+.phase-play[data-screen=running] .phase-play-emergency{min-height:58px;border-radius:18px;font-size:17px}
+.phase-play[data-screen=running] .phase-play-stats>div{padding:8px 3px;gap:4px;border-radius:14px}
+.phase-play[data-screen=running] .phase-play-stats small{font-size:10px}
+.phase-play[data-screen=running] .phase-play-stats strong{font-size:14px}
+.phase-play[data-screen=running] .phase-play-main-actions button{min-height:44px}
+@media(min-width:390px){.phase-play[data-screen=running] .phase-play-stage{height:195px}.phase-play[data-screen=running] .phase-play-orb{width:158px;height:158px}}
+
+
+.phase-play-default-card{display:flex;flex-direction:column;gap:10px;min-width:0}
+.phase-play-default-card-header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.phase-play-default-details{border:1px solid #705575;border-radius:15px;padding:12px;min-width:0}
+.phase-play-default-details summary{cursor:pointer;font-weight:600}
+.phase-play-default-toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.phase-play-default-toolbar button{min-height:42px}
+.phase-play-default-list{max-height:360px;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:8px}
+.phase-play-default-item{border:1px solid #654c68;border-radius:13px;padding:12px;overflow-wrap:anywhere}
+.phase-play-default-item p{white-space:pre-wrap;margin:8px 0;font-size:14px;line-height:1.5}
+.phase-play-default-item .phase-play-actions{display:flex;gap:8px}
+.phase-play-default-item .phase-play-actions button{min-height:38px;flex:1}
+.phase-play-default-editor{border:1px solid #a77caa;border-radius:15px;padding:12px;margin-bottom:12px;display:grid;gap:10px}
+.phase-play-default-editor textarea{min-height:90px;width:100%}
+@media(max-width:360px){.phase-play-default-toolbar{grid-template-columns:1fr}}

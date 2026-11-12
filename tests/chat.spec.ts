@@ -152,6 +152,7 @@ test("无世界创建基础角色、无 API 引导、失败保留消息和重试
   page,
 }) => {
   await page.goto("/");
+  await page.getByRole("button", { name: "桌面第2页", exact: true }).click();
   await page.getByRole("button", { name: "角色管理", exact: true }).click();
   await page.getByRole("button", { name: "创建角色", exact: true }).click();
   await page.getByLabel("角色姓名", { exact: true }).fill("无世界测试角色");
@@ -161,6 +162,7 @@ test("无世界创建基础角色、无 API 引导、失败保留消息和重试
     page.getByRole("heading", { name: "无世界测试角色", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "返回桌面" }).click();
+  await page.getByRole("button", { name: "桌面第1页", exact: true }).click();
   await page.getByRole("button", { name: "聊天", exact: true }).click();
   await page.getByRole("button", { name: /无世界测试角色/ }).click();
   await expect(page.getByRole("alert")).toContainText("没有可用 API");
@@ -415,6 +417,7 @@ test("API 选择优先级、停用不静默回退和重复会话唯一", async (
 test("世界专属资料可编辑，共用基础角色不复制", async ({ page }) => {
   await seed(page);
   await page.reload();
+  await page.getByRole("button", { name: "桌面第2页", exact: true }).click();
   await page.getByRole("button", { name: "世界管理", exact: true }).click();
   await page
     .locator(".card")
