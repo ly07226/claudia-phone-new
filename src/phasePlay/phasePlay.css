@@ -162,3 +162,29 @@
 .phase-play[data-screen=running] .phase-play-sound{background:transparent;border:0;padding:4px 2px;grid-template-columns:minmax(0,1fr) 94px}
 .phase-play[data-screen=running] .phase-play-sound button{border-radius:999px}
 @media(max-width:360px){.phase-play[data-screen=running]{padding-inline:12px}.phase-play[data-screen=running] .phase-play-stage{min-height:185px}.phase-play[data-screen=running] .phase-play-orb{width:150px;height:150px}.phase-play-instruction-tag{padding:8px 16px}}
+
+
+/* Compact iPhone layout correction: remove duplicate navigation and fit controls above the fold. */
+.phase-play[data-screen=running]{padding:0 14px calc(22px + env(safe-area-inset-bottom,0px));gap:10px}
+.phase-play[data-screen=running]>.phase-play-heading{display:none}
+.phase-play[data-screen=running] .phase-play-stage{min-height:0;height:184px;padding:8px 0 0;gap:0;margin:0}
+.phase-play[data-screen=running] .phase-play-orb{width:146px;height:146px;flex:none;box-shadow:0 0 24px #5dd7ac55}
+.phase-play[data-screen=running] .phase-play-stage[data-phase=red] .phase-play-orb{box-shadow:0 0 24px #ed789455}
+.phase-play[data-screen=running] .phase-play-stage[data-phase=yellow] .phase-play-orb{box-shadow:0 0 24px #e6c26755}
+.phase-play[data-screen=running] .phase-play-stage-label{font-size:11px;margin-top:5px}
+.phase-play[data-screen=running] .phase-play-instruction{padding:16px 16px 12px;border-radius:23px;gap:8px;min-height:0}
+.phase-play[data-screen=running] .phase-play-instruction-tag{font-size:12px;padding:7px 16px}
+.phase-play[data-screen=running] .phase-play-instruction .phase-play-prompt{font-size:clamp(16px,4.2vw,19px);line-height:1.55;margin:4px 0;max-width:100%;font-weight:600}
+.phase-play[data-screen=running] .phase-play-reroll{min-height:36px;padding:5px 16px;font-size:12px}
+.phase-play[data-screen=running] .phase-play-instruction-footer{font-size:11px;padding-top:10px}
+.phase-play[data-screen=running] .phase-play-timer{gap:2px;margin:0}
+.phase-play[data-screen=running] .phase-play-timer output{font-size:50px;line-height:1}
+.phase-play[data-screen=running] .phase-play-timer small{font-size:10px}
+.phase-play[data-screen=running] .phase-play-tempo-buttons{gap:10px;padding:0 4px}
+.phase-play[data-screen=running] .phase-play-tempo-buttons button{min-height:43px;font-size:15px}
+.phase-play[data-screen=running] .phase-play-emergency{min-height:58px;border-radius:18px;font-size:17px}
+.phase-play[data-screen=running] .phase-play-stats>div{padding:8px 3px;gap:4px;border-radius:14px}
+.phase-play[data-screen=running] .phase-play-stats small{font-size:10px}
+.phase-play[data-screen=running] .phase-play-stats strong{font-size:14px}
+.phase-play[data-screen=running] .phase-play-main-actions button{min-height:44px}
+@media(min-width:390px){.phase-play[data-screen=running] .phase-play-stage{height:195px}.phase-play[data-screen=running] .phase-play-orb{width:158px;height:158px}}
