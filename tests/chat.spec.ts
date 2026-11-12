@@ -365,7 +365,15 @@ test("v2 到 v3 保留所有旧表与凭据并只创建旧角色关联", async (
       records[name] = await db.table(name).toArray();
     return { records, profiles: await db.worldProfiles.toArray() };
   });
-  expect(after.records).toEqual(before);
+  // Bundled desktop apps may be added after migration; legacy records must still
+  // remain intact. Compare original item IDs instead of rejecting new app icons.
+  const {items: migratedItems, ...migratedTables} = after.records;
+  const {items: legacyItems, ...legacyTables} = before;
+  expect(migratedTables).toEqual(legacyTables);
+  for (const item of legacyItems) {
+    expect(migratedItems).toContainEqual(item);
+  }
+  expect(migratedItems.filter((item: any) => item.app === "忍一下嘛")).toHaveLength(1);
   expect(after.profiles).toHaveLength(1);
   expect(after.profiles[0]).toMatchObject({
     characterId: "c",
