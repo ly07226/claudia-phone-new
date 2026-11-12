@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>SOSEXY 蓝牙只读检测</title>
+<style>body{font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:680px;margin:auto;padding:24px 18px;background:#f8f8fb;color:#20202a}h1{font-size:24px}button{font:inherit;border:0;border-radius:12px;padding:12px 18px;margin:6px 6px 6px 0;background:#4746a8;color:white}button:disabled{opacity:.45}#disconnect{background:#555}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:white;border:1px solid #ddd;border-radius:12px;padding:16px;min-height:140px}small{color:#666}.warning{background:#fff4db;border-radius:10px;padding:12px}</style></head>
+<body><h1>SOSEXY 蓝牙分级诊断 v3</h1><p class="warning">只做扫描、连接、读取服务与特征元信息，不读取特征值、不写入、不控制设备。先断开官方 App，设备不要在使用中。</p><p>依次只试一个按钮；出现设备列表时只选自己的 SOSEXY。每次测试会清空日志。先测 A，成功后测 B，最后测 C。</p>
+<button id="a">A · 仅扫描（无服务权限）</button>
+<button id="b">B · EE01 完整 UUID</button>
+<button id="c">C · EE01 + AE00 完整 UUID</button>
+<button id="disconnect" disabled>断开连接</button>
+<h2>检测结果</h2><pre id="log" aria-live="polite">尚未开始。</pre>
+<script>
+(() => {
+  const logEl = document.getElementById('log');
+  const disconnectBtn = document.getElementById('disconnect');
+  const buttons = ['a','b','c'].map(id => document.getElementById(id));
+  const ee01 = '0000ee01-0000-1000-8000-00805f9b34fb';
+  const ae00 = '0000ae00-0000-1000-8000-00805f9b34fb';
+  let device = null;
+  const log = s => { logEl.textContent += '\\n' + s; };
+  const ready = () => { buttons.forEach(b => b.disabled = false); disconnectBtn.disabled = true; };
+  const busy = () => { buttons.forEach(b => b.disabled = true); };
+  const onDisconnect = () => { log('GATT 已断开'); ready(); };
+  function run(mode) {
+    if (device?.gatt?.connected) device.gatt.disconnect();
+    device = null;
+    logEl.textContent = '模式 ' + mode + '：准备请求设备';
+    if (!navigator.bluetooth || typeof navigator.bluetooth.requestDevice !== 'function') {
+      log('当前浏览器未提供 Web Bluetooth requestDevice'); ready(); return;
+    }
+    busy();
+    const options = mode === 'A' ? {acceptAllDevices:true} :
+      {acceptAllDevices:true,optionalServices:mode==='B'?[ee01]:[ee01,ae00]};
+    log('requestDevice 参数：' + JSON.stringify(options));
+    // Must call requestDevice synchronously inside the user click handler.
+    let pending;
+    try { pending = navigator.bluetooth.requestDevice(options); }
+    catch(e) { log('同步错误：' + (e?.name||'Error') + ' / ' + (e?.message||String(e))); ready(); return; }
+    Promise.resolve(pending).then(async selected => {
+      device = selected;
+      log('选择设备：' + (device.name || '未命名'));
+      if(device.name !== 'SOSEXY') { log('非 SOSEXY，停止测试，不连接。'); ready(); return; }
+      if(mode==='A') { log('A 扫描成功：未请求 GATT 连接。'); ready(); return; }
+      device.addEventListener('gattserverdisconnected', onDisconnect, {once:true});
+      log('开始连接 GATT…');
+      const server = await device.gatt.connect();
+      log('GATT 连接成功');
+      disconnectBtn.disabled = false;
+      const services = await server.getPrimaryServices();
+      for(const service of services) {
+        log('服务：'+service.uuid);
+        try {
+          for(const ch of await service.getCharacteristics()) {
+            const p=ch.properties;
+            const flags=['read','write','writeWithoutResponse','notify','indicate'].filter(k=>p[k]);
+            log('特征：'+ch.uuid+' ['+flags.join(', ')+']');
+          }
+        } catch(e) {log('枚举特征错误：'+(e?.message||String(e)));}
+      }
+      log('只读元信息检查结束。请手动断开连接。');
+      buttons.forEach(b=>b.disabled=false);
+    }).catch(e => {
+      log('检测失败：'+(e?.name||'Error')+' / '+(e?.message||String(e)));
+      log('错误字符串：'+String(e));
+      ready();
+    });
+  }
+  buttons.forEach(b=>b.addEventListener('click',()=>run(b.id.toUpperCase())));
+  disconnectBtn.addEventListener('click',()=>{
+    if(device?.gatt?.connected) device.gatt.disconnect();
+    else ready();
+  });
+  window.addEventListener('pagehide',()=>{if(device?.gatt?.connected)device.gatt.disconnect();});
+})();
+</script></body></html>
