@@ -2378,3 +2378,18 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
   transform: scale(1.25);
 }
 .editing .page-dots { z-index: 3; }
+
+/* Persistent drag preview floats above pages during edge-triggered page changes. */
+.desktop-drag-ghost {
+  position: fixed;
+  z-index: 1000;
+  transform: translate(-50%,-50%) scale(1.06);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  filter: drop-shadow(0 8px 12px rgba(0,0,0,.18));
+  user-select: none;
+}
+.desktop-drag-ghost .app-label { white-space: nowrap; }
