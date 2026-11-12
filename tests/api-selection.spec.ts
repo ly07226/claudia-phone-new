@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 const syntheticKey = "synthetic-selection-fixture";
 async function open(page: Page) {
   await page.goto("/");
+  await page.getByRole("button", { name: "桌面第2页", exact: true }).click();
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByRole("button", { name: "AI / API 设置", exact: true }).click();
 }

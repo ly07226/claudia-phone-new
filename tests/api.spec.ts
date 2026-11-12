@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 async function openSettings(page: any) {
   await page.goto("/");
+  await page.getByRole("button", { name: "桌面第2页", exact: true }).click();
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page
     .getByRole("button", { name: "AI / API 设置", exact: true })
@@ -50,6 +51,7 @@ test("API CRUD、默认唯一、启停、独立凭据及刷新保存", async ({ 
   expect(state.keys).toHaveLength(2);
   expect(state.configs.some((c: any) => "apiKey" in c)).toBe(false);
   await page.reload();
+  await page.getByRole("button", { name: "桌面第2页", exact: true }).click();
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page
     .getByRole("button", { name: "AI / API 设置", exact: true })
