@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>SOSEXY 蓝牙只读检测</title>
 <style>body{font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:680px;margin:auto;padding:24px 18px;background:#f8f8fb;color:#20202a}h1{font-size:24px}button{font:inherit;border:0;border-radius:12px;padding:12px 18px;margin:6px 6px 6px 0;background:#4746a8;color:white}button:disabled{opacity:.45}#disconnect{background:#555}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:white;border:1px solid #ddd;border-radius:12px;padding:16px;min-height:140px}small{color:#666}.warning{background:#fff4db;border-radius:10px;padding:12px}</style></head>
-<body><h1>SOSEXY 蓝牙检测</h1><p class="warning">只读诊断：仅扫描、连接、读取服务和特征的元信息。不读取特征值、不写入任何指令、不启动设备。请先断开官方 App。不要在设备正在使用时测试。</p><p>请在支持 Web Bluetooth 的 Bluefy 浏览器打开此页面。连接必须由你亲自点击授权。</p><button id="connect">搜索并读取 SOSEXY</button><button id="disconnect" disabled>断开连接</button><p><small>显示的 UUID 只是设备提供的通信接口，并不证明控制协议兼容。浏览器或设备可能拒绝访问某些服务。</small></p><h2>检测结果</h2><pre id="log" aria-live="polite">尚未开始。</pre>
+<body><h1>SOSEXY 蓝牙检测</h1><p class="warning">只读诊断：仅扫描、连接、读取服务和特征的元信息。不读取特征值、不写入任何指令、不启动设备。请先断开官方 App。不要在设备正在使用时测试。</p><p>请在支持 Web Bluetooth 的 Bluefy 浏览器打开此页面。连接必须由你亲自点击授权。设备选择列表会显示所有附近设备，请只选择已确认属于自己的 SOSEXY。</p><button id="connect">选择设备并只读检测</button><button id="disconnect" disabled>断开连接</button><p><small>显示的 UUID 只是设备提供的通信接口，并不证明控制协议兼容。浏览器或设备可能拒绝访问某些服务。</small></p><h2>检测结果</h2><pre id="log" aria-live="polite">尚未开始。</pre>
 <script>
 (() => {
   const logEl = document.getElementById('log');
@@ -19,9 +19,10 @@
     connectBtn.disabled = true;
     try {
       device = await navigator.bluetooth.requestDevice({
-        filters: [{name: 'SOSEXY'}],
+        acceptAllDevices: true,
         optionalServices: allowed
       });
+      if (device.name !== 'SOSEXY') { log('选择的不是 SOSEXY，已取消检测。'); state(false); return; }
       device.addEventListener('gattserverdisconnected', disconnected, {once:true});
       log('已选择：' + (device.name || '未命名设备'));
       log('连接 GATT…');
@@ -45,6 +46,7 @@
       log('只读检查完成。可点击“断开连接”。');
     } catch (e) {
       log('检测未完成：' + (e?.name || 'Error') + '：' + (e?.message || String(e)));
+      log('错误详情：' + String(e));
       state(false);
     }
   });
