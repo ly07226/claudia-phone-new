@@ -15,43 +15,48 @@ export function storyInput(s:StorySession,path:StoryNode[],actionInput?:string|S
  }
  const selectedAction=action?.kind==='custom'?{kind:'custom',text:action.text}:action?.kind==='choice'?{kind:'choice',label:head?.choices.find(c=>c.id===action.choiceId)?.label,text:head?.choices.find(c=>c.id===action.choiceId)?.text}:undefined;
  const history=path.map((n,i)=>({body:n.body,selectedAction:path[i+1]?storyActionText(n,path[i+1]):undefined}));
- let start=Math.max(0,history.length-8),ledgerStart=Math.max(0,start-24),memoryBudget=6000;
+ let start=Math.max(0,history.length-8),ledgerStart=Math.max(0,start-24),memoryBudget=10000;
  const historyIndex=indexStoryHistory(path),encoded=(value:unknown)=>new TextEncoder().encode(JSON.stringify(value)).length;
  const actions=()=>history.slice(ledgerStart,start).flatMap((n,i)=>n.selectedAction?[{node:ledgerStart+i+1,...n.selectedAction}]:[]);
- const historyByteBudget=encoded({confirmedHistory:history.slice(start),olderConfirmedActions:actions()});
- const memory=()=>{if(!start||!memoryBudget)return undefined;const value=selectStoryHistory(historyIndex,start,memoryBudget);return value.excerpts.length?value:undefined;};
+ const originalHistoryBytes=encoded({confirmedHistory:history.slice(start),olderConfirmedActions:actions()});
+ // A bounded floor prevents short replies from erasing all older outcomes.
+ // The existing global admission limit remains authoritative, not this target.
+ const allocatedHistoryBytes=Math.min(32000,Math.max(16000,originalHistoryBytes));
+ const memoryCache=new Map<string,ReturnType<typeof selectStoryHistory>|undefined>();
+ const memory=()=>{
+  if(!start||!memoryBudget)return undefined;const key=`${start}:${ledgerStart}:${memoryBudget}`;
+  if(!memoryCache.has(key)){const value=selectStoryHistory(historyIndex,start,memoryBudget,{action:selectedAction?.text,recent:path.at(-1)?.body,characters:s.definition.participants?.characters.map(c=>c.name),actionBefore:ledgerStart+1});memoryCache.set(key,value.excerpts.length||value.actions.length?value:undefined);}
+  return memoryCache.get(key);
+ };
  const historyBytes=()=>encoded({confirmedHistory:history.slice(start),olderConfirmedActions:actions(),...(memory()?{longTermStoryMemory:memory()}:{})});
- // Reallocate the old history budget, never append an unbounded extra layer.
- // Recent complete nodes outrank older action-intent records; quoted outcomes
- // and unresolved facts share that budget with a minimum recent window of 3.
- const rebalance=()=>{while(historyBytes()>historyByteBudget){if(start<history.length-3)start++;else if(ledgerStart<start)ledgerStart++;else if(memoryBudget>0)memoryBudget=Math.max(0,memoryBudget-1000);else break;}};
- rebalance();
+ const shrinkHistory=()=>{
+  if(start<history.length-3)start++;
+  else if(ledgerStart<start)ledgerStart++;
+  else if(memoryBudget>2000)memoryBudget=Math.max(2000,memoryBudget-1000);
+  else if(start<history.length-1)start++;
+  else if(memoryBudget>0)memoryBudget=Math.max(0,memoryBudget-1000);
+  else return false;
+  return true;
+ };
+ while(historyBytes()>allocatedHistoryBytes&&shrinkHistory()){/* Keep complete units. */}
  let referenceSelection:undefined|{notice:string;originalCharacters:number;includedCharacters:number};
- const render=()=>JSON.stringify({definition,...(guidance?.enabled?{directionGuidance:{text:guidance.text,mode:guidance.mode}}:{}),narration:{perspective:script.perspective??'second'},...(referenceSelection?{referenceSelection}:{}),narrativeLength:{mode:length,targetChineseCharacters:storyLengths[length].target,appliesTo:'仅 body 正文，不含 choices 和重复的 segments；历史篇幅不是本次目标。',guidance:'目标篇幅而非凑字数；已有行动不得无故反转，自定义行动只是尝试，不保证成功。'},historyOmitted:start,...(memory()?{longTermStoryMemory:memory()}:{}),historySelection:{originalHistoryBytes:historyByteBudget,selectedHistoryBytes:historyBytes()},olderConfirmedActions:actions(),actionHistoryOmitted:ledgerStart,confirmedHistory:history.slice(start),selectedAction,instruction:start?'早期正文因预算未提供，行动记录为已确认的用户意图，不代表行动必然成功；不得编造缺失经历或反转已知行动。':'仅已确认主线路径；未选择选项未作为事实提供。'});
- let input=render();while(new TextEncoder().encode(storyPrompt+input).length>inputByteLimit){
-  if(start<history.length-3)start++;else if(memoryBudget>0)memoryBudget=Math.max(0,memoryBudget-1000);else if(start<history.length-1)start++;else if(ledgerStart<start)ledgerStart++;else break;
-  rebalance();input=render();
- }
- if(new TextEncoder().encode(storyPrompt+input).length>inputByteLimit){
-  // Only reference prose may be selected. Identity, rules, opening, direction,
-  // latest node and current action remain whole, or admission fails before payment.
-  const originals={description:definition.description,background:definition.background};
-  const units=(['description','background'] as const).flatMap(field=>
-   (originals[field].match(/[^\n。！？!?]+(?:[。！？!?]+|\n+|$)/gu)??[]).map((text,index)=>({field,text,index})));
-  const required=new Set(units.filter(u=>/身份|主控|姓名|性别|年龄|设定|规则|必须|禁止|不得|不能|不可|不允许|仅当|除非|只有|[0-9０-９]/u.test(u.text)));
-  const kept=new Set(required);
-  referenceSelection={notice:'以下背景与梗概为按预算选取的原文片段，不是完整设定。未提供的段落不得猜测或改写成事实；身份、规则、开场和当前剧情未裁剪。完整原文仍保存在世界中。',originalCharacters:originals.description.length+originals.background.length,includedCharacters:0};
-  const rebuild=()=>{
-   for(const field of ['description','background'] as const)definition[field]=units.filter(u=>u.field===field&&kept.has(u)).map(u=>u.text).join('');
-   referenceSelection!.includedCharacters=definition.description.length+definition.background.length;
-   return render();
-  };
-  input=rebuild();if(new TextEncoder().encode(storyPrompt+input).length>inputByteLimit)throw Error('budget');
-  // Preserve both the beginning and recent end of the supplied reference, then
-  // fill with whole sentences in source order; never mutate the saved snapshot.
-  const optional=units.filter(u=>!required.has(u));
-  const priority=optional.length?[optional[0],optional.at(-1)!,...optional.slice(1,-1)]:[];
-  for(const unit of new Set(priority)){kept.add(unit);const next=rebuild();if(new TextEncoder().encode(storyPrompt+next).length<=inputByteLimit)input=next;else kept.delete(unit);}
+ const render=()=>JSON.stringify({definition,...(guidance?.enabled?{directionGuidance:{text:guidance.text,mode:guidance.mode}}:{}),narration:{perspective:script.perspective??'second'},continuity:{nextSequence:path.length+1,openingTurn:path.length===0,staticDefinition:'definition中的背景、人物快照和开场是初始资料；原文事件或计划不是待重复执行的清单。开场只用于首回合。',confirmedSources:'confirmedHistory及longTermStoryMemory.excerpts来自本分支已提交正文；行动意图与实际结果分开。明确的后续变化优先于人物初始位置、关系等状态；允许有原因的新变化、回忆或反转，不强制照原文发展。',stateLimit:'只有已声明的模拟器字段可由状态引擎验证；普通叙事当前状态需根据这些带来源的历史判断，不把未提供的细节当成已知。'},...(referenceSelection?{referenceSelection}:{}),narrativeLength:{mode:length,targetChineseCharacters:storyLengths[length].target,appliesTo:'仅 body 正文，不含 choices 和重复的 segments；历史篇幅不是本次目标。',guidance:'目标篇幅而非凑字数；已有行动不得无故反转，自定义行动只是尝试，不保证成功。'},historyOmitted:start,...(memory()?{longTermStoryMemory:memory()}:{}),historySelection:{originalHistoryBytes,allocatedHistoryBytes,selectedHistoryBytes:historyBytes(),indexedNarrativeUnits:historyIndex.filter(x=>x.kind==='narrative').length,memoryBudgetBytes:memoryBudget},olderConfirmedActions:actions(),actionHistoryOmitted:ledgerStart,confirmedHistory:history.slice(start),selectedAction,instruction:start?'早期正文未完整提供，长期摘录和行动检索也有遗漏；不能把未提供的历史当成未发生，不能把行动意图当成结果。':'仅已确认主线路径；未选择选项未作为事实提供。'});
+ const size=(input:string)=>new TextEncoder().encode(storyPrompt+input).length;
+ let input=render();
+ // Select optional static prose BEFORE exhausting committed history. The saved
+ // snapshot, identities, explicit rules, opening, direction and action stay intact.
+ const originals={description:definition.description,background:definition.background};
+ const units=(['description','background'] as const).flatMap(field=>(originals[field].match(/[^\n。！？!?]+(?:[。！？!?]+|\n+|$)/gu)??[]).map((text,index)=>({field,text,index})));
+ const required=new Set(units.filter(u=>/身份|主控|姓名|性别|年龄|设定|规则|必须|禁止|不得|不能|不可|不允许|仅当|除非|只有|[0-9０-９]/u.test(u.text)));
+ const kept=new Set(required);
+ for(const field of ['description','background'] as const){const anchor=units.find(u=>u.field===field);if(anchor)kept.add(anchor);}
+ const rebuild=()=>{for(const field of ['description','background'] as const)definition[field]=units.filter(u=>u.field===field&&kept.has(u)).map(u=>u.text).join('');referenceSelection!.includedCharacters=definition.description.length+definition.background.length;return render();};
+ if(size(input)>inputByteLimit){referenceSelection={notice:'背景与梗概按预算选取完整原文片段，不是完整设定。已提交历史优先于可选背景铺陈；人物身份、明确规则和当前行动未裁剪，完整原文仍在本地。未提供历史不能视作未发生。',originalCharacters:originals.description.length+originals.background.length,includedCharacters:0};input=rebuild();}
+ while(size(input)>inputByteLimit&&shrinkHistory())input=referenceSelection?rebuild():render();
+ if(size(input)>inputByteLimit)throw Error('budget');
+ if(referenceSelection){
+  const optional=units.filter(u=>!kept.has(u));const priority=optional.length?[optional[0],optional.at(-1)!,...optional.slice(1,-1)]:[];
+  for(const unit of new Set(priority)){kept.add(unit);const next=rebuild();if(size(next)<=inputByteLimit)input=next;else kept.delete(unit);}
   input=rebuild();
   if(Object.entries(originals).some(([field,text])=>text.trim()&&!definition[field as keyof typeof originals].trim()))throw Error('budget');
  }
