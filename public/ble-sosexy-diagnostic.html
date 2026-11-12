@@ -1,59 +1,73 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>SOSEXY 蓝牙只读检测</title>
 <style>body{font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:680px;margin:auto;padding:24px 18px;background:#f8f8fb;color:#20202a}h1{font-size:24px}button{font:inherit;border:0;border-radius:12px;padding:12px 18px;margin:6px 6px 6px 0;background:#4746a8;color:white}button:disabled{opacity:.45}#disconnect{background:#555}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:white;border:1px solid #ddd;border-radius:12px;padding:16px;min-height:140px}small{color:#666}.warning{background:#fff4db;border-radius:10px;padding:12px}</style></head>
-<body><h1>SOSEXY 蓝牙检测</h1><p class="warning">只读诊断：仅扫描、连接、读取服务和特征的元信息。不读取特征值、不写入任何指令、不启动设备。请先断开官方 App。不要在设备正在使用时测试。</p><p>请在支持 Web Bluetooth 的 Bluefy 浏览器打开此页面。连接必须由你亲自点击授权。设备选择列表会显示所有附近设备，请只选择已确认属于自己的 SOSEXY。</p><button id="connect">选择设备并只读检测</button><button id="disconnect" disabled>断开连接</button><p><small>显示的 UUID 只是设备提供的通信接口，并不证明控制协议兼容。浏览器或设备可能拒绝访问某些服务。</small></p><h2>检测结果</h2><pre id="log" aria-live="polite">尚未开始。</pre>
+<body><h1>SOSEXY 蓝牙分级诊断 v3</h1><p class="warning">只做扫描、连接、读取服务与特征元信息，不读取特征值、不写入、不控制设备。先断开官方 App，设备不要在使用中。</p><p>依次只试一个按钮；出现设备列表时只选自己的 SOSEXY。每次测试会清空日志。先测 A，成功后测 B，最后测 C。</p>
+<button id="a">A · 仅扫描（无服务权限）</button>
+<button id="b">B · EE01 完整 UUID</button>
+<button id="c">C · EE01 + AE00 完整 UUID</button>
+<button id="disconnect" disabled>断开连接</button>
+<h2>检测结果</h2><pre id="log" aria-live="polite">尚未开始。</pre>
 <script>
 (() => {
   const logEl = document.getElementById('log');
-  const connectBtn = document.getElementById('connect');
   const disconnectBtn = document.getElementById('disconnect');
+  const buttons = ['a','b','c'].map(id => document.getElementById(id));
+  const ee01 = '0000ee01-0000-1000-8000-00805f9b34fb';
+  const ae00 = '0000ae00-0000-1000-8000-00805f9b34fb';
   let device = null;
-  let server = null;
-  const allowed = [0xee01, 0xae00];
-  const log = s => { logEl.textContent += '\n' + s; };
-  const state = connected => { connectBtn.disabled = connected; disconnectBtn.disabled = !connected; };
-  function disconnected() { server = null; state(false); log('设备已断开。'); }
-  connectBtn.addEventListener('click', async () => {
-    logEl.textContent = '请求选择设备…';
-    if (!navigator.bluetooth?.requestDevice) { log('此浏览器不支持 Web Bluetooth，请在 Bluefy 中打开。'); return; }
-    connectBtn.disabled = true;
-    try {
-      device = await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: allowed
-      });
-      if (device.name !== 'SOSEXY') { log('选择的不是 SOSEXY，已取消检测。'); state(false); return; }
-      device.addEventListener('gattserverdisconnected', disconnected, {once:true});
-      log('已选择：' + (device.name || '未命名设备'));
-      log('连接 GATT…');
-      server = await device.gatt.connect();
-      state(true);
-      log('GATT 连接成功。');
-      const services = await server.getPrimaryServices();
-      if (!services.length) log('没有返回可访问的服务。');
-      for (const service of services) {
-        log('服务：' + service.uuid);
-        try {
-          const chars = await service.getCharacteristics();
-          if (!chars.length) log('  无可访问特征');
-          for (const ch of chars) {
-            const p = ch.properties;
-            const flags = ['read','write','writeWithoutResponse','notify','indicate'].filter(k => p[k]);
-            log('  特征：' + ch.uuid + ' [' + flags.join(', ') + ']');
-          }
-        } catch (e) { log('  特征枚举失败：' + (e?.message || String(e))); }
-      }
-      log('只读检查完成。可点击“断开连接”。');
-    } catch (e) {
-      log('检测未完成：' + (e?.name || 'Error') + '：' + (e?.message || String(e)));
-      log('错误详情：' + String(e));
-      state(false);
-    }
-  });
-  disconnectBtn.addEventListener('click', () => {
+  const log = s => { logEl.textContent += '\\n' + s; };
+  const ready = () => { buttons.forEach(b => b.disabled = false); disconnectBtn.disabled = true; };
+  const busy = () => { buttons.forEach(b => b.disabled = true); };
+  const onDisconnect = () => { log('GATT 已断开'); ready(); };
+  function run(mode) {
     if (device?.gatt?.connected) device.gatt.disconnect();
-    else disconnected();
+    device = null;
+    logEl.textContent = '模式 ' + mode + '：准备请求设备';
+    if (!navigator.bluetooth || typeof navigator.bluetooth.requestDevice !== 'function') {
+      log('当前浏览器未提供 Web Bluetooth requestDevice'); ready(); return;
+    }
+    busy();
+    const options = mode === 'A' ? {acceptAllDevices:true} :
+      {acceptAllDevices:true,optionalServices:mode==='B'?[ee01]:[ee01,ae00]};
+    log('requestDevice 参数：' + JSON.stringify(options));
+    // Must call requestDevice synchronously inside the user click handler.
+    let pending;
+    try { pending = navigator.bluetooth.requestDevice(options); }
+    catch(e) { log('同步错误：' + (e?.name||'Error') + ' / ' + (e?.message||String(e))); ready(); return; }
+    Promise.resolve(pending).then(async selected => {
+      device = selected;
+      log('选择设备：' + (device.name || '未命名'));
+      if(device.name !== 'SOSEXY') { log('非 SOSEXY，停止测试，不连接。'); ready(); return; }
+      if(mode==='A') { log('A 扫描成功：未请求 GATT 连接。'); ready(); return; }
+      device.addEventListener('gattserverdisconnected', onDisconnect, {once:true});
+      log('开始连接 GATT…');
+      const server = await device.gatt.connect();
+      log('GATT 连接成功');
+      disconnectBtn.disabled = false;
+      const services = await server.getPrimaryServices();
+      for(const service of services) {
+        log('服务：'+service.uuid);
+        try {
+          for(const ch of await service.getCharacteristics()) {
+            const p=ch.properties;
+            const flags=['read','write','writeWithoutResponse','notify','indicate'].filter(k=>p[k]);
+            log('特征：'+ch.uuid+' ['+flags.join(', ')+']');
+          }
+        } catch(e) {log('枚举特征错误：'+(e?.message||String(e)));}
+      }
+      log('只读元信息检查结束。请手动断开连接。');
+      buttons.forEach(b=>b.disabled=false);
+    }).catch(e => {
+      log('检测失败：'+(e?.name||'Error')+' / '+(e?.message||String(e)));
+      log('错误字符串：'+String(e));
+      ready();
+    });
+  }
+  buttons.forEach(b=>b.addEventListener('click',()=>run(b.id.toUpperCase())));
+  disconnectBtn.addEventListener('click',()=>{
+    if(device?.gatt?.connected) device.gatt.disconnect();
+    else ready();
   });
-  window.addEventListener('pagehide', () => { if (device?.gatt?.connected) device.gatt.disconnect(); });
+  window.addEventListener('pagehide',()=>{if(device?.gatt?.connected)device.gatt.disconnect();});
 })();
 </script></body></html>
