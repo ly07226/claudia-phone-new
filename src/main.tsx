@@ -207,6 +207,30 @@ function App() {
     setDrag(null);
     gesture.current = undefined;
   }
+  // Migrate only overflowing desktop pages, preserving icon order and all item IDs.
+  // A page has three rows of four icon slots; widgets occupy their declared column span.
+  useEffect(() => {
+    if(!s.ready || s.editing || !s.pages.length) return;
+    const capacity=12;
+    const ordered=[...s.items].sort((a,b)=>a.position-b.position);
+    const overflowing=s.pages.some(page=>ordered.filter(item=>item.pageId===page.id).reduce((n,item)=>n+(item.kind==="widget"?item.size:1),0)>capacity);
+    if(!overflowing)return;
+    const pages=[...s.pages],items=ordered.map(item=>({...item}));
+    for(const page of s.pages){
+      const entries=items.filter(item=>item.pageId===page.id);
+      let used=0,overflowPage:string|undefined,overflowUsed=0;
+      for(const item of entries){
+        const slots=item.kind==="widget"?item.size:1;
+        if(!overflowPage && used+slots<=capacity){used+=slots;continue;}
+        if(!overflowPage || overflowUsed+slots>capacity){
+          overflowPage=crypto.randomUUID();overflowUsed=0;
+          pages.push({id:overflowPage,order:pages.length});
+        }
+        item.pageId=overflowPage;item.position=overflowUsed;overflowUsed+=slots;
+      }
+    }
+    void s.saveDesktop(items,pages);
+  },[s.ready,s.editing,s.items,s.pages]);
   const pageIndex = s.pages.findIndex((p) => p.id === s.pageId);
   const canStory=!!space?.worldId&&s.worlds.find(w=>w.id===space.worldId)?.script?.playMode==='story';
   const firstPage=s.pages[0]?.id;
