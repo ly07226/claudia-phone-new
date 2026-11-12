@@ -767,18 +767,6 @@ function App() {
                       ...(drag===item.id ? {opacity:0.2} : {}),
                     }}
                     onPointerDown={(e) => {if(item.id!=='virtual-story-app'&&item.id!=='virtual-phase-play-app')start(e, item.id);}}
-                    onPointerMove={motion}
-                    onPointerUp={end}
-                    onPointerCancel={() => {
-                      clearTimeout(gesture.current?.timer);
-                      gesture.current = undefined;
-                      clearEdge();
-                      setDrag(null);
-                      setDragPoint(null);
-                      dragPage.current=null;
-                      setHoverPage(null);
-                      setDragOffset({x:0,y:0});
-                    }}
                     onContextMenu={(e) => e.preventDefault()}
                   >
                     <button
