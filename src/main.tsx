@@ -181,14 +181,14 @@ function App() {
     clearEdge();
     setHoverPage(null);
     if (s.editing) {
-      e.currentTarget.setPointerCapture(e.pointerId);
+      (e.currentTarget.closest(".desktop") as HTMLElement)?.setPointerCapture(e.pointerId);
       setDrag(id);
       setDragPoint({x:e.clientX,y:e.clientY});
     } else
       g.timer = setTimeout(() => {
         if(g.cancelled)return;
         g.drag = true;
-        try{g.origin.setPointerCapture(g.pointerId);}catch{/* pointer may already have ended */}
+        try{(g.origin.closest(".desktop") as HTMLElement)?.setPointerCapture(g.pointerId);}catch{/* pointer may already have ended */}
         suppress.current = true;
         editPhoneDesktop();
         setDrag(id);
@@ -662,6 +662,17 @@ function App() {
         ) : (
           <section
             className="desktop"
+            onPointerMove={motion}
+            onPointerUp={end}
+            onPointerCancel={() => {
+              clearTimeout(gesture.current?.timer);
+              clearEdge();
+              gesture.current=undefined;
+              setDrag(null);
+              setDragPoint(null);
+              dragPage.current=null;
+              setHoverPage(null);
+            }}
             onTouchStart={(e) => {
               if (!gesture.current?.drag && e.touches.length === 1)
                 swipe.current = {x:e.touches[0].clientX,y:e.touches[0].clientY,time:Date.now()};
