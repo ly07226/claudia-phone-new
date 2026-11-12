@@ -1,0 +1,9 @@
+.phase-intervention-toast{position:fixed;z-index:80;pointer-events:none;box-sizing:border-box;display:flex;align-items:center;gap:9px;padding:10px 13px;border:1px solid rgba(210,195,222,.28);border-radius:15px;background:rgba(75,66,85,.89);color:#faf5ff;box-shadow:0 4px 16px rgba(0,0,0,.12);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);animation:phaseInterventionToast 2.5s ease both;overflow:hidden}
+.phase-intervention-toast *{box-sizing:border-box;pointer-events:none}
+.phase-intervention-toast>div{min-width:0;flex:1}
+.phase-intervention-toast p{padding:0;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.phase-intervention-toast .phase-intervention-line{font-size:13px;line-height:1.45;font-weight:500}
+.phase-intervention-toast .phase-intervention-effect{font-size:11px;line-height:1.5;color:#d8cede;margin-top:3px}
+.phase-intervention-icon{font-size:20px;color:#e6d8f6;flex:none}
+@keyframes phaseInterventionToast{0%{opacity:0}10%,84%{opacity:1}100%{opacity:0}}
+@media(prefers-reduced-motion:reduce){.phase-intervention-toast{animation:none}}
