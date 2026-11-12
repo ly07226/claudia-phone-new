@@ -251,13 +251,17 @@ function App() {
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const page = el?.closest<HTMLElement>("[data-page]")?.dataset.page;
       const target = el?.closest<HTMLElement>("[data-item]")?.dataset.item;
+      const virtual = g.id === 'virtual-phase-play-app' || g.id === 'virtual-story-app';
+      const dragged = virtual ? displayItems.find(i=>i.id===g.id) : undefined;
+      const items = dragged ? [...s.items, {...dragged}] : s.items;
+      const destination = page || dragPage.current || s.pageId;
       if (page) {
-        void s.saveDesktop(moveItem(s.items, g.id, page));
+        void s.saveDesktop(moveItem(items, g.id, page));
         s.set({ pageId: page });
       } else if (target && target !== g.id)
-        void s.saveDesktop(moveItem(s.items, g.id, s.pageId, target));
-      else if(dragPage.current && dragPage.current!==s.items.find(i=>i.id===g.id)?.pageId)
-        void s.saveDesktop(moveItem(s.items,g.id,dragPage.current));
+        void s.saveDesktop(moveItem(items, g.id, destination, target));
+      else if(dragged || (dragPage.current && dragPage.current!==s.items.find(i=>i.id===g.id)?.pageId))
+        void s.saveDesktop(moveItem(items,g.id,destination));
     }
     setDrag(null);
     setDragPoint(null);
@@ -771,7 +775,7 @@ function App() {
                       gridColumn: `span ${item.kind === "widget" ? item.size : 1}`,
                       ...(drag===item.id ? {opacity:0.2} : {}),
                     }}
-                    onPointerDown={(e) => {if(item.id!=='virtual-story-app'&&item.id!=='virtual-phase-play-app')start(e, item.id);}}
+                    onPointerDown={(e) => start(e, item.id)}
                     onContextMenu={(e) => e.preventDefault()}
                   >
                     <button
@@ -892,7 +896,7 @@ function App() {
               </p>
             )}
             {drag && dragPoint && (() => {
-              const item=s.items.find(i=>i.id===drag);
+              const item=displayItems.find(i=>i.id===drag);
               if(!item)return null;
               const Icon=item.app==='忍一下嘛'?Flower2:icons[apps.indexOf(item.app||"")]||Flower2;
               return createPortal(<div className="desktop-drag-ghost" style={{left:dragPoint.x-dragAnchor.x,top:dragPoint.y-dragAnchor.y}} aria-hidden="true">
