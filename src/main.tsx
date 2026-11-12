@@ -294,6 +294,17 @@ function App() {
     }
     void s.saveDesktop(items,pages);
   },[s.ready,s.editing,s.items,s.pages]);
+  // Persist the bundled app on every existing desktop. A virtual icon appended to a full
+  // first page can be clipped; choose a page with space or create a new reachable page.
+  useEffect(() => {
+    if(!s.ready || s.editing || !s.pages.length || s.items.some(i=>i.kind==='app'&&i.app==='忍一下嘛'))return;
+    const capacity=12;
+    const page=s.pages.find(p=>s.items.filter(i=>i.pageId===p.id).reduce((n,i)=>n+(i.kind==='widget'?i.size:1),0)<capacity);
+    const target=page??{id:crypto.randomUUID(),order:s.pages.length};
+    const pages=page?s.pages:[...s.pages,target];
+    const position=Math.max(0,...s.items.filter(i=>i.pageId===target.id).map(i=>i.position))+1;
+    void s.saveDesktop([...s.items,{id:crypto.randomUUID(),kind:'app',app:'忍一下嘛',pageId:target.id,position,size:1}],pages);
+  },[s.ready,s.editing,s.items,s.pages]);
   const pageIndex = s.pages.findIndex((p) => p.id === s.pageId);
   const canStory=!!space?.worldId&&s.worlds.find(w=>w.id===space.worldId)?.script?.playMode==='story';
   const firstPage=s.pages[0]?.id;
