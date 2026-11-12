@@ -2393,3 +2393,15 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
   user-select: none;
 }
 .desktop-drag-ghost .app-label { white-space: nowrap; }
+
+/* iOS Safari: don't let the browser cancel icon dragging as a native pan. */
+.desktop.editing { touch-action: none; }
+.desktop-drag-ghost {
+  transform: scale(1.06);
+  transform-origin: top left;
+  width: 61px;
+  align-items: center;
+  z-index: 2147483647;
+  contain: layout style;
+}
+.desktop-drag-ghost .app-icon { flex: 0 0 61px; }
