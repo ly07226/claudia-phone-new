@@ -32,12 +32,12 @@ function jsonValue(raw:string):any {
 export function parseStoryReply(raw:string,knownSpeakers:readonly string[]=[],simulatorMode=false){
  if(raw.length>storyLimits.outputChars)fail('response-too-long',{responseCharacters:raw.length});
  const x=jsonValue(raw),object=(o:any)=>o&&typeof o==='object'&&!Array.isArray(o);
- if(!object(x)||Object.keys(x).some(k=>!['body','choices','segments',...(simulatorMode?['stateChanges']:[])].includes(k)))fail('root-shape');
+ if(!object(x))fail('root-shape');
  if(typeof x.body!=='string'||!x.body.trim()||x.body.length>storyLimits.body)fail('body-invalid',{missingBody:!Object.hasOwn(x,'body')});
  if(!Array.isArray(x.choices)||x.choices.length!==4)fail('choice-count',{missingChoices:!Object.hasOwn(x,'choices'),...(Array.isArray(x.choices)?{choiceCount:x.choices.length}:{})});
  const label=(v:unknown)=>typeof v==='string'?v.normalize('NFKC').trim().toUpperCase():'';
  const choices=x.choices.map((c:any)=>{
-  if(!object(c)||Object.keys(c).some(k=>!['id','label','text'].includes(k)))fail('choice-shape');
+  if(!object(c))fail('choice-shape');
   const id=label(c.id??c.label);if(!/^[ABCD]$/.test(id)||c.id!==undefined&&c.label!==undefined&&label(c.id)!==label(c.label))fail('choice-label');
   if(typeof c.text!=='string'||!c.text.trim()||c.text.length>storyLimits.choice)fail('choice-text');return {id:id as 'A'|'B'|'C'|'D',text:c.text};
  });
