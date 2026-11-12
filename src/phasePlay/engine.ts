@@ -8,7 +8,7 @@ export interface PhaseSettings {mode:'sequence'|'random';randomDuration:boolean;
 export interface DrawBag {scope:string;used:string[];lastId?:string}
 export interface PhaseSession {status:'idle'|'running'|'paused'|'finished';phase:Phase;remainingMs:number;step:number;prompt:string;gameRemainingMs?:number;gameDurationMs?:number;elapsedMs?:number;draws?:Partial<Record<Phase,DrawBag>>}
 export interface PhaseData {version:1;revision?:string;settings:PhaseSettings;session:PhaseSession;libraryVersions?:Record<string,LibraryVersion[]>}
-export function defaults():PhaseSettings{return {mode:'sequence',randomDuration:false,duration:{red:{seconds:5,min:3,max:8},yellow:{seconds:15,min:10,max:20},green:{seconds:20,min:10,max:30}},bpm:60,beat:true,sound:false,volume:.2,vibration:false,prompts:[],sweetMode:false,commandMode:false,address:'',intensity:'medium',contentLevel:'medium',instructionMode:'default',instructionCharacterId:'',instructionWorldId:'',autoAccelerate:false,maxBpm:120,accelerationSeconds:120,gameMinutes:10};}
+export function defaults():PhaseSettings{return {mode:'sequence',randomDuration:false,duration:{red:{seconds:5,min:3,max:8},yellow:{seconds:15,min:10,max:20},green:{seconds:20,min:10,max:30}},bpm:60,beat:true,sound:false,volume:.65,vibration:false,prompts:[],sweetMode:false,commandMode:false,address:'',intensity:'medium',contentLevel:'medium',instructionMode:'default',instructionCharacterId:'',instructionWorldId:'',autoAccelerate:false,maxBpm:120,accelerationSeconds:120,gameMinutes:10};}
 const unit=(random:()=>number)=>{const n=random();return Number.isFinite(n)?Math.min(.999999999,Math.max(0,n)):0;};
 export function duration(s:PhaseSettings,p:Phase,random=Math.random){const d=s.duration[p];return (s.randomDuration?d.min+Math.floor(unit(random)*(d.max-d.min+1)):d.seconds)*1000;}
 export function instructionPool(s:PhaseSettings,p:Phase){
@@ -23,11 +23,12 @@ function draw(s:PhaseSettings,p:Phase,draws:PhaseSession['draws']={},random=Math
  return {text:item?.text??'当前阶段：'+phaseNames[p]+'。',draws:{...draws,[p]:{scope,used:item?[...used,item.id]:used,...(item?{lastId:item.id}:{})}}};
 }
 export function prompt(s:PhaseSettings,p:Phase,random=Math.random){return draw(s,p,{},random).text;}
+export function reroll(s:PhaseSettings,r:PhaseSession,random=Math.random):PhaseSession {const picked=draw(s,r.phase,r.draws,random);return {...r,prompt:picked.text,draws:picked.draws};}
 export function initial(s:PhaseSettings):PhaseSession{const total=(s.gameMinutes??10)*60000;return {status:'idle',phase:'red',remainingMs:s.duration.red.seconds*1000,step:0,prompt:'',gameDurationMs:total,gameRemainingMs:total,elapsedMs:0,draws:{}};}
 export function start(s:PhaseSettings,random=Math.random):PhaseSession{const picked=draw(s,'red',{},random);return {...initial(s),status:'running',remainingMs:duration(s,'red',random),step:1,prompt:picked.text,draws:picked.draws};}
 export function next(s:PhaseSettings,r:PhaseSession,random=Math.random):PhaseSession{
  if(!['running','paused'].includes(r.status)||(r.gameRemainingMs??1)<=0)return r;
- const candidates=phases.filter(p=>p!==r.phase),phase=s.mode==='sequence'?phases[(phases.indexOf(r.phase)+1)%3]:candidates[Math.floor(unit(random)*candidates.length)],picked=draw(s,phase,r.draws,random);
+ const candidates=phases.filter(p=>p!==r.phase),weights:Record<Phase,number>={green:60,yellow:25,red:15},total=candidates.reduce((sum,p)=>sum+weights[p],0);let ticket=unit(random)*total;const randomPhase=candidates.find(p=>(ticket-=weights[p])<0)??candidates[candidates.length-1];const phase=s.mode==='sequence'?phases[(phases.indexOf(r.phase)+1)%3]:randomPhase,picked=draw(s,phase,r.draws,random);
  return {...r,phase,remainingMs:duration(s,phase,random),step:r.step+1,prompt:picked.text,draws:picked.draws};
 }
 /** Foreground active time only. At the deadline there is no extra draw or transition. */
