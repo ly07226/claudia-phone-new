@@ -112,6 +112,8 @@ function App() {
   const space = useSpaces((state) => state.space);
   const [now, setNow] = useState(new Date());
   const [drag, setDrag] = useState<string | null>(null);
+  const [dragOffset,setDragOffset] = useState({x:0,y:0});
+  const [hoverPage,setHoverPage] = useState<string|null>(null);
   const [busy, setBusy] = useState(false);
   const gesture = useRef<
     | {
@@ -121,6 +123,8 @@ function App() {
         id: string;
         drag: boolean;
         cancelled: boolean;
+        pointerId: number;
+        origin: HTMLElement;
       }
     | undefined
   >(undefined);
@@ -161,15 +165,21 @@ function App() {
       id,
       drag: s.editing,
       cancelled: false,
+      pointerId: e.pointerId,
+      origin: e.currentTarget as HTMLElement,
       timer: undefined as ReturnType<typeof setTimeout> | undefined,
     };
     gesture.current = g;
+    setDragOffset({x:0,y:0});
+    setHoverPage(null);
     if (s.editing) {
       e.currentTarget.setPointerCapture(e.pointerId);
       setDrag(id);
     } else
       g.timer = setTimeout(() => {
+        if(g.cancelled)return;
         g.drag = true;
+        try{g.origin.setPointerCapture(g.pointerId);}catch{/* pointer may already have ended */}
         suppress.current = true;
         editPhoneDesktop();
         setDrag(id);
@@ -187,6 +197,9 @@ function App() {
     if (g.drag) {
       e.preventDefault();
       setDrag(g.id);
+      setDragOffset({x:e.clientX-g.x,y:e.clientY-g.y});
+      const hit=document.elementFromPoint(e.clientX,e.clientY);
+      setHoverPage(hit?.closest<HTMLElement>("[data-page]")?.dataset.page??null);
     }
   }
   function end(e: React.PointerEvent) {
@@ -205,6 +218,8 @@ function App() {
         void s.saveDesktop(moveItem(s.items, g.id, s.pageId, target));
     }
     setDrag(null);
+    setHoverPage(null);
+    setDragOffset({x:0,y:0});
     gesture.current = undefined;
   }
   // Migrate only overflowing desktop pages, preserving icon order and all item IDs.
@@ -699,6 +714,7 @@ function App() {
                     className={`desktop-item ${item.kind === "widget" ? "widget glass" : ""} ${drag === item.id ? "dragging" : ""}`}
                     style={{
                       gridColumn: `span ${item.kind === "widget" ? item.size : 1}`,
+                      ...(drag===item.id ? {transform:`translate3d(${dragOffset.x}px,${dragOffset.y}px,0) scale(1.08)`,zIndex:20,opacity:0.96} : {}),
                     }}
                     onPointerDown={(e) => {if(item.id!=='virtual-story-app'&&item.id!=='virtual-phase-play-app')start(e, item.id);}}
                     onPointerMove={motion}
@@ -707,6 +723,8 @@ function App() {
                       clearTimeout(gesture.current?.timer);
                       gesture.current = undefined;
                       setDrag(null);
+                      setHoverPage(null);
+                      setDragOffset({x:0,y:0});
                     }}
                     onContextMenu={(e) => e.preventDefault()}
                   >
@@ -832,7 +850,7 @@ function App() {
                 <button
                   data-page={p.id}
                   aria-label={`桌面第${i + 1}页`}
-                  className={s.pageId === p.id ? "active" : ""}
+                  className={`${s.pageId === p.id ? "active" : ""} ${hoverPage === p.id ? "drop-target" : ""}`}
                   key={p.id}
                   onClick={() => s.set({ pageId: p.id })}
                 />
