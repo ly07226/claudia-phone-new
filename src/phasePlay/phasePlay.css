@@ -188,3 +188,19 @@
 .phase-play[data-screen=running] .phase-play-stats strong{font-size:14px}
 .phase-play[data-screen=running] .phase-play-main-actions button{min-height:44px}
 @media(min-width:390px){.phase-play[data-screen=running] .phase-play-stage{height:195px}.phase-play[data-screen=running] .phase-play-orb{width:158px;height:158px}}
+
+
+.phase-play-default-card{display:flex;flex-direction:column;gap:10px;min-width:0}
+.phase-play-default-card-header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.phase-play-default-details{border:1px solid #705575;border-radius:15px;padding:12px;min-width:0}
+.phase-play-default-details summary{cursor:pointer;font-weight:600}
+.phase-play-default-toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.phase-play-default-toolbar button{min-height:42px}
+.phase-play-default-list{max-height:360px;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:8px}
+.phase-play-default-item{border:1px solid #654c68;border-radius:13px;padding:12px;overflow-wrap:anywhere}
+.phase-play-default-item p{white-space:pre-wrap;margin:8px 0;font-size:14px;line-height:1.5}
+.phase-play-default-item .phase-play-actions{display:flex;gap:8px}
+.phase-play-default-item .phase-play-actions button{min-height:38px;flex:1}
+.phase-play-default-editor{border:1px solid #a77caa;border-radius:15px;padding:12px;margin-bottom:12px;display:grid;gap:10px}
+.phase-play-default-editor textarea{min-height:90px;width:100%}
+@media(max-width:360px){.phase-play-default-toolbar{grid-template-columns:1fr}}
