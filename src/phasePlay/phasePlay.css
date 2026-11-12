@@ -62,7 +62,7 @@
 
  .phase-play-orb{position:relative;display:block;overflow:visible;flex:none}
 .phase-play-orb-pulse{position:absolute;inset:0;border-radius:50%;pointer-events:none}
-.phase-play-orb-pulse[data-active=true]{animation:phaseOrbBeat .34s ease-out both}
+.phase-play-orb-pulse[data-active=true]{animation:phaseOrbBeat var(--phase-beat-duration,.3s) ease-out both}
 @keyframes phaseOrbBeat{0%{transform:scale(1);opacity:.65;box-shadow:0 0 4px 2px #ffffff66}35%{transform:scale(1.08);opacity:.45;box-shadow:0 0 22px 10px #ffffff44}100%{transform:scale(1);opacity:0;box-shadow:0 0 0 0 transparent}}
 @media(prefers-reduced-motion:reduce){.phase-play-orb-pulse[data-active=true]{animation:none}}
 .phase-play-tone-settings{display:grid;gap:12px;margin-top:12px}
@@ -83,3 +83,23 @@
 .phase-play select,.phase-play textarea {max-width:100%;}
 .phase-play-versions {max-height:240px;overflow-y:auto;}
 @media(prefers-reduced-motion:reduce){.phase-play-orb-pulse,.phase-play-beat {animation:none!important;}}
+
+/* In-game controls share the instruction card and stay reachable on narrow phones. */
+.phase-play[data-screen=running] .phase-play-stage{min-height:170px;padding:14px;display:grid;grid-template-columns:100px 1fr;gap:6px 18px;align-items:center;text-align:center}
+.phase-play[data-screen=running] .phase-play-orb{width:90px;height:90px;grid-row:1/4}
+.phase-play[data-screen=running] .phase-play-stage output{font-size:32px}
+.phase-play[data-screen=running] .phase-play-stage small{grid-column:1/-1}
+.phase-play[data-screen=running] .phase-play-beat{display:none}
+.phase-play-instruction .phase-play-actions{display:flex;align-items:center;gap:8px;margin-top:12px!important;flex-wrap:wrap}
+.phase-play-instruction .phase-play-actions button{flex:1;white-space:nowrap;padding:9px 8px;font-size:13px;min-height:44px}
+.phase-play-instruction .phase-play-actions output{font-size:13px;white-space:nowrap}
+.phase-play-instruction .phase-play-actions label{flex:1;min-width:120px;margin:0}
+.phase-play-default-groups{display:grid;gap:10px;margin:12px 0}
+.phase-play-default-groups>div{border:1px solid #68506e;border-radius:12px;padding:12px}
+.phase-play-default-groups small{display:block;margin:7px 0}
+.phase-play-default-groups button[aria-pressed=true]{background:#684e6d;border-color:#dca3d8}
+.phase-play-source-list{max-height:240px;overflow-y:auto;text-align:left}
+.phase-play-history summary,.phase-play-default-groups summary{cursor:pointer;min-height:44px;display:flex;align-items:center}
+.phase-play-versions{overscroll-behavior:contain;padding:4px}
+.phase-play-version{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid #58435d}
+.phase-play-version button{width:auto;flex:none;min-height:44px}
