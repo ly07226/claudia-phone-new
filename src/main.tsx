@@ -114,6 +114,11 @@ function App() {
   const [drag, setDrag] = useState<string | null>(null);
   const [dragOffset,setDragOffset] = useState({x:0,y:0});
   const [hoverPage,setHoverPage] = useState<string|null>(null);
+  const [dragPoint,setDragPoint] = useState<{x:number;y:number}|null>(null);
+  const edgeTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
+  const edgeTarget=useRef<string|null>(null);
+  const dragPage=useRef<string|null>(null);
+  const clearEdge=()=>{if(edgeTimer.current)clearTimeout(edgeTimer.current);edgeTimer.current=null;edgeTarget.current=null;};
   const [busy, setBusy] = useState(false);
   const gesture = useRef<
     | {
@@ -171,10 +176,14 @@ function App() {
     };
     gesture.current = g;
     setDragOffset({x:0,y:0});
+    setDragPoint(null);
+    dragPage.current=s.pageId;
+    clearEdge();
     setHoverPage(null);
     if (s.editing) {
       e.currentTarget.setPointerCapture(e.pointerId);
       setDrag(id);
+      setDragPoint({x:e.clientX,y:e.clientY});
     } else
       g.timer = setTimeout(() => {
         if(g.cancelled)return;
@@ -183,6 +192,7 @@ function App() {
         suppress.current = true;
         editPhoneDesktop();
         setDrag(id);
+        setDragPoint({x:g.x,y:g.y});
         navigator.vibrate?.(20);
       }, 550);
   }
@@ -198,6 +208,30 @@ function App() {
       e.preventDefault();
       setDrag(g.id);
       setDragOffset({x:e.clientX-g.x,y:e.clientY-g.y});
+      setDragPoint({x:e.clientX,y:e.clientY});
+      const desktop=document.querySelector<HTMLElement>(".desktop");
+      const rect=desktop?.getBoundingClientRect();
+      const edge=rect && e.clientX<rect.left+44 ? -1 : rect && e.clientX>rect.right-44 ? 1 : 0;
+      const current=usePhone.getState();
+      const index=current.pages.findIndex(p=>p.id===current.pageId);
+      const next=edge ? current.pages[index+edge] : undefined;
+      if(next){
+        if(edgeTarget.current!==next.id){
+          clearEdge();
+          edgeTarget.current=next.id;
+          edgeTimer.current=setTimeout(()=>{
+            const state=usePhone.getState();
+            const target=state.pages.find(p=>p.id===next.id);
+            if(target && gesture.current?.drag){
+              setSwipeDirection(edge===1?"left":"right");
+              state.set({pageId:target.id});
+              dragPage.current=target.id;
+              setHoverPage(target.id);
+            }
+            clearEdge();
+          },480);
+        }
+      }else clearEdge();
       const hit=document.elementFromPoint(e.clientX,e.clientY);
       setHoverPage(hit?.closest<HTMLElement>("[data-page]")?.dataset.page??null);
     }
@@ -206,6 +240,7 @@ function App() {
     const g = gesture.current;
     if (!g) return;
     clearTimeout(g.timer);
+    clearEdge();
     if (g.drag) {
       suppress.current = true;
       const el = document.elementFromPoint(e.clientX, e.clientY);
@@ -216,8 +251,12 @@ function App() {
         s.set({ pageId: page });
       } else if (target && target !== g.id)
         void s.saveDesktop(moveItem(s.items, g.id, s.pageId, target));
+      else if(dragPage.current && dragPage.current!==s.items.find(i=>i.id===g.id)?.pageId)
+        void s.saveDesktop(moveItem(s.items,g.id,dragPage.current));
     }
     setDrag(null);
+    setDragPoint(null);
+    dragPage.current=null;
     setHoverPage(null);
     setDragOffset({x:0,y:0});
     gesture.current = undefined;
@@ -624,13 +663,13 @@ function App() {
           <section
             className="desktop"
             onTouchStart={(e) => {
-              if (!s.editing && e.touches.length === 1)
+              if (!gesture.current?.drag && e.touches.length === 1)
                 swipe.current = {x:e.touches[0].clientX,y:e.touches[0].clientY,time:Date.now()};
             }}
             onTouchEnd={(e) => {
               const start=swipe.current;
               swipe.current=null;
-              if (!start || s.editing || e.changedTouches.length!==1) return;
+              if (!start || gesture.current?.drag || e.changedTouches.length!==1) return;
               const dx=e.changedTouches[0].clientX-start.x;
               const dy=e.changedTouches[0].clientY-start.y;
               // Reject vertical/diagonal gestures; short quick flicks still switch pages.
@@ -639,7 +678,7 @@ function App() {
               if(p){setSwipeDirection(dx<0?"left":"right");s.set({pageId:p.id});}
             }}
             onWheel={(e) => {
-              if(s.editing || Math.abs(e.deltaX)<35 || Math.abs(e.deltaX)<Math.abs(e.deltaY)*1.3)return;
+              if(gesture.current?.drag || Math.abs(e.deltaX)<35 || Math.abs(e.deltaX)<Math.abs(e.deltaY)*1.3)return;
               const p=s.pages[pageIndex+(e.deltaX>0?1:-1)];
               if(p){setSwipeDirection(e.deltaX>0?"left":"right");s.set({pageId:p.id});}
             }}
@@ -714,7 +753,7 @@ function App() {
                     className={`desktop-item ${item.kind === "widget" ? "widget glass" : ""} ${drag === item.id ? "dragging" : ""}`}
                     style={{
                       gridColumn: `span ${item.kind === "widget" ? item.size : 1}`,
-                      ...(drag===item.id ? {transform:`translate3d(${dragOffset.x}px,${dragOffset.y}px,0) scale(1.08)`,zIndex:20,opacity:0.96} : {}),
+                      ...(drag===item.id ? {opacity:0.2} : {}),
                     }}
                     onPointerDown={(e) => {if(item.id!=='virtual-story-app'&&item.id!=='virtual-phase-play-app')start(e, item.id);}}
                     onPointerMove={motion}
@@ -722,7 +761,10 @@ function App() {
                     onPointerCancel={() => {
                       clearTimeout(gesture.current?.timer);
                       gesture.current = undefined;
+                      clearEdge();
                       setDrag(null);
+                      setDragPoint(null);
+                      dragPage.current=null;
                       setHoverPage(null);
                       setDragOffset({x:0,y:0});
                     }}
@@ -845,6 +887,14 @@ function App() {
                 编辑模式下将图标拖到下方圆点即可移入此页。
               </p>
             )}
+            {drag && dragPoint && (() => {
+              const item=s.items.find(i=>i.id===drag);
+              if(!item)return null;
+              const Icon=item.app==='忍一下嘛'?Flower2:icons[apps.indexOf(item.app||"")]||Flower2;
+              return <div className="desktop-drag-ghost" style={{left:dragPoint.x,top:dragPoint.y}} aria-hidden="true">
+                {item.kind==="app"?<><span className="app-icon glass">{asset(item.icon)?<img src={asset(item.icon)} alt=""/>:<Icon size={29}/>}</span><span className="app-label">{item.app}</span></>:widget(item)}
+              </div>;
+            })()}
             <div className="page-dots">
               {s.pages.map((p, i) => (
                 <button
