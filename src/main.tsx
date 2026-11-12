@@ -16,6 +16,7 @@ import { useSpaces } from "./spaces";
 import { ApiSettings } from "./ApiSettings";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { createPortal } from "react-dom";
 import {
   Brain,
   MessageCircle,
@@ -115,6 +116,7 @@ function App() {
   const [dragOffset,setDragOffset] = useState({x:0,y:0});
   const [hoverPage,setHoverPage] = useState<string|null>(null);
   const [dragPoint,setDragPoint] = useState<{x:number;y:number}|null>(null);
+  const [dragAnchor,setDragAnchor] = useState({x:0,y:0});
   const edgeTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
   const edgeTarget=useRef<string|null>(null);
   const dragPage=useRef<string|null>(null);
@@ -175,6 +177,9 @@ function App() {
       timer: undefined as ReturnType<typeof setTimeout> | undefined,
     };
     gesture.current = g;
+    const icon=e.currentTarget.querySelector<HTMLElement>(".app-icon") || e.currentTarget as HTMLElement;
+    const bounds=icon.getBoundingClientRect();
+    setDragAnchor({x:e.clientX-bounds.left,y:e.clientY-bounds.top});
     setDragOffset({x:0,y:0});
     setDragPoint(null);
     dragPage.current=s.pageId;
@@ -890,9 +895,9 @@ function App() {
               const item=s.items.find(i=>i.id===drag);
               if(!item)return null;
               const Icon=item.app==='忍一下嘛'?Flower2:icons[apps.indexOf(item.app||"")]||Flower2;
-              return <div className="desktop-drag-ghost" style={{left:dragPoint.x,top:dragPoint.y}} aria-hidden="true">
+              return createPortal(<div className="desktop-drag-ghost" style={{left:dragPoint.x-dragAnchor.x,top:dragPoint.y-dragAnchor.y}} aria-hidden="true">
                 {item.kind==="app"?<><span className="app-icon glass">{asset(item.icon)?<img src={asset(item.icon)} alt=""/>:<Icon size={29}/>}</span><span className="app-label">{item.app}</span></>:widget(item)}
-              </div>;
+              </div>,document.body);
             })()}
             <div className="page-dots">
               {s.pages.map((p, i) => (
