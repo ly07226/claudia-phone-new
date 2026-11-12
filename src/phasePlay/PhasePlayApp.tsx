@@ -119,7 +119,7 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
   </div>
   <div className="phase-play-instruction">
     <span className="phase-play-instruction-tag">我陪着你，这样来</span>
-    <p className="phase-play-prompt">{(r.prompt||'准备好后，点击开始。').replace(/^\\s*(?:[（(]?\\d+[）).、．]|[①②③④⑤⑥⑦⑧⑨⑩])\\s*/, '')}</p>
+    <p className="phase-play-prompt">{(r.prompt||'准备好后，点击开始。').replace(/^\s*(?:[（(]?\d+[）).、．]|[①②③④⑤⑥⑦⑧⑨⑩])\s*/, '')}</p>
     <button type="button" className="phase-play-reroll" disabled={blocked||r.status==='idle'||r.status==='finished'} onClick={()=>change({...current.current,session:reroll(current.current.settings,current.current.session)})}>换一条</button>
     <div className="phase-play-instruction-footer">跟着节拍来，随时可以暂停。</div>
   </div>
