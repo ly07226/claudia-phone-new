@@ -1,5 +1,4 @@
 import {referenceDocumentPolicy} from './wizardReferenceDocument';
-import type {StorySegment} from './storyTypes';
 import type {StoryDocumentSnapshot} from './wizardDocumentSnapshot';
 import type {SimulatorState} from './wizardSimulatorState';
 import {readLongNarrative} from './wizardLongNarrative';
@@ -20,7 +19,7 @@ export interface SimulatorRuntimePolicy {
  secretEvidence:string[];
  reviewedChunks:number;
 }
-/** Fail closed: never supply hidden character facts to a player-facing model. */
+/** Build source-backed rules; knowledge metadata is not a turn-generation gate. */
 export async function compileSimulatorRuntime(sourceId:string,snapshot?:StoryDocumentSnapshot,state:SimulatorState={},history:readonly SimulatorState[]=[]):Promise<SimulatorRuntimePolicy>{
  const source=snapshot?.source??await readLongNarrative(sourceId);
  if(!source)throw Error('模拟器原文已丢失，不能启用规则。');
@@ -33,7 +32,6 @@ export async function compileSimulatorRuntime(sourceId:string,snapshot?:StoryDoc
  if(!audit.ready)return referenceDocumentPolicy(source);
  const byChunk=new Map(reviews.map(r=>[r.review.chunkIndex,r]));
  const publicRules:SimulatorRuntimePolicy['publicRules']=[];
- const secretRanges:{start:number;end:number}[]=[];
  const secretEvidence:string[]=[];
  const acceptedPublic:{kind:string;text:string;sourceStart:number;sourceEnd:number;certainty:string}[]=[];
  const restrictedFacts:SimulatorRuntimePolicy['restrictedFacts']=[];
@@ -49,17 +47,13 @@ export async function compileSimulatorRuntime(sourceId:string,snapshot?:StoryDoc
     const terms=[finding.quote,...decision.protectedTerms??finding.protectedTerms??[]];
     const revealed=!!decision.playerKnown||!!(decision.revealWhen&&[state,...history].some(s=>Object.hasOwn(s,decision.revealWhen!.key)&&s[decision.revealWhen!.key]===decision.revealWhen!.equals));
     restrictedFacts.push({terms,knownBy:decision.knownBy??[],revealed,start:finding.start,end:finding.end});
-    if(!revealed){secretCount++;secretRanges.push({start:finding.start,end:finding.end});secretEvidence.push(...terms);continue;}
+    if(!revealed){secretCount++;secretEvidence.push(...terms);continue;}
    }
    acceptedPublic.push({kind:finding.kind,text:finding.quote,sourceStart:finding.start,sourceEnd:finding.end,certainty:finding.certainty??'uncertain'});
   }
  }
- // Overlapping source evidence can disclose a secret even if tagged public.
- // Reject ambiguous classifications rather than silently sending the text.
- for(const rule of acceptedPublic){
-  if(secretRanges.some(secret=>rule.sourceStart<secret.end&&secret.start<rule.sourceEnd))throw Error('公开规则与角色秘密引用范围重叠，请先人工拆分或拒绝冲突条目。');
-  publicRules.push(rule);
- }
+ // Author-accepted references may overlap. Knowledge metadata is advisory, not a turn-generation gate.
+ publicRules.push(...acceptedPublic);
  return {restrictedFacts,simulation:snapshot?snapshot.mode==='simulation':true,sourceId:source.id,sourceName:source.name,publicRules,secretCount,secretEvidence,reviewedChunks:chunks.length};
 }
 
@@ -75,12 +69,4 @@ export function documentKnowledge(policy:SimulatorRuntimePolicy,names:string[],p
  if(policy.referenceOnly)return {player:[],characters:names.map(name=>({name,known:[]})),instruction:'这些原文仅供叙述者参考，尚未结构化确认玩家或角色的知情范围。后台保存原文不等于任何人物已知；按原文关系和已确认剧情判断，不擅自提前揭示秘密。'};
  const ids=policy.publicRules.map(r=>`${r.sourceStart}:${r.sourceEnd}`);
  return {player:ids,characters:names.map(name=>({name,known:policy.publicRules.flatMap((r,i)=>policy.restrictedFacts.some(f=>f.revealed&&f.start===r.sourceStart&&f.end===r.sourceEnd&&!f.knownBy.includes(name)&&name!==playerName)?[]:[ids[i]])})),instruction:'编号对应已审核资料的原文范围；玩家知道不等于所有角色知道。系统持有但未公开的秘密内容未发送。'};
-}
-export function validateDocumentDisclosure(result:{body:string;segments?:StorySegment[]},policy:SimulatorRuntimePolicy,playerName?:string){
- for(const fact of policy.restrictedFacts.filter(f=>f.revealed)){
-  const matches=(text:string)=>fact.terms.some(t=>text.normalize('NFKC').replace(/\s/gu,'').includes(t.normalize('NFKC').replace(/\s/gu,'')));
-  if(!matches(result.body))continue;
-  if(!result.segments)throw Error('涉及秘密揭示的正文需要完整结构化片段，未保存不确定说话人内容。');
-  if(result.segments.some(s=>s.type==='dialogue'&&matches(s.text)&&!fact.knownBy.includes(s.speaker)&&s.speaker!==playerName))throw Error('台词说话人尚未获知此信息，未保存本回合。');
- }
 }

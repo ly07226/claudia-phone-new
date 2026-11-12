@@ -1,16 +1,23 @@
 import {storyProviderBudgetError} from './storyOutputBudget';
 import {readChatResponse} from './chatCompletion';
 import {browserTransport,type ApiTransport,type ApiConfig} from './api';
+const serviceCodes=new Set(['insufficient_quota','insufficient_balance','credit_balance_too_low','billing_hard_limit_reached','rate_limit_exceeded','resource_exhausted','invalid_api_key','permission_denied','content_policy_violation','content_filter','safety','prohibited_content']);
+/** Only provider-owned fixed codes, never model text or private request data. */
+export function storyServiceCode(data:any):string|undefined{
+ const error=data?.error;if(!error||typeof error!=='object')return;
+ const candidates=[...(Array.isArray(error.details)?error.details.map((d:any)=>d?.reason):[]),error.code,error.type,error.status];
+ for(const value of candidates){if(typeof value!=='string')continue;const code=value.toLowerCase(),canonical=code==='api_key_invalid'?'invalid_api_key':code;if(serviceCodes.has(canonical))return canonical;}
+}
 /** Shared structured-output envelope for story creation; requestReply still owns protocols.
  * There is no role fallback or second request here. */
 export function storyJSONTransport(config:ApiConfig,schema:unknown,admit:()=>Promise<boolean>,observeStream=false){
  const gemini=config.provider==='gemini'||config.provider==='custom'&&config.protocol==='gemini';let truncated=false;let partialText='';
- const info:{attempted:boolean;httpStatus?:number;finishReason?:string;blocked?:boolean;serviceError?:boolean;invalidEnvelope?:boolean;invalidContent?:boolean;textCharacters?:number;outputTokens?:number;transportInterrupted?:boolean;contextWindow?:true;modelOutputLimit?:number;outputRejected?:true}={attempted:false};
+ const info:{attempted:boolean;httpStatus?:number;finishReason?:string;blocked?:boolean;serviceError?:boolean;invalidEnvelope?:boolean;invalidContent?:boolean;textCharacters?:number;outputTokens?:number;transportInterrupted?:boolean;contextWindow?:true;modelOutputLimit?:number;outputRejected?:true;serviceCode?:string}={attempted:false};
  const transport:ApiTransport={send:async(url,init)=>{
   const body=JSON.parse(String(init.body));if(gemini)body.generationConfig={...body.generationConfig,responseMimeType:'application/json',responseSchema:schema};else body.response_format={type:'json_object'};
   if(!await admit())throw Error('stale');
   info.attempted=true;const response=await browserTransport.send(url,{...init,body:JSON.stringify(body)});
-  info.httpStatus=response.status;if(!response.ok){if(response.status===400||response.status===422){const evidence=storyProviderBudgetError(await response.clone().json().catch(()=>null));if(evidence.contextWindow)info.contextWindow=true;if(evidence.outputRejected)info.outputRejected=true;if(evidence.modelLimit)info.modelOutputLimit=evidence.modelLimit;}return response;}
+  info.httpStatus=response.status;if(!response.ok){const envelope=await response.clone().json().catch(()=>null);info.serviceCode=storyServiceCode(envelope);if((response.status===400||response.status===422)&&!info.serviceCode){const evidence=storyProviderBudgetError(envelope);if(evidence.contextWindow)info.contextWindow=true;if(evidence.outputRejected)info.outputRejected=true;if(evidence.modelLimit)info.modelOutputLimit=evidence.modelLimit;}return response;}
   let data:any;try{
    if(observeStream&&response.headers.get('content-type')?.includes('text/event-stream')){
     // Observe only usage counters while passing the same bytes to the shared
@@ -22,6 +29,7 @@ export function storyJSONTransport(config:ApiConfig,schema:unknown,admit:()=>Pro
     if(result.interruption&&result.interruption!=='length'&&result.interruption!=='blocked')info.transportInterrupted=true;
    }else data=await response.clone().json();
   }catch(error){if(!observeStream||error instanceof SyntaxError)info.invalidEnvelope=true;else info.transportInterrupted=true;return response;}
+  info.serviceCode=storyServiceCode(data);
   const usage=gemini?data?.usageMetadata?.candidatesTokenCount:data?.usage?.completion_tokens;
   if(Number.isSafeInteger(usage)&&usage>=0)info.outputTokens=usage;
   const finish=gemini?data?.candidates?.[0]?.finishReason:data?.choices?.[0]?.finish_reason;truncated=['length','MAX_TOKENS','max_tokens'].includes(finish);

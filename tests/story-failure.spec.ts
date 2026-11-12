@@ -4,7 +4,7 @@ import {storySeed} from './storyFixture';
 test('HTTP200非JSON外层响应不能误报网络错误，显示响应阶段诊断',async({page})=>{
  await storySeed(page);await page.route('https://story.test/**',r=>r.fulfill({status:200,contentType:'application/json',body:'PRIVATE_INVALID_ENVELOPE'}));
  const r=await page.evaluate(async()=>{const {generateStory}=await import('/src/storyGeneration.ts');const {describeReplyFailure}=await import('/src/replyFailure.ts');const {db}=await import('/src/store.ts');try{await generateStory('story');throw Error('unexpected success');}catch(e){return {failure:describeReplyFailure(e),session:await db.storySessions.where('worldId').equals('story').first()};}});
- expect(r.failure.kind).not.toBe('network');expect(r.failure.reason).toContain('JSON');expect(r.session?.error).toBe('invalid');
+ expect(r.failure.kind).not.toBe('network');expect(r.failure.reason).toBe('本次生成未完成，请稍后重试。');expect(r.session?.error).toBe('invalid');
 });
 
 const cases=[
@@ -12,7 +12,7 @@ const cases=[
  {name:'余额',status:429,error:{code:'insufficient_quota',message:'synthetic-story-fixture PRIVATE_ERROR_BODY'},code:'quota',stage:'response'},
  {name:'频率',status:429,error:{code:'rate_limit_exceeded',message:'PRIVATE_ERROR_BODY'},code:'rate',stage:'response'},
  {name:'未知429不猜余额',status:429,error:{message:'PRIVATE_ERROR_BODY'},code:'http-error',stage:'response'},
- {name:'未知403不猜安全拦截',status:403,error:{message:'PRIVATE_ERROR_BODY'},code:'auth',stage:'response'},
+ {name:'未知403不猜安全拦截',status:403,error:{message:'PRIVATE_ERROR_BODY'},code:'http-error',stage:'response'},
  {name:'服务端异常',status:503,error:{message:'PRIVATE_ERROR_BODY'},code:'server',stage:'response'},
  {name:'网络无响应',code:'network',stage:'request',network:true},
  {name:'模型空文本',code:'empty-response',stage:'response',text:''},
@@ -26,7 +26,7 @@ for(const c of cases)test(`完整生成链路分类：${c.name}，失败不推�
  await storySeed(page);let calls=0;const logs:string[]=[];page.on('console',m=>logs.push(m.text()));
  await page.route('https://story.test/**',r=>{calls++;if(c.network)return r.abort();return r.fulfill({status:c.status??200,json:c.error?{error:c.error}:c.envelope??{choices:[{finish_reason:c.finish??'stop',message:{content:c.text??JSON.stringify(c.value)}}]}});});
  const r=await page.evaluate(async()=>{const {db}=await import('/src/store.ts');let message='';try{await(await import('/src/storyGeneration.ts')).generateStory('story');}catch(e){message=(e as Error).message;}const s=(await db.storySessions.toArray())[0];await(await import('/src/storyValidation.ts')).validateStorySession(s);return {message,s,nodes:await db.storyNodes.count(),version:db.verno};});
- expect(r.s.status).toBe('failed');expect(r.s.revision).toBe(0);expect(r.nodes).toBe(0);expect(r.version).toBe(7);expect(r.s.failureDetails).toMatchObject({code:c.code,stage:c.stage,attempted:true});if(c.status)expect(r.s.failureDetails!.httpStatus).toBe(c.status);expect(r.message).toContain('原进度未改变');expect(calls).toBe(1);
+ expect(r.s.status).toBe('failed');expect(r.s.revision).toBe(0);expect(r.nodes).toBe(0);expect(r.version).toBe(7);expect(r.s.failureDetails).toMatchObject({code:c.code,stage:c.stage,attempted:true});if(c.status)expect(r.s.failureDetails!.httpStatus).toBe(c.status);expect(r.message).toContain(['choice-count','json-incomplete'].includes(c.code)?'原进度已保留':'原进度未改变');expect(calls).toBe(1);
  expect(JSON.stringify(r.s.failureDetails)+r.message+logs.join('\n')).not.toMatch(/PRIVATE_|synthetic-story-fixture|Authorization|Bearer/);if(c.code==='http-error')expect(r.message).toContain('暂时无法确定');if(c.code==='choice-count')expect(r.s.failureDetails!.choiceCount).toBe(3);if(c.code==='json-incomplete')expect(r.message).not.toContain('输出被截断');await page.reload();expect(calls).toBe(1);
 });
 
@@ -39,15 +39,15 @@ for(const missing of [true,false])test(`全局API${missing?'未配置':'无效'}
 for(const provider of ['openai-compatible','gemini'])test(`${provider}错误详情在第五步及刷新后可见，手动确认才重试，成功清除旧错误`,async({page},info)=>{
  const {seedWizardAI,openingNode,wizardResponse}=await import('./wizardAIFixture');await page.setViewportSize({width:390,height:844});const {worldId}=await seedWizardAI(page,provider);let valid=false,calls=0;
  await page.route('https://wizard.test/**',r=>{calls++;return r.fulfill({json:wizardResponse(provider,valid?openingNode:{...openingNode,choices:openingNode.choices.slice(0,3)})});});
- await page.getByRole('button',{name:'确认开局',exact:true}).click();await expect(page.getByRole('button',{name:'重试生成开场',exact:true})).toBeVisible();await expect(page.getByRole('alert')).toContainText('已收到正文');await page.getByText('查看错误详情',{exact:true}).click();await expect(page.locator('.story-failure-details')).toContainText('choice-count');await expect(page.locator('.story-failure-details')).toContainText('正文及选项校验');await expect(page.locator('.story-failure-details')).toContainText('200');expect(calls).toBe(1);await page.screenshot({path:info.outputPath(`wizard-error-${provider}-390.png`)});
+ await page.getByRole('button',{name:'确认开局',exact:true}).click();await expect(page.getByRole('button',{name:'重试生成开场',exact:true})).toBeVisible();await expect(page.getByRole('alert')).toContainText('本回合生成未完成');await page.getByText('查看错误详情',{exact:true}).click();await expect(page.locator('.story-failure-details')).toContainText('choice-count');await expect(page.locator('.story-failure-details')).toContainText('正文及选项校验');await expect(page.locator('.story-failure-details')).toContainText('200');expect(calls).toBe(1);await page.screenshot({path:info.outputPath(`wizard-error-${provider}-390.png`)});
  const before=await page.evaluate(async id=>{const {db}=await import('/src/store.ts');return {world:await db.worlds.get(id),s:await db.storySessions.where('worldId').equals(id).first()};},worldId);
- await page.reload();await expect(page.getByRole('alert')).toContainText('已收到正文');await page.getByText('查看错误详情',{exact:true}).click();await expect(page.locator('.story-failure-details')).toContainText('choice-count');expect(calls).toBe(1);page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'重试生成开场',exact:true}).click();expect(calls).toBe(1);
+ await page.reload();await expect(page.getByRole('alert')).toContainText('本回合生成未完成');await page.getByText('查看错误详情',{exact:true}).click();await expect(page.locator('.story-failure-details')).toContainText('choice-count');expect(calls).toBe(1);page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'重试生成开场',exact:true}).click();expect(calls).toBe(1);
  valid=true;page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'重试生成开场',exact:true}).click();await expect(page.getByRole('button',{name:'进入故事',exact:true})).toBeVisible();await expect(page.getByRole('alert')).toHaveCount(0);await expect(page.locator('.story-failure-details')).toHaveCount(0);expect(calls).toBe(2);
  const after=await page.evaluate(async id=>{const {db}=await import('/src/store.ts');return {world:await db.worlds.get(id),s:await db.storySessions.where('worldId').equals(id).first(),nodes:await db.storyNodes.count()};},worldId);expect(after.world).toEqual(before.world);expect(after.nodes).toBe(1);expect(after.s?.failureDetails).toBeUndefined();
 });
 
 test('第五步API认证失败不显示原始服务错误/密钥，HTTP与固定服务代码可查看',async({page})=>{
- const {seedWizardAI}=await import('./wizardAIFixture');await seedWizardAI(page);await page.route('https://wizard.test/**',r=>r.fulfill({status:401,json:{error:{code:'invalid_api_key',message:'synthetic-fixture-only PRIVATE_CHAT_BODY Authorization: Bearer sensitive-secret'}}}));await page.getByRole('button',{name:'确认开局',exact:true}).click();await expect(page.getByRole('alert')).toContainText('API 认证失败');await page.getByText('查看错误详情',{exact:true}).click();await expect(page.locator('.story-failure-details')).toContainText('401');await expect(page.locator('.story-failure-details')).toContainText('invalid_api_key');expect(await page.locator('body').innerText()).not.toMatch(/PRIVATE_CHAT|synthetic-fixture|sensitive-secret|Authorization/);
+ const {seedWizardAI}=await import('./wizardAIFixture');await seedWizardAI(page);await page.route('https://wizard.test/**',r=>r.fulfill({status:401,json:{error:{code:'invalid_api_key',message:'synthetic-fixture-only PRIVATE_CHAT_BODY Authorization: Bearer sensitive-secret'}}}));await page.getByRole('button',{name:'确认开局',exact:true}).click();await expect(page.getByRole('alert')).toContainText('API 密钥无效');await page.getByText('查看错误详情',{exact:true}).click();await expect(page.locator('.story-failure-details')).toContainText('401');await expect(page.locator('.story-failure-details')).toContainText('invalid_api_key');expect(await page.locator('body').innerText()).not.toMatch(/PRIVATE_CHAT|synthetic-fixture|sensitive-secret|Authorization/);
 });
 
 test('Story只使用已选全局默认，不误用角色/会话绑定；切换后的开场使用完整新配置',async({page})=>{
