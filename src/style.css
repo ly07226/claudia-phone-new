@@ -2362,3 +2362,19 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
 @media (prefers-reduced-motion: reduce) {
   .desktop .desktop-page { animation: none; }
 }
+
+/* Dragging desktop icons must remain visible beyond their grid cell. */
+.desktop.editing .grid { overflow: visible; }
+.desktop .desktop-item.dragging {
+  outline: none;
+  opacity: 1;
+  transition: none;
+  will-change: transform;
+  pointer-events: none;
+}
+.editing .page-dots button.drop-target {
+  background: var(--theme-button, #34483e);
+  border-color: var(--theme-focus, #58745d);
+  transform: scale(1.25);
+}
+.editing .page-dots { z-index: 3; }
