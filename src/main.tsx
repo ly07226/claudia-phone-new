@@ -1,3 +1,4 @@
+import {PhasePlayApp} from './phasePlay/PhasePlayApp';
 import {ChatHubScheduler} from './ChatHubScheduler';
 import {ThemeEditor} from './ThemeEditor';
 import {openPhoneApp,editPhoneDesktop,backPhonePage,usePhonePageNavigation} from './phonePageNavigation';
@@ -15,6 +16,7 @@ import { useSpaces } from "./spaces";
 import { ApiSettings } from "./ApiSettings";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { createPortal } from "react-dom";
 import {
   Brain,
   MessageCircle,
@@ -111,6 +113,14 @@ function App() {
   const space = useSpaces((state) => state.space);
   const [now, setNow] = useState(new Date());
   const [drag, setDrag] = useState<string | null>(null);
+  const [dragOffset,setDragOffset] = useState({x:0,y:0});
+  const [hoverPage,setHoverPage] = useState<string|null>(null);
+  const [dragPoint,setDragPoint] = useState<{x:number;y:number}|null>(null);
+  const [dragAnchor,setDragAnchor] = useState({x:0,y:0});
+  const edgeTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
+  const edgeTarget=useRef<string|null>(null);
+  const dragPage=useRef<string|null>(null);
+  const clearEdge=()=>{if(edgeTimer.current)clearTimeout(edgeTimer.current);edgeTimer.current=null;edgeTarget.current=null;};
   const [busy, setBusy] = useState(false);
   const gesture = useRef<
     | {
@@ -120,11 +130,14 @@ function App() {
         id: string;
         drag: boolean;
         cancelled: boolean;
+        pointerId: number;
+        origin: HTMLElement;
       }
     | undefined
   >(undefined);
   const suppress = useRef(false);
-  const swipe = useRef<number | null>(null);
+  const swipe = useRef<{x:number;y:number;time:number}|null>(null);
+  const [swipeDirection,setSwipeDirection] = useState<"left"|"right">("left");
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => {
@@ -159,18 +172,32 @@ function App() {
       id,
       drag: s.editing,
       cancelled: false,
+      pointerId: e.pointerId,
+      origin: e.currentTarget as HTMLElement,
       timer: undefined as ReturnType<typeof setTimeout> | undefined,
     };
     gesture.current = g;
+    const icon=e.currentTarget.querySelector<HTMLElement>(".app-icon") || e.currentTarget as HTMLElement;
+    const bounds=icon.getBoundingClientRect();
+    setDragAnchor({x:e.clientX-bounds.left,y:e.clientY-bounds.top});
+    setDragOffset({x:0,y:0});
+    setDragPoint(null);
+    dragPage.current=s.pageId;
+    clearEdge();
+    setHoverPage(null);
     if (s.editing) {
-      e.currentTarget.setPointerCapture(e.pointerId);
+      (e.currentTarget.closest(".desktop") as HTMLElement)?.setPointerCapture(e.pointerId);
       setDrag(id);
+      setDragPoint({x:e.clientX,y:e.clientY});
     } else
       g.timer = setTimeout(() => {
+        if(g.cancelled)return;
         g.drag = true;
+        try{(g.origin.closest(".desktop") as HTMLElement)?.setPointerCapture(g.pointerId);}catch{/* pointer may already have ended */}
         suppress.current = true;
         editPhoneDesktop();
         setDrag(id);
+        setDragPoint({x:g.x,y:g.y});
         navigator.vibrate?.(20);
       }, 550);
   }
@@ -185,31 +212,95 @@ function App() {
     if (g.drag) {
       e.preventDefault();
       setDrag(g.id);
+      setDragOffset({x:e.clientX-g.x,y:e.clientY-g.y});
+      setDragPoint({x:e.clientX,y:e.clientY});
+      const desktop=document.querySelector<HTMLElement>(".desktop");
+      const rect=desktop?.getBoundingClientRect();
+      const edge=rect && e.clientX<rect.left+44 ? -1 : rect && e.clientX>rect.right-44 ? 1 : 0;
+      const current=usePhone.getState();
+      const index=current.pages.findIndex(p=>p.id===current.pageId);
+      const next=edge ? current.pages[index+edge] : undefined;
+      if(next){
+        if(edgeTarget.current!==next.id){
+          clearEdge();
+          edgeTarget.current=next.id;
+          edgeTimer.current=setTimeout(()=>{
+            const state=usePhone.getState();
+            const target=state.pages.find(p=>p.id===next.id);
+            if(target && gesture.current?.drag){
+              setSwipeDirection(edge===1?"left":"right");
+              state.set({pageId:target.id});
+              dragPage.current=target.id;
+              setHoverPage(target.id);
+            }
+            clearEdge();
+          },480);
+        }
+      }else clearEdge();
+      const hit=document.elementFromPoint(e.clientX,e.clientY);
+      setHoverPage(hit?.closest<HTMLElement>("[data-page]")?.dataset.page??null);
     }
   }
   function end(e: React.PointerEvent) {
     const g = gesture.current;
     if (!g) return;
     clearTimeout(g.timer);
+    clearEdge();
     if (g.drag) {
       suppress.current = true;
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const page = el?.closest<HTMLElement>("[data-page]")?.dataset.page;
       const target = el?.closest<HTMLElement>("[data-item]")?.dataset.item;
+      const virtual = g.id === 'virtual-phase-play-app' || g.id === 'virtual-story-app';
+      const dragged = virtual ? displayItems.find(i=>i.id===g.id) : undefined;
+      const items = dragged ? [...s.items, {...dragged}] : s.items;
+      const destination = page || dragPage.current || s.pageId;
       if (page) {
-        void s.saveDesktop(moveItem(s.items, g.id, page));
+        void s.saveDesktop(moveItem(items, g.id, page));
         s.set({ pageId: page });
       } else if (target && target !== g.id)
-        void s.saveDesktop(moveItem(s.items, g.id, s.pageId, target));
+        void s.saveDesktop(moveItem(items, g.id, destination, target));
+      else if(dragged || (dragPage.current && dragPage.current!==s.items.find(i=>i.id===g.id)?.pageId))
+        void s.saveDesktop(moveItem(items,g.id,destination));
     }
     setDrag(null);
+    setDragPoint(null);
+    dragPage.current=null;
+    setHoverPage(null);
+    setDragOffset({x:0,y:0});
     gesture.current = undefined;
   }
+  // Migrate only overflowing desktop pages, preserving icon order and all item IDs.
+  // A page has three rows of four icon slots; widgets occupy their declared column span.
+  useEffect(() => {
+    if(!s.ready || s.editing || !s.pages.length) return;
+    const capacity=12;
+    const ordered=[...s.items].sort((a,b)=>a.position-b.position);
+    const overflowing=s.pages.some(page=>ordered.filter(item=>item.pageId===page.id).reduce((n,item)=>n+(item.kind==="widget"?item.size:1),0)>capacity);
+    if(!overflowing)return;
+    const pages=[...s.pages],items=ordered.map(item=>({...item}));
+    for(const page of s.pages){
+      const entries=items.filter(item=>item.pageId===page.id);
+      let used=0,overflowPage:string|undefined,overflowUsed=0;
+      for(const item of entries){
+        const slots=item.kind==="widget"?item.size:1;
+        if(!overflowPage && used+slots<=capacity){used+=slots;continue;}
+        if(!overflowPage || overflowUsed+slots>capacity){
+          overflowPage=crypto.randomUUID();overflowUsed=0;
+          pages.push({id:overflowPage,order:pages.length});
+        }
+        item.pageId=overflowPage;item.position=overflowUsed;overflowUsed+=slots;
+      }
+    }
+    void s.saveDesktop(items,pages);
+  },[s.ready,s.editing,s.items,s.pages]);
   const pageIndex = s.pages.findIndex((p) => p.id === s.pageId);
   const canStory=!!space?.worldId&&s.worlds.find(w=>w.id===space.worldId)?.script?.playMode==='story';
   const firstPage=s.pages[0]?.id;
   const displayItems=s.items.filter(i=>i.app!=='剧本'||canStory);
   if(canStory&&!displayItems.some(i=>i.app==='剧本')&&firstPage)displayItems.push({id:'virtual-story-app',kind:'app',app:'剧本',pageId:firstPage,position:Math.max(0,...displayItems.filter(i=>i.pageId===firstPage).map(i=>i.position))+1,size:1});
+  // Existing users retain their customized desktop; expose the new app without resetting their layout.
+  if(!displayItems.some(i=>i.kind==='app'&&i.app==='忍一下嘛')&&firstPage)displayItems.push({id:'virtual-phase-play-app',kind:'app',app:'忍一下嘛',pageId:firstPage,position:Math.max(0,...displayItems.filter(i=>i.pageId===firstPage).map(i=>i.position))+1,size:1});
   const pageItems = displayItems
     .filter((i) => i.pageId === s.pageId)
     .sort((a, b) => a.position - b.position);
@@ -413,6 +504,8 @@ function App() {
                 <IdentityEditor key={space?.spaceId || "daily"} spaceId={space?.spaceId || "daily"}/>
               ) : s.activeApp === "聊天" || s.activeApp === "世界聊天" ? (
                 <Chat worldId={space?.worldId} />
+              ) : s.activeApp === "忍一下嘛" ? (
+                <PhasePlayApp onBack={phoneNavigation.back}/>
               ) : s.activeApp === "世界书 / Lorebook" ? (
                 <Lorebooks />
               ) : s.activeApp === "AI / API 设置" ? (
@@ -578,18 +671,36 @@ function App() {
         ) : (
           <section
             className="desktop"
+            onPointerMove={motion}
+            onPointerUp={end}
+            onPointerCancel={() => {
+              clearTimeout(gesture.current?.timer);
+              clearEdge();
+              gesture.current=undefined;
+              setDrag(null);
+              setDragPoint(null);
+              dragPage.current=null;
+              setHoverPage(null);
+            }}
             onTouchStart={(e) => {
-              if (!s.editing) swipe.current = e.touches[0].clientX;
+              if (!gesture.current?.drag && e.touches.length === 1)
+                swipe.current = {x:e.touches[0].clientX,y:e.touches[0].clientY,time:Date.now()};
             }}
             onTouchEnd={(e) => {
-              if (swipe.current !== null && !s.editing) {
-                const dx = e.changedTouches[0].clientX - swipe.current;
-                if (Math.abs(dx) > 65) {
-                  const p = s.pages[pageIndex + (dx < 0 ? 1 : -1)];
-                  if (p) s.set({ pageId: p.id });
-                }
-              }
-              swipe.current = null;
+              const start=swipe.current;
+              swipe.current=null;
+              if (!start || gesture.current?.drag || e.changedTouches.length!==1) return;
+              const dx=e.changedTouches[0].clientX-start.x;
+              const dy=e.changedTouches[0].clientY-start.y;
+              // Reject vertical/diagonal gestures; short quick flicks still switch pages.
+              if(Math.abs(dx)<48 || Math.abs(dx)<Math.abs(dy)*1.35) return;
+              const p=s.pages[pageIndex+(dx<0?1:-1)];
+              if(p){setSwipeDirection(dx<0?"left":"right");s.set({pageId:p.id});}
+            }}
+            onWheel={(e) => {
+              if(gesture.current?.drag || Math.abs(e.deltaX)<35 || Math.abs(e.deltaX)<Math.abs(e.deltaY)*1.3)return;
+              const p=s.pages[pageIndex+(e.deltaX>0?1:-1)];
+              if(p){setSwipeDirection(e.deltaX>0?"left":"right");s.set({pageId:p.id});}
             }}
           >
             <div className="clock">
@@ -652,9 +763,9 @@ function App() {
                 </button>
               </div>
             )}
-            <div className="grid" key={s.pageId}>
+            <div className={`grid desktop-page desktop-page--${swipeDirection}`} key={s.pageId}>
               {pageItems.map((item) => {
-                const Icon = item.app==='剧本'?BookOpen:icons[apps.indexOf(item.app || "")] || Flower2;
+                const Icon = item.app==='剧本'?BookOpen:item.app==='忍一下嘛'?Flower2:icons[apps.indexOf(item.app || "")] || Flower2;
                 return (
                   <div
                     key={item.id}
@@ -662,15 +773,9 @@ function App() {
                     className={`desktop-item ${item.kind === "widget" ? "widget glass" : ""} ${drag === item.id ? "dragging" : ""}`}
                     style={{
                       gridColumn: `span ${item.kind === "widget" ? item.size : 1}`,
+                      ...(drag===item.id ? {opacity:0.2} : {}),
                     }}
-                    onPointerDown={(e) => {if(item.id!=='virtual-story-app')start(e, item.id);}}
-                    onPointerMove={motion}
-                    onPointerUp={end}
-                    onPointerCancel={() => {
-                      clearTimeout(gesture.current?.timer);
-                      gesture.current = undefined;
-                      setDrag(null);
-                    }}
+                    onPointerDown={(e) => start(e, item.id)}
                     onContextMenu={(e) => e.preventDefault()}
                   >
                     <button
@@ -790,12 +895,20 @@ function App() {
                 编辑模式下将图标拖到下方圆点即可移入此页。
               </p>
             )}
+            {drag && dragPoint && (() => {
+              const item=displayItems.find(i=>i.id===drag);
+              if(!item)return null;
+              const Icon=item.app==='忍一下嘛'?Flower2:icons[apps.indexOf(item.app||"")]||Flower2;
+              return createPortal(<div className="desktop-drag-ghost" style={{left:dragPoint.x-dragAnchor.x,top:dragPoint.y-dragAnchor.y}} aria-hidden="true">
+                {item.kind==="app"?<><span className="app-icon glass">{asset(item.icon)?<img src={asset(item.icon)} alt=""/>:<Icon size={29}/>}</span><span className="app-label">{item.app}</span></>:widget(item)}
+              </div>,document.body);
+            })()}
             <div className="page-dots">
               {s.pages.map((p, i) => (
                 <button
                   data-page={p.id}
                   aria-label={`桌面第${i + 1}页`}
-                  className={s.pageId === p.id ? "active" : ""}
+                  className={`${s.pageId === p.id ? "active" : ""} ${hoverPage === p.id ? "drop-target" : ""}`}
                   key={p.id}
                   onClick={() => s.set({ pageId: p.id })}
                 />

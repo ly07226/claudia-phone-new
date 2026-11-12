@@ -1,3 +1,4 @@
+import {openPhoneApp} from './phonePageNavigation';
 import {SocialFailureNotice} from './SocialFailureUI';
 import {makeSocialFailure,recordSocialFailure,resolveSocialFailure,useSocialFailures} from './socialFailures';
 import {safeReplyErrorText} from './replyFailure';

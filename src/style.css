@@ -2327,3 +2327,81 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
 .restore-actions p{overflow-wrap:anywhere}
 .import-counts{display:grid;gap:8px;margin:12px 0}.import-counts>div{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.import-counts dd{margin:0;overflow-wrap:anywhere}.restore-actions fieldset{min-width:0;border:1px solid var(--theme-border, #d9e2d3);border-radius:14px;padding:12px}.restore-actions select{max-width:100%}
 .restore-actions fieldset .backup-check{min-height:44px;gap:12px;align-items:center}.restore-actions fieldset input[type=checkbox]{flex:none}
+
+/* Desktop is a paged home screen, not a vertically scrolling app list. */
+.desktop {
+  overflow-x: hidden;
+  overflow-y: hidden;
+  overscroll-behavior: contain;
+  touch-action: pan-x;
+  min-height: 0;
+}
+.desktop .grid {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  animation: none;
+}
+.desktop .desktop-page--left {
+  animation: desktop-page-from-right 300ms cubic-bezier(.22,1,.36,1) both;
+}
+.desktop .desktop-page--right {
+  animation: desktop-page-from-left 300ms cubic-bezier(.22,1,.36,1) both;
+}
+.desktop .desktop-item { touch-action: pan-x; }
+.editing .desktop-item { touch-action: none; }
+.desktop .page-dots, .desktop .dock { flex-shrink: 0; }
+@keyframes desktop-page-from-right {
+  from { transform: translate3d(24%,0,0); opacity: .65; }
+  to { transform: translate3d(0,0,0); opacity: 1; }
+}
+@keyframes desktop-page-from-left {
+  from { transform: translate3d(-24%,0,0); opacity: .65; }
+  to { transform: translate3d(0,0,0); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .desktop .desktop-page { animation: none; }
+}
+
+/* Dragging desktop icons must remain visible beyond their grid cell. */
+.desktop.editing .grid { overflow: visible; }
+.desktop .desktop-item.dragging {
+  outline: none;
+  opacity: 1;
+  transition: none;
+  will-change: transform;
+  pointer-events: none;
+}
+.editing .page-dots button.drop-target {
+  background: var(--theme-button, #34483e);
+  border-color: var(--theme-focus, #58745d);
+  transform: scale(1.25);
+}
+.editing .page-dots { z-index: 3; }
+
+/* Persistent drag preview floats above pages during edge-triggered page changes. */
+.desktop-drag-ghost {
+  position: fixed;
+  z-index: 1000;
+  transform: translate(-50%,-50%) scale(1.06);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  filter: drop-shadow(0 8px 12px rgba(0,0,0,.18));
+  user-select: none;
+}
+.desktop-drag-ghost .app-label { white-space: nowrap; }
+
+/* iOS Safari: don't let the browser cancel icon dragging as a native pan. */
+.desktop.editing { touch-action: none; }
+.desktop-drag-ghost {
+  transform: scale(1.06);
+  transform-origin: top left;
+  width: 61px;
+  align-items: center;
+  z-index: 2147483647;
+  contain: layout style;
+}
+.desktop-drag-ghost .app-icon { flex: 0 0 61px; }

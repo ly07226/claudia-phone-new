@@ -1,0 +1,40 @@
+import {test,expect} from '@playwright/test';
+test('built-in instruction pool follows phase and category filters',async({page})=>{
+ await page.goto('/');
+ const result=await page.evaluate(async()=>{
+  const lib=await import('/src/phasePlay/instructions.ts');
+  return {red:lib.instructionPool('red'),filtered:lib.instructionPool('red',{excludedCategories:['rest']}),empty:lib.pickInstruction('red',{excludedCategories:['rest','focus']}),chosen:lib.pickInstruction('green',{},()=>0)};
+ });
+ expect(result.red.length).toBeGreaterThan(0);
+ expect(result.red.every(x=>x.phase==='red')).toBe(true);
+ expect(result.filtered.every(x=>x.category!=='rest')).toBe(true);
+ expect(result.empty).toBeNull();
+ expect(result.chosen?.phase).toBe('green');
+});
+test('character prompt is scoped and never performs AI calls',async({page})=>{
+ await page.goto('/');
+ const result=await page.evaluate(async()=>{
+  const lib=await import('/src/phasePlay/instructions.ts');
+  const base=lib.instructionPool('red')[0];
+  const request=lib.buildCharacterInstructionRequest(base,{characterName:'角色甲',persona:'说话冷静',speakingStyle:'简短',worldContext:'仅当前世界'});
+  return {request,fallback:lib.sanitizeGeneratedInstruction('<unsafe>',base),good:lib.sanitizeGeneratedInstruction('现在停一下。',base)};
+ });
+ expect(result.request.user).toContain('仅当前世界');
+ expect(result.request.system).toContain('玩家可以随时暂停或退出');
+ expect(result.fallback).toBe('暂停当前动作，等待下一阶段。');
+ expect(result.good).toBe('现在停一下。');
+});
+
+test('每阶段抽取队列不重复，耗尽可重复，角色世界隔离且刷新保留',async({page})=>{
+ await page.goto('/');const r=await page.evaluate(async()=>{const e=await import('/src/phasePlay/engine.ts'),l=await import('/src/phasePlay/library.ts'),st=await import('/src/phasePlay/storage.ts');const s=e.defaults();s.instructionMode='character';s.instructionCharacterId='甲';s.instructionWorldId='一';const prefix=l.libraryPrefix('甲','一');s.prompts=[...['一','二','三'].map((text,i)=>({id:prefix+i,phase:'red' as const,text})),{id:l.libraryPrefix('乙','一')+'x',phase:'red',text:'其他角色不可用'}];let session=e.start(s,()=>0);const selected=[session.prompt];for(let i=0;i<3;i++){session=e.next(s,session,()=>0);session=e.next(s,session,()=>0);session=e.next(s,session,()=>0);selected.push(session.prompt);}const data={version:1 as const,settings:s,session};st.savePhaseData('phase-unit',data);const restored=st.loadPhaseData('phase-unit').data;return {selected,draws:session.draws,restored:restored.session,empty:e.start(e.defaults(),()=>0).prompt};});expect(new Set(r.selected.slice(0,3)).size).toBe(3);expect(r.selected).not.toContain('其他角色不可用');expect(r.selected[3]).not.toBe(r.selected[2]);expect(r.restored.draws).toEqual(r.draws);expect(r.restored.status).toBe('paused');expect(r.empty).toBeTruthy();
+});
+for(const minutes of [5,10,15,20,50])test(`整局${minutes}分钟结束不多切阶段或再抽取`,async({page})=>{await page.goto('/');const r=await page.evaluate(async minutes=>{const e=await import('/src/phasePlay/engine.ts'),s={...e.defaults(),gameMinutes:minutes};s.duration.red.seconds=600;s.duration.yellow.seconds=600;s.duration.green.seconds=600;const first=e.start(s,()=>0),paused=e.advance(s,{...first,status:'paused'},999999),end=e.advance(s,first,minutes*60000+500,()=>0);return {end,after:e.next(s,end),paused,restart:e.start(s)};},minutes);expect(r.end.status).toBe('finished');expect(r.end.gameRemainingMs).toBe(0);expect(r.end.elapsedMs).toBe(minutes*60000);expect(r.end.step).toBe(Math.ceil(minutes/10));expect(r.after).toEqual(r.end);expect(r.paused.gameRemainingMs).toBe(minutes*60000);expect(r.restart.gameRemainingMs).toBe(minutes*60000);});
+
+test('自动加速按活跃时间保持，节拍积分与暂停刷新一致',async({page})=>{await page.goto('/');const r=await page.evaluate(async()=>{const e=await import('/src/phasePlay/engine.ts'),s={...e.defaults(),autoAccelerate:true,bpm:60,maxBpm:120,accelerationSeconds:60};return {mid:e.bpmAt(s,30000),end:e.bpmAt(s,60000),beats:e.beatsBetween(s,0,60000),parts:e.beatsBetween(s,0,30000)+e.beatsBetween(s,30000,60000),plain:e.advance({...s,autoAccelerate:false},e.start(s,()=>0),1234,()=>0),ramp:e.advance(s,e.start(s,()=>0),1234,()=>0)};});expect(r.mid).toBe(90);expect(r.end).toBe(120);expect(r.beats).toBe(90);expect(r.parts).toBe(r.beats);expect(r.plain).toEqual(r.ramp);});
+for(const variant of ['valid','json','missing','duplicate','phase','extra'])test(`生成结果严格校验 ${variant}`,async({page})=>{await page.goto('/');const r=await page.evaluate(async variant=>{const g=await import('/src/phasePlay/generation.ts');const tasks=[{id:'a',phase:'red' as const},{id:'b',phase:'green' as const}],items=[{id:'a',phase:'red',text:'停下等待'},{id:'b',phase:'green',text:'继续前进'}];if(variant==='missing')items.pop();if(variant==='duplicate')items[1].text=items[0].text;if(variant==='phase')items[0].phase='green';if(variant==='extra')items.push({id:'c',phase:'red',text:'额外'});try{return {items:g.parseInstructions(variant==='json'?'plain text':JSON.stringify({items}),tasks),batch:g.batchSize(1024)};}catch(e){return {error:(e as Error).message};}},variant);if(variant==='valid'){expect(r.items).toHaveLength(2);expect(r.batch).toBe(4);}else expect(r.error).toBeTruthy();});
+
+test('旧数据无世界字段兼容，现代世界ID不被错误迁移，轻量检查点不重写词库',async({page})=>{await page.goto('/');const r=await page.evaluate(async()=>{const e=await import('/src/phasePlay/engine.ts'),l=await import('/src/phasePlay/library.ts'),st=await import('/src/phasePlay/storage.ts');const s=e.defaults();s.instructionCharacterId='role';s.prompts=[{id:l.libraryPrefix('role','world')+'id',phase:'red',text:'原台词'}];const data={version:1 as const,settings:s,session:e.start(s)};st.savePhaseData('checkpoint-test',data);const raw=localStorage.getItem(st.storageKey('checkpoint-test'));data.session=e.advance(s,data.session,1000);st.savePhaseSession('checkpoint-test',data);return {unchanged:raw===localStorage.getItem(st.storageKey('checkpoint-test')),loaded:st.loadPhaseData('checkpoint-test'),id:s.prompts[0].id};});expect(r.unchanged).toBe(true);expect(r.loaded.error).toBe('');expect(r.loaded.data.session.elapsedMs).toBe(1000);expect(r.loaded.data.settings.prompts[0].id).toBe(r.id);});
+
+test('每组合1000条独立容量、历史原子保存与恢复、失败不覆盖其他记录',async({page})=>{await page.goto('/');const r=await page.evaluate(async()=>{const e=await import('/src/phasePlay/engine.ts'),l=await import('/src/phasePlay/library.ts'),st=await import('/src/phasePlay/storage.ts');const s=e.defaults(),a=l.libraryPrefix('a','world'),b=l.libraryPrefix('b','world');let data={version:1 as const,settings:s,session:e.initial(s)} as import('/src/phasePlay/engine.ts').PhaseData;data=l.replaceLibrary(data,a,Array.from({length:1000},(_,i)=>({id:a+i,phase:'red',text:'角色甲'+i})));data=l.replaceLibrary(data,b,Array.from({length:1000},(_,i)=>({id:b+i,phase:'green',text:'角色乙'+i})));const valid=e.validData(data);data=l.replaceLibrary(data,a,[{id:a+'new',phase:'red',text:'新版本'}]);const old=data.libraryVersions![a][0];data=l.replaceLibrary(data,a,old.prompts);st.savePhaseData('phase-capacity',data);const raw=localStorage.getItem(st.storageKey('phase-capacity'));let failed=false;try{st.savePhaseData('phase-capacity',{...data,settings:{...s,bpm:0}});}catch{failed=true;}return {valid,failed,unchanged:raw===localStorage.getItem(st.storageKey('phase-capacity')),a:l.scopePrompts(data.settings,a).length,b:l.scopePrompts(data.settings,b).length,versions:data.libraryVersions![a].length};});expect(r).toEqual({valid:true,failed:true,unchanged:true,a:1000,b:1000,versions:2});});
+
+test('延迟音频解锁在退出后不能重新启动音频',async({page})=>{await page.goto('/');const r=await page.evaluate(async()=>{let release:()=>void=()=>{},suspends=0;class Mock{state='suspended';resume(){return new Promise<void>(resolve=>{release=()=>{this.state='running';resolve();};});}async suspend(){this.state='suspended';suspends++;}async close(){}}Object.defineProperty(window,'AudioContext',{configurable:true,value:Mock});const {PhaseFeedback}=await import('/src/phasePlay/feedback.ts'),feedback=new PhaseFeedback(),pending=feedback.unlock();feedback.stop();release();const unlocked=await pending;feedback.dispose();return {unlocked,suspends};});expect(r.unlocked).toBe(false);expect(r.suspends).toBeGreaterThanOrEqual(2);});
