@@ -31,7 +31,10 @@ export function initial(s:PhaseSettings):PhaseSession{const total=(s.gameMinutes
 export function start(s:PhaseSettings,random=Math.random,pool?:InterventionPool):PhaseSession{const picked=draw(s,'red',{},random);return {...initial(s),status:'running',intervention:prepareIntervention(s,(s.gameMinutes??10)*60000,pool,random),remainingMs:duration(s,'red',random),step:1,prompt:picked.text,promptMarker:picked.marker,draws:picked.draws};}
 export function next(s:PhaseSettings,r:PhaseSession,random=Math.random):PhaseSession{
  if(!['running','paused'].includes(r.status)||(r.gameRemainingMs??1)<=0)return r;
- const ticket=unit(random);const randomPhase:Phase=r.phase!=='green'?'green':(r.phaseRun??1)>=3?(ticket<.625?'yellow':'red'):ticket<.6?'green':ticket<.85?'yellow':'red';const phase=(s.aiIntervention?r.intervention?.nextPhase:undefined)??(s.mode==='sequence'?phases[(phases.indexOf(r.phase)+1)%3]:randomPhase),picked=draw(s,phase,r.draws,random);
+ const ticket=unit(random);const randomPhase:Phase=r.phase!=='green'?'green':(r.phaseRun??1)>=3?(ticket<.625?'yellow':'red'):ticket<.6?'green':ticket<.85?'yellow':'red';const phase=(s.aiIntervention?r.intervention?.nextPhase:undefined)??(s.mode==='sequence'?phases[(phases.indexOf(r.phase)+1)%3]:randomPhase);
+  // A repeated color is not a new instruction. Only color changes, explicit reroll,
+  // and starting a fresh session may draw a different prompt.
+  const picked=phase===r.phase?{text:r.prompt,marker:r.promptMarker,draws:r.draws}:draw(s,phase,r.draws,random);
  return {...r,intervention:r.intervention?{...r.intervention,nextPhase:undefined}:undefined,phase,phaseRun:phase===r.phase?Math.min(3,(r.phaseRun??1)+1):1,remainingMs:duration(s,phase,random),step:r.step+1,prompt:picked.text,promptMarker:picked.marker,draws:picked.draws};
 }
 /** Foreground active time only. At the deadline there is no extra draw or transition. */
