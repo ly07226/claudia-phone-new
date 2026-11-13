@@ -1,10 +1,11 @@
 /** Bounded numeric/fixed-code diagnostics only. Never body, key, URL, or IDs. */
 export interface StoryGenerationDiagnostic {
+ exactHistoricalBodyRepeat?:boolean;exactRecentBodyRepeat?:boolean;exactRecentChoiceMatches?:number;nearRecentChoiceMatches?:number;
  sequence:number;outcome:'complete'|'failed';length:'brief'|'standard'|'detailed';
  inputBytes:number;configuredOutputTokens:number;outputTokenLimit:number;modelOutputLimit?:number;
  finishReason?:string;returnedOutputTokens?:number;responseCharacters?:number;
  bodyCharacters?:number;chineseCharacters?:number;belowTarget?:boolean;
- recentNodes:number;omittedNodes:number;memoryExcerpts:number;
+ recentNodes:number;omittedNodes:number;memoryExcerpts:number;memoryActions?:number;historyCandidateUnits?:number;selectedHistoryBytes?:number;historyAllocationBytes?:number;
 }
 const records:StoryGenerationDiagnostic[]=[];let sequence=0;
 export function recordStoryGeneration(value:Omit<StoryGenerationDiagnostic,'sequence'>){records.push({...value,sequence:++sequence});if(records.length>20)records.shift();console.info('[story-generation]',records.at(-1));}

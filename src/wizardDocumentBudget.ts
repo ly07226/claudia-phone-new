@@ -1,3 +1,4 @@
+import {scoreStoryTexts} from './storyHistory';
 /** Keep the source archive intact; select only the references needed for this turn. */
 export function fitDocumentInput(input:Record<string,any>,prompt:string,limit:number){
  const size=(x:unknown)=>new TextEncoder().encode(prompt+JSON.stringify(x)).length;
@@ -19,15 +20,14 @@ export function fitDocumentInput(input:Record<string,any>,prompt:string,limit:nu
  };
  // Never slice independently entered world metadata to make references fit.
  if(rebuild()>limit)throw Error('budget');
- const query=JSON.stringify([input.selectedAction,input.confirmedHistory?.at(-1),input.definition?.script?.opening]);
- const score=(text:string)=>{let hits=0;for(let i=0;i<Math.min(text.length-1,400);i+=2)if(query.includes(text.slice(i,i+2)))hits++;return hits;};
+ const opening=!Array.isArray(input.confirmedHistory)||input.confirmedHistory.length===0;
  const optionalRules=rules.filter((r:any)=>!selected.has(r));
  // On the opening turn, prioritize early world-building and character information.
  // Later turns prioritize relevant references, but still include a small opening anchor.
- const opening=!Array.isArray(input.confirmedHistory)||input.confirmedHistory.length===0;
- const ranked=optionalRules.map((r:any,i:number)=>({r,i,relevance:score(r.text??'')})).sort((a,b)=>opening?a.i-b.i:b.relevance-a.relevance||a.i-b.i);
+ const relevance=scoreStoryTexts(optionalRules.map((r:any)=>r.text??''),input.selectedAction?.text??'',opening?input.definition?.script?.opening??'':input.confirmedHistory.at(-1)?.body??'');
+ const ranked=optionalRules.map((r:any,i:number)=>({r,i,relevance:relevance[i].action*4+relevance[i].recent})).sort((a,b)=>opening?a.i-b.i:b.relevance-a.relevance||a.i-b.i);
  const anchors=opening?['world-reference','character-reference','opening-reference'].flatMap(kind=>ranked.filter(x=>x.r.kind===kind).slice(0,3)):ranked.filter(x=>x.i<3);
- const ordered=[...anchors,...ranked.filter(x=>!anchors.includes(x))];
+ const ordered=opening?[...anchors,...ranked.filter(x=>!anchors.includes(x))]:[...ranked.slice(0,1),...anchors.slice(0,1),...ranked.slice(1)];
  for(const {r} of ordered){selected.add(r);if(rebuild()>limit)selected.delete(r);}
  rebuild();return JSON.stringify(input);
 }
