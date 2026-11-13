@@ -61,3 +61,64 @@ test('失败重生、成功重生、回溯与ZIP恢复：最近选项引用不�
  await page.reload();fixture.response('继续有效前缀。');await page.evaluate(async()=>{const {generateStory}=await import('/src/storyGeneration.ts');const data=await(await import('/src/storyStore.ts')).readStory('story');await generateStory('story',data.path.at(-1)!.choices[0].id);});expect(JSON.stringify(fixture.inputs.at(-1))).not.toContain('ORIGINAL_LEAF');
  await page.evaluate(async()=>{const {db}=await import('/src/store.ts');const w=(await db.worlds.get('story'))!;await db.worlds.add({...w,id:'other-story',name:'另一剧本'});await(await import('/src/storyGeneration.ts')).generateStory('other-story');});const other=fixture.inputs.at(-1);expect(other.confirmedHistory).toEqual([]);expect(other.recentStoryChoices).toEqual([]);expect(other.recentStoryBeats).toEqual([]);expect(other.longTermStoryMemory).toBeUndefined();expect(fixture.calls()).toBe(5);expect(failures).toBe(1);
 });
+
+
+test('场景证据在正常与紧缩预算下仅引用已准入正文，不复制或误判事实',async({page})=>{
+ await storySeed(page);
+ const r=await page.evaluate(async()=>{
+  const {storyInput,storyPrompt}=await import('/src/storyContext.ts');
+  const {claimStory}=await import('/src/storyStore.ts');
+  const s=(await claimStory('story',undefined,false)).session;
+  const path=Array.from({length:12},(_,i)=>({id:`scene-${i}`,body:(i===10?'有人声称皇帝已经退位，但此事尚未证实。':'除非核实条件，否则计划尚未执行。').repeat(60),choices:[]})) as any;
+  return [undefined,21000].map(limit=>{
+   const input=JSON.parse(storyInput(s,path,undefined,'standard',undefined,limit));
+   return {input,bytes:new TextEncoder().encode(storyPrompt+JSON.stringify(input)).length,limit};
+  });
+ });
+ for(const {input,bytes,limit} of r){
+  if(limit)expect(bytes).toBeLessThanOrEqual(limit);
+  expect(input.currentSceneEvidence.length).toBeGreaterThan(0);
+  expect(input.currentSceneEvidence.length).toBeLessThanOrEqual(2);
+  for(const evidence of input.currentSceneEvidence){
+   expect(evidence).toMatchObject({source:'confirmedHistory'});
+   expect(evidence.node).toBe(input.historyOmitted+evidence.historyIndex+1);
+   expect(input.confirmedHistory[evidence.historyIndex]).toBeDefined();
+   expect(evidence.nodeId).toBe(input.confirmedHistory[evidence.historyIndex].body===undefined?undefined:`scene-${evidence.node-1}`);
+   expect(evidence).not.toHaveProperty('body');
+   expect(evidence).not.toHaveProperty('instruction');
+  }
+  expect(input.confirmedHistory.at(-1).body).toContain('尚未执行');
+ }
+});
+
+
+test('30回合文档时间线压力测试：已确认死亡、失踪传闻与后续归来不混为一谈',async({page})=>{
+ await storySeed(page);
+ const r=await page.evaluate(async()=>{
+  const {claimStory}=await import('/src/storyStore.ts');
+  const {storyInput,storyPrompt}=await import('/src/storyContext.ts');
+  const s=(await claimStory('story',undefined,false)).session;
+  const events:Record<number,string>={
+   1:'宫变当夜，储君被刺身亡，北境统帅只是坠崖失踪，生死尚未查明。',
+   4:'禁军控制宫门，朝臣仍在争论继位程序。',
+   7:'皇帝正式交出玉玺，宫变告一段落。',
+   11:'新帝下诏整顿禁军，旧日宫变没有再次发生。',
+   16:'边境有人传言统帅仍活着，但京城尚无确证。',
+   21:'封后大典已经举行，仪典完成。',
+   26:'边境统帅终于返回京城，此时才得知京中发生的变故。'
+  };
+  const path=Array.from({length:30},(_,i)=>({id:`turn-${i+1}`,body:events[i+1]??`第${i+1}回合，朝中议事推进，人物依据已经发生的局势作出反应。`,choices:[]})) as any;
+  const input=JSON.parse(storyInput(s,path,{kind:'custom',text:'复核宫变结果、北境统帅的真实处境和封后大典后的归京时间。'}));
+  const budget=21000;
+  const tight=JSON.parse(storyInput(s,path,{kind:'custom',text:'核对已完成的宫变、封后仪典与归京。'},'standard',undefined,budget));
+  const inspect=(v:any)=>({references:v.currentSceneEvidence.map((e:any)=>({node:e.node,body:v.confirmedHistory[e.historyIndex]?.body,nodeId:e.nodeId})),history:v.confirmedHistory.length,omitted:v.historyOmitted,quotes:v.longTermStoryMemory?.excerpts??[]});
+  return {normal:inspect(input),tight:inspect(tight),tightBytes:new TextEncoder().encode(storyPrompt+JSON.stringify(tight)).length,budget,events};
+ });
+ expect(r.tightBytes).toBeLessThanOrEqual(r.budget);
+ for(const mode of [r.normal,r.tight]){
+  expect(mode.references.length).toBeGreaterThan(0);
+  expect(mode.references.at(-1).node).toBe(30);
+  for(const item of mode.references){expect(item.nodeId).toBe(`turn-${item.node}`);expect(item.body).toBeTruthy();}
+ }
+ expect(r.normal.quotes.every((q:any)=>q.node<r.normal.omitted+1)).toBe(true);
+});
