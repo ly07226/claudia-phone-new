@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {db} from '../store';
 
-const DB='claudia-phase-audio',STORE='tracks',LIMIT=30*1024*1024,PREFIX='track:',LEGACY='custom-mp3';
+const DB='claudia-phase-audio',STORE='tracks',LIMIT=40*1024*1024,PREFIX='track:',LEGACY='custom-mp3';
 type Track={id:string;file:File};
 const selectedKey=()=> 'claudia.phasePlay.selectedMp3:'+db.name;
 
@@ -64,7 +64,7 @@ export function PhaseMp3Upload({source,onSourceChange}:{source:'metronome'|'mp3'
   setBusy(true);setMessage('');let count=0;
   try{
    for(const file of Array.from(files)){
-    if((!/\.mp3$/i.test(file.name)&&file.type!=='audio/mpeg')||!file.size||file.size>LIMIT){setMessage('部分文件不是 MP3 或超过 30 MB，已跳过。');continue;}
+    if((!/\.mp3$/i.test(file.name)&&file.type!=='audio/mpeg')||!file.size||file.size>LIMIT){setMessage('部分文件不是 MP3 或超过 40 MB，已跳过。');continue;}
     const id=crypto.randomUUID();await save(file,id);count++;
     if(!chosen&&count===1)choose(id);
    }
@@ -80,7 +80,7 @@ export function PhaseMp3Upload({source,onSourceChange}:{source:'metronome'|'mp3'
   catch{setMessage('删除失败，请重试。');}
   finally{setBusy(false);}
  }
- return <div className="phase-play-card"><h3>自定义音频</h3><p className="phase-play-note">节拍器与 MP3 都会保留，游戏时选择其中一种声音。每首 MP3 最大 30 MB，仅保存在此浏览器。</p>
+ return <div className="phase-play-card"><h3>自定义音频</h3><p className="phase-play-note">节拍器与 MP3 都会保留，游戏时选择其中一种声音。每首 MP3 最大 40 MB，仅保存在此浏览器。</p>
   <label className="phase-play-toggle">使用节拍器<input type="radio" name="phase-audio-source" checked={source==='metronome'} onChange={()=>onSourceChange('metronome')}/></label>
   <label className="phase-play-toggle">使用自定义 MP3<input type="radio" name="phase-audio-source" checked={source==='mp3'} onChange={()=>onSourceChange('mp3')}/></label>
   <h4>我的音频库 · {items.length} 首</h4>
