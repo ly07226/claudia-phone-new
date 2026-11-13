@@ -18,7 +18,6 @@
 .story-options label.story-selected{background:color-mix(in srgb,var(--theme-focus, #516d84) 22%,var(--theme-card, #ffffff));border:2px solid var(--theme-focus, #516d84);padding:9px 11px;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--theme-focus, #516d84) 24%,transparent)}
 .story-options label.story-selected strong{background:var(--theme-focus, #516d84);color:#fff;font-weight:700}
 .story-options label.story-selected span{font-weight:600}
-.story-options label.story-selected::after{content:'✓';position:absolute;right:7px;top:4px;font-size:12px;font-weight:800;line-height:1;color:var(--theme-focus, #516d84)}
 .story-options label:active:not(:has(input:disabled)){transform:scale(.992)}
 .story-options:disabled label{cursor:default}
 @media (prefers-reduced-motion:reduce){.story-options label{transition:none}.story-options label:active{transform:none}}.story-options label:has(input:focus-visible){outline:2px solid var(--theme-focus, #718b73);outline-offset:2px}
