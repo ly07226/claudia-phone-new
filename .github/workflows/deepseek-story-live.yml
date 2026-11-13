@@ -1,0 +1,30 @@
+name: DeepSeek story 30-turn live test
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/deepseek-story-live.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live-story:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/deepseek-story-30turn
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run budget-capped DeepSeek narrative test
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: node scripts/deepseek-story-30turn.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deepseek-story-30turn-results
+          path: test-results/
+          if-no-files-found: warn
+          retention-days: 7
