@@ -80,7 +80,7 @@ test('近期选项独立于已发生剧情传递，重复情节约束不将旧�
  });
  expect(r.input.recentStoryChoices).toHaveLength(3);
  expect(r.input.recentStoryBeats).toHaveLength(3);
- expect(r.input.recentStoryBeats[2].ending).toContain('第12轮剧情');
+ expect(r.input.recentStoryBeats[2].ending).toBeUndefined();expect(r.input.confirmedHistory[r.input.recentStoryBeats[2].historyIndex].body).toContain('第12轮剧情');
  expect(r.input.recentStoryChoices.map((n:any)=>n.node)).toEqual([10,11,12]);
  expect(r.input.recentStoryChoices[0].choices).toContain('觐见皇帝');
  expect(r.input.confirmedHistory.some((n:any)=>n.body.includes('觐见皇帝'))).toBe(false);
