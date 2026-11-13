@@ -56,5 +56,5 @@ test('生产剧本提示保护玩家主控权，并将长篇幅与玩家反应�
  expect(result.prompt).toContain('不得伪装成剧情必然转回主线');
  expect(result.prompt).toContain('玩家沉默、靠近、亲吻等单一行为均不等于对后续行为的概括同意');
  expect(result.input.selectedAction).toMatchObject({kind:'custom',text:'我抬头看着七皇子，没有说话。'});
- expect(result.input.narrativeLength).toBeDefined();
+ expect(result.input.narrativeLength).toMatchObject({targetChineseCharacters:'800～1500'});
 });
