@@ -25,7 +25,7 @@ for(let i=0;i<maxTurns;i++){
  try{
   res=await fetch('https://api.deepseek.com/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify({model:'deepseek-chat',messages,response_format:{type:'json_object'},max_tokens:requestedOutput,temperature:0.35}),signal:AbortSignal.timeout(60000)});
  }catch(e){state.stopped='request error: '+String(e);break;}
- if(!res.ok){state.stopped='HTTP '+res.status+' '+(await res.text()).slice(0,160);break;}
+ if(!res.ok){let reason='';try{const failure=await res.json();reason=String(failure?.error?.code||failure?.error?.type||failure?.error?.message||'').slice(0,100)}catch{}state.stopped='HTTP '+res.status+(reason?' ('+reason+')':'');break;}
  const data=await res.json(),usage=data.usage||{};
  inputUsed+=usage.prompt_tokens||0;outputUsed+=usage.completion_tokens||0;
  const raw=data.choices?.[0]?.message?.content||'';
@@ -47,4 +47,5 @@ for(let i=0;i<maxTurns;i++){
 state.usage={input:inputUsed,output:outputUsed};
 fs.mkdirSync('test-results',{recursive:true});
 fs.writeFileSync('test-results/deepseek-story-30turn.json',JSON.stringify(state,null,2));
-console.log(JSON.stringify({turns:state.turn,usage:state.usage,stopped:state.stopped,flagged:state.checks},null,2));
+console.log('STORY_TEST_SUMMARY '+JSON.stringify({turns:state.turn,usage:state.usage,stopped:state.stopped,flagged:state.checks}));
+if(state.turn!==maxTurns||state.stopped){console.error('STORY_TEST_FAILED '+JSON.stringify({turns:state.turn,reason:state.stopped||'incomplete'}));process.exitCode=1;}
