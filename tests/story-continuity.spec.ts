@@ -66,3 +66,22 @@ test('原文检索覆盖段落后半部分，推进时不再让开场检索压�
  await storySeed(page);const r=await page.evaluate(async()=>{const {fitDocumentInput}=await import('/src/wizardDocumentBudget.ts');const rules=[0,1,2].map(i=>({id:String(i),kind:'background',text:String.fromCharCode(97+i).repeat(500),certainty:'uninterpreted'}));const relevant={id:'relevant-tail',kind:'background',text:'z'.repeat(420)+'原文补充：青棠负责东营调度。',certainty:'uninterpreted'};rules.push(relevant);const input={definition:{script:{opening:'开场讨论祭典'}},confirmedHistory:[{body:'目前正在查阅城防交接。'}],selectedAction:{kind:'custom',text:'查阅青棠负责东营调度的原文。'},simulatorRules:{instruction:'普通故事模式',rules}};const parsed=JSON.parse(fitDocumentInput(input,'规则',1800));return {rules:parsed.simulatorRules.rules,expected:relevant,bytes:new TextEncoder().encode('规则'+JSON.stringify(parsed)).length};});
  expect(r.bytes).toBeLessThanOrEqual(1800);expect(r.rules).toContainEqual(r.expected);
 });
+
+
+test('近期选项独立于已发生剧情传递，重复情节约束不将旧选项当成事实',async({page})=>{
+ await storySeed(page);
+ const r=await page.evaluate(async()=>{
+  const {storyInput,storyPrompt}=await import('/src/storyContext.ts');
+  const {claimStory}=await import('/src/storyStore.ts');
+  const s=(await claimStory('story',undefined,false)).session;
+  const path=Array.from({length:12},(_,i)=>({id:`node-${i}`,body:i===2?'逼宫已经成功，皇帝退位。':`第${i+1}轮剧情。`,choices:['觐见皇帝','询问守卫','查看诏书','离开宫殿'].map((text,j)=>({id:`c-${i}-${j}`,label:['A','B','C','D'][j],text}))})) as any;
+  const input=JSON.parse(storyInput(s,path));
+  return {input,prompt:storyPrompt};
+ });
+ expect(r.input.recentStoryChoices).toHaveLength(3);
+ expect(r.input.recentStoryChoices.map((n:any)=>n.node)).toEqual([10,11,12]);
+ expect(r.input.recentStoryChoices[0].choices).toContain('觐见皇帝');
+ expect(r.input.confirmedHistory.some((n:any)=>n.body.includes('觐见皇帝'))).toBe(false);
+ expect(r.prompt).toContain('不得无故重演已确认完成的事件');
+ expect(r.prompt).toContain('不能当成已选择行动或已发生事实');
+});
