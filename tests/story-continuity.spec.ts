@@ -85,5 +85,7 @@ test('近期选项独立于已发生剧情传递，重复情节约束不将旧�
  expect(r.input.recentStoryChoices[0].choices).toContain('觐见皇帝');
  expect(r.input.confirmedHistory.some((n:any)=>n.body.includes('觐见皇帝'))).toBe(false);
  expect(r.prompt).toContain('不得无故重演已确认完成的事件');
+ expect(r.input.continuity.confirmedSources).toContain('事实优先级');
+ expect(r.input.continuity.staticDefinition).toContain('故事起点');
  expect(r.prompt).toContain('不能当成已选择行动或已发生事实');
 });
