@@ -65,3 +65,18 @@ test('主控权反例覆盖擅自出城、亲密反应和第一第二人称越�
  const prompt=await page.evaluate(async()=> (await import('/src/storyContext.ts')).storyPrompt);
  for(const rule of ['【逐句主控权自检','不等于授权已收拾行囊、出城、到江南或租到店铺','不授权后退半步、脸红、心跳或继续亲吻','第一人称叙事尤其禁止新增以“我”作主语的行动和心理','第二人称同样禁止新增“你”的动作','不得以‘镜头切换’‘蒙太奇’‘总结旅途’规避','NPC可以主动表达情感'])expect(prompt).toContain(rule);
 });
+
+
+test('每轮输入携带玩家授权边界，长期目标不能被当成旅程已完成',async({page})=>{
+ await storySeed(page);
+ const result=await page.evaluate(async()=>{
+  const {storyInput}=await import('/src/storyContext.ts');
+  const {claimStory}=await import('/src/storyStore.ts');
+  const session=(await claimStory('story',undefined,false)).session;
+  return JSON.parse(storyInput(session,[],{kind:'custom',text:'我想离开京城去江南开茶馆。'},'standard'));
+ });
+ expect(result.playerAgencyContract.authorizedNow).toBe('我想离开京城去江南开茶馆。');
+ expect(result.playerAgencyContract.authorizationScope).toContain('长期目标不授权执行全部步骤');
+ expect(result.playerAgencyContract.narrativeBoundary).toContain('不得跳时间替玩家完成');
+ expect(result.playerAgencyContract.selfCheck).toContain('confirmedHistory');
+});
