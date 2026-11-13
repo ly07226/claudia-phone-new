@@ -1,5 +1,5 @@
 name: DeepSeek 100-turn choice-following test
-# Retest 2026-11-13: updated anti-fabrication/progression model prompt on test branch.
+# Player-agency E-action retest 2026-11-13; test script checked out from test/deepseek-story-30turn.
 on:
   push:
     branches: [main]
