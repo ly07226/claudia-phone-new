@@ -1,4 +1,5 @@
 name: DeepSeek story 30-turn live test
+# Rerun after failure-reporting fix; isolated script ref remains on test branch.
 on:
   push:
     branches: [main]
