@@ -100,6 +100,8 @@
 [data-chat-hub] .hub-cover-icon{position:absolute;top:8px;z-index:2;display:grid;place-items:center;min-width:44px;min-height:44px;border:0;border-radius:0;background:transparent;box-shadow:none;padding:0;color:var(--theme-text,inherit)}
 [data-chat-hub] .hub-cover-role{left:max(8px,var(--safe-left,0px))}
 [data-chat-hub] .hub-cover-camera{right:max(8px,var(--safe-right,0px))}
+/* Native modal dialog: center within the visible iPhone viewport, including safe areas. */
+[data-chat-hub] dialog.hub-role-dialog:modal{position:fixed;inset:0;margin:auto;width:min(340px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:min(70dvh,calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 32px));box-sizing:border-box;transform:none}
 [data-chat-hub] .hub-role-dialog h3{font-size:15px;color:var(--theme-text,inherit);margin:0 0 18px}
 [data-chat-hub] .chat-search>svg,[data-chat-hub] .hub-search>svg{width:18px;height:18px;flex:none}
 [data-chat-hub] .chat-search input:focus,[data-chat-hub] .hub-search input:focus{outline:none!important;border:0!important;box-shadow:none!important;background:transparent!important}
