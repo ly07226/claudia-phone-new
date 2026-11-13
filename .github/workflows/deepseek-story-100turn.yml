@@ -11,7 +11,7 @@ permissions:
 jobs:
   live-choice-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Generate 3 production-prompt DeepSeek scenarios
+      - name: Generate 100 sequential production-prompt DeepSeek turns
         id: test
         continue-on-error: true
         env:
@@ -44,9 +44,13 @@ jobs:
           p=pathlib.Path('artifacts/story-agency-live.json')
           if not p.exists(): raise SystemExit('Test produced no result file')
           s=json.loads(p.read_text())
-          lines=['# DeepSeek production player-agency acceptance','',f"Source: {s.get('source')}",f"Timestamp: {s.get('timestamp')}",'','Real model outputs below; manually inspect player agency and forced plot redirection.','']
-          for h in s.get('results',[]):
-            lines.extend([f"### {h.get('scenario')}",f"Characters: {h.get('length')}; target met: {h.get('withinTarget')}; choices: {h.get('choices')}",'',h.get('body',''),'',f"Choices: {h.get('choiceTexts')}",''])
+          results=s.get('results',[])
+          lines=['# DeepSeek 100-turn sequential player-agency test','',f"Source: {s.get('source')}",f"Timestamp: {s.get('timestamp')}",f"Completed: {len(results)}/100",f"Invalid JSON or choices: {sum(not h.get('validJson') or h.get('choices')!=4 for h in results)}",f"Under 800 chars: {sum(h.get('length',0)<800 for h in results)}",'','The full unabridged text for all turns is in the Actions artifact story-agency-live-results (JSON).','']
+          for h in results:
+            lines.append(f"Turn {h.get('turn')} / {h.get('arc')} #{h.get('arcTurn')}: {h.get('length')} chars; {h.get('choices')} choices; error={h.get('error')}")
+          lines.extend(['','## Full text sample (first 5 turns)'])
+          for h in results[:5]:
+            lines.extend([f"### Turn {h.get('turn')}",'',h.get('body',''),'',f"Choices: {h.get('choiceTexts')}",''])
           pathlib.Path('/tmp/story100.md').write_text('\n'.join(lines))
           PY
           gh issue create -R "$GH_REPO" -t "DeepSeek agency acceptance run $GITHUB_RUN_ID" -F /tmp/story100.md
