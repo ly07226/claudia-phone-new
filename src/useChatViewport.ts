@@ -35,9 +35,12 @@ export function useChatViewport(
       const signature=`${frame.cssHeight}|${frame.top}|${frame.keyboard}`;
       if(lastFrame.current===signature)return;
       lastFrame.current=signature;
-      setChatViewportValue(phone,'--chat-height',frame.cssHeight);
-      setChatViewportValue(stage,'--chat-height',frame.cssHeight);
-      setChatViewportValue(stage,'--chat-top',`${frame.top}px`);
+      setChatViewportValue(phone,'--chat-height',frame.top>0?`${frame.bottom}px`:frame.cssHeight);
+      setChatViewportValue(stage,'--chat-height',frame.top>0?`${frame.bottom}px`:frame.cssHeight);
+      // Anchor the navigation at the layout viewport origin; only the shell's
+      // bottom follows the visible keyboard boundary. Panning the whole stage
+      // on every visualViewport scroll caused the header to flash.
+      setChatViewportValue(stage,'--chat-top','0px');
       phone.classList.toggle('chat-keyboard',frame.keyboard);
       fit();
       // Keyboard animation reports many intermediate heights. Repeatedly
