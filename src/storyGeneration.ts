@@ -37,7 +37,7 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
  let simulatorPolicy=simulatorSource?await compileSimulatorRuntime(simulatorSource.id,document):undefined;
  const claim=await claimStory(worldId,actionInput,!!options.allowOldDefinition,options.expected,!!options.firstAttemptOnly,options.operation,simulatorPolicy?(simulatorPolicy.referenceOnly?5000:Math.min(24000,new TextEncoder().encode(JSON.stringify({rules:simulatorPolicy.publicRules,runtime:document?.runtime})).length+3000)):128),s=claim.session,token=s.pending!.token;
  const controller=new AbortController(),abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
- let timedOut=false;const timer=setTimeout(()=>{timedOut=true;abort();},storyLimits.leaseMs);let failure:'cancelled'|'request'|'invalid'|'stale'|'budget'='request',phase:StoryFailureStage='configuration';
+ let timedOut=false;const timer=setTimeout(()=>{if(controller.signal.aborted)return;timedOut=true;abort();},storyLimits.leaseMs);let failure:'cancelled'|'request'|'invalid'|'stale'|'budget'='request',phase:StoryFailureStage='configuration';
  let budgetConfig:ApiConfig|undefined;let knownModelLimit:number|undefined;
  let requestAttempts=0,configuredOutputTokens=0,diagnosticRecorded=false,advisoryCheckUnavailable=false,credentialForRedaction='\u0000';
  let advisoryWarnings:string[]=[];
@@ -103,8 +103,11 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
   const info=structured?.getResponseInfo(),details=describeReplyFailure(error);
   let code:StoryFailureCode='unknown',stage:StoryFailureStage=phase;
   const issue=controller.signal.aborted?undefined:error instanceof StoryResponseError?error:phase==='request'&&structured?.isTruncated()?new StoryResponseError('truncated'):info?.blocked?new StoryResponseError('blocked'):info?.invalidEnvelope?new StoryResponseError('envelope-invalid'):info?.invalidContent?new StoryResponseError('envelope-shape'):info?.textCharacters===0&&info.httpStatus===200&&!info.serviceError?new StoryResponseError('empty-response'):info?.textCharacters!==undefined&&info.textCharacters>storyLimits.outputChars?new StoryResponseError('response-too-long'):undefined;
-  if(controller.signal.aborted){failure='cancelled';code=timedOut?'timeout':'cancelled';}
+  if(controller.signal.aborted&&!(timedOut&&info?.httpStatus===504)){failure='cancelled';code=timedOut?'timeout':'cancelled';}
   else if(error instanceof StoryGenerationError){code=error.failure.code;stage=error.failure.stage;}
+  // A received gateway timeout is not a style/JSON error or proof of invalid credentials.
+  // Keep the original HTTP evidence even if its body contains an inconsistent code.
+  else if(info?.httpStatus===504){failure='request';code='server';stage='response';}
   else if(info?.contextWindow){failure='request';code='context-window';stage='response';}
   else if(info?.outputRejected){failure='request';code='output-limit';stage='response';if(budgetConfig&&info.modelOutputLimit)rememberStoryOutputLimit(budgetConfig,info.modelOutputLimit);}
   else if(info?.transportInterrupted){failure='request';code='network';stage='response';}
