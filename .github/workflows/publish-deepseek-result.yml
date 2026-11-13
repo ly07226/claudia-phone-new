@@ -1,0 +1,38 @@
+name: Publish previous DeepSeek test result
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-deepseek-result.yml']
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+  issues: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch latest successful test artifact and publish readable report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_ID=$(gh api "repos/$GH_REPO/actions/workflows/deepseek-story-live.yml/runs?per_page=20&status=success" --jq '.workflow_runs[0].id')
+          if [ -z "$RUN_ID" ]; then echo 'No successful DeepSeek run'; exit 1; fi
+          echo "Using prior run $RUN_ID"
+          mkdir -p /tmp/story-report
+          gh run download "$RUN_ID" -n deepseek-story-30turn-results -D /tmp/story-report -R "$GH_REPO"
+          python3 - <<'PY'
+          import json,pathlib
+          files=list(pathlib.Path('/tmp/story-report').rglob('deepseek-story-30turn.json'))
+          if not files: raise SystemExit('No story JSON in artifact')
+          s=json.loads(files[0].read_text())
+          hist=s.get('history',[])
+          lines=['# DeepSeek 30-turn test result','',f"Source run: {s.get('turn',0)} turns",f"Token usage: {s.get('usage')}",f"Stop reason: {s.get('stopped')}",f"Automated flags: {s.get('checks')}",'','## Turn-by-turn text (for continuity review)','']
+          for h in hist:
+            lines += [f"### Turn {h.get('turn')}",f"Action: {h.get('action')}","",h.get('body',''),"",f"Flags: {h.get('warnings',[])}",""]
+          pathlib.Path('/tmp/story-report/report.md').write_text('\n'.join(lines))
+          PY
+          gh issue create -R "$GH_REPO" -t "DeepSeek 30-turn result from run $RUN_ID" -F /tmp/story-report/report.md
