@@ -25,8 +25,7 @@ export function storyInput(s:StorySession,path:StoryNode[],actionInput?:string|S
  // extracting fragments or guessing character states from narrative prose.
  const currentSceneEvidence=()=>path.slice(Math.max(start,path.length-2)).map((n,i)=>{
   const index=Math.max(start,path.length-2)+i;
-  return {node:index+1,nodeId:n.id,source:'confirmedHistory' as const,historyIndex:index-start,
-   instruction:'本回合已发生的结果以该节点完整正文为准；不能将上一回合玩家行动意图视为成功。'};
+  return {node:index+1,nodeId:n.id,source:'confirmedHistory' as const,historyIndex:index-start};
  });
  const historyIndex=indexStoryHistory(path),encoded=(value:unknown)=>new TextEncoder().encode(JSON.stringify(value)).length;
  const actions=()=>history.slice(ledgerStart,start).flatMap((n,i)=>n.selectedAction?[{node:ledgerStart+i+1,...n.selectedAction}]:[]);
