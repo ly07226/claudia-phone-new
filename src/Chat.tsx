@@ -157,7 +157,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       .subscribe({ next: rows => setPreviews({scope: previewScope, rows}), error: () => setError("无法读取聊天预览，请稍后重试。") });
     return () => subscription.unsubscribe();
   }, [characterIds, worldId, conversation?.id]);
-  const appliedSnapshot = useRef<{conversationId:string;timelineId:string;epoch:number;messageSignature:string;variantSignature:string}|null>(null);
+  const appliedSnapshot = useRef<{conversationId:string;timelineId:string|undefined;epoch:number;messageSignature:string;variantSignature:string}|null>(null);
   async function loadSnapshot(id: string, scroll = false) {
     const ticket=++refreshTicket.current;
     const data=await db.transaction("r",[db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{
