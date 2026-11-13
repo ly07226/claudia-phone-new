@@ -61,3 +61,32 @@ test('失败重生、成功重生、回溯与ZIP恢复：最近选项引用不�
  await page.reload();fixture.response('继续有效前缀。');await page.evaluate(async()=>{const {generateStory}=await import('/src/storyGeneration.ts');const data=await(await import('/src/storyStore.ts')).readStory('story');await generateStory('story',data.path.at(-1)!.choices[0].id);});expect(JSON.stringify(fixture.inputs.at(-1))).not.toContain('ORIGINAL_LEAF');
  await page.evaluate(async()=>{const {db}=await import('/src/store.ts');const w=(await db.worlds.get('story'))!;await db.worlds.add({...w,id:'other-story',name:'另一剧本'});await(await import('/src/storyGeneration.ts')).generateStory('other-story');});const other=fixture.inputs.at(-1);expect(other.confirmedHistory).toEqual([]);expect(other.recentStoryChoices).toEqual([]);expect(other.recentStoryBeats).toEqual([]);expect(other.longTermStoryMemory).toBeUndefined();expect(fixture.calls()).toBe(5);expect(failures).toBe(1);
 });
+
+
+test('场景证据在正常与紧缩预算下仅引用已准入正文，不复制或误判事实',async({page})=>{
+ await storySeed(page);
+ const r=await page.evaluate(async()=>{
+  const {storyInput,storyPrompt}=await import('/src/storyContext.ts');
+  const {claimStory}=await import('/src/storyStore.ts');
+  const s=(await claimStory('story',undefined,false)).session;
+  const path=Array.from({length:12},(_,i)=>({id:`scene-${i}`,body:(i===10?'有人声称皇帝已经退位，但此事尚未证实。':'除非核实条件，否则计划尚未执行。').repeat(60),choices:[]})) as any;
+  return [undefined,21000].map(limit=>{
+   const input=JSON.parse(storyInput(s,path,undefined,'standard',undefined,limit));
+   return {input,bytes:new TextEncoder().encode(storyPrompt+JSON.stringify(input)).length,limit};
+  });
+ });
+ for(const {input,bytes,limit} of r){
+  if(limit)expect(bytes).toBeLessThanOrEqual(limit);
+  expect(input.currentSceneEvidence.length).toBeGreaterThan(0);
+  expect(input.currentSceneEvidence.length).toBeLessThanOrEqual(2);
+  for(const evidence of input.currentSceneEvidence){
+   expect(evidence).toMatchObject({source:'confirmedHistory'});
+   expect(evidence.node).toBe(input.historyOmitted+evidence.historyIndex+1);
+   expect(input.confirmedHistory[evidence.historyIndex]).toBeDefined();
+   expect(evidence.nodeId).toBe(input.confirmedHistory[evidence.historyIndex].body===undefined?undefined:`scene-${evidence.node-1}`);
+   expect(evidence).not.toHaveProperty('body');
+   expect(evidence).not.toHaveProperty('instruction');
+  }
+  expect(input.confirmedHistory.at(-1).body).toContain('尚未执行');
+ }
+});
