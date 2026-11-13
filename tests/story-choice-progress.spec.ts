@@ -58,3 +58,10 @@ test('生产剧本提示保护玩家主控权，并将长篇幅与玩家反应�
  expect(result.input.selectedAction).toMatchObject({kind:'custom',text:'我抬头看着七皇子，没有说话。'});
  expect(result.input.narrativeLength).toMatchObject({targetChineseCharacters:'800～1500'});
 });
+
+
+test('主控权反例覆盖擅自出城、亲密反应和第一第二人称越权',async({page})=>{
+ await storySeed(page);
+ const prompt=await page.evaluate(async()=> (await import('/src/storyContext.ts')).storyPrompt);
+ for(const rule of ['【逐句主控权自检','不等于授权已收拾行囊、出城、到江南或租到店铺','不授权后退半步、脸红、心跳或继续亲吻','第一人称叙事尤其禁止新增以“我”作主语的行动和心理','第二人称同样禁止新增“你”的动作','不得以‘镜头切换’‘蒙太奇’‘总结旅途’规避','NPC可以主动表达情感'])expect(prompt).toContain(rule);
+});
