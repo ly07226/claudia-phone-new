@@ -19,7 +19,8 @@ export function useChatViewport(
       40,
       Math.min(120, (viewport?.height || innerHeight) * 0.28),
     );
-    // Do not collapse the textarea on every visualViewport event: iOS may\n    // emit another resize while the keyboard is animating, causing a loop.\n    el.style.height = "auto";
+    // Avoid collapsing the textarea during viewport changes.
+    el.style.height = "auto";
     const height = Math.max(40, Math.min(el.scrollHeight, max));
     el.style.height = `${height}px`;
     el.style.overflowY = el.scrollHeight > height ? "auto" : "hidden";
