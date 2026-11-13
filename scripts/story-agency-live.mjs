@@ -2,7 +2,7 @@ import fs from 'node:fs';
 const key=process.env.DEEPSEEK_API_KEY;
 if(!key){console.log('LIVE_TEST_SKIPPED: DEEPSEEK_API_KEY unavailable');process.exitCode=2;process.exit();}
 const src=fs.readFileSync('src/storyContext.ts','utf8');
-const match=src.match(/export const storyPrompt=`([\s\S]*?)`;\nexport function storyInput/);
+const match=src.match(/export const storyPrompt=`([\s\S]*?)`;/);
 if(!match)throw Error('Production storyPrompt not found');
 const prompt=match[1];
 const scenarios=[
