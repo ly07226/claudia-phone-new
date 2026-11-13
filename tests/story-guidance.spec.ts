@@ -10,7 +10,7 @@ for(const provider of ['openai-compatible','gemini'])test(`${provider} 单次指
  expect(before.g).toMatchObject({enabled:true,revision:1});expect(before.nodes).toBe(1);expect(before.s.headNodeId).toBe(root.id);expect(before.s.actionDraft?.customText).toBe('先观察周围。');
  fail=false;const after=await page.evaluate(async()=>{const {db}=await import('/src/store.ts');await(await import('/src/storyGeneration.ts')).generateStory('story',{kind:'custom',text:'先观察周围。'});return {g:(await db.worlds.get('story'))!.storyPreferences!.guidance,s:(await db.storySessions.toArray())[0],nodes:await db.storyNodes.count()};});
  expect(after.g).toMatchObject({enabled:false,revision:2});expect(after.nodes).toBe(2);expect(after.s.revision).toBe(2);expect(requests).toHaveLength(3);
- for(const request of requests.slice(1)){const input=JSON.parse(provider==='gemini'?request.contents[0].parts[0].text:request.messages[1].content);expect(input.directionGuidance).toEqual({text:'通过对白缓慢揭示线索，不代替主控选择。',mode:'once'});expect(input.selectedAction.text).toBe('先观察周围。');const system=provider==='gemini'?request.systemInstruction.parts[0].text:request.messages[0].content;expect(system).toContain('低优先级创作建议');expect(system).toContain('不得覆盖世界规则');}
+ for(const request of requests.slice(1)){const input=JSON.parse(provider==='gemini'?request.contents[0].parts[0].text:request.messages[1].content);expect(input.directionGuidance).toEqual({text:'通过对白缓慢揭示线索，不代替主控选择。',mode:'once'});expect(input.selectedAction.text).toBe('先观察周围。');const system=provider==='gemini'?request.systemInstruction.parts[0].text:request.messages[0].content;expect(system).toContain('玩家输入优先协议');expect(system).toContain('selectedAction');expect(system).toContain('必须执行其中关于叙事人称');}
  await page.reload();expect(requests).toHaveLength(3);
 });
 
@@ -62,4 +62,17 @@ test('指导编辑捕获旧版本，不静默覆盖其他窗口的新设置',asy
 for(const mode of ['overwrite','merge'] as const)test(`指导设置 v7 ZIP ${mode} 保留且恢复不触发模型`,async({page,browser})=>{
  await storySeed(page);const bytes=await page.evaluate(async()=>{await(await import('/src/storyStore.ts')).saveStoryGuidance('story',{text:'持久化指导',mode:'persistent',enabled:true},0);const file=await(await import('/src/backupZip.ts')).createZipBackup({closedOtherClients:true});return Array.from(new Uint8Array(await file.arrayBuffer()));});
  const context=await browser.newContext(),target=await context.newPage();try{await isolatedApp(target,'guidance-import-'+crypto.randomUUID());const result=await target.evaluate(async({bytes,mode})=>{const {db}=await import('/src/store.ts');const files=await(await import('/src/backupZip.ts')).readBackupZip(new File([new Uint8Array(bytes)],'guide.zip'));const {prepareImport,defaultImportOptions}=await import('/src/importPlan.ts');const plan=await prepareImport(files,{...defaultImportOptions,mode});try{await(await import('/src/restoreService.ts')).restoreToCurrent([],{confirmed:true,plan,database:db});}finally{await plan.dispose();}db.close();await db.open();return {version:db.verno,g:(await db.worlds.toArray()).find(w=>w.name==='story')!.storyPreferences!.guidance,nodes:await db.storyNodes.count()};},{bytes,mode});expect(result).toEqual({version:7,g:{text:'持久化指导',mode:'persistent',enabled:true,revision:1},nodes:0});}finally{await context.close();}
+});
+
+
+test('玩家自由行动与剧情指导同时传入：指令优先于模型默认偏好',async({page})=>{
+ await storySeed(page);const requests:any[]=[];
+ await page.route('https://story.test/**',r=>{requests.push(r.request().postDataJSON());return r.fulfill({json:envelope('openai-compatible',reply())});});
+ await page.evaluate(async()=>{const {db}=await import('/src/store.ts');const w=(await db.worlds.get('story'))!;await db.worlds.update('story',{script:{...w.script,perspective:'second'}});await(await import('/src/storyStore.ts')).saveStoryGuidance('story',{text:'保持第二人称叙述；减少对白、增加动作描写，正文目标约1000字。',mode:'persistent',enabled:true},0);await(await import('/src/storyGeneration.ts')).generateStory('story');});
+ const input=JSON.parse(requests[0].messages[1].content);const system=requests[0].messages[0].content;
+ expect(input.narration.perspective).toBe('second');
+ expect(input.directionGuidance.text).toContain('1000字');
+ expect(system).toContain('玩家输入优先协议');
+ expect(system).toContain('未要求改变时严格遵循 narration.perspective');
+ expect(system).toContain('不能替玩家追加未选择的行动');
 });
