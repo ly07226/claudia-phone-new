@@ -1559,6 +1559,10 @@ textarea {
   padding-right: var(--safe-right);
 }
 .chat-nav {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  flex: 0 0 52px;
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) 44px;
   align-items: center;
