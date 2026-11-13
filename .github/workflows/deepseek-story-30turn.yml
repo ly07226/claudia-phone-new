@@ -1,5 +1,8 @@
 name: DeepSeek 30-turn story stress test
 on:
+  push:
+    branches:
+      - test/deepseek-story-30turn
   workflow_dispatch:
 permissions:
   contents: read
