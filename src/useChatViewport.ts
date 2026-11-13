@@ -8,6 +8,7 @@ export function useChatViewport(
   onLayout: () => void,
 ) {
   const lastFrame = useRef<string | null>(null);
+  const lastKeyboard = useRef<boolean | null>(null);
   const callback = useRef(onLayout);
   callback.current = onLayout;
   const fit = () => {
@@ -38,7 +39,10 @@ export function useChatViewport(
       setChatViewportValue(stage,'--chat-top',`${frame.top}px`);
       phone.classList.toggle('chat-keyboard',frame.keyboard);
       fit();
-      callback.current();
+      // Keyboard animation reports many intermediate heights. Repeatedly
+      // forcing scrollTop to scrollHeight during each frame makes the
+      // conversation jump between bottom positions on iOS.
+      if(lastKeyboard.current!==frame.keyboard){lastKeyboard.current=frame.keyboard;callback.current();}
     };
     phone?.classList.add("chat-open", "chat-conversation");
     stage?.classList.add("chat-stage");
@@ -55,6 +59,7 @@ export function useChatViewport(
       stage?.style.removeProperty("--chat-height");
       stage?.style.removeProperty("--chat-top");
       lastFrame.current=null;
+      lastKeyboard.current=null;
     };
   }, [active]);
   useLayoutEffect(() => {
