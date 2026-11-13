@@ -157,6 +157,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       .subscribe({ next: rows => setPreviews({scope: previewScope, rows}), error: () => setError("无法读取聊天预览，请稍后重试。") });
     return () => subscription.unsubscribe();
   }, [characterIds, worldId, conversation?.id]);
+  const appliedSnapshot = useRef<{conversationId:string;timelineId:string;epoch:number;messageSignature:string;variantSignature:string}|null>(null);
   async function loadSnapshot(id: string, scroll = false) {
     const ticket=++refreshTicket.current;
     const data=await db.transaction("r",[db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{
@@ -182,11 +183,21 @@ export function Chat({ worldId }: { worldId?: string }) {
       );
     if (mounted.current && activeConversation.current === id) {
       if(visiblePath.current?.conversationId===id && visiblePath.current.timelineId!==current.activeTimelineId && (!pending.current || pending.current.signal.aborted))setReplyPresentation(null);
+      const path={conversationId:id,timelineId:current.activeTimelineId,epoch:current.timelineEpoch??0};
+      // Dexie may emit repeated snapshots while the user is merely viewing or
+      // typing. Do not replace the message array and reset scroll for identical
+      // data; that can visibly jump the history even without keyboard changes.
+      const messageSignature=JSON.stringify(rows);
+      const variantSignature=JSON.stringify(groups);
+      const prev=appliedSnapshot.current;
+      const same=prev?.conversationId===id&&prev.timelineId===path.timelineId&&prev.epoch===path.epoch&&prev.messageSignature===messageSignature&&prev.variantSignature===variantSignature;
+      visiblePath.current=path;
+      if(same)return;
+      appliedSnapshot.current={...path,messageSignature,variantSignature};
       if (scroll && followBottom.current) {
         scrollRequested.current = true;
         preserveTop.current = null;
       } else preserveTop.current = historyRef.current?.scrollTop ?? null;
-      visiblePath.current={conversationId:id,timelineId:current.activeTimelineId,epoch:current.timelineEpoch??0};
       setConversation(current);
       setMessages(rows);
       setVariants(groups);
@@ -236,6 +247,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   async function open(id: string) {
     const navigation = ++taskSequence.current;
     setError("");
+    appliedSnapshot.current=null;
     setMessages([]);
     setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
     setReplyPresentation(null);
