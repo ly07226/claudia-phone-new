@@ -1,3 +1,4 @@
+import {resolveStoryDirectives,checkStoryDirectives} from './storyDirectives';
 import {storyResultKey,hasStoryResult,recoverStoryResult,retainStoryResult,discardStoryResult} from './storyResultRecovery';
 import {storyOutputBudget,rememberStoryOutputLimit} from './storyOutputBudget';
 import type {ApiConfig} from './api';
@@ -38,16 +39,19 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
  const controller=new AbortController(),abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
  let timedOut=false;const timer=setTimeout(()=>{timedOut=true;abort();},storyLimits.leaseMs);let failure:'cancelled'|'request'|'invalid'|'stale'|'budget'='request',phase:StoryFailureStage='configuration';
  let budgetConfig:ApiConfig|undefined;let knownModelLimit:number|undefined;
- let configuredOutputTokens=0,diagnosticRecorded=false,credentialForRedaction='\u0000';
+ let requestAttempts=0,configuredOutputTokens=0,diagnosticRecorded=false,advisoryCheckUnavailable=false,credentialForRedaction='\u0000';
+ let advisoryWarnings:string[]=[];
  let simulatorInput=claim.input,promptText=storyPrompt;
  let inputData:Record<string,any>={};
- const record=(outcome:'complete'|'failed',body?:string)=>{if(diagnosticRecorded||!structured?.getResponseInfo().attempted)return;diagnosticRecorded=true;const info=structured.getResponseInfo();recordStoryGeneration({outcome,length:claim.length,inputBytes:new TextEncoder().encode(promptText+simulatorInput).length,configuredOutputTokens,outputTokenLimit:outputTokenLimit??0,...((info.modelOutputLimit??knownModelLimit)?{modelOutputLimit:info.modelOutputLimit??knownModelLimit}:{}),...(info.finishReason?{finishReason:info.finishReason}:{}),...(info.outputTokens!==undefined?{returnedOutputTokens:info.outputTokens}:{}),...(info.textCharacters!==undefined?{responseCharacters:info.textCharacters}:{}),...(body!==undefined?{bodyCharacters:Array.from(body.replace(/\s/gu,'')).length,chineseCharacters:(body.match(/\p{Script=Han}/gu)||[]).length,belowTarget:Array.from(body.replace(/\s/gu,'')).length<Number(storyLengths[claim.length].target.split('～')[0])}:{}),recentNodes:inputData.confirmedHistory.length,omittedNodes:inputData.historyOmitted,memoryExcerpts:inputData.longTermStoryMemory?.excerpts.length??0});};
+ const record=(outcome:'complete'|'failed',body?:string)=>{if(diagnosticRecorded||!requestAttempts)return;diagnosticRecorded=true;const info=structured!.getResponseInfo();recordStoryGeneration({requestAttempts,correctionAttempts:0,advisoryWarnings,advisoryCheckUnavailable,outcome,length:claim.length,inputBytes:new TextEncoder().encode(promptText+simulatorInput).length,configuredOutputTokens,outputTokenLimit:outputTokenLimit??0,...((info.modelOutputLimit??knownModelLimit)?{modelOutputLimit:info.modelOutputLimit??knownModelLimit}:{}),...(info.finishReason?{finishReason:info.finishReason}:{}),...(info.outputTokens!==undefined?{returnedOutputTokens:info.outputTokens}:{}),...(info.textCharacters!==undefined?{responseCharacters:info.textCharacters}:{}),...(body!==undefined?{bodyCharacters:Array.from(body.replace(/\s/gu,'')).length,chineseCharacters:(body.match(/\p{Script=Han}/gu)||[]).length,belowTarget:Array.from(body.replace(/\s/gu,'')).length<(inputData.outputRequirements?.length?.min??Number(storyLengths[claim.length].target.split('～')[0]))}:{}),recentNodes:inputData.confirmedHistory.length,omittedNodes:inputData.historyOmitted,memoryExcerpts:inputData.longTermStoryMemory?.excerpts.length??0});};
  let recoveryKey:string|undefined,result:ReturnType<typeof parseStoryReply>|undefined;
  let structured:ReturnType<typeof storyJSONTransport>|undefined,outputTokenLimit:number|undefined;
  try{
  const runtime=document?.runtime;const replay=runtime?replayDocumentState(claim.path,runtime):undefined;
  if(document)simulatorPolicy=await compileSimulatorRuntime(document.source.id,document,replay?.state,replay?.history);
  const simulation=!!simulatorPolicy?.simulation;
+ const directives=resolveStoryDirectives(s.definition.script.perspective??'second',claim.guidance);
+
  if(hasStoryResult(worldId)){recoveryKey=await storyResultKey(claim);result=recoverStoryResult(worldId,recoveryKey,token);}
  if(!result){
   const simulatorPrompt=simulation?' 模拟器附加协议：除body、choices、segments外必须输出stateChanges数组；每项为key、op以及set/increment时的value，value必须是字符串、数字或布尔值。没有可确认的变化时返回空数组。仅记录正文已经发生的公开变化，不得编造玩家行动。':'';
@@ -67,7 +71,7 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
     const current=await db.storySessions.get(s.id),world=await db.worlds.get(worldId);
     return !controller.signal.aborted&&current?.pending?.token===token&&current.pending.expiresAt>Date.now()&&current.revision===s.revision&&current.headNodeId===s.headNodeId&&world?.script?.playMode==='story'&&JSON.stringify(await resolveStoryDefinition(world))===claim.worldSnapshot&&JSON.stringify(world.storyDocument??world.simulatorSource??null)===claim.documentSnapshot&&JSON.stringify(world.storyPreferences?.guidance??null)===claim.guidanceSnapshot&&(!claim.replacement||JSON.stringify(await db.storyNodes.get(claim.replacement.id))===JSON.stringify(claim.replacement));
    });
-   if(!admitted)failure='stale';return admitted;
+   if(!admitted)failure='stale';else requestAttempts++;return admitted;
   },true);
 
 
@@ -77,6 +81,9 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
   phase='request';const raw=await requestReply({...config,maxTokens:outputTokenLimit},credential.apiKey,messages,controller.signal,structured.transport,false);
   failure='invalid';phase='parse';if(structured.getResponseInfo().transportInterrupted)throw new StoryGenerationError(makeStoryFailure('network','response',true));if(structured.getResponseInfo().blocked)throw new StoryResponseError('blocked');const participants=s.definition.participants;try{result=parseStoryReply(raw,participants?[participants.protagonist.name,...participants.characters.map(c=>c.name)]:[],simulation,runtime?.fields);}catch(error){if(structured.isTruncated())throw new StoryResponseError('truncated',{responseCharacters:raw.length});throw error;}
  }
+  if(!result)throw new StoryGenerationError(makeStoryFailure('validation-failed','validation',requestAttempts>0));
+  // Advisory only: style heuristics never cause paid retries or reject playable output.
+  try{advisoryWarnings=[...(directives.conflict?['directive-conflict']:[]),...checkStoryDirectives(result.body,result.segments,directives,s.definition.participants?.characters.map(c=>c.name)).map(v=>v.code)];}catch{advisoryCheckUnavailable=true;}
   phase='validation';const simulatorChanges=result.stateChanges;
   if(simulatorChanges){if(runtime)runtimeTurn(replay!.state,simulatorChanges,runtime,new Set(replay!.fired));else applySimulatorChanges(replaySimulatorState(claim.path),simulatorChanges);}
   const id=crypto.randomUUID();phase='validation';
@@ -115,7 +122,7 @@ export async function generateStory(worldId:string,actionInput?:string|StoryActi
   let measuredBody:string|undefined;try{const x=JSON.parse(structured?.getPartialText()??'');if(typeof x?.body==='string'&&x.body.length<=storyLimits.body)measuredBody=x.body;}catch{/* Incomplete JSON has no safely measurable body. */}
   if(code==='storage-failed'&&result){try{recoveryKey??=await storyResultKey(claim);retainStoryResult(worldId,recoveryKey,result,token);}catch{discardStoryResult(worldId,token);}}else discardStoryResult(worldId,token);
   try{record('failed',measuredBody);}catch{/* Best-effort, numeric diagnostics only. */}
-  const diagnostic=makeStoryFailure(code,stage,!!info?.attempted,{httpStatus:info?.httpStatus??details.httpStatus,serviceCode:info?.serviceCode??details.serviceCode,finishReason:info?.finishReason,responseCharacters:info?.textCharacters??issue?.detail.responseCharacters,choiceCount:issue?.detail.choiceCount,outputTokenLimit,modelOutputLimit:info?.modelOutputLimit??knownModelLimit});
+  const diagnostic=makeStoryFailure(code,stage,requestAttempts>0,{httpStatus:info?.httpStatus??details.httpStatus,serviceCode:info?.serviceCode??details.serviceCode,finishReason:info?.finishReason,responseCharacters:info?.textCharacters??issue?.detail.responseCharacters,choiceCount:issue?.detail.choiceCount,outputTokenLimit,modelOutputLimit:info?.modelOutputLimit??knownModelLimit});
   await db.transaction('rw',db.storySessions,async()=>{const current=await db.storySessions.get(s.id);if(current?.pending?.token===token){const text=structured?.getPartialText().split(credentialForRedaction).join('[凭据已隐藏]');const interruptedOutput=text&&code!=='stale'&&current.revision===s.revision&&current.headNodeId===s.headNodeId&&(structured?.isTruncated()||info?.transportInterrupted)?{text,reason:(structured?.isTruncated()?'truncated':'transport') as 'truncated'|'transport',baseRevision:current.revision,createdAt:Date.now()}:current.interruptedOutput;await db.storySessions.put({...current,interruptedOutput,status:'failed',pending:undefined,error:failure,failureDetails:diagnostic,updatedAt:Date.now()});}}).catch(()=>{});
   throw new StoryGenerationError(diagnostic);
  }finally{clearTimeout(timer);options.signal?.removeEventListener('abort',abort);}
