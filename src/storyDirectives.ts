@@ -54,9 +54,11 @@ export function checkStoryDirectives(body:string,segments:readonly StorySegment[
  // or words merely placed in quotes. Ambiguous dialogue ratios stay unverified.
  if(!segments)for(const q of quotes)if(/(?:说|问|答|喊|道|低语|开口)[^。！？!?\n]{0,8}[:：]?\s*$/u.test(body.slice(Math.max(0,q.start-30),q.start)))dialogueChars+=Array.from(body.slice(q.start,q.end).replace(/\s/gu,'')).length;
  const narration=mask(body,[...quotes,...npc]).replace(/[“”「」『』‘’"']/gu,' '),problems:DirectiveViolation[]=[];
- const lead='(?:^|[。！？!?；;\\n，,：:])\\s*(?:(?:于是|随后|此时|然而|但是|这时|接着)[，,]?\\s*)?';
- const first=new RegExp(lead+'我(?!们|方|国|军|等|辈|党|校)(?:的|(?=看|听|推|走|停|抬|低|伸|转|回|拿|握|说|问|想|感|觉|决|同意|答应|站|坐|跑|来|要|会|是|没有|不|把|将|正|已))','gu');
- const second=new RegExp(lead+'你(?!们|方)(?:的|(?=看|听|推|走|停|抬|低|伸|转|回|拿|握|说|问|想|感|觉|决|同意|答应|站|坐|跑|来|要|会|是|没有|不|把|将|正|已))','gu');
+ const lead='(?:^|[。！？!?；;\\n，,：:（(])\\s*(?:(?:于是|随后|此时|然而|但是|这时|接着)[，,]?\\s*)?';
+ // Clause-leading pronouns also cover adverbs and parenthesized actions.
+ // Exclude fixed compounds, not an action-verb whitelist that misses “我轻轻…”.
+ const first=new RegExp(lead+'(?:我(?!方|国|军|党|校|执|慢|行我素|见犹怜)(?:们)?|咱们)','gu');
+ const second=new RegExp(lead+'你(?!方|我)(?:们)?','gu');
  const narrativeMatches=(re:RegExp)=>Array.from(narration.matchAll(re)).filter(m=>!/(?:说|问|答|喊|道|低语|开口)\s*$/u.test(narration.slice(Math.max(0,m.index!-30),m.index))).length;
  const wrongFirst=d.perspective!=='first'?narrativeMatches(first):0;
  const wrongSecond=d.perspective!=='second'?narrativeMatches(second):0;
