@@ -1,0 +1,54 @@
+name: DeepSeek 100-turn choice-following test
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/deepseek-story-100turn.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  live-choice-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/deepseek-story-30turn
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate up to 100 chosen-action turns
+        id: test
+        continue-on-error: true
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: node scripts/deepseek-story-100turn.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deepseek-story-100turn-results
+          path: test-results/deepseek-story-100turn.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Publish report directly as GitHub issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('test-results/deepseek-story-100turn.json')
+          if not p.exists(): raise SystemExit('Test produced no result file')
+          s=json.loads(p.read_text())
+          lines=['# DeepSeek 100-turn choice-following test','',f"Turns: {s.get('turn')}/100",f"Usage: {s.get('usage')}",f"Stop: {s.get('stopped')}",f"Flags: {s.get('flags')}",'','This is a model-level selected-choice stress test, not an end-to-end test of the app storyInput pipeline.','']
+          for h in s.get('history',[]):
+            lines.extend([f"### Turn {h['turn']}",h.get('body',''),'',f"Selected: {h.get('selectedAction')}",f"Flags: {h.get('flags')}",''])
+          pathlib.Path('/tmp/story100.md').write_text('\n'.join(lines))
+          PY
+          gh issue create -R "$GH_REPO" -t "DeepSeek 100-turn choice test run $GITHUB_RUN_ID" -F /tmp/story100.md
+      - name: Fail if generation incomplete
+        if: steps.test.outcome == 'failure'
+        run: exit 1
