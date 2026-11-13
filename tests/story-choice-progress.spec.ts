@@ -52,6 +52,9 @@ test('生产剧本提示保护玩家主控权，并将长篇幅与玩家反应�
  expect(result.prompt).toContain('不以新增玩家反应凑字数');
  expect(result.prompt).toContain('在该处停住并给出选择');
  expect(result.prompt).not.toContain('至少一项能直接处理当前最重要的未决冲突');
+ expect(result.prompt).toContain('玩家主动探索恋爱、暧昧、成人向关系');
+ expect(result.prompt).toContain('不得伪装成剧情必然转回主线');
+ expect(result.prompt).toContain('玩家沉默、靠近、亲吻等单一行为均不等于对后续行为的概括同意');
  expect(result.input.selectedAction).toMatchObject({kind:'custom',text:'我抬头看着七皇子，没有说话。'});
  expect(result.input.narrativeLength).toBeDefined();
 });
