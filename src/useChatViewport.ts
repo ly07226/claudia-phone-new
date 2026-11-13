@@ -7,6 +7,7 @@ export function useChatViewport(
   input: RefObject<HTMLTextAreaElement | null>,
   onLayout: () => void,
 ) {
+  const lastFrame = useRef<string | null>(null);
   const callback = useRef(onLayout);
   callback.current = onLayout;
   const fit = () => {
@@ -17,7 +18,7 @@ export function useChatViewport(
       40,
       Math.min(120, (viewport?.height || innerHeight) * 0.28),
     );
-    el.style.height = "0px";
+    // Do not collapse the textarea on every visualViewport event: iOS may\n    // emit another resize while the keyboard is animating, causing a loop.\n    el.style.height = "auto";
     const height = Math.max(40, Math.min(el.scrollHeight, max));
     el.style.height = `${height}px`;
     el.style.overflowY = el.scrollHeight > height ? "auto" : "hidden";
@@ -29,6 +30,9 @@ export function useChatViewport(
     if(!phone)return;
     const sync = () => {
       const frame=readChatViewport(phone);if(!frame)return;
+      const signature=`${frame.cssHeight}|${frame.top}|${frame.keyboard}`;
+      if(lastFrame.current===signature)return;
+      lastFrame.current=signature;
       setChatViewportValue(phone,'--chat-height',frame.cssHeight);
       setChatViewportValue(stage,'--chat-height',frame.cssHeight);
       setChatViewportValue(stage,'--chat-top',`${frame.top}px`);
@@ -50,6 +54,7 @@ export function useChatViewport(
       phone?.style.removeProperty("--chat-height");
       stage?.style.removeProperty("--chat-height");
       stage?.style.removeProperty("--chat-top");
+      lastFrame.current=null;
     };
   }, [active]);
   useLayoutEffect(() => {
