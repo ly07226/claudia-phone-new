@@ -1,5 +1,5 @@
 name: DeepSeek production agency live acceptance
-# Player-agency E-action retest 2026-11-13; test script checked out from test/deepseek-story-30turn.
+# 100-turn sequential acceptance run; checkout fix/story-player-agency-length at latest commit.
 on:
   push:
     branches: [main]
