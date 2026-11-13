@@ -1588,9 +1588,13 @@ textarea {
   height: 52px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--theme-border, #ffffff70);
-  background: var(--theme-card, #edf2e5bf);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  /* An opaque, non-blurred header avoids iOS Safari re-compositing the
+     title/buttons when the visual viewport moves with the keyboard. */
+  background: var(--theme-card, #edf2e5);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
 }
 .chat-nav button {
   width: 44px;
