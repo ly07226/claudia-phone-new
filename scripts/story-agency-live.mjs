@@ -2,7 +2,7 @@ import fs from 'node:fs';
 const key=process.env.DEEPSEEK_API_KEY;
 if(!key)throw Error('DEEPSEEK_API_KEY unavailable');
 const src=fs.readFileSync('src/storyContext.ts','utf8');
-const match=src.match(/export const storyPrompt=`([\\s\\S]*?)`;/);
+const match=src.match(/export const storyPrompt=`([\s\S]*?)`;/);
 if(!match)throw Error('Production storyPrompt not found');
 const prompt=match[1];
 const arcs=[
@@ -24,7 +24,7 @@ for(let i=0;i<100;i++){
   arc.name==='silent'?'我继续沉默，观察对方的反应。':
   '我先听对方把话说完，不立刻答应。'
  ):last?.choiceTexts?.[(turn-2)%4]||'我继续观察局势，不作其他决定。';
- const history=turn===1?[{body:arc.history}]:previous.slice(-6).map((r,j)=>({body:r.body,selectedAction:j===previous.slice(-6).length-1?undefined:{kind:'custom',text:previous[previous.length-6+j+1]?.selectedAction||''}}));
+ const recent=previous.slice(-6); const history=turn===1?[{body:arc.history}]:recent.map((r,j)=>({body:r.body,...(j+1<recent.length?{selectedAction:{kind:'custom',text:recent[j+1].selectedAction}}:{})}));
  const input={definition:{name:'架空古代互动故事',description:'所有人物均为成年人。玩家主控角色的行动和心理只由玩家本人决定。',rules:'禁止替玩家说话、行动、反应或同意。',background:'京城局势变化，但玩家可自行选择生活方向。',script:{narration:'second'}},confirmedHistory:history,selectedAction:{kind:'custom',text:selected},playerAgencyContract:{authorizedNow:selected,authorizationScope:'只授权明确文字中的动作或意图；长期目标不授权执行全部步骤；不得擅自添加玩家言语、行动、心理、生理反应或同意',narrativeBoundary:'NPC可自主回应并推进外部世界；遇到玩家必须选择的下一步立即停住，不得跳时间替玩家完成',selfCheck:'正文中每个玩家新动作或对白必须可追溯到 authorizedNow 或 confirmedHistory'},narrativeLength:{mode:'standard',targetChineseCharacters:'800～1500',appliesTo:'仅 body 正文'}};
  let result={turn:i+1,arc:arc.name,arcTurn:turn,selectedAction:selected,length:0,validJson:false,choices:0,withinTarget:false,body:'',choiceTexts:[],usage:null,error:null};
  try{
