@@ -1,3 +1,4 @@
+import {directiveCorrectionNotice} from './storyDirectives';
 import {useEffect,useRef,useState} from 'react';
 import {storyLengths,type StoryGuidance,type StoryLength} from './storyTypes';
 export function StoryControls({kind,guidance,length,busy,availableHeight,onClose,onSave,onLength,onRefresh}:{kind:'settings'|'guidance';guidance?:StoryGuidance;length:StoryLength;busy:boolean;availableHeight:number;onClose:()=>void;onSave:(value:Omit<StoryGuidance,'revision'>,expected:number)=>Promise<unknown>;onLength:(value:StoryLength)=>Promise<void>;onRefresh:()=>void}){
@@ -14,7 +15,7 @@ export function StoryControls({kind,guidance,length,busy,availableHeight,onClose
    <label>指导内容<textarea aria-label="剧情指导内容" maxLength={2000} rows={5} value={text} disabled={busy||saving} onChange={e=>setText(e.target.value)} placeholder="例如：放慢节奏，通过对白逐步揭示线索。"/></label>
    <label>有效范围<select aria-label="指导有效范围" value={mode} disabled={busy||saving} onChange={e=>setMode(e.target.value as 'once'|'persistent')}><option value="once">仅下一次有效</option><option value="persistent">持续有效</option></select></label>
    <label className="story-guidance-enabled"><input type="checkbox" aria-label="启用剧情指导" checked={enabled} disabled={busy||saving} onChange={e=>setEnabled(e.target.checked)}/>启用指导</label>
-   <p className="story-cost">仅当前剧本生效。单次指导在下一次成功生成后停用，失败保留；持续指导可在此编辑或关闭。指导不能覆盖世界规则、人物设定或已确认事实。</p>
+   <p className="story-cost">仅当前剧本生效。单次指导在下一次成功生成后停用，失败保留；持续指导可在此编辑或关闭。指导优先于AI默认文风，但不能覆盖世界规则、人物设定或已确认事实。{directiveCorrectionNotice}</p>
   </>}
   {error&&<p role="alert">{error}</p>}
   <div className="story-control-actions"><button disabled={saving} onClick={onClose}>{kind==='guidance'?'取消':'关闭'}</button>{kind==='guidance'&&<button className="primary" disabled={busy||saving||enabled&&!text.trim()} onClick={()=>void save()}>{saving?'正在保存…':'保存指导'}</button>}</div>

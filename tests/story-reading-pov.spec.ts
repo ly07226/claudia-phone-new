@@ -4,14 +4,14 @@ import {seedWizardAI,wizardResponse,openingNode} from './wizardAIFixture';
 import {storySeed,reply} from './storyFixture';
 
 for(const perspective of ['first','second','third'] as const)test(`人称 ${perspective} 按世界保存，开场及后续请求使用相同设置`,async({page})=>{
- const {draft}=await seedWizardAI(page);const requests:any[]=[];await page.route('https://wizard.test/**',r=>{requests.push(r.request().postDataJSON());return r.fulfill({json:wizardResponse('openai-compatible',openingNode)});});
+ const {draft}=await seedWizardAI(page);const requests:any[]=[];await page.route('https://wizard.test/**',r=>{requests.push(r.request().postDataJSON());return r.fulfill({json:wizardResponse('openai-compatible',{...openingNode,body:perspective==='first'?'我停在车站出口。':perspective==='third'?'主控停在车站出口。':openingNode.body})});});
  const result=await page.evaluate(async({draft,perspective})=>{
   const {db}=await import('/src/store.ts');const {createWizardWorld}=await import('/src/scriptWizardCreation.ts');const {generateStory}=await import('/src/storyGeneration.ts');
   const w=await createWizardWorld({...draft,perspective});const other=await createWizardWorld({...draft,creationToken:crypto.randomUUID(),perspective:perspective==='first'?'third':'first'});
   const node=await generateStory(w.id);await generateStory(w.id,{kind:'custom',text:'留在原地观察，不替其他人决定。'});db.close();await db.open();
   return {pov:(await db.worlds.get(w.id))!.script!.perspective,other:(await db.worlds.get(other.id))!.script!.perspective,snapshot:(await db.storySessions.where('worldId').equals(w.id).first())!.definition.script.perspective,body:(await db.storyNodes.get(node.id))!.body};
  },{draft,perspective});
- expect(result.pov).toBe(perspective);expect(result.other).not.toBe(perspective);expect(result.snapshot).toBe(perspective);expect(result.body).toBe(openingNode.body);expect(requests).toHaveLength(2);
+ expect(result.pov).toBe(perspective);expect(result.other).not.toBe(perspective);expect(result.snapshot).toBe(perspective);expect(result.body).toBe(perspective==='first'?'我停在车站出口。':perspective==='third'?'主控停在车站出口。':openingNode.body);expect(requests).toHaveLength(2);
  for(const request of requests){const system=request.messages[0].content,input=JSON.parse(request.messages[1].content);expect(input.narration.perspective).toBe(perspective);expect(input.definition.script.perspective).toBe(perspective);expect(system).toContain('中文小说叙事');expect(system).toContain('潜台词');expect(system).toContain('不机械替换对白');expect(system).toContain('不代替用户作出新选择');}
 });
 
@@ -42,9 +42,9 @@ test('390px 第五步贴近底部、摘要独立滚动，小说排版与抽屉�
 });
 
 for(const mode of ['overwrite','merge'] as const)test(`人称及原正文 ZIP 往返 ${mode}`,async({page,browser})=>{
- const {draft}=await seedWizardAI(page);await page.route('https://wizard.test/**',r=>r.fulfill({json:wizardResponse('openai-compatible',openingNode)}));
+ const {draft}=await seedWizardAI(page);await page.route('https://wizard.test/**',r=>r.fulfill({json:wizardResponse('openai-compatible',{...openingNode,body:'我停在出口，看见她手中的旧信。'})}));
  const bytes=await page.evaluate(async draft=>{const w=await(await import('/src/scriptWizardCreation.ts')).createWizardWorld({...draft,perspective:'first'});await(await import('/src/wizardOpening.ts')).generateWizardOpening(w.id,'confirmation');const file=await(await import('/src/backupZip.ts')).createZipBackup({closedOtherClients:true});return Array.from(new Uint8Array(await file.arrayBuffer()));},draft);
  const context=await browser.newContext(),target=await context.newPage();try{await isolatedApp(target,'pov-restore-'+crypto.randomUUID());const result=await target.evaluate(async({bytes,mode})=>{
   const {db}=await import('/src/store.ts');const files=await(await import('/src/backupZip.ts')).readBackupZip(new File([new Uint8Array(bytes)],'pov.zip'));const {prepareImport,defaultImportOptions}=await import('/src/importPlan.ts');const plan=await prepareImport(files,{...defaultImportOptions,mode});try{await(await import('/src/restoreService.ts')).restoreToCurrent([],{confirmed:true,plan,database:db});}finally{await plan.dispose();}db.close();await db.open();const w=(await db.worlds.toArray()).find(w=>w.script?.creation)!;const story=await(await import('/src/storyStore.ts')).readStory(w.id);return {version:db.verno,pov:w.script!.perspective,snapshot:story.session!.definition.script.perspective,body:story.path[0].body};
- },{bytes,mode});expect(result).toEqual({version:7,pov:'first',snapshot:'first',body:openingNode.body});}finally{await context.close();}
+ },{bytes,mode});expect(result).toEqual({version:7,pov:'first',snapshot:'first',body:'我停在出口，看见她手中的旧信。'});}finally{await context.close();}
 });

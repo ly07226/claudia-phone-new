@@ -1,3 +1,4 @@
+import {directiveCorrectionNotice} from './storyDirectives';
 import {StorySettingsPage} from './StorySettingsPage';
 import {useStoryReading} from './useStoryReading';
 import {ReplyPending,ReplyFailureNotice} from './ReplyStatus';
@@ -81,7 +82,7 @@ export function StoryApp({worldId}:{worldId:string}){
     </div>
      <div className="story-drawer-actions">
       <div className={`story-submit-row${node?' story-has-action':''}`}><button className="story-guide-button" aria-label="剧情指导" data-active={!!data.world.storyPreferences?.guidance?.enabled} disabled={busy} onClick={()=>setDialog('guidance')}>剧情指导</button>{node&&<textarea className="story-custom-input" aria-label="自定义行动" rows={1} maxLength={storyLimits.action} value={custom} disabled={busy} onChange={e=>input(e.target.value)} placeholder="或自己写下想做的事…"/>}<button className="primary story-submit" onPointerDown={e=>{if(document.activeElement?.matches('.story-custom-input'))e.preventDefault();}} disabled={busy||savingLength||!valid} onClick={()=>void advance()}>{generating?'正在生成…':withdrawing?'正在撤回…':node?'确认选择':'开始剧情'}</button></div>
-      <p className="story-cost">每次确认会调用当前默认模型并消耗 Token。篇幅为目标，受 API 输出上限影响；不足字数不会自动重试。</p>
+      <p className="story-cost">调用当前默认 API 并计费，默认篇幅仅为目标。{directiveCorrectionNotice}</p>
      </div>
    </footer>
   </>}

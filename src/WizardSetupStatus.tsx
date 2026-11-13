@@ -1,3 +1,4 @@
+import {directiveCorrectionNotice} from './storyDirectives';
 import {useEffect,useRef,useState,useSyncExternalStore} from 'react';
 import {liveQuery} from 'dexie';
 import {readWizardSetup} from './scriptWizardCreation';
@@ -39,7 +40,7 @@ export function WizardSetupStatus({worldId,onNewDraft,openingError}:{worldId:str
   {failure&&<div className="wizard-generation-failure"><p role="alert">{storyFailureReason(failure)}</p><StoryFailureDetails failure={failure}/></div>}
   {!running&&!ready&&!failure&&!error&&session?.error&&<p role="alert">{errors[session.error]}</p>}
   {data&&<><p role="status">{status}</p>{data.world.storyDocument?.referenceOnly&&<p className="wizard-note">原文已保留，当前按原文叙事，未启用额外机制。智能整理未完成不影响游玩。</p>}
-   {!ready&&<p className="wizard-note">使用当前全局默认 API，产生 Token 费用。篇幅是目标，实际受模型和输出上限限制；不会为凑字数自动重试。</p>}
+   {!ready&&<p className="wizard-note">使用当前全局默认 API 并计费，默认篇幅仅为目标。{directiveCorrectionNotice}</p>}
    <dl className="wizard-summary"><dt>故事梗概</dt><dd>{data.world.description}</dd><dt>补充设定</dt><dd>{data.world.rules||'未填写'}</dd><dt>主控</dt><dd>{data.identity?.name??'身份资料已被移除，请在世界设置中检查。'}</dd>{data.identity&&<><dt>主控设定</dt><dd>{['gender','age','appearance','personality','occupation','experience','bio','customSetting'].map(k=>data.identity?.[k]).filter(v=>typeof v==='string'||typeof v==='number').join('\n')||'未填写'}</dd></>}<dt>关联角色</dt><dd>{data.characters.map((c,i)=>`${data.profiles[i]?.scriptOrder===0?'主要角色 · ':''}${c.name}`).join('、')||'角色已解除关联，请在角色管理中检查。'}</dd><dt>节奏</dt><dd>{wizardPaces[data.world.script?.pace??'balanced']}{data.world.script?.customPace?` · ${data.world.script.customPace}`:''}</dd><dt>篇幅</dt><dd>{storyLengths[data.world.storyPreferences?.length??'standard'].label}</dd><dt>开场方向</dt><dd>{data.world.script?.opening}</dd><dt>发展方向</dt><dd>{data.world.script?.direction||'未填写'}</dd></dl>
   </>}
  </div><footer className="wizard-footer"><div>

@@ -67,9 +67,9 @@ for(const mode of ['overwrite','merge'] as const)test(`指导设置 v7 ZIP ${mod
 
 test('玩家自由行动与剧情指导同时传入：指令优先于模型默认偏好',async({page})=>{
  await storySeed(page);const requests:any[]=[];
- await page.route('https://story.test/**',r=>{requests.push(r.request().postDataJSON());return r.fulfill({json:envelope('openai-compatible',reply())});});
- await page.evaluate(async()=>{const {db}=await import('/src/store.ts');const w=(await db.worlds.get('story'))!;await db.worlds.update('story',{script:{...w.script,perspective:'second'}});await(await import('/src/storyStore.ts')).saveStoryGuidance('story',{text:'保持第二人称叙述；减少对白、增加动作描写，正文目标约1000字。',mode:'persistent',enabled:true},0);await(await import('/src/storyGeneration.ts')).generateStory('story');});
- const input=JSON.parse(requests[0].messages[1].content);const system=requests[0].messages[0].content;
+ await page.route('https://story.test/**',r=>{requests.push(r.request().postDataJSON());return r.fulfill({json:envelope('openai-compatible',requests.length===1?reply():{...reply(),body:'你'+ '景'.repeat(999)})});});
+ await page.evaluate(async()=>{const {db}=await import('/src/store.ts');const w=(await db.worlds.get('story'))!;await db.worlds.update('story',{script:{...w.script,perspective:'second'}});await(await import('/src/storyGeneration.ts')).generateStory('story');await(await import('/src/storyStore.ts')).saveStoryGuidance('story',{text:'保持第二人称叙述；减少对白、增加动作描写，正文目标约1000字。',mode:'persistent',enabled:true},0);await(await import('/src/storyGeneration.ts')).generateStory('story',{kind:'custom',text:'我尝试推开门，先询问守卫，不答应任何交易。'});});
+ const input=JSON.parse(requests[1].messages[1].content);const system=requests[1].messages[0].content;expect(input.selectedAction.text).toBe('我尝试推开门，先询问守卫，不答应任何交易。');
  expect(input.narration.perspective).toBe('second');
  expect(input.directionGuidance.text).toContain('1000字');
  expect(system).toContain('玩家输入优先协议');

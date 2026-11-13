@@ -1,7 +1,7 @@
 import {ReplyRequestError,type ReplyFailureDetails} from './replyFailure';
 export const storyFailureStages=['configuration','admission','request','response','parse','validation','commit'] as const;
 export type StoryFailureStage=typeof storyFailureStages[number];
-const codes=['config-missing','config-invalid','network','timeout','auth','quota','rate','server','http-error','unknown','cancelled','stale','budget','storage-failed','admission-failed','response-too-long','empty-response','json-invalid','json-incomplete','json-ambiguous','root-shape','body-invalid','choice-count','choice-shape','choice-label','choice-text','choice-duplicate','truncated','blocked','envelope-invalid','envelope-shape','validation-failed','output-limit','context-window'] as const;
+const codes=['directive-perspective','directive-length','directive-dialogue','directive-conflict','directive-budget','config-missing','config-invalid','network','timeout','auth','quota','rate','server','http-error','unknown','cancelled','stale','budget','storage-failed','admission-failed','response-too-long','empty-response','json-invalid','json-incomplete','json-ambiguous','root-shape','body-invalid','choice-count','choice-shape','choice-label','choice-text','choice-duplicate','truncated','blocked','envelope-invalid','envelope-shape','validation-failed','output-limit','context-window'] as const;
 export type StoryFailureCode=typeof codes[number];
 const serviceCodes=['insufficient_quota','insufficient_balance','credit_balance_too_low','billing_hard_limit_reached','rate_limit_exceeded','resource_exhausted','invalid_api_key','permission_denied','content_policy_violation','content_filter','safety','prohibited_content'];
 const finishReasons=['length','MAX_TOKENS','max_tokens','stop','STOP','SAFETY','RECITATION','PROHIBITED_CONTENT','BLOCKLIST','content_filter'];
@@ -34,6 +34,11 @@ export function makeStoryFailure(code:StoryFailureCode,stage:StoryFailureStage,a
 export const storyStageLabels:Record<StoryFailureStage,string>={configuration:'API 配置检查',admission:'请求前校验',request:'API 请求',response:'HTTP / 模型响应',parse:'JSON 解析',validation:'正文及选项校验',commit:'本地保存'};
 export function storyFailureReason(f:StoryFailure):string {
  switch(f.code){
+ case 'directive-perspective':return '正文叙事人称未符合当前玩家要求，未保存本回合；自动纠正最多一次。';
+ case 'directive-length':return '正文未达到明确字数指导的允许范围，未保存本回合；自动纠正最多一次。';
+ case 'directive-dialogue':return '可识别对白比例超过明确上限，未保存本回合；自动纠正最多一次。';
+ case 'directive-conflict':return '量化剧情指导存在冲突或超过正文安全容量，未发送模型请求，请调整指导。';
+ case 'directive-budget':return '生成结果未符合明确指令，剩余安全输入预算不足以纠正，未保存本回合。';
  case 'config-missing':return '未配置可用的全局默认 API，未发送模型请求。';
  case 'config-invalid':return 'API 配置缺失或无效，请检查启用状态、密钥、地址、模型及协议；未发送模型请求。';
  case 'network':return f.stage==='response'&&f.httpStatus?'回复传输中断，未确认收到完整剧情。':'网络连接失败，未收到可确认的 HTTP 响应。';
