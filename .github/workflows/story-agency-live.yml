@@ -1,0 +1,27 @@
+name: Story agency live DeepSeek acceptance
+on:
+  push:
+    branches:
+      - fix/story-player-agency-length
+    paths:
+      - scripts/story-agency-live.mjs
+      - .github/workflows/story-agency-live.yml
+  workflow_dispatch:
+jobs:
+  live-story:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate three real DeepSeek stories
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: node scripts/story-agency-live.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: story-agency-live-output
+          path: artifacts/story-agency-live.json
