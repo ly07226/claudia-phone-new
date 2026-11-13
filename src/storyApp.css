@@ -64,19 +64,22 @@
 .story-drawer[data-collapsed=true] .story-drawer-actions{padding-top:0}
 
 /* Only an existing options drawer reserves reading/action space; empty starts stay compact. */
-.story-drawer:not([data-collapsed=true]):has(.story-options){min-height:0;max-height:min(42%,360px)}
+.story-drawer:not([data-collapsed=true]):has(.story-options){min-height:0;max-height:min(65%,560px)}
 @media(max-width:430px){.story-submit-row.story-has-action{gap:6px}.story-drawer-actions{padding-bottom:6px}}
 
 /* Auxiliary status stays outside prose typography and never overlays controls. */
 .story-app .story-writing-status{font-size:11px;line-height:1.5;min-height:1.5em;margin:0 0 8px;color:var(--theme-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
 /* Compact story actions: let the narrative retain most of the viewport. */
-.story-drawer:not([data-collapsed=true]) .story-drawer-panel{max-height:min(240px,calc(var(--story-available-height,700px)*.29))}
+.story-drawer:not([data-collapsed=true]) .story-drawer-panel{flex:0 1 auto;max-height:none;overflow-y:auto;overscroll-behavior:contain}
 .story-drawer .story-drawer-handle{flex-basis:34px;min-height:34px}
-.story-drawer .story-drawer-content{padding-bottom:3px}
+.story-drawer .story-drawer-content{flex:0 0 auto;overflow:visible;padding-bottom:3px}
 .story-drawer .story-options{gap:6px;margin-bottom:3px}
 .story-drawer .story-options label{min-height:44px;padding:7px 10px;gap:8px;border-radius:13px}
 .story-drawer .story-options strong{width:26px;height:26px;flex-basis:26px;font-size:13px}
 .story-drawer .story-options span{font-size:14px;line-height:1.45}
 .story-drawer .story-drawer-actions{padding-bottom:4px}
 .story-drawer .story-cost{font-size:9px;line-height:1.35;margin:3px 0}
+
+/* Show all four normal-length choices together; only scroll on exceptionally short viewports or unusually long legacy choices. */
+.story-drawer:not([data-collapsed=true]):has(.story-options) .story-drawer-panel{height:auto}
