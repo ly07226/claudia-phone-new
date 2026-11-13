@@ -42,7 +42,7 @@ export function storyFailureReason(f:StoryFailure):string {
  case 'auth':return f.serviceCode==='invalid_api_key'?'API 密钥无效。':f.serviceCode==='permission_denied'?'API 访问权限不足。':f.httpStatus===401?'API 认证失败，请检查密钥。':'API 请求被拒绝，暂时无法确定具体原因。';
  case 'quota':return `API 余额或配额不足${f.httpStatus?`（HTTP ${f.httpStatus}）`:''}。`;
  case 'rate':return 'API 请求过于频繁，请稍后再试。';
- case 'server':return `服务商接口返回服务器错误${f.httpStatus?`（HTTP ${f.httpStatus}）`:''}。目前只能确认请求在服务端失败，不能据此判断是内容拦截、余额不足还是服务商临时故障。${f.serviceCode?` 服务商错误代码：${f.serviceCode}。`:''}`;
+ case 'server':if(f.httpStatus===504)return '服务响应超时（HTTP 504）。可以稍后手动重试；上游是否已完成或计费，请以服务商记录为准。';return `服务商接口返回服务器错误${f.httpStatus?`（HTTP ${f.httpStatus}）`:''}。目前只能确认请求在服务端失败，不能据此判断是内容拦截、余额不足还是服务商临时故障。${f.serviceCode?` 服务商错误代码：${f.serviceCode}。`:''}`;
  case 'http-error':return `API 请求失败${f.httpStatus?`（HTTP ${f.httpStatus}）`:''}，暂时无法确定具体失败原因。`;
  case 'output-limit':return `服务商拒绝本次输出 Token 上限${f.modelOutputLimit?`，明确允许的上限为 ${f.modelOutputLimit}`:''}。未自动重试；确认后可主动重试，已知上限仅在本次应用运行期间生效。`;
  case 'context-window':return '服务商明确表示输入与输出合计超过模型上下文窗口；这与单独的输出上限不同。未自动重试，请选择具有足够上下文容量的模型。';
@@ -71,7 +71,7 @@ export function storyFailureMessage(f:StoryFailure){const reason=storyFailureRea
 export class StoryGenerationError extends ReplyRequestError {
  constructor(public readonly failure:StoryFailure){
   const kind:ReplyFailureDetails['kind']=failure.code==='timeout'?'network':(['network','auth','quota','rate','server'].includes(failure.code)?failure.code:failure.code==='blocked'?'safety':'unknown') as ReplyFailureDetails['kind'];
-  super(storyFailureMessage(failure),{kind,reason:storyFailureReason(failure),suggestion:failure.stage==='configuration'?'请在 AI / API 设置中检查全局默认配置。':'请核对错误详情及服务商记录；手动重试可能再次产生费用。',...(failure.httpStatus?{httpStatus:failure.httpStatus}:{}),...(failure.serviceCode?{serviceCode:failure.serviceCode}:{})});
+  super(storyFailureMessage(failure),{kind,reason:storyFailureReason(failure),suggestion:failure.httpStatus===504?'可稍后手动重试；重试可能再次产生费用。':failure.stage==='configuration'?'请在 AI / API 设置中检查全局默认配置。':'请核对错误详情及服务商记录；手动重试可能再次产生费用。',...(failure.httpStatus?{httpStatus:failure.httpStatus}:{}),...(failure.serviceCode?{serviceCode:failure.serviceCode}:{})});
  }
 }
 export const storyFailureFromError=(error:unknown)=>error instanceof StoryGenerationError?error.failure:undefined;
