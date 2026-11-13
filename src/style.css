@@ -1567,8 +1567,9 @@ textarea {
   width:100vw;height:100svh;
   background-image:var(--chat-background-image);
   background-position:center;background-size:cover;background-repeat:no-repeat;
-  pointer-events:none;z-index:-1;
+  pointer-events:none;z-index:0;
 }
+.chat-app.chat-immersive > .chat-view{position:relative;z-index:1}
 /* Status bar always uses the current theme, never the conversation image. */
 .chat-app.chat-immersive::after{
   content:"";position:fixed;top:0;left:0;right:0;
