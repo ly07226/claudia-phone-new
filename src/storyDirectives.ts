@@ -68,4 +68,4 @@ export function checkStoryDirectives(body:string,segments:readonly StorySegment[
  if(d.dialogueMaxRatio!==undefined&&count&&dialogueChars/count>d.dialogueMaxRatio)problems.push({code:'directive-dialogue',observed:Math.round(dialogueChars/count*100),max:d.dialogueMaxRatio*100});
  return problems;
 }
-export const directiveCorrectionNotice='明确人称或量化指导不符时，最多额外调用1次纠正并计费；仍不合格不保存。';
+export const storyGenerationNotice='每次主动生成最多请求1次；风格偏差只作记录，不自动重试。';

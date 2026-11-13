@@ -63,3 +63,6 @@
 /* Only an existing options drawer reserves reading/action space; empty starts stay compact. */
 .story-drawer:not([data-collapsed=true]):has(.story-options){min-height:calc(var(--story-available-height,700px)*.46)}
 @media(max-width:430px){.story-submit-row.story-has-action{gap:6px}.story-drawer-actions{padding-bottom:6px}}
+
+/* Auxiliary status stays outside prose typography and never overlays controls. */
+.story-app .story-writing-status{font-size:11px;line-height:1.5;min-height:1.5em;margin:0 0 8px;color:var(--theme-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}

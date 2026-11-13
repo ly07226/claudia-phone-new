@@ -1,10 +1,10 @@
-import {directiveCorrectionNotice} from './storyDirectives';
+import {storyGenerationNotice} from './storyDirectives';
 import {StorySettingsPage} from './StorySettingsPage';
 import {useStoryReading} from './useStoryReading';
-import {ReplyPending,ReplyFailureNotice} from './ReplyStatus';
+import {ReplyFailureNotice} from './ReplyStatus';
 import {describeReplyFailure,type ReplyFailureDetails} from './replyFailure';
 import {StoryControls} from './StoryControls';
-import {StoryGenerationError,storyFailureFromError,type StoryFailure} from './storyFailure';
+import {isLegacyDirectiveFailure,StoryGenerationError,storyFailureFromError,type StoryFailure} from './storyFailure';
 import {StoryFailureDetails} from './StoryFailureDetails';
 import {useEffect,useRef,useState,type CSSProperties} from 'react';
 import {liveQuery} from 'dexie';
@@ -33,7 +33,8 @@ export function StoryApp({worldId}:{worldId:string}){
  const s=data?.session,node=data?.path.at(-1),generating=running||!!(s?.pending&&s.pending.expiresAt>Date.now()),busy=generating||withdrawing,length=data?.world.storyPreferences?.length??'standard';
  const changed=!!s&&s.definitionRevision!==data?.world.script?.definitionRevision;
  const pastFailure=describeReplyFailure(s?.failureDetails?new StoryGenerationError(s.failureDetails):undefined);
- const displayedFailure=generationFailure?generationFailure.diagnostic:!error?s?.failureDetails:undefined;
+ const legacyStyleFailure=isLegacyDirectiveFailure(s?.failureDetails);
+ const displayedFailure=generationFailure?generationFailure.diagnostic:!error&&!legacyStyleFailure?s?.failureDetails:undefined;
  if(!s?.failureDetails){if(s?.error==='invalid')pastFailure.reason='上次输出未通过校验，暂时无法确定具体失败原因。';
  else if(s?.error==='budget')pastFailure.reason='上次输入超过安全预算，未调用模型。';
  else if(s?.error==='stale')pastFailure.reason='设定或主线进度发生变化，旧响应未保存。';}
@@ -67,12 +68,11 @@ export function StoryApp({worldId}:{worldId:string}){
   {!data&&!error&&<p className="story-notice" role="status">正在读取主线…</p>}
   {!busy&&error&&(!generationFailure||generationFailure.message!==error)&&<p className="story-notice" role="alert">{error}</p>}
   {!busy&&generationFailure&&generationFailure.message===error&&<ReplyFailureNotice className="story-reply-failure" details={generationFailure.details}/>}
-  {!busy&&s?.status==='failed'&&!error&&!generationFailure&&(s.error==='cancelled'&&!s.failureDetails?<p className="story-notice" role="status">上次生成已中断，原进度保留；不会自动重试。</p>:<ReplyFailureNotice className="story-reply-failure" details={pastFailure}/>)}
+  {!busy&&s?.status==='failed'&&!error&&!generationFailure&&(legacyStyleFailure?<p className="story-notice" role="status">上次为旧版风格校验记录；当前不再阻断，可主动继续生成。</p>:s.error==='cancelled'&&!s.failureDetails?<p className="story-notice" role="status">上次生成已中断，原进度保留；不会自动重试。</p>:<ReplyFailureNotice className="story-reply-failure" details={pastFailure}/>)}
   {!busy&&displayedFailure&&<StoryFailureDetails failure={displayedFailure}/>}
   {changed&&<p className="story-notice">设定已更新；主线仍使用开始时的版本 {s?.definitionRevision}，继续前需要确认。</p>}
-  {generating&&<ReplyPending className="story-reply-pending"/>}
   {data?.world.script?.playMode!=='story'&&data?<p>此世界未开启剧情模式，已有主线数据保留。</p>:data&&<>
-   <StoryReader key={worldId} inert={!!dialog||settingsOpen} path={data.path} opening={data.world.script!.opening} preferences={reading.preferences} onWithdraw={()=>void withdraw()} onRegenerate={()=>void advance('regenerate')} operationsBusy={busy||savingLength}/>
+   <StoryReader writing={generating} key={worldId} inert={!!dialog||settingsOpen} path={data.path} opening={data.world.script!.opening} preferences={reading.preferences} onWithdraw={()=>void withdraw()} onRegenerate={()=>void advance('regenerate')} operationsBusy={busy||savingLength}/>
    <footer className="story-drawer" inert={!!dialog||settingsOpen} data-collapsed={collapsed}>
     <button className="story-drawer-handle" aria-expanded={!collapsed} aria-controls="story-operation-panel" aria-label={collapsed?'展开操作':'收起操作'} onClick={()=>setCollapsed(x=>!x)}><span className="story-drawer-caption">接下来，你想怎么做？</span><span className="story-drawer-chevron" aria-hidden="true">{collapsed?'⌃':'⌄'}</span></button>
     <div className="story-drawer-panel" id="story-operation-panel" inert={collapsed} aria-hidden={collapsed}>
@@ -82,7 +82,7 @@ export function StoryApp({worldId}:{worldId:string}){
     </div>
      <div className="story-drawer-actions">
       <div className={`story-submit-row${node?' story-has-action':''}`}><button className="story-guide-button" aria-label="剧情指导" data-active={!!data.world.storyPreferences?.guidance?.enabled} disabled={busy} onClick={()=>setDialog('guidance')}>剧情指导</button>{node&&<textarea className="story-custom-input" aria-label="自定义行动" rows={1} maxLength={storyLimits.action} value={custom} disabled={busy} onChange={e=>input(e.target.value)} placeholder="或自己写下想做的事…"/>}<button className="primary story-submit" onPointerDown={e=>{if(document.activeElement?.matches('.story-custom-input'))e.preventDefault();}} disabled={busy||savingLength||!valid} onClick={()=>void advance()}>{generating?'正在生成…':withdrawing?'正在撤回…':node?'确认选择':'开始剧情'}</button></div>
-      <p className="story-cost">调用当前默认 API 并计费，默认篇幅仅为目标。{directiveCorrectionNotice}</p>
+      <p className="story-cost">调用当前默认 API 并计费，默认篇幅仅为目标。{storyGenerationNotice}</p>
      </div>
    </footer>
   </>}

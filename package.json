@@ -9,7 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "playwright test",
     "typecheck": "tsc -b",
-    "test:chat-regression": "playwright test tests/story-directives.spec.ts tests/story-guidance.spec.ts tests/story-reading-pov.spec.ts tests/story-depth.spec.ts tests/daily-reply-integrity.spec.ts tests/bubbles.spec.ts tests/memory-integrity.spec.ts tests/chat-context-regression.spec.ts tests/request-diagnostics.spec.ts tests/memory-context.spec.ts tests/chat.spec.ts tests/lore-trigger.spec.ts tests/timelines.spec.ts tests/story-response.spec.ts tests/generation-tasks.spec.ts tests/story-output-budget.spec.ts tests/story-direct-play.spec.ts tests/story-turn-recovery.spec.ts tests/story-failure.spec.ts tests/story-operations.spec.ts tests/wizard-document-safety.spec.ts"
+    "test:chat-regression": "playwright test tests/story-writing-status.spec.ts tests/story-directives.spec.ts tests/story-guidance.spec.ts tests/story-reading-pov.spec.ts tests/story-depth.spec.ts tests/daily-reply-integrity.spec.ts tests/bubbles.spec.ts tests/memory-integrity.spec.ts tests/chat-context-regression.spec.ts tests/request-diagnostics.spec.ts tests/memory-context.spec.ts tests/chat.spec.ts tests/lore-trigger.spec.ts tests/timelines.spec.ts tests/story-response.spec.ts tests/generation-tasks.spec.ts tests/story-output-budget.spec.ts tests/story-direct-play.spec.ts tests/story-turn-recovery.spec.ts tests/story-failure.spec.ts tests/story-operations.spec.ts tests/wizard-document-safety.spec.ts"
   },
   "dependencies": {
     "react": "^19.0.0",

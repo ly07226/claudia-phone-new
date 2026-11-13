@@ -15,7 +15,9 @@ export function storyInput(s:StorySession,path:StoryNode[],actionInput?:string|S
     definition[field]='完整导入原文已归档；本次相关世界观、人物和规则见 simulatorRules 的原文参考，不是已发生剧情。';
  }
  const selectedAction=action?.kind==='custom'?{kind:'custom',text:action.text}:action?.kind==='choice'?{kind:'choice',label:head?.choices.find(c=>c.id===action.choiceId)?.label,text:head?.choices.find(c=>c.id===action.choiceId)?.text}:undefined;
- const directives=resolveStoryDirectives(script.perspective??'second',guidance);
+ const resolved=resolveStoryDirectives(script.perspective??'second',guidance);
+ // Conflicting quantitative hints remain in raw guidance, never become impossible machine requirements.
+ const directives=resolved.conflict?{perspective:resolved.perspective,perspectiveSource:resolved.perspectiveSource,conflict:true}:resolved;
  const history=path.map((n,i)=>({body:n.body,selectedAction:path[i+1]?storyActionText(n,path[i+1]):undefined}));
  let start=Math.max(0,history.length-8),ledgerStart=Math.max(0,start-24),memoryBudget=6000;
  const historyIndex=indexStoryHistory(path),encoded=(value:unknown)=>new TextEncoder().encode(JSON.stringify(value)).length;
@@ -29,7 +31,7 @@ export function storyInput(s:StorySession,path:StoryNode[],actionInput?:string|S
  const rebalance=()=>{while(historyBytes()>historyByteBudget){if(start<history.length-3)start++;else if(ledgerStart<start)ledgerStart++;else if(memoryBudget>0)memoryBudget=Math.max(0,memoryBudget-1000);else break;}};
  rebalance();
  let referenceSelection:undefined|{notice:string;originalCharacters:number;includedCharacters:number};
- const render=()=>JSON.stringify({definition,...(guidance?.enabled?{directionGuidance:{text:guidance.text,mode:guidance.mode}}:{}),narration:{perspective:directives.perspective,source:directives.perspectiveSource},outputRequirements:directives,...(referenceSelection?{referenceSelection}:{}),narrativeLength:{mode:length,targetChineseCharacters:directives.length?`${directives.length.min}～${directives.length.max}`:storyLengths[length].target,source:directives.length?'guidance':'preference',appliesTo:'仅 body 正文，不含 choices 和重复的 segments；历史篇幅不是本次目标。',guidance:'目标篇幅而非凑字数；已有行动不得无故反转，自定义行动只是尝试，不保证成功。'},historyOmitted:start,...(memory()?{longTermStoryMemory:memory()}:{}),historySelection:{originalHistoryBytes:historyByteBudget,selectedHistoryBytes:historyBytes()},olderConfirmedActions:actions(),actionHistoryOmitted:ledgerStart,confirmedHistory:history.slice(start),selectedAction,instruction:start?'早期正文因预算未提供，行动记录为已确认的用户意图，不代表行动必然成功；不得编造缺失经历或反转已知行动。':'仅已确认主线路径；未选择选项未作为事实提供。'});
+ const render=()=>JSON.stringify({definition,...(guidance?.enabled?{directionGuidance:{text:guidance.text,mode:guidance.mode}}:{}),narration:{perspective:directives.perspective,source:directives.perspectiveSource},outputRequirements:{...directives,enforcement:'advisory'},...(referenceSelection?{referenceSelection}:{}),narrativeLength:{mode:length,targetChineseCharacters:directives.length?`${directives.length.min}～${directives.length.max}`:storyLengths[length].target,source:directives.length?'guidance':'preference',appliesTo:'仅 body 正文，不含 choices 和重复的 segments；历史篇幅不是本次目标。',guidance:'目标篇幅而非凑字数；已有行动不得无故反转，自定义行动只是尝试，不保证成功。'},historyOmitted:start,...(memory()?{longTermStoryMemory:memory()}:{}),historySelection:{originalHistoryBytes:historyByteBudget,selectedHistoryBytes:historyBytes()},olderConfirmedActions:actions(),actionHistoryOmitted:ledgerStart,confirmedHistory:history.slice(start),selectedAction,instruction:start?'早期正文因预算未提供，行动记录为已确认的用户意图，不代表行动必然成功；不得编造缺失经历或反转已知行动。':'仅已确认主线路径；未选择选项未作为事实提供。'});
  let input=render();while(new TextEncoder().encode(storyPrompt+input).length>inputByteLimit){
   if(start<history.length-3)start++;else if(memoryBudget>0)memoryBudget=Math.max(0,memoryBudget-1000);else if(start<history.length-1)start++;else if(ledgerStart<start)ledgerStart++;else break;
   rebalance();input=render();
