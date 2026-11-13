@@ -13,14 +13,14 @@ const scenarios=[
 const results=[];
 for(const scenario of scenarios){
  const input={definition:{name:'架空古代互动故事',description:'所有人物均为成年人。玩家主控角色的行动和心理只由玩家本人决定。',rules:'禁止替玩家说话、行动、反应或同意。',background:'京城局势变化，但玩家可自行选择生活方向。',script:{narration:'second'}},confirmedHistory:[{body:scenario.history}],selectedAction:{kind:'custom',text:scenario.action},narrativeLength:{mode:'standard',targetChineseCharacters:'800～1500',appliesTo:'仅 body 正文'}};
- const response=await fetch('https://api.deepseek.com/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify({model:'deepseek-chat',temperature:0.35,max_tokens:4200,response_format:{type:'json_object'},messages:[{role:'system',content:prompt},{role:'user',content:JSON.stringify(input)}]})});
+ const response=await fetch('https://api.deepseek.com/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify({model:'deepseek-chat',temperature:0.35,max_tokens:6500,response_format:{type:'json_object'},messages:[{role:'system',content:prompt},{role:'user',content:JSON.stringify(input)}]})});
  if(!response.ok)throw Error(scenario.name+' HTTP '+response.status);
  const data=await response.json();let output;
- try{output=JSON.parse(data.choices[0].message.content);}catch{output={body:'',choices:[],error:'invalid JSON'};}
+ try{output=JSON.parse(data.choices[0].message.content);}catch{output={body:'',choices:[],error:'invalid JSON',rawContent:(data.choices?.[0]?.message?.content||'').slice(0,20000)};}
  const body=typeof output.body==='string'?output.body:'';
  const choices=Array.isArray(output.choices)?output.choices:[];
  const length=[...body].length;
- const result={scenario:scenario.name,length,validJson:!output.error,choices:choices.length,withinTarget:length>=800&&length<=1500,body,choiceTexts:choices.map(c=>c.text),usage:data.usage};
+ const result={scenario:scenario.name,length,validJson:!output.error,choices:choices.length,withinTarget:length>=800&&length<=1500,body,choiceTexts:choices.map(c=>c.text),usage:data.usage,finishReason:data.choices?.[0]?.finish_reason,error:output.error||null,rawContent:output.rawContent||null};
  results.push(result);
  console.log('SCENARIO '+scenario.name+' characters='+length+' choices='+choices.length+' withinTarget='+result.withinTarget);
 }
