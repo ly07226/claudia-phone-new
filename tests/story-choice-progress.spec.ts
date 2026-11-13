@@ -9,7 +9,8 @@ test('生产提示明确禁止虚构既往暗号并要求选项带来实际变�
  });
  expect(r.prompt).toContain('禁止捏造既往约定、暗号');
  expect(r.prompt).toContain('每轮承接 selectedAction 后必须出现可观察的新结果');
- expect(r.prompt).toContain('至少一项能直接处理当前最重要的未决冲突');
+ expect(r.prompt).toContain('只有当玩家仍在主动处理某项未决冲突时');
+ expect(r.prompt).toContain('不得强制保留原冲突的选项');
 });
 
 test('玩家选中的选项文本进入下一轮实际输入，未选选项不能冒充已发生事实',async({page})=>{
@@ -50,6 +51,7 @@ test('生产剧本提示保护玩家主控权，并将长篇幅与玩家反应�
  expect(result.prompt).toContain('生理反应（如脸红、心跳、颤抖、流泪）');
  expect(result.prompt).toContain('不以新增玩家反应凑字数');
  expect(result.prompt).toContain('在该处停住并给出选择');
+ expect(result.prompt).not.toContain('至少一项能直接处理当前最重要的未决冲突');
  expect(result.input.selectedAction).toMatchObject({kind:'custom',text:'我抬头看着七皇子，没有说话。'});
  expect(result.input.narrativeLength).toBeDefined();
 });
