@@ -44,7 +44,7 @@ test('生产剧本提示保护玩家主控权，并将长篇幅与玩家反应�
    {id:'b',label:'B',text:'离开房间'},
    {id:'c',label:'C',text:'沉默'},
    {id:'d',label:'D',text:'观察窗外'}]}] as any;
-  return {prompt:storyPrompt,input:JSON.parse(storyInput(session,path,{kind:'custom',text:'我抬头看着七皇子，没有说话。'},'long'))};
+  return {prompt:storyPrompt,input:JSON.parse(storyInput(session,path,{kind:'custom',text:'我抬头看着七皇子，没有说话。'},'standard'))};
  });
  expect(result.prompt).toContain('严禁擅自添加玩家未表达的言语');
  expect(result.prompt).toContain('生理反应（如脸红、心跳、颤抖、流泪）');
