@@ -1558,6 +1558,13 @@ textarea {
   padding-left: var(--safe-left);
   padding-right: var(--safe-right);
 }
+/* Keep iPhone status-bar safe area opaque, even when the conversation has an image background. */
+.chat-app.chat-immersive{position:relative;isolation:isolate}
+.chat-app.chat-immersive::before{
+  content:"";position:absolute;top:0;left:0;right:0;
+  height:var(--safe-top);background:var(--theme-card,#edf2e5);
+  pointer-events:none;z-index:11;
+}
 .chat-nav {
   position: sticky;
   top: 0;
