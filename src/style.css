@@ -1561,15 +1561,14 @@ textarea {
 /* Background is viewport-sized and independent of the keyboard-resized chat shell.
    The header and message scroller remain separate flex children above this layer. */
 .chat-app.chat-immersive{position:relative;isolation:isolate}
-.chat-app.chat-immersive.chat-custom-background:has([aria-label="当前会话导航"]){background-color:transparent}
+.chat-app.chat-immersive[style*="--chat-background-image"]{background-color:transparent}
 .chat-app.chat-immersive[style*="--chat-background-image"]::before{
   content:"";position:fixed;inset:0 auto auto 0;
   width:100vw;height:100svh;
   background-image:var(--chat-background-image);
   background-position:center;background-size:cover;background-repeat:no-repeat;
-  pointer-events:none;z-index:0;
+  pointer-events:none;z-index:-1;
 }
-.chat-app.chat-immersive > .chat-view{position:relative;z-index:1}
 /* Status bar always uses the current theme, never the conversation image. */
 .chat-app.chat-immersive::after{
   content:"";position:fixed;top:0;left:0;right:0;
