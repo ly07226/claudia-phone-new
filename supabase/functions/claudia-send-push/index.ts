@@ -53,6 +53,17 @@ Deno.serve(async (request) => {
   const { data: reply } = await admin.from("claudia_background_replies")
     .select("id").eq("job_id", job.id).eq("user_id", job.user_id).maybeSingle();
   if (!reply) return json(409, { error: "reply_not_saved" });
+  // Suppress lock-screen/banner notifications while this conversation is
+  // actively open. A heartbeat older than 30s does not count as foreground.
+  const since = new Date(Date.now() - 30_000).toISOString();
+  const { data: presence, error: presenceError } = await admin
+    .from("claudia_chat_presence").select("last_seen_at")
+    .eq("user_id", job.user_id).eq("conversation_id", job.conversation_id)
+    .gte("last_seen_at", since).maybeSingle();
+  // Fail closed on push if presence cannot be checked: no accidental
+  // foreground banner; the reply remains persisted for later sync.
+  if (presenceError) return json(503, { error: "presence_unavailable" });
+  if (presence) return json(200, { ok: true, suppressed: "foreground_chat" });
   const { data: subs, error: subsError } = await admin.from("claudia_push_subscriptions")
     .select("id,endpoint,p256dh,auth_secret").eq("user_id", job.user_id).limit(20);
   if (subsError) return json(500, { error: "subscription_lookup_failed" });
