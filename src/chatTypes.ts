@@ -11,6 +11,7 @@ export interface ChatSettings {
   proactiveProbability?: number;
   proactiveEnabledAt?: number;
   proactiveAttemptFor?: number;
+  proactiveUnreadAt?: number;
   remark?: string;
   pinned?: boolean;
   pinnedAt?: number;
