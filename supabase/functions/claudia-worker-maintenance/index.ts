@@ -1,8 +1,7 @@
-// Internal-only queue maintenance: expire stale unprocessable jobs.
-// This does not claim to generate AI responses. No provider credentials are
-// available to this worker until a secure per-user provider architecture exists.
-// Deploy with verify_jwt=false ONLY with a strong internal secret configured.
-import { createClient } from "npm:@supabase/supabase-js@2";
+// Internal-only background worker readiness endpoint.
+// Never silently expire a user's queued message: failure and timeout handling
+// belong to the actual worker, with immediate persisted terminal states.
+// This endpoint is intentionally non-mutating until a real worker exists.
 const respond = (status: number, data: Record<string, unknown>) =>
   new Response(JSON.stringify(data), { status, headers: {
     "Content-Type": "application/json", "Cache-Control": "no-store",
@@ -14,21 +13,9 @@ Deno.serve(async request => {
   if (request.headers.get("Authorization") !== "Bearer " + secret) {
     return respond(401, { error: "unauthorized" });
   }
-  const url = Deno.env.get("SUPABASE_URL");
-  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!url || !key) return respond(503, { error: "not_configured" });
-  const admin = createClient(url, key, { auth: {
-    persistSession: false, autoRefreshToken: false,
-  } });
-  // Current intake accepts metadata only, so queued work cannot be generated.
-  // Explicit expiry avoids pretending a pending job is still being processed.
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { data, error } = await admin.from("claudia_background_jobs")
-    .update({ status: "expired", error_code: "worker_not_configured",
-      updated_at: new Date().toISOString() })
-    .eq("status", "queued").lt("created_at", cutoff)
-    .select("id").limit(100);
-  if (error) return respond(500, { error: "maintenance_failed" });
-  return respond(200, { ok: true, expired: data?.length ?? 0,
-    aiExecutionReady: false });
+  return respond(503, {
+    error: "worker_not_implemented",
+    aiExecutionReady: false,
+    message: "后台 AI 执行器尚未部署；禁止将排队任务伪装为处理中或静默过期。",
+  });
 });
