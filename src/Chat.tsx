@@ -418,7 +418,9 @@ export function Chat({ worldId }: { worldId?: string }) {
   const timeLabels=useMemo(()=>chatTimeLabels(messages),[messages]);
   // Keep expensive message bubble JSX stable while the composer text changes.
   // Include state read by message actions so menus, versions and continuations stay current.
-  const renderedMessages=useMemo(()=>messages.map((m) => (
+  const renderedMessages=useMemo(()=>{
+    if(!conversation)return null;
+    return messages.map((m) => (
               <Fragment key={m.id}>
               {timeLabels.has(m.id)&&<div className="chat-time-divider" data-chat-time-for={m.id}><time dateTime={new Date(m.createdAt).toISOString()}>{timeLabels.get(m.id)}</time></div>}
               <ChatMessage
@@ -453,7 +455,8 @@ export function Chat({ worldId }: { worldId?: string }) {
                 }}>继续生成</button>}
               </p>}
               </Fragment>
-            )),[
+            ));
+  },[
     messages,timeLabels,replyPresentation,variants,displayName,avatarSrc,userAvatar,
     userIdentity.name,conversation,onBubbleReveal,visibleFailures,busy
   ]);
