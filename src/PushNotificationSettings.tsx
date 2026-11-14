@@ -83,17 +83,13 @@ export function PushNotificationSettings(){
  }
  const descriptions:Record<PushState,string>={
   checking:'正在检查设备通知能力…',unsupported:'当前浏览器不支持网页推送。', 'not-installed':'iPhone/iPad 需要先添加到主屏幕，并从桌面图标打开。',denied:'系统已拒绝通知权限，请在设备的应用或浏览器通知设置中修改。',unconfigured:'推送服务尚未配置，暂时不能订阅。',unsubscribed:'设备支持推送，可以申请通知权限。',subscribed:'当前会话已收到服务端登记成功响应；远程投递仍需测试。',error:'检查或订阅失败。'};
- return <section className="card form" aria-label="系统通知（iOS / Android）">
-  <h3>系统通知（iOS / Android）</h3>
-  <p className="hint">用于角色回复完成、角色主动发消息后的锁屏及横幅提醒。iPhone/iPad 需要安装到主屏幕；Android 设备可在支持 Web Push 的浏览器中授权。均需配置推送服务器。</p>
-  <p className="hint">本机回复通知不依赖 Supabase；只要网页仍在运行，回复完成后就能尝试弹出系统通知。远程离线推送才需要服务器。</p>
-  <p role="status">本机通知权限：{localPermission==='granted'?'已允许':localPermission==='denied'?'已拒绝':localPermission==='unsupported'?'不支持':'尚未授权'}</p>
-  {localPermission!=='granted'&&localPermission!=='unsupported'&&<button type="button" className="list-row" disabled={testBusy} onClick={()=>void enableLocalNotifications()}>{testBusy?'正在授权…':'开启本机回复通知'}</button>}
-  <p role="status">远程推送：{descriptions[state]}</p>
-  {(state==='unsubscribed'||state==='error')&&<button type="button" className="list-row" disabled={busy||!publicKey} onClick={()=>void subscribe()}>{busy?'正在订阅…':'开启系统通知'}</button>}
-  {state==='subscribed'&&<button type="button" className="list-row" disabled={busy} onClick={()=>void unsubscribe()}>{busy?'正在处理…':'取消本机通知订阅'}</button>}
-  {(state==='unconfigured'||state==='unsubscribed'||state==='subscribed'||state==='error')&&<button type="button" className="list-row" disabled={testBusy||busy} onClick={()=>void testLocalNotification()}>{testBusy?'正在测试…':'测试系统通知（本机）'}</button>}
-  {message&&<p role="status">{message}</p>}
-  <p className="hint">云端通知采用无需注册的匿名设备身份；清除浏览器数据可能导致设备身份丢失。订阅只提交 PushSubscription，不包含 AI 密钥。服务器必须验证用户身份、持久化订阅并实现 Web Push 发送；本页面不会将本机订阅误报为远程投递成功。</p>
+ return <section className="card form" aria-label="消息通知">
+  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
+   <div><h3 style={{margin:0}}>消息通知</h3><p className="hint" style={{margin:'6px 0 0'}}>后台收到角色回复时提醒</p></div>
+   <button type="button" onClick={()=>void enableLocalNotifications()} disabled={testBusy||localPermission==='granted'||localPermission==='unsupported'||localPermission==='denied'} aria-label="开启消息通知" style={{flexShrink:0,border:'1px solid var(--border, #cbd5df)',borderRadius:999,padding:'9px 14px',background:localPermission==='granted'?'#dcefe5':'transparent',color:'inherit',font:'inherit'}}>
+    {testBusy?'授权中…':localPermission==='granted'?'已开启':localPermission==='denied'?'已拒绝':localPermission==='unsupported'?'不支持':'开启'}
+   </button>
+  </div>
+  {message&&<p role="status" className="hint" style={{margin:'8px 0 0'}}>{message}</p>}
  </section>;
 }
