@@ -17,8 +17,10 @@ export function PushNotificationSettings(){
  const [message,setMessage]=useState('');
  const [busy,setBusy]=useState(false);
  const [testBusy,setTestBusy]=useState(false);
+ const [localPermission,setLocalPermission]=useState(()=>typeof Notification==='undefined'?'unsupported':Notification.permission);
  async function inspect(){
   if(!('serviceWorker'in navigator)||!('PushManager'in window)||!('Notification'in window)){setState('unsupported');return;}
+  setLocalPermission(Notification.permission);
   if(needsInstall()){setState('not-installed');return;}
   if(Notification.permission==='denied'){setState('denied');return;}
   try{
@@ -52,11 +54,25 @@ export function PushNotificationSettings(){
    if(!('Notification'in window)||!('serviceWorker'in navigator))throw Error('当前环境不支持系统通知。');
    if(needsInstall())throw Error('iPhone/iPad 请从主屏幕的小手机图标打开后测试。');
    const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();
+   setLocalPermission(permission);
    if(permission!=='granted')throw Error('没有取得通知权限。');
    const registration=await navigator.serviceWorker.ready;
    await registration.showNotification('Claudia Phone · 通知测试',{body:'这是一条本机测试通知，不代表后台 AI 或远程推送已经接通。',tag:'claudia-local-test',icon:'/apple-icon.png?v=2'});
    setMessage('已向系统提交本机测试通知；是否显示横幅取决于设备和系统通知设置。');
   }catch(e){setMessage(e instanceof Error?e.message:'本机通知测试失败。');}
+  finally{setTestBusy(false);}
+ }
+ async function enableLocalNotifications(){
+  if(testBusy)return;setTestBusy(true);setMessage('');
+  try{
+   if(!('Notification'in window)||!('serviceWorker'in navigator))throw Error('当前环境不支持本机系统通知。');
+   if(needsInstall())throw Error('iPhone/iPad 请先添加到主屏幕并从桌面图标打开。');
+   const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();
+   setLocalPermission(permission);
+   if(permission!=='granted')throw Error('系统通知未授权，请在系统设置中允许通知。');
+   await navigator.serviceWorker.ready;
+   setMessage('本机回复完成通知已授权。只要后台网页仍在运行并完成回复，就会尝试发送通知；不需要 Supabase。');
+  }catch(e){setMessage(e instanceof Error?e.message:'本机通知授权失败。');}
   finally{setTestBusy(false);}
  }
  async function unsubscribe(){
@@ -70,7 +86,10 @@ export function PushNotificationSettings(){
  return <section className="card form" aria-label="系统通知（iOS / Android）">
   <h3>系统通知（iOS / Android）</h3>
   <p className="hint">用于角色回复完成、角色主动发消息后的锁屏及横幅提醒。iPhone/iPad 需要安装到主屏幕；Android 设备可在支持 Web Push 的浏览器中授权。均需配置推送服务器。</p>
-  <p role="status">{descriptions[state]}</p>
+  <p className="hint">本机回复通知不依赖 Supabase；只要网页仍在运行，回复完成后就能尝试弹出系统通知。远程离线推送才需要服务器。</p>
+  <p role="status">本机通知权限：{localPermission==='granted'?'已允许':localPermission==='denied'?'已拒绝':localPermission==='unsupported'?'不支持':'尚未授权'}</p>
+  {localPermission!=='granted'&&localPermission!=='unsupported'&&<button type="button" className="list-row" disabled={testBusy} onClick={()=>void enableLocalNotifications()}>{testBusy?'正在授权…':'开启本机回复通知'}</button>}
+  <p role="status">远程推送：{descriptions[state]}</p>
   {(state==='unsubscribed'||state==='error')&&<button type="button" className="list-row" disabled={busy||!publicKey} onClick={()=>void subscribe()}>{busy?'正在订阅…':'开启系统通知'}</button>}
   {state==='subscribed'&&<button type="button" className="list-row" disabled={busy} onClick={()=>void unsubscribe()}>{busy?'正在处理…':'取消本机通知订阅'}</button>}
   {(state==='unconfigured'||state==='unsubscribed'||state==='subscribed'||state==='error')&&<button type="button" className="list-row" disabled={testBusy||busy} onClick={()=>void testLocalNotification()}>{testBusy?'正在测试…':'测试系统通知（本机）'}</button>}
