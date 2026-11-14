@@ -67,6 +67,16 @@ Deno.serve(async (request) => {
   const { data: subs, error: subsError } = await admin.from("claudia_push_subscriptions")
     .select("id,endpoint,p256dh,auth_secret").eq("user_id", job.user_id).limit(20);
   if (subsError) return json(500, { error: "subscription_lookup_failed" });
+  if (!subs?.length) return json(200, { ok: true, sent: 0, noSubscriptions: true });
+  // Insert with a UNIQUE job_id before any external push call. Competing
+  // workers cannot send the same job twice. No retry after ambiguous delivery.
+  const { data: claim, error: claimError } = await admin
+    .from("claudia_push_delivery_claims")
+    .upsert({ job_id: job.id, user_id: job.user_id },
+      { onConflict: "job_id", ignoreDuplicates: true })
+    .select("job_id").maybeSingle();
+  if (claimError) return json(500, { error: "delivery_claim_failed" });
+  if (!claim) return json(200, { ok: true, duplicate: true, sent: 0 });
   webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
   // No AI response text is included in push payload, including on lock screens.
   const payload = JSON.stringify({
@@ -92,6 +102,10 @@ Deno.serve(async (request) => {
     }
   }
   // A notification is best-effort: preserve the saved reply regardless of delivery.
-  // Do not change job.status to notified here; retries need a separate delivery ledger.
+  // The delivery ledger guarantees at-most-once send attempts per job.
+  await admin.from("claudia_push_delivery_claims").update({
+    sent_count: sent, failed_count: failed + expired,
+    finished_at: new Date().toISOString(),
+  }).eq("job_id", job.id).eq("user_id", job.user_id);
   return json(200, { ok: true, sent, failed, expired });
 });
