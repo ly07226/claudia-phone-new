@@ -259,7 +259,8 @@ export function Chat({ worldId }: { worldId?: string }) {
       if (navigation !== taskSequence.current) return;
       activeConversation.current = c.id;
       followBottom.current = true;
-      setConversation(c);
+      // Do not mount an empty conversation screen before its history arrives.
+      // loadSnapshot commits conversation, messages and variants in one React batch.
       await refresh(c.id, true);
       try {
         await resolveApi(c);
