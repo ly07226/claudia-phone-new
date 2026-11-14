@@ -1,5 +1,6 @@
 import {activeMessages} from './messagePath';
 import {messageBubbles} from './messageBubbles';
+import {audioKeepAliveEnabled} from './AudioKeepAliveSettings';
 import {resolveTimelinePath} from './timelines';
 import {describeReplyFailure,type ReplyFailureDetails} from './replyFailure';
 import {useSyncExternalStore} from 'react';
@@ -11,8 +12,9 @@ import type {Conversation,MessageQuote} from './chatTypes';
 /** Send the exact saved chat bubbles as separate iOS notifications, in order.
  * Never generate, mutate or split a second copy of the reply.
  */
+function shouldNotifyInBackground(){return audioKeepAliveEnabled()&&document.visibilityState==='hidden'&&!document.hasFocus();}
 async function notifyHiddenReply(characterId:string,conversationId:string,messageId?:string){
- if(typeof document==='undefined'||document.visibilityState==='visible'||typeof Notification==='undefined'||Notification.permission!=='granted'||!('serviceWorker'in navigator))return;
+ if(typeof document==='undefined'||!shouldNotifyInBackground()||typeof Notification==='undefined'||Notification.permission!=='granted'||!('serviceWorker'in navigator))return;
  try{
   const registration=await navigator.serviceWorker.getRegistration();
   if(!registration)return;
@@ -23,7 +25,7 @@ async function notifyHiddenReply(characterId:string,conversationId:string,messag
   const bubbles=messageBubbles(reply).filter(part=>part.kind==='text'&&part.text.trim());
   for(let index=0;index<bubbles.length;index++){
    // Returning to the app stops the remaining banners; the saved bubbles stay intact.
-   if(document.visibilityState==='visible')break;
+   if(!shouldNotifyInBackground())break;
    const visible=await activeMessages(conversationId);
    if(!visible.some(row=>row.id===reply.id&&row.activeVariantId===reply.activeVariantId&&row.content===reply.content))break;
    const part=bubbles[index];
