@@ -26,6 +26,10 @@ export function AudioKeepAliveSettings(){
  const [enabled,setEnabled]=useState(()=>{try{return localStorage.getItem(STORAGE_KEY)==='true';}catch{return false;}});
  const [playing,setPlaying]=useState(false);
  const [resumeNotice,setResumeNotice]=useState('');
+ const [diagnostic,setDiagnostic]=useState('尚未进行后台测试');
+ const backgroundAt=useRef<number|null>(null);
+ const audioTicks=useRef(0);
+ const ticksAtBackground=useRef(0);
  const [backgrounded,setBackgrounded]=useState(()=>document.visibilityState==='hidden');
  const [error,setError]=useState('');
  const audioRef=useRef<HTMLAudioElement|null>(null);
@@ -33,7 +37,15 @@ export function AudioKeepAliveSettings(){
   const audio=player();audioRef.current=audio;
   const sync=()=>setPlaying(!audio.paused&&!audio.ended);
   audio.addEventListener('play',sync);audio.addEventListener('pause',sync);audio.addEventListener('ended',sync);
+  const onTick=()=>{audioTicks.current+=1;};
+  audio.addEventListener('timeupdate',onTick);
   const resume=()=>{
+   if(backgroundAt.current!==null){
+    const elapsed=Math.round((Date.now()-backgroundAt.current)/1000);
+    const progressed=audioTicks.current-ticksAtBackground.current;
+    setDiagnostic(`后台停留 ${elapsed} 秒；期间观察到 ${progressed} 次音频进度事件。${progressed===0?' 无法确认后台持续播放。':' 音频进度曾更新，但不代表 API 一定持续运行。'}`);
+    backgroundAt.current=null;
+   }
    setBackgrounded(document.visibilityState==='hidden');sync();
    // Only resume a user-enabled session. Never start playback for new users.
    let enabled=false;try{enabled=localStorage.getItem(STORAGE_KEY)==='true';}catch{}if(!enabled||!audio.paused)return;
@@ -41,7 +53,7 @@ export function AudioKeepAliveSettings(){
     setResumeNotice('系统已暂停音频；请点击「开启后台保活」手动恢复。');sync();
    });
   };
-  const onVisible=()=>{if(document.visibilityState==='visible')resume();else {setBackgrounded(true);sync();}};
+  const onVisible=()=>{if(document.visibilityState==='visible')resume();else {backgroundAt.current=Date.now();ticksAtBackground.current=audioTicks.current;setBackgrounded(true);sync();}};
   const onPageShow=()=>resume();
   const onAudioError=()=>{sync();setError('音频播放发生错误，请点击开启重新尝试。');};
   audio.addEventListener('error',onAudioError);
@@ -49,7 +61,7 @@ export function AudioKeepAliveSettings(){
   document.addEventListener('visibilitychange',onVisible);
   // Do not autoplay on mount: iOS requires an explicit user gesture.
   return()=>{audio.removeEventListener('play',sync);audio.removeEventListener('pause',sync);
-   audio.removeEventListener('ended',sync);audio.removeEventListener('error',onAudioError);
+   audio.removeEventListener('ended',sync);audio.removeEventListener('error',onAudioError);audio.removeEventListener('timeupdate',onTick);
    document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('pageshow',onPageShow);};
  },[]);
  async function toggle(){
@@ -69,6 +81,7 @@ export function AudioKeepAliveSettings(){
   {enabled&&!playing&&<p role="status">音频已中断，点击开启以重新启动。</p>}
   {playing&&<p role="status">{backgrounded?'后台播放状态：音频尚在播放（网页恢复后才能核实是否持续）':'无声音频正在播放。切换 App 或锁屏后返回这里，可检查是否被系统暂停。'}</p>}
   {resumeNotice&&<p role="status">{resumeNotice}</p>}
+  <p className="hint" role="status">后台测试记录：{diagnostic}</p>
   {error&&<p role="alert">{error}</p>}
   <p className="hint">可能增加耗电、占用媒体控制中心或干扰其他音频。iOS 可能随时暂停网页；建议在锁屏及切换 App 后实际测试。</p>
  </section>;
