@@ -25,6 +25,10 @@ Deno.serve(async (request) => {
   if (request.method !== "POST") return respond(405, { error: "method_not_allowed" });
   const token = request.headers.get("Authorization");
   if (!token?.startsWith("Bearer ")) return respond(401, { error: "unauthorized" });
+  // Fail closed: no orphaned queued jobs while the AI executor is unavailable.
+  if (Deno.env.get("CLAUDIA_BACKGROUND_EXECUTOR_READY") !== "true") {
+    return respond(503, { error: "executor_not_ready" });
+  }
   const url = Deno.env.get("SUPABASE_URL");
   const secret = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !secret) return respond(503, { error: "not_configured" });
