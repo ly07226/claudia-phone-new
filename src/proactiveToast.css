@@ -1,0 +1,13 @@
+.claudia-proactive-layer{position:fixed;inset:0;z-index:2147483000;pointer-events:none;overflow:visible}
+.claudia-proactive-toast{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);left:50%;width:min(calc(100vw - 24px),420px);display:flex;gap:11px;align-items:center;box-sizing:border-box;border:1px solid rgba(255,255,255,.52);border-radius:22px;padding:12px 14px;background:rgba(49,51,63,.87);color:#fff;box-shadow:0 12px 36px rgba(0,0,0,.23);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);pointer-events:auto;cursor:pointer;text-align:left;animation:claudia-proactive-in .48s cubic-bezier(.2,1.24,.3,1) both}
+.claudia-proactive-toast.is-leaving{animation:claudia-proactive-out .34s ease-in both}
+.claudia-proactive-avatar{width:42px;height:42px;border-radius:50%;background:#8c8196;display:grid;place-items:center;flex:none;overflow:hidden;font-weight:600}
+.claudia-proactive-avatar img{width:100%;height:100%;object-fit:cover}
+.claudia-proactive-content{min-width:0;display:flex;flex-direction:column;gap:4px;flex:1}
+.claudia-proactive-heading{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:14px}
+.claudia-proactive-heading small{font-size:11px;color:#d4d4dd}
+.claudia-proactive-preview{font-size:13px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
+@keyframes claudia-proactive-in{from{opacity:0;transform:translate(-50%,-130%)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes claudia-proactive-out{from{opacity:1;transform:translate(-50%,0)}to{opacity:0;transform:translate(-50%,-130%)}}
+@media(prefers-reduced-motion:reduce){.claudia-proactive-toast{animation:none}.claudia-proactive-toast.is-leaving{animation:none;opacity:0}}
+\n.claudia-chat-unread{display:inline-block;width:8px;height:8px;min-width:8px;border-radius:50%;background:#e45e6d;align-self:center;margin-left:4px}\n
