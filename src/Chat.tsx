@@ -193,13 +193,14 @@ export function Chat({ worldId }: { worldId?: string }) {
       const prev=appliedSnapshot.current;
       const same=prev?.conversationId===id&&prev.timelineId===path.timelineId&&prev.epoch===path.epoch&&prev.messageSignature===messageSignature&&prev.variantSignature===variantSignature;
       visiblePath.current=path;
+      // Metadata (lease/settings) must update even when rendered messages do not.
+      setConversation(previous=>JSON.stringify(previous)===JSON.stringify(current)?previous:current);
       if(same)return;
       appliedSnapshot.current={...path,messageSignature,variantSignature};
       if (scroll && followBottom.current) {
         scrollRequested.current = true;
         preserveTop.current = null;
       } else preserveTop.current = historyRef.current?.scrollTop ?? null;
-      setConversation(current);
       setMessages(rows);
       setVariants(groups);
     }
