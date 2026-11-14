@@ -1,6 +1,7 @@
 import {activeMessages} from './messagePath';
 import {messageBubbles} from './messageBubbles';
 import {audioKeepAliveEnabled} from './AudioKeepAliveSettings';
+import {localReplyNotificationsEnabled} from './PushNotificationSettings';
 import {resolveTimelinePath} from './timelines';
 import {describeReplyFailure,type ReplyFailureDetails} from './replyFailure';
 import {useSyncExternalStore} from 'react';
@@ -12,7 +13,7 @@ import type {Conversation,MessageQuote} from './chatTypes';
 /** Send the exact saved chat bubbles as separate iOS notifications, in order.
  * Never generate, mutate or split a second copy of the reply.
  */
-function shouldNotifyInBackground(){return audioKeepAliveEnabled()&&document.visibilityState==='hidden';}
+function shouldNotifyInBackground(){return audioKeepAliveEnabled()&&localReplyNotificationsEnabled()&&document.visibilityState==='hidden';}
 async function notifyHiddenReply(characterId:string,conversationId:string,messageId?:string){
  if(typeof document==='undefined'||!shouldNotifyInBackground()||typeof Notification==='undefined'||Notification.permission!=='granted'||!('serviceWorker'in navigator))return;
  try{
