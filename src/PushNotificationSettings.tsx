@@ -9,6 +9,8 @@ async function registerRemote(subscription:PushSubscription){
 }
 
 function decodeKey(key:string){const padded=key.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(key.length/4)*4,'=');const raw=atob(padded);return Uint8Array.from(raw,c=>c.charCodeAt(0));}
+function isIOS(){return /iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);}
+function needsInstall(){return isIOS()&&!installed();}
 function installed(){return window.matchMedia('(display-mode: standalone)').matches||(navigator as Navigator&{standalone?:boolean}).standalone===true;}
 export function PushNotificationSettings(){
  const [state,setState]=useState<PushState>('checking');
@@ -17,7 +19,7 @@ export function PushNotificationSettings(){
  const [testBusy,setTestBusy]=useState(false);
  async function inspect(){
   if(!('serviceWorker'in navigator)||!('PushManager'in window)||!('Notification'in window)){setState('unsupported');return;}
-  if(!installed()){setState('not-installed');return;}
+  if(needsInstall()){setState('not-installed');return;}
   if(Notification.permission==='denied'){setState('denied');return;}
   try{
    const registration=await navigator.serviceWorker.getRegistration();
@@ -31,7 +33,7 @@ export function PushNotificationSettings(){
  async function subscribe(){
   if(busy)return;setBusy(true);setMessage('');
   try{
-   if(!installed())throw Error('请先将小手机添加到 iPhone 主屏幕，再从桌面图标打开。');
+   if(needsInstall())throw Error('iPhone/iPad 请先将小手机添加到主屏幕，再从桌面图标打开。');
    if(!publicKey||!cloudConfigured())throw Error('推送服务器尚未配置，无法创建可用订阅。');
    const permission=await Notification.requestPermission();
    if(permission!=='granted'){await inspect();return;}
@@ -48,12 +50,12 @@ export function PushNotificationSettings(){
   if(testBusy)return;setTestBusy(true);setMessage('');
   try{
    if(!('Notification'in window)||!('serviceWorker'in navigator))throw Error('当前环境不支持系统通知。');
-   if(!installed())throw Error('请从添加到主屏幕的小手机图标打开后测试。');
+   if(needsInstall())throw Error('iPhone/iPad 请从主屏幕的小手机图标打开后测试。');
    const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();
    if(permission!=='granted')throw Error('没有取得通知权限。');
    const registration=await navigator.serviceWorker.ready;
    await registration.showNotification('Claudia Phone · 通知测试',{body:'这是一条本机测试通知，不代表后台 AI 或远程推送已经接通。',tag:'claudia-local-test',icon:'/apple-icon.png?v=2'});
-   setMessage('已向系统提交本机测试通知；是否显示横幅取决于 iPhone 通知设置。');
+   setMessage('已向系统提交本机测试通知；是否显示横幅取决于设备和系统通知设置。');
   }catch(e){setMessage(e instanceof Error?e.message:'本机通知测试失败。');}
   finally{setTestBusy(false);}
  }
@@ -64,14 +66,14 @@ export function PushNotificationSettings(){
   finally{setBusy(false);}
  }
  const descriptions:Record<PushState,string>={
-  checking:'正在检查设备通知能力…',unsupported:'当前浏览器不支持网页推送。', 'not-installed':'iPhone 需要先添加到主屏幕，并从桌面图标打开。',denied:'系统已拒绝通知权限，请在 iPhone 设置中修改。',unconfigured:'推送服务尚未配置，暂时不能订阅。',unsubscribed:'设备支持推送，可以申请通知权限。',subscribed:'当前会话已收到服务端登记成功响应；远程投递仍需测试。',error:'检查或订阅失败。'};
- return <section className="card form" aria-label="苹果系统通知">
-  <h3>苹果系统通知</h3>
-  <p className="hint">用于角色回复完成、角色主动发消息后的锁屏及横幅提醒。需要安装到主屏幕、允许通知并配置推送服务器。</p>
+  checking:'正在检查设备通知能力…',unsupported:'当前浏览器不支持网页推送。', 'not-installed':'iPhone/iPad 需要先添加到主屏幕，并从桌面图标打开。',denied:'系统已拒绝通知权限，请在 iPhone 设置中修改。',unconfigured:'推送服务尚未配置，暂时不能订阅。',unsubscribed:'设备支持推送，可以申请通知权限。',subscribed:'当前会话已收到服务端登记成功响应；远程投递仍需测试。',error:'检查或订阅失败。'};
+ return <section className="card form" aria-label="系统通知（iOS / Android）">
+  <h3>系统通知（iOS / Android）</h3>
+  <p className="hint">用于角色回复完成、角色主动发消息后的锁屏及横幅提醒。iPhone/iPad 需要安装到主屏幕；Android 设备可在支持 Web Push 的浏览器中授权。均需配置推送服务器。</p>
   <p role="status">{descriptions[state]}</p>
   {(state==='unsubscribed'||state==='error')&&<button type="button" className="list-row" disabled={busy||!publicKey} onClick={()=>void subscribe()}>{busy?'正在订阅…':'开启系统通知'}</button>}
   {state==='subscribed'&&<button type="button" className="list-row" disabled={busy} onClick={()=>void unsubscribe()}>{busy?'正在处理…':'取消本机通知订阅'}</button>}
-  {(state==='unconfigured'||state==='unsubscribed'||state==='subscribed'||state==='error')&&<button type="button" className="list-row" disabled={testBusy||busy} onClick={()=>void testLocalNotification()}>{testBusy?'正在测试…':'测试苹果系统通知（本机）'}</button>}
+  {(state==='unconfigured'||state==='unsubscribed'||state==='subscribed'||state==='error')&&<button type="button" className="list-row" disabled={testBusy||busy} onClick={()=>void testLocalNotification()}>{testBusy?'正在测试…':'测试系统通知（iOS / Android）（本机）'}</button>}
   {message&&<p role="status">{message}</p>}
   <p className="hint">云端通知采用无需注册的匿名设备身份；清除浏览器数据可能导致设备身份丢失。订阅只提交 PushSubscription，不包含 AI 密钥。服务器必须验证用户身份、持久化订阅并实现 Web Push 发送；本页面不会将本机订阅误报为远程投递成功。</p>
  </section>;
