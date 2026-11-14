@@ -40,12 +40,29 @@ export async function socialContext(r:SocialRequest){
  const images=post?.images.length?await attachmentImages(db,{attachments:post.images.map(assetId=>({assetId}))}):[];const messages=injectLore(system,[{role:'user',content:input,...(images.length?{images}:{})}],lore.entries);if(!messages[0].content.includes(system)){const at=messages.findIndex(m=>m.role==='system'&&m.content===system);if(at>=0)messages.splice(at,1);messages[0]={role:'system',content:system+memory};}else messages[0]={...messages[0],content:messages[0].content+memory};if(messages.filter(m=>m.role==='system').reduce((n,m)=>n+m.content.length,0)>24000)throw Error('人物与世界书资料超过朋友圈预算，未请求模型。');
  return {character,c,messages:messages as ContextMessage[],author:{kind:'character',id:character.id,name:character.name,avatar:character.avatar} as SocialAuthor,fingerprint:JSON.stringify(character),postText:post?.text,parentText:parent?.text,dailyFingerprint:dailyFingerprint(found)};
 }
+/** Expired requests are finished locally. Never retry them automatically.
+ * Token checks in generateSocial prevent their late results from being saved. */
+export async function releaseExpiredSocialJob(now=Date.now()){
+ const current=(await db.themes.get('global'))?.chatHub?.job;
+ if(!current||current.expiresAt>now)return false;
+ let released=false;
+ await changeChatHub(h=>{
+  if(h.job?.token!==current.token||h.job.expiresAt>now)return;
+  if(h.job.reactionToken){
+   const event=reactionEvent(h,h.job);
+   if(event?.reaction?.token===h.job.reactionToken&&event.reaction.status==='running')event.reaction.status='failed';
+  }
+  h.job=undefined;
+  released=true;
+ });
+ return released;
+}
 const running=new Map<string,Promise<void>>();
 export function generateSocial(r:SocialRequest){
  const task=(async()=>{
   const token=crypto.randomUUID();let claimed=false;
   try{
-   await changeChatHub(h=>{if(r.reactionToken){const event=reactionEvent(h,r);if(event?.reaction?.token!==r.reactionToken||event.reaction.status!=='queued')throw Error('该互动已处理或状态待确认，不会重复请求。');event.reaction.status='running';}if(h.job)throw Error('朋友圈已有请求或待确认任务，不会重复调用。');if(r.automatic&&(!h.auto.enabled||(h.auto.nextAt??Infinity)>Date.now()))throw Error('尚未到发布时间。');h.job={token,kind:r.kind,characterId:r.characterId,postId:r.postId,parentId:r.parentId,expiresAt:Date.now()+120000,...(r.reactionToken?{reactionToken:r.reactionToken}:{})};h.error=undefined;if(r.automatic){h.auto.nextAt=Date.now()+h.auto.hours*3600000;h.auto.cursor++;}});claimed=true;
+   await changeChatHub(h=>{if(r.reactionToken){const event=reactionEvent(h,r);if(event?.reaction?.token!==r.reactionToken||event.reaction.status!=='queued')throw Error('该互动已处理或状态待确认，不会重复请求。');event.reaction.status='running';}const previousJob=h.job;if(previousJob&&previousJob.expiresAt<=Date.now()){if(previousJob.reactionToken){const previous=reactionEvent(h,previousJob);if(previous?.reaction?.token===previousJob.reactionToken&&previous.reaction.status==='running')previous.reaction.status='failed';}h.job=undefined;}if(h.job)throw Error('朋友圈已有正在执行的任务，请稍候。');if(r.automatic&&(!h.auto.enabled||(h.auto.nextAt??Infinity)>Date.now()))throw Error('尚未到发布时间。');h.job={token,kind:r.kind,characterId:r.characterId,postId:r.postId,parentId:r.parentId,expiresAt:Date.now()+120000,...(r.reactionToken?{reactionToken:r.reactionToken}:{})};h.error=undefined;if(r.automatic){h.auto.nextAt=Date.now()+h.auto.hours*3600000;h.auto.cursor++;}});claimed=true;
    const context=await socialContext(r);if(dailyFingerprint(await db.conversations.where('scopeKey').equals(context.c.scopeKey).first())!==context.dailyFingerprint)throw Error('日常资料已更新，未发出过期请求。');const {config,key}=await resolveApi(context.c);const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),120000);let text:string;
    try{let interrupted=false;text=await requestReply(config,key,context.messages,controller.signal,undefined,false,reason=>{interrupted=!!reason;});if(interrupted)throw Error('朋友圈回复未完整结束，原动态和评论保留；不会自动重试。');}finally{clearTimeout(timer);}
    if(!text.trim()||text.length>(r.kind==='post'?3000:1000))throw Error('朋友圈返回内容为空或超过本机容量，未改写原内容。');
