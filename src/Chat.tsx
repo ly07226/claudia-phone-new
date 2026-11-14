@@ -260,6 +260,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       const c = await getConversation(id, worldId);
       if (navigation !== taskSequence.current) return;
       activeConversation.current = c.id;
+      if(c.chatSettings?.proactiveUnreadAt)void db.conversations.update(c.id,{chatSettings:{...c.chatSettings,proactiveUnreadAt:undefined}});
       followBottom.current = true;
       setConversation(c);
       await refresh(c.id, true);
@@ -429,7 +430,7 @@ export function Chat({ worldId }: { worldId?: string }) {
             >
               <MessageAvatar src={s.assets.find(a => a.id === c.avatar)?.data} name={c.name}/>
               <span className="chat-list-info"><strong>{previews[c.id]?.remark || c.name}{previews[c.id]?.pinned && <small className="chat-pinned-label"> · 置顶</small>}</strong><span className="chat-list-preview">{previews[c.id]?.content || "开始聊天"}</span></span>
-              {previews[c.id]?.createdAt !== undefined && <time dateTime={new Date(previews[c.id].createdAt!).toISOString()}>{chatPreviewTime(previews[c.id].createdAt!)}</time>}
+              {previews[c.id]?.unread&&<span className="claudia-chat-unread" aria-label="未读主动消息"/>}{previews[c.id]?.createdAt !== undefined && <time dateTime={new Date(previews[c.id].createdAt!).toISOString()}>{chatPreviewTime(previews[c.id].createdAt!)}</time>}
             </button>
           ))}
           {!!characters.length && !displayedCharacters.length && <p className="empty">没有匹配的聊天</p>}
