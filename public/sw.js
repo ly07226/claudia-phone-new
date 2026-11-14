@@ -106,6 +106,11 @@ self.addEventListener("push", event => {
     const title=typeof data.title==="string"?data.title.slice(0,100):"Claudia Phone";
     const body=typeof data.body==="string"?data.body.slice(0,300):"收到一条新消息";
     const conversationId=typeof data.conversationId==="string"?data.conversationId.slice(0,128):"";
+    // A second, device-local guard: if the PWA is visible and focused,
+    // avoid a redundant iOS banner even if server presence was stale.
+    // The chat itself remains responsible for rendering the saved reply.
+    const windows=await self.clients.matchAll({type:"window",includeUncontrolled:true});
+    if(windows.some(client=>client.visibilityState==="visible"&&client.focused)) return;
     await self.registration.showNotification(title,{body,tag:conversationId?"claudia-"+conversationId:undefined,data:{conversationId},icon:"/apple-icon.png?v=2"});
   })());
 });
