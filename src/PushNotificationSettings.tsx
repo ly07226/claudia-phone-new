@@ -5,7 +5,9 @@ const publicKey=(import.meta.env.VITE_PUSH_PUBLIC_KEY as string|undefined)?.trim
 const subscriptionApi=(import.meta.env.VITE_PUSH_SUBSCRIPTION_API as string|undefined)?.trim()??'';
 async function registerRemote(subscription:PushSubscription){
  if(!subscriptionApi)throw Error('服务端订阅接口尚未配置。');
- const response=await fetch(subscriptionApi,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({subscription:subscription.toJSON()}),credentials:'include'});
+ const target=new URL(subscriptionApi,window.location.origin);
+ if(target.origin!==window.location.origin)throw Error('推送订阅接口必须与小手机同源，避免订阅凭据发往第三方。');
+ const response=await fetch(target.href,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({subscription:subscription.toJSON()}),credentials:'include'});
  if(!response.ok)throw Error('服务端订阅登记失败（HTTP '+response.status+'）。');
 }
 
@@ -58,7 +60,7 @@ export function PushNotificationSettings(){
  }
  async function unsubscribe(){
   setBusy(true);setMessage('');
-  try{const registration=await navigator.serviceWorker.getRegistration();const sub=await registration?.pushManager.getSubscription();if(sub){if(!subscriptionApi)throw Error('服务端未配置，无法安全注销远程订阅。');const response=await fetch(subscriptionApi,{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint}),credentials:'include'});if(!response.ok)throw Error('服务器注销失败（HTTP '+response.status+'）。');await sub.unsubscribe();}await inspect();setMessage('已取消本机与服务端的推送订阅。');}
+  try{const registration=await navigator.serviceWorker.getRegistration();const sub=await registration?.pushManager.getSubscription();if(sub){if(!subscriptionApi)throw Error('服务端未配置，无法安全注销远程订阅。');const target=new URL(subscriptionApi,window.location.origin);if(target.origin!==window.location.origin)throw Error('推送订阅接口必须与小手机同源。');const response=await fetch(target.href,{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint}),credentials:'include'});if(!response.ok)throw Error('服务器注销失败（HTTP '+response.status+'）。');await sub.unsubscribe();}await inspect();setMessage('已取消本机与服务端的推送订阅。');}
   catch(e){setState('error');setMessage(e instanceof Error?e.message:'取消失败');}
   finally{setBusy(false);}
  }
