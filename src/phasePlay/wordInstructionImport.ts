@@ -34,8 +34,34 @@ export function parsePhaseInstructionText(body:string):ImportedPhaseInstruction[
  if(!items.length)throw Error('Word 文档中没有识别到可用的文字指令。');
  return items;
 }
-export async function readPhaseInstructionWord(file:File){
+export interface WordImportProgress {stage:'reading'|'classifying'|'done';processed:number;total:number}
+export async function readPhaseInstructionWord(file:File,onProgress?:(progress:WordImportProgress)=>void){
  if(!/\.docx$/i.test(file.name))throw Error('请上传 .docx 格式的 Word 文件；旧版 .doc 请先另存为 .docx。');
+ onProgress?.({stage:'reading',processed:0,total:0});
  const parsed=await readWizardDocument(file);
- return parsePhaseInstructionText(parsed.longBody??'');
+ const lines=(parsed.longBody??'').split(/\r?\n/);
+ let phase:Phase|'unclassified'='unclassified';
+ const items:ImportedPhaseInstruction[]=[],seen=new Set<string>();
+ onProgress?.({stage:'classifying',processed:0,total:lines.length});
+ for(let i=0;i<lines.length;i++){
+  const line=lines[i].trim();
+  if(line){
+   const title=line.match(heading);
+   if(title)phase=color[title[1]]??color[title[1].toLowerCase()];
+   else{
+    const text=line.replace(/^\s*(?:[-*•]|\d{1,4}[.、．)）])\s*/u,'').trim();
+    if(!text||text.length>1000)throw Error('文档存在空指令或超过1000字的段落，请修改后重新上传。');
+    const key=normalizedInstruction(text);
+    if(!seen.has(key)){seen.add(key);items.push({phase:phase==='unclassified'?classifyInstruction(text):phase,text});}
+    if(items.length>1000)throw Error('单次最多导入1000条指令，请拆分文档。');
+   }
+  }
+  if((i+1)%25===0||i===lines.length-1){
+   onProgress?.({stage:'classifying',processed:i+1,total:lines.length});
+   await new Promise<void>(resolve=>setTimeout(resolve,0));
+  }
+ }
+ if(!items.length)throw Error('Word 文档中没有识别到可用的文字指令。');
+ onProgress?.({stage:'done',processed:lines.length,total:lines.length});
+ return items;
 }
