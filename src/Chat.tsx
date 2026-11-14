@@ -34,7 +34,7 @@ import {
   selectVariant,
 } from "./messageOperations";
 import { MessageAvatar, ChatMessage, MessageTools, SnapshotTools } from "./MessageUI";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { db, usePhone } from "./store";
 import type { Conversation, Message, MessageVariant, MessageQuote } from "./chatTypes";
 import type { ApiConfig } from "./api";
@@ -415,7 +415,48 @@ export function Chat({ worldId }: { worldId?: string }) {
     setMenuId(null);
     setShowSnapshots(false);
   }
-  const timeLabels=chatTimeLabels(messages);
+  const timeLabels=useMemo(()=>chatTimeLabels(messages),[messages]);
+  // Keep expensive message bubble JSX stable while the composer text changes.
+  // Include state read by message actions so menus, versions and continuations stay current.
+  const renderedMessages=useMemo(()=>messages.map((m) => (
+              <Fragment key={m.id}>
+              {timeLabels.has(m.id)&&<div className="chat-time-divider" data-chat-time-for={m.id}><time dateTime={new Date(m.createdAt).toISOString()}>{timeLabels.get(m.id)}</time></div>}
+              <ChatMessage
+                message={m}
+                playbackKey={replyPresentation?.conversationId===conversation.id && m.role==='assistant' && !replyPresentation.known.has(JSON.stringify([m.id,m.activeVariantId,m.content])) ? `${replyPresentation.sequence}:${m.id}:${m.activeVariantId??''}` : undefined}
+                onReveal={onBubbleReveal}
+                variants={variants[m.id] || []}
+                characterName={displayName}
+                characterAvatar={avatarSrc}
+                userAvatar={userAvatar}
+                userName={userIdentity.name}
+                conversation={conversation}
+                messages={messages}
+                onLocate={locateQuote}
+                onMenu={(selected) => {
+                  followBottom.current=false;scrollRequested.current=false;preserveTop.current=historyRef.current?.scrollTop??null;
+                  setSelection(selected);
+                  setMenuPath({timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0});
+                  setReplyPresentation(null);
+                  setPreviewVariant(undefined);
+                  setMenuId(m.id);
+                }}
+                onVersion={(v) => void chooseVariant(m, v)}
+              />
+              {visibleFailures.filter(f=>f.messageId===m.id).map(f=><ReplyFailureNotice key={f.id} details={f.failure}/>)}
+              {m.role==='assistant'&&conversation.mode==='daily' &&validInterruption(m.replyInterruption)&&<p role="status" className="hint">
+                {interruptionLabel(m.replyInterruption)}
+                {m.id===messages.at(-1)?.id&&!m.userEdited&&!m.bubbleDeletion&&<button type="button" className="text-button" title="会额外调用一次 API，原文保留。" disabled={busy} onClick={()=>{
+                  if(busy)return;
+                  setError('');
+                  try{const task=startGenerationTask({conversation,expectedPath:{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0},text:'',retry:false,continuationId:m.id,images:[]});void task.done.catch(()=>{});}catch(e){setError(e instanceof Error?e.message:'续接未发起。');}
+                }}>继续生成</button>}
+              </p>}
+              </Fragment>
+            )),[
+    messages,timeLabels,replyPresentation,variants,displayName,avatarSrc,userAvatar,
+    userIdentity.name,conversation,onBubbleReveal,visibleFailures,busy
+  ]);
   if(requests && !worldId && !conversation)return <div className="chat-hub-new-contacts"><button className="message-action" onClick={()=>s.set({activeApp:'角色管理'})}>添加联系人（角色管理）</button><FriendRequests characters={applications} onClose={()=>setRequests(false)}/></div>;
   const listContent=(<>
           {displayedCharacters.map((c) => (
@@ -491,42 +532,7 @@ export function Chat({ worldId }: { worldId?: string }) {
             {!messages.length && (
               <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
             )}
-            {messages.map((m) => (
-              <Fragment key={m.id}>
-              {timeLabels.has(m.id)&&<div className="chat-time-divider" data-chat-time-for={m.id}><time dateTime={new Date(m.createdAt).toISOString()}>{timeLabels.get(m.id)}</time></div>}
-              <ChatMessage
-                message={m}
-                playbackKey={replyPresentation?.conversationId===conversation.id && m.role==='assistant' && !replyPresentation.known.has(JSON.stringify([m.id,m.activeVariantId,m.content])) ? `${replyPresentation.sequence}:${m.id}:${m.activeVariantId??''}` : undefined}
-                onReveal={onBubbleReveal}
-                variants={variants[m.id] || []}
-                characterName={displayName}
-                characterAvatar={avatarSrc}
-                userAvatar={userAvatar}
-                userName={userIdentity.name}
-                conversation={conversation}
-                messages={messages}
-                onLocate={locateQuote}
-                onMenu={(selected) => {
-                  followBottom.current=false;scrollRequested.current=false;preserveTop.current=historyRef.current?.scrollTop??null;
-                  setSelection(selected);
-                  setMenuPath({timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0});
-                  setReplyPresentation(null);
-                  setPreviewVariant(undefined);
-                  setMenuId(m.id);
-                }}
-                onVersion={(v) => void chooseVariant(m, v)}
-              />
-              {visibleFailures.filter(f=>f.messageId===m.id).map(f=><ReplyFailureNotice key={f.id} details={f.failure}/>)}
-              {m.role==='assistant'&&conversation.mode==='daily' &&validInterruption(m.replyInterruption)&&<p role="status" className="hint">
-                {interruptionLabel(m.replyInterruption)}
-                {m.id===messages.at(-1)?.id&&!m.userEdited&&!m.bubbleDeletion&&<button type="button" className="text-button" title="会额外调用一次 API，原文保留。" disabled={busy} onClick={()=>{
-                  if(busy)return;
-                  setError('');
-                  try{const task=startGenerationTask({conversation,expectedPath:{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0},text:'',retry:false,continuationId:m.id,images:[]});void task.done.catch(()=>{});}catch(e){setError(e instanceof Error?e.message:'续接未发起。');}
-                }}>继续生成</button>}
-              </p>}
-              </Fragment>
-            ))}
+            {renderedMessages}
             {remotePending&&<p role="status">请求状态待确认：可能仍在其他窗口处理中。可等待，或停止后手动重试；不会自动重复请求。</p>}
             {!busy&&conversation.sendingToken&&!runningTask(generationTask)&&<p role="status">上次请求尚未确认完成，可能已中断；不会自动重发。请确认后手动重试。</p>}
             {visibleFailures.filter(f=>!f.messageId).map(f=><ReplyFailureNotice key={f.id} details={f.failure}/>)}
