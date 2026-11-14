@@ -47,7 +47,6 @@ export function ProactiveScheduler(){
     const hours=settings.proactiveHours??3;
     if(!Number.isFinite(hours)||hours<0.5||hours>24)continue;
     const messages=await activeMessages(c.id);
-    if(messages.at(-1)?.role==='user')continue;
     const lastUser=[...messages].reverse().find(m=>m.role==='user')?.createdAt??0;
     const anchor=Math.max(c.createdAt,settings.proactiveEnabledAt??c.createdAt,lastUser);
     if(settings.proactiveAttemptFor===anchor)continue;
