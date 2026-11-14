@@ -64,7 +64,7 @@ export function AudioKeepAliveSettings(){
   initializeAudioKeepAlive();
   const audio=player();
   if(pending)return;
-  if(readEnabled()&&!audio.paused){
+  if(readEnabled()){
    ++operation;
    try{localStorage.removeItem(STORAGE_KEY);}catch{}
    audio.pause();audio.currentTime=0;
