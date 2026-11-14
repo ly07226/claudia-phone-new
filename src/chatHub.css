@@ -120,3 +120,6 @@
 [data-chat-hub] .hub-post .hub-failure{margin:4px 0}
 [data-chat-hub] .hub-failure>button{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;padding:4px 0;color:inherit;font-size:12px}
 [data-chat-hub] .hub-failure>button>span{display:inline-grid;place-items:center;border:1px solid currentColor;border-radius:50%;width:15px;height:15px;font-size:11px}
+
+[data-chat-hub] .hub-post-popover[data-has-retry=true]{width:222px}
+[data-chat-hub] .hub-post-popover button:disabled{opacity:.5;cursor:default}

@@ -1,3 +1,4 @@
+import type {CSSProperties} from 'react';
 import {ChatHub} from './ChatHub';
 import {interruptionLabel,validInterruption} from './chatCompletion';
 import {ReplyPending,ReplyFailureNotice} from './ReplyStatus';
@@ -157,6 +158,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       .subscribe({ next: rows => setPreviews({scope: previewScope, rows}), error: () => setError("无法读取聊天预览，请稍后重试。") });
     return () => subscription.unsubscribe();
   }, [characterIds, worldId, conversation?.id]);
+  const appliedSnapshot = useRef<{conversationId:string;timelineId:string|undefined;epoch:number;messageSignature:string;variantSignature:string}|null>(null);
   async function loadSnapshot(id: string, scroll = false) {
     const ticket=++refreshTicket.current;
     const data=await db.transaction("r",[db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{
@@ -182,12 +184,23 @@ export function Chat({ worldId }: { worldId?: string }) {
       );
     if (mounted.current && activeConversation.current === id) {
       if(visiblePath.current?.conversationId===id && visiblePath.current.timelineId!==current.activeTimelineId && (!pending.current || pending.current.signal.aborted))setReplyPresentation(null);
+      const path={conversationId:id,timelineId:current.activeTimelineId,epoch:current.timelineEpoch??0};
+      // Dexie may emit repeated snapshots while the user is merely viewing or
+      // typing. Do not replace the message array and reset scroll for identical
+      // data; that can visibly jump the history even without keyboard changes.
+      const messageSignature=JSON.stringify(rows);
+      const variantSignature=JSON.stringify(groups);
+      const prev=appliedSnapshot.current;
+      const same=prev?.conversationId===id&&prev.timelineId===path.timelineId&&prev.epoch===path.epoch&&prev.messageSignature===messageSignature&&prev.variantSignature===variantSignature;
+      visiblePath.current=path;
+      // Metadata (lease/settings) must update even when rendered messages do not.
+      setConversation(previous=>JSON.stringify(previous)===JSON.stringify(current)?previous:current);
+      if(same)return;
+      appliedSnapshot.current={...path,messageSignature,variantSignature};
       if (scroll && followBottom.current) {
         scrollRequested.current = true;
         preserveTop.current = null;
       } else preserveTop.current = historyRef.current?.scrollTop ?? null;
-      visiblePath.current={conversationId:id,timelineId:current.activeTimelineId,epoch:current.timelineEpoch??0};
-      setConversation(current);
       setMessages(rows);
       setVariants(groups);
     }
@@ -236,6 +249,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   async function open(id: string) {
     const navigation = ++taskSequence.current;
     setError("");
+    appliedSnapshot.current=null;
     setMessages([]);
     setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
     setReplyPresentation(null);
@@ -437,7 +451,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     <label className="chat-search"><Search size={20} aria-hidden="true"/><input type="search" aria-label="搜索聊天" placeholder="搜索聊天…" value={search} onChange={e=>setSearch(e.target.value)} autoComplete="off"/>{search&&<button type="button" aria-label="清空聊天搜索" onClick={()=>setSearch('')}><X size={18}/></button>}</label>
 {applications.length>0&&<button className="friend-requests-entry" onClick={()=>setRequests(true)}>新的好友申请 <span>{applications.length}</span></button>}{listContent}{error&&<p role="alert">{error}</p>}</>}/>;
   return (
-    <div className={`chat-app ${conversation ? "chat-immersive" : ""} ${conversation?.chatSettings?.background ? 'chat-custom-background' : ''}`} style={conversation?.chatSettings?.background?.kind==='color'?{background:conversation.chatSettings.background.color}:conversation?.chatSettings?.background?.kind==='image'?{backgroundImage:`linear-gradient(var(--theme-chat-image-wash,rgba(243,245,236,.4)),var(--theme-chat-image-wash,rgba(243,245,236,.4))),url("${s.assets.find(a=>a.id===(conversation.chatSettings?.background?.kind==='image'?conversation.chatSettings.background.assetId:undefined))?.data || ''}")`,backgroundSize:'cover',backgroundPosition:'center'}:undefined}>
+    <div className={`chat-app ${conversation ? "chat-immersive" : ""} ${conversation?.chatSettings?.background ? 'chat-custom-background' : ''}`} style={conversation?.chatSettings?.background?.kind==='color'?{background:conversation.chatSettings.background.color}:conversation?.chatSettings?.background?.kind==='image'?{'--chat-background-image':`linear-gradient(var(--theme-chat-image-wash,rgba(243,245,236,.4)),var(--theme-chat-image-wash,rgba(243,245,236,.4))),url("${s.assets.find(a=>a.id===(conversation.chatSettings?.background?.kind==='image'?conversation.chatSettings.background.assetId:undefined))?.data || ''}")`} as CSSProperties:undefined}>
       {!conversation && <h2 className="chat-list-title">聊天</h2>}
       {!conversation && !worldId && <label className="chat-search"><Search size={20} aria-hidden="true"/><input type="search" aria-label="搜索聊天" placeholder="搜索聊天…" value={search} onChange={e=>setSearch(e.target.value)} autoComplete="off"/>{search && <button type="button" aria-label="清空聊天搜索" onClick={()=>setSearch("")}><X size={18}/></button>}</label>}
       {!conversation && !worldId && applications.length>0 && <button className="friend-requests-entry" onClick={()=>setRequests(true)}>新的好友申请 <span>{applications.length}</span></button>}

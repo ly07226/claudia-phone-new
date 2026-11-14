@@ -1558,6 +1558,23 @@ textarea {
   padding-left: var(--safe-left);
   padding-right: var(--safe-right);
 }
+/* Background is viewport-sized and independent of the keyboard-resized chat shell.
+   The header and message scroller remain separate flex children above this layer. */
+.chat-app.chat-immersive{position:relative;isolation:isolate}
+.chat-app.chat-immersive[style*="--chat-background-image"]{background-color:transparent}
+.chat-app.chat-immersive[style*="--chat-background-image"]::before{
+  content:"";position:fixed;inset:0 auto auto 0;
+  width:100vw;height:100svh;
+  background-image:var(--chat-background-image);
+  background-position:center;background-size:cover;background-repeat:no-repeat;
+  pointer-events:none;z-index:-1;
+}
+/* Status bar always uses the current theme, never the conversation image. */
+.chat-app.chat-immersive::after{
+  content:"";position:fixed;top:0;left:0;right:0;
+  height:var(--safe-top);background:var(--theme-card,#edf2e5);
+  pointer-events:none;z-index:11;
+}
 .chat-nav {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) 44px;
