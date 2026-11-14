@@ -60,7 +60,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const busy=localBusy||runningTask(generationTask)||remotePending;
   const taskMatches=!!conversation&&generationTask?.timelineId===conversation.activeTimelineId&&generationTask?.epoch===(conversation.timelineEpoch??0);
   const failedTasks=useGenerationFailures(conversation?.id);
-  const visibleFailures=failedTasks.filter(f=>f.timelineId===conversation?.activeTimelineId&&f.epoch===(conversation?.timelineEpoch??0)&&(!f.messageId||messages.some(m=>m.id===f.messageId)));
+  const visibleFailures=useMemo(()=>failedTasks.filter(f=>f.timelineId===conversation?.activeTimelineId&&f.epoch===(conversation?.timelineEpoch??0)&&(!f.messageId||messages.some(m=>m.id===f.messageId))),[failedTasks,conversation?.activeTimelineId,conversation?.timelineEpoch,messages]);
   useEffect(()=>{setLeaseClock(Date.now());const until=conversation?.sendingUntil;if(!until)return;const timer=setTimeout(()=>setLeaseClock(Date.now()),Math.max(0,until-Date.now()+1));return()=>clearTimeout(timer);},[conversation?.id,conversation?.sendingToken,conversation?.sendingUntil]);
   const [savingMessage, setSavingMessage] = useState(false);
   const [attachmentOpen,setAttachmentOpen]=useState(false);
