@@ -28,6 +28,8 @@ let snapshot:KeepAliveSnapshot={enabled:readEnabled(),playing:false,error:''};
 const subscribers=new Set<()=>void>();
 function publish(patch:Partial<KeepAliveSnapshot>){snapshot={...snapshot,...patch};subscribers.forEach(listener=>listener());}
 let initialized=false;
+let operation=0;
+let pending=false;
 /** Persistent audio owner: listeners must survive leaving Settings for Chat. */
 export function initializeAudioKeepAlive(){
  if(initialized)return;
@@ -36,7 +38,9 @@ export function initializeAudioKeepAlive(){
  const sync=()=>publish({playing:!audio.paused&&!audio.ended});
  const resume=()=>{
   if(!readEnabled()||!audio.paused)return;
-  void audio.play().then(()=>publish({enabled:true,playing:true,error:''})).catch(()=>publish({playing:false,error:'系统中断了播放，请在设置中手动恢复。'}));
+  if(pending)return;
+  const token=++operation;pending=true;
+  void audio.play().then(()=>{if(token===operation)publish({enabled:true,playing:true,error:''});}).catch(()=>{if(token===operation)publish({playing:false,error:'系统中断了播放，请在设置中手动恢复。'});}).finally(()=>{if(token===operation)pending=false;});
  };
  audio.addEventListener('play',sync);
  audio.addEventListener('pause',sync);
@@ -58,17 +62,22 @@ export function AudioKeepAliveSettings(){
  async function toggle(){
   initializeAudioKeepAlive();
   const audio=player();
-  if(state.enabled&&state.playing){
+  if(pending)return;
+  if(readEnabled()&&!audio.paused){
+   ++operation;
    try{localStorage.removeItem(STORAGE_KEY);}catch{}
    audio.pause();audio.currentTime=0;
    publish({enabled:false,playing:false,error:''});
    return;
   }
+  const token=++operation;pending=true;
   try{
    await audio.play();
+   if(token!==operation)return;
    try{localStorage.setItem(STORAGE_KEY,'true');}catch{}
    publish({enabled:true,playing:true,error:''});
-  }catch(e){publish({playing:false,error:e instanceof Error?e.message:'音频启动失败，请点击重试。'});}
+  }catch(e){if(token===operation)publish({playing:false,error:e instanceof Error?e.message:'音频启动失败，请点击重试。'});}
+  finally{if(token===operation)pending=false;}
  }
  return <section className="card form" aria-label="后台音频保活">
   <h3>后台音频保活</h3>
