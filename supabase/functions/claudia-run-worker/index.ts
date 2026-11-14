@@ -13,7 +13,9 @@ Deno.serve(async request=>{
  const url=Deno.env.get('SUPABASE_URL'),key=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
  const aiKey=Deno.env.get('CLAUDIA_MANAGED_AI_KEY'),model=Deno.env.get('CLAUDIA_MANAGED_AI_MODEL');
  const aiUrl=Deno.env.get('CLAUDIA_MANAGED_AI_URL');
- if(Deno.env.get('CLAUDIA_BACKGROUND_EXECUTOR_READY')!=='true'||!url||!key||!aiKey||!model||!aiUrl)return json(503,{error:'executor_not_configured'});
+ // Never run this managed-model worker against user-owned BYOK tasks.
+ // The real BYOK worker must be a separate endpoint with encrypted credentials.
+ if(Deno.env.get('CLAUDIA_MANAGED_WORKER_EXPLICIT_OPT_IN')!=='true'||Deno.env.get('CLAUDIA_BACKGROUND_EXECUTOR_READY')!=='true'||!url||!key||!aiKey||!model||!aiUrl)return json(503,{error:'executor_not_configured'});
  // Prevent SSRF: only a fixed operator-approved HTTPS endpoint, never a client-provided URL.
  let endpoint:URL;
  try{endpoint=new URL(aiUrl);if(endpoint.protocol!=='https:'||endpoint.username||endpoint.password||endpoint.search||endpoint.hash||endpoint.pathname!=='/v1/chat/completions'||!['api.openai.com'].includes(endpoint.hostname))throw Error();}
