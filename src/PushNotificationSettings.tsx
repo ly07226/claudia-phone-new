@@ -8,6 +8,7 @@ export function PushNotificationSettings(){
  const [state,setState]=useState<PushState>('checking');
  const [message,setMessage]=useState('');
  const [busy,setBusy]=useState(false);
+ const [testBusy,setTestBusy]=useState(false);
  async function inspect(){
   if(!('serviceWorker'in navigator)||!('PushManager'in window)||!('Notification'in window)){setState('unsupported');return;}
   if(!installed()){setState('not-installed');return;}
@@ -36,6 +37,19 @@ export function PushNotificationSettings(){
   }catch(e){setState('error');setMessage(e instanceof Error?e.message:'推送订阅失败');}
   finally{setBusy(false);}
  }
+ async function testLocalNotification(){
+  if(testBusy)return;setTestBusy(true);setMessage('');
+  try{
+   if(!('Notification'in window)||!('serviceWorker'in navigator))throw Error('当前环境不支持系统通知。');
+   if(!installed())throw Error('请从添加到主屏幕的小手机图标打开后测试。');
+   const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();
+   if(permission!=='granted')throw Error('没有取得通知权限。');
+   const registration=await navigator.serviceWorker.ready;
+   await registration.showNotification('Claudia Phone · 通知测试',{body:'这是一条本机测试通知，不代表后台 AI 或远程推送已经接通。',tag:'claudia-local-test',icon:'/apple-icon.png?v=2'});
+   setMessage('已向系统提交本机测试通知；是否显示横幅取决于 iPhone 通知设置。');
+  }catch(e){setMessage(e instanceof Error?e.message:'本机通知测试失败。');}
+  finally{setTestBusy(false);}
+ }
  async function unsubscribe(){
   setBusy(true);setMessage('');
   try{const registration=await navigator.serviceWorker.getRegistration();const sub=await registration?.pushManager.getSubscription();if(sub)await sub.unsubscribe();await inspect();setMessage('已取消本机浏览器推送订阅。');}
@@ -50,6 +64,7 @@ export function PushNotificationSettings(){
   <p role="status">{descriptions[state]}</p>
   {(state==='unsubscribed'||state==='error')&&<button type="button" className="list-row" disabled={busy||!publicKey} onClick={()=>void subscribe()}>{busy?'正在订阅…':'开启系统通知'}</button>}
   {state==='subscribed'&&<button type="button" className="list-row" disabled={busy} onClick={()=>void unsubscribe()}>{busy?'正在处理…':'取消本机通知订阅'}</button>}
+  {(state==='unconfigured'||state==='unsubscribed'||state==='subscribed'||state==='error')&&<button type="button" className="list-row" disabled={testBusy||busy} onClick={()=>void testLocalNotification()}>{testBusy?'正在测试…':'测试苹果系统通知（本机）'}</button>}
   {message&&<p role="status">{message}</p>}
   <p className="hint">订阅不会向推送服务发送 AI 密钥。当前仅实现设备端订阅入口；服务端登记、消息投递与跨设备同步仍待实现。</p>
  </section>;
