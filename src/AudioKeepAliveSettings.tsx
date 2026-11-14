@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 
 const STORAGE_KEY='claudia:audio-keepalive-enabled';
-const TONE_SECONDS=2;
+const TONE_SECONDS=30;
 /** A genuine silent WAV played as media, not a busy JavaScript timer. */
 function silentWav():string {
  const sampleRate=8000, samples=sampleRate*TONE_SECONDS;
@@ -25,6 +25,7 @@ function player():HTMLAudioElement {
 export function AudioKeepAliveSettings(){
  const [enabled,setEnabled]=useState(()=>{try{return localStorage.getItem(STORAGE_KEY)==='true';}catch{return false;}});
  const [playing,setPlaying]=useState(false);
+ const [resumeNotice,setResumeNotice]=useState('');
  const [backgrounded,setBackgrounded]=useState(()=>document.visibilityState==='hidden');
  const [error,setError]=useState('');
  const audioRef=useRef<HTMLAudioElement|null>(null);
@@ -32,8 +33,16 @@ export function AudioKeepAliveSettings(){
   const audio=player();audioRef.current=audio;
   const sync=()=>setPlaying(!audio.paused&&!audio.ended);
   audio.addEventListener('play',sync);audio.addEventListener('pause',sync);audio.addEventListener('ended',sync);
-  const onVisible=()=>{setBackgrounded(document.visibilityState==='hidden');sync();};
-  const onPageShow=()=>{setBackgrounded(document.visibilityState==='hidden');sync();};
+  const resume=()=>{
+   setBackgrounded(document.visibilityState==='hidden');sync();
+   // Only resume a user-enabled session. Never start playback for new users.
+   let enabled=false;try{enabled=localStorage.getItem(STORAGE_KEY)==='true';}catch{}if(!enabled||!audio.paused)return;
+   void audio.play().then(()=>{setResumeNotice('');setError('');sync();}).catch(()=>{
+    setResumeNotice('系统已暂停音频；请点击「开启后台保活」手动恢复。');sync();
+   });
+  };
+  const onVisible=()=>{if(document.visibilityState==='visible')resume();else {setBackgrounded(true);sync();}};
+  const onPageShow=()=>resume();
   const onAudioError=()=>{sync();setError('音频播放发生错误，请点击开启重新尝试。');};
   audio.addEventListener('error',onAudioError);
   window.addEventListener('pageshow',onPageShow);
@@ -45,20 +54,21 @@ export function AudioKeepAliveSettings(){
  },[]);
  async function toggle(){
   const audio=audioRef.current??player();
-  if(playing){audio.pause();audio.currentTime=0;setEnabled(false);setPlaying(false);setError('');
+  if(playing){audio.pause();audio.currentTime=0;setEnabled(false);setPlaying(false);setError('');setResumeNotice('');
    try{localStorage.removeItem(STORAGE_KEY);}catch{}return;}
-  try{await audio.play();setEnabled(true);setPlaying(true);setError('');
+  try{await audio.play();setEnabled(true);setPlaying(true);setError('');setResumeNotice('');
    try{localStorage.setItem(STORAGE_KEY,'true');}catch{}}
   catch(e){setEnabled(false);setPlaying(false);setError(e instanceof Error?e.message:'音频启动失败，请在页面内点击重试。');}
  }
  return <section className="card form" aria-label="后台音频保活">
   <h3>后台保活（实验性）</h3>
-  <p className="hint">播放无声循环音频，尝试延长 iPhone 切出小手机后的运行时间。不保证后台定时器、网络或 AI 回复持续执行，也不等于离线推送。</p>
+  <p className="hint">播放 30 秒无声循环音频，尝试延长 iPhone 切出小手机后的运行时间。不保证后台定时器、网络或 AI 回复持续执行，也不等于离线推送。</p>
   <button type="button" className="list-row" onClick={()=>void toggle()} aria-pressed={playing}>
    <span>{playing?'停止后台保活':'开启后台保活'}</span><span>{playing?'播放中':enabled?'已中断':'关闭'}</span>
   </button>
   {enabled&&!playing&&<p role="status">音频已中断，点击开启以重新启动。</p>}
   {playing&&<p role="status">{backgrounded?'后台播放状态：音频尚在播放（网页恢复后才能核实是否持续）':'无声音频正在播放。切换 App 或锁屏后返回这里，可检查是否被系统暂停。'}</p>}
+  {resumeNotice&&<p role="status">{resumeNotice}</p>}
   {error&&<p role="alert">{error}</p>}
   <p className="hint">可能增加耗电、占用媒体控制中心或干扰其他音频。iOS 可能随时暂停网页；建议在锁屏及切换 App 后实际测试。</p>
  </section>;
