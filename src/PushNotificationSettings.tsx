@@ -1,5 +1,12 @@
 import {cloudConfigured,cloudFunctionRequest} from './cloudIdentity';
-import {useEffect,useState} from 'react';
+import {useEffect,useState,type CSSProperties} from 'react';
+
+const switchStyle=(on:boolean):CSSProperties=>({position:'relative',width:52,height:32,minWidth:52,borderRadius:20,border:'none',padding:0,background:on?'#34c759':'#d1d5db',transition:'background .2s',cursor:'pointer',flexShrink:0});
+const knobStyle=(on:boolean):CSSProperties=>({position:'absolute',top:2,left:on?22:2,width:28,height:28,borderRadius:'50%',background:'#fff',boxShadow:'0 1px 3px #0003',transition:'left .2s'});
+
+const LOCAL_NOTIFICATION_KEY='claudia:local-reply-notifications-enabled';
+const localOn=()=>{try{return localStorage.getItem(LOCAL_NOTIFICATION_KEY)!=='false';}catch{return true;}};
+export function localReplyNotificationsEnabled(){return localOn();}
 
 type PushState='checking'|'unsupported'|'not-installed'|'denied'|'unconfigured'|'unsubscribed'|'subscribed'|'error';
 const publicKey=(import.meta.env.VITE_PUSH_PUBLIC_KEY as string|undefined)?.trim()??'';
@@ -15,6 +22,7 @@ function installed(){return window.matchMedia('(display-mode: standalone)').matc
 export function PushNotificationSettings(){
  const [state,setState]=useState<PushState>('checking');
  const [message,setMessage]=useState('');
+ const [localEnabled,setLocalEnabled]=useState(localOn);
  const [busy,setBusy]=useState(false);
  const [testBusy,setTestBusy]=useState(false);
  const [localPermission,setLocalPermission]=useState(()=>typeof Notification==='undefined'?'unsupported':Notification.permission);
@@ -71,6 +79,8 @@ export function PushNotificationSettings(){
    setLocalPermission(permission);
    if(permission!=='granted')throw Error('系统通知未授权，请在系统设置中允许通知。');
    await navigator.serviceWorker.ready;
+   try{localStorage.setItem(LOCAL_NOTIFICATION_KEY,'true');}catch{}
+   setLocalEnabled(true);
    setMessage('本机回复完成通知已授权。只要后台网页仍在运行并完成回复，就会尝试发送通知；不需要 Supabase。');
   }catch(e){setMessage(e instanceof Error?e.message:'本机通知授权失败。');}
   finally{setTestBusy(false);}
@@ -86,9 +96,7 @@ export function PushNotificationSettings(){
  return <section className="card form" aria-label="消息通知">
   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
    <div><h3 style={{margin:0}}>消息通知</h3><p className="hint" style={{margin:'6px 0 0'}}>后台收到角色回复时提醒</p></div>
-   <button type="button" onClick={()=>void enableLocalNotifications()} disabled={testBusy||localPermission==='granted'||localPermission==='unsupported'||localPermission==='denied'} aria-label="开启消息通知" style={{flexShrink:0,border:'1px solid var(--border, #cbd5df)',borderRadius:999,padding:'9px 14px',background:localPermission==='granted'?'#dcefe5':'transparent',color:'inherit',font:'inherit'}}>
-    {testBusy?'授权中…':localPermission==='granted'?'已开启':localPermission==='denied'?'已拒绝':localPermission==='unsupported'?'不支持':'开启'}
-   </button>
+   <button type="button" role="switch" aria-label="消息通知" aria-checked={localPermission==='granted'&&localEnabled} disabled={testBusy} onClick={()=>{if(localPermission==='granted'){const next=!localEnabled;try{localStorage.setItem(LOCAL_NOTIFICATION_KEY,String(next));}catch{}setLocalEnabled(next);}else void enableLocalNotifications();}} style={switchStyle(localPermission==='granted'&&localEnabled)}><span style={knobStyle(localPermission==='granted'&&localEnabled)}/></button>
   </div>
   {message&&<p role="status" className="hint" style={{margin:'8px 0 0'}}>{message}</p>}
  </section>;
