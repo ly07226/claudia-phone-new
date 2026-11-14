@@ -1,4 +1,5 @@
 import {activeMessages} from './messagePath';
+import {messageBubbles} from './messageBubbles';
 import {resolveTimelinePath} from './timelines';
 import {describeReplyFailure,type ReplyFailureDetails} from './replyFailure';
 import {useSyncExternalStore} from 'react';
@@ -7,15 +8,33 @@ import {sendMessage,regenerateMessage,continueMessage,type ExpectedPath} from '.
 import {cancelGeneration,invalidateGeneration} from './messageOperations';
 import type {Conversation,MessageQuote} from './chatTypes';
 
-/** Best-effort notification when an already-running request finishes while the PWA is hidden. */
+/** Send the exact saved chat bubbles as separate iOS notifications, in order.
+ * Never generate, mutate or split a second copy of the reply.
+ */
 async function notifyHiddenReply(characterId:string,conversationId:string){
  if(typeof document==='undefined'||document.visibilityState==='visible'||typeof Notification==='undefined'||Notification.permission!=='granted'||!('serviceWorker'in navigator))return;
  try{
   const registration=await navigator.serviceWorker.getRegistration();
   if(!registration)return;
+  const rows=await activeMessages(conversationId);
+  const reply=rows.at(-1);
+  if(!reply||reply.role!=='assistant')return;
   const character=await db.characters.get(characterId);
-  await registration.showNotification(character?.name??'Claudia Phone',{body:'角色回复已完成，点击返回小手机查看。',tag:'claudia-reply-'+conversationId,data:{conversationId},icon:'/apple-icon.png?v=2'});
- }catch{/* Notification delivery must never affect saved messages. */}
+  const bubbles=messageBubbles(reply).filter(part=>part.kind==='text'&&part.text.trim());
+  for(let index=0;index<bubbles.length;index++){
+   // Returning to the app stops the remaining banners; the saved bubbles stay intact.
+   if(document.visibilityState==='visible')break;
+   const part=bubbles[index];
+   if(part.kind!=='text')continue;
+   await registration.showNotification(character?.name??'Claudia Phone',{
+    body:part.text.trim().slice(0,300),
+    tag:'claudia-reply-'+reply.id+'-'+index,
+    data:{conversationId,messageId:reply.id,bubbleIndex:index},
+    icon:'/apple-icon.png?v=2'
+   });
+   if(index<bubbles.length-1)await new Promise<void>(resolve=>setTimeout(resolve,1200));
+  }
+ }catch{/* Notifications must never affect the stored conversation. */}
 }
 
 type Status='saving'|'generating'|'completed'|'failed'|'stopped'|'interrupted';
