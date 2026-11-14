@@ -1,7 +1,7 @@
 import {db} from './store';
 import {activeMessages} from './messagePath';
 import {commitTimelineProjection,ensureTimelineInTransaction,timelineTables} from './timelines';
-import {fetchBackgroundSnapshot,type BackgroundReplySnapshot} from './backgroundReplySync';
+import {fetchBackgroundSnapshot} from './backgroundReplySync';
 
 /** Only imports a completed reply whose originating user message is still the
  * active path's unanswered tail. The transaction makes repeated polling safe. */
