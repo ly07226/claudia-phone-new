@@ -1,6 +1,7 @@
 import {PhasePlayApp} from './phasePlay/PhasePlayApp';
 import {ChatHubScheduler} from './ChatHubScheduler';
 import {ProactiveScheduler} from './ProactiveScheduler';
+import {AudioKeepAliveSettings} from './AudioKeepAliveSettings';
 import {ThemeEditor} from './ThemeEditor';
 import {openPhoneApp,editPhoneDesktop,backPhonePage,usePhonePageNavigation} from './phonePageNavigation';
 import {useEffectiveTheme,themeSafeMode} from './themeAppearance';
@@ -445,6 +446,7 @@ function App() {
                     <p>让这里，成为你的舒适区。</p>
                   </div>
                   <IdentityCard spaceId={space?.spaceId || "daily"}/>
+                  <AudioKeepAliveSettings/>
                   <button
                     className="list-row"
                     onClick={() => openPhoneApp("数据备份与恢复")}
