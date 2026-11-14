@@ -10,7 +10,7 @@ const STORAGE='claudia-cloud-anon-session-v1';
 type Session={access_token:string;refresh_token:string;expires_at:number};
 let inflight:Promise<string>|null=null;
 export function cloudConfigured(){return /^https:\/\/[^/]+\.supabase\.co$/.test(base)&&!!key;}
-export function cloudFunctionUrl(name:'claudia-push-subscriptions'|'claudia-enqueue-reply'|'claudia-chat-presence'){
+export function cloudFunctionUrl(name:'claudia-push-subscriptions'|'claudia-enqueue-reply'|'claudia-chat-presence'|'claudia-sync-replies'){
  if(!cloudConfigured())throw Error('云端后台服务尚未配置。');
  return base+'/functions/v1/'+name;
 }
@@ -49,7 +49,7 @@ export async function cloudAccessToken():Promise<string>{
  })();
  try{return await inflight;}finally{inflight=null;}
 }
-export async function cloudFunctionRequest(name:'claudia-push-subscriptions'|'claudia-enqueue-reply'|'claudia-chat-presence',method:'POST'|'DELETE',body:unknown){
+export async function cloudFunctionRequest(name:'claudia-push-subscriptions'|'claudia-enqueue-reply'|'claudia-chat-presence'|'claudia-sync-replies',method:'POST'|'DELETE',body:unknown){
  const token=await cloudAccessToken();
  const response=await fetch(cloudFunctionUrl(name),{method,headers:{'Content-Type':'application/json','apikey':key,'Authorization':'Bearer '+token},body:JSON.stringify(body),cache:'no-store'});
  if(!response.ok)throw Error('云端接口请求失败（HTTP '+response.status+'）。');
