@@ -26,7 +26,7 @@ Deno.serve(async (request) => {
   const token = request.headers.get("Authorization");
   if (!token?.startsWith("Bearer ")) return respond(401, { error: "unauthorized" });
   // Fail closed: no orphaned queued jobs while the AI executor is unavailable.
-  if (Deno.env.get("CLAUDIA_BACKGROUND_EXECUTOR_READY") !== "true") {
+  if (Deno.env.get("CLAUDIA_BACKGROUND_EXECUTOR_READY") !== "true" || Deno.env.get("CLAUDIA_BYOK_EXECUTOR_READY") !== "true") {
     return respond(503, { error: "executor_not_ready" });
   }
   const url = Deno.env.get("SUPABASE_URL");
@@ -63,6 +63,10 @@ Deno.serve(async (request) => {
     return respond(400, { error: "invalid_job" });
   }
 
+  // Never substitute the server-managed model for the character-bound BYOK API.
+  // Secure credential-envelope support is not yet implemented: reject safely.
+  if (body.providerBinding !== "byok-v1") return respond(422, { error: "byok_binding_required" });
+  return respond(503, { error: "byok_executor_not_implemented" });
   // Verified user ID only. Store the immutable prompt atomically with the job.
   // This mode uses the server operator's managed model, never the user's BYOK key.
   const {data:jobId,error:enqueueError}=await admin.rpc('claudia_enqueue_with_context',{
