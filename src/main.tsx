@@ -141,12 +141,18 @@ function App() {
   const swipe = useRef<{x:number;y:number;time:number}|null>(null);
   const [swipeDirection,setSwipeDirection] = useState<"left"|"right">("left");
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => {
-      clearInterval(t);
-      clearTimeout(gesture.current?.timer);
-      gesture.current = undefined;
-    };
+    // The desktop clock is not visible inside apps. Avoid a full root render
+    // every second while the user types or navigates a long conversation.
+    if (s.activeApp) return;
+    setNow(new Date());
+    const t = setInterval(() => {
+      if (!document.hidden) setNow(new Date());
+    }, 1000);
+    return () => clearInterval(t);
+  }, [s.activeApp]);
+  useEffect(() => () => {
+    clearTimeout(gesture.current?.timer);
+    gesture.current = undefined;
   }, []);
   const wallpaperSurface = !s.activeApp || s.activeApp === "主题编辑器";
   const asset = (id?: string) => s.assets.find((a) => a.id === id)?.data;

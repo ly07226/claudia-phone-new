@@ -10,6 +10,7 @@ export function useChatViewport(
   const lastFrame = useRef<string | null>(null);
   const lastKeyboard = useRef<boolean | null>(null);
   const callback = useRef(onLayout);
+  const lastInputHeight = useRef<number | null>(null);
   callback.current = onLayout;
   const fit = () => {
     const el = input.current;
@@ -24,6 +25,7 @@ export function useChatViewport(
     const height = Math.max(40, Math.min(el.scrollHeight, max));
     el.style.height = `${height}px`;
     el.style.overflowY = el.scrollHeight > height ? "auto" : "hidden";
+    return height;
   };
   useLayoutEffect(() => {
     if (!active) return;
@@ -64,11 +66,16 @@ export function useChatViewport(
       stage?.style.removeProperty("--chat-top");
       lastFrame.current=null;
       lastKeyboard.current=null;
+      lastInputHeight.current=null;
     };
   }, [active]);
   useLayoutEffect(() => {
-    if (active) {
-      fit();
+    if (!active) return;
+    const height=fit();
+    // Typing within the same line must not force the full history to scroll.
+    // Scroll anchoring is needed only when the composer actually changes height.
+    if(height!==undefined && lastInputHeight.current!==height){
+      lastInputHeight.current=height;
       callback.current();
     }
   }, [active, text]);
