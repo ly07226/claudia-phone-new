@@ -66,14 +66,30 @@ Deno.serve(async (request) => {
   // Never substitute the server-managed model for the character-bound BYOK API.
   // Secure credential-envelope support is not yet implemented: reject safely.
   if (body.providerBinding !== "byok-v1") return respond(422, { error: "byok_binding_required" });
-  return respond(503, { error: "byok_executor_not_implemented" });
+  if (Deno.env.get("CLAUDIA_BYOK_KEY_ID") !== body.keyId) return respond(503, { error: "encryption_key_mismatch" });
+  if (typeof body.encryptedKey !== "string" || !/^[A-Za-z0-9+/]{128,2048}={0,2}$/.test(body.encryptedKey) ||
+      !["gemini","openai","openrouter","openai-compatible","custom"].includes(String(body.provider)) ||
+      !["gemini","openai-chat"].includes(String(body.protocol)) ||
+      typeof body.model !== "string" || body.model.length < 1 || body.model.length > 200 ||
+      typeof body.baseUrl !== "string" || body.baseUrl.length > 512 ||
+      typeof body.temperature !== "number" || body.temperature < 0 || body.temperature > 2 ||
+      !Number.isInteger(body.maxTokens) || (body.maxTokens as number) < 1 || (body.maxTokens as number) > 32768)
+    return respond(400, { error: "invalid_provider_binding" });
+  // Only trusted provider origins are allowed in cloud mode (no arbitrary SSRF targets).
+  let providerUrl: URL;
+  try { providerUrl = new URL(body.baseUrl as string); } catch { return respond(400, { error: "invalid_provider_url" }); }
+  if (providerUrl.protocol !== "https:" || providerUrl.username || providerUrl.password || providerUrl.search || providerUrl.hash ||
+      !["generativelanguage.googleapis.com","api.openai.com","openrouter.ai"].includes(providerUrl.hostname))
+    return respond(422, { error: "unsupported_cloud_provider_origin" });
   // Verified user ID only. Store the immutable prompt atomically with the job.
   // This mode uses the server operator's managed model, never the user's BYOK key.
-  const {data:jobId,error:enqueueError}=await admin.rpc('claudia_enqueue_with_context',{
+  const {data:jobId,error:enqueueError}=await admin.rpc('claudia_enqueue_byok',{
     p_user_id:identity.user.id,p_conversation_id:body.conversationId,
     p_client_message_id:body.clientMessageId,p_timeline_id:body.timelineId,
     p_timeline_epoch:body.timelineEpoch,p_idempotency_key:body.idempotencyKey,
-    p_messages:body.messages
+    p_messages:body.messages,p_key_id:body.keyId,p_encrypted_key:body.encryptedKey,
+    p_provider:body.provider,p_protocol:body.protocol,p_base_url:body.baseUrl,
+    p_model:body.model,p_temperature:body.temperature,p_max_tokens:body.maxTokens
   });
   if(enqueueError||typeof jobId!=='string')return respond(409,{error:'enqueue_rejected'});
   return respond(202,{ok:true,jobId,status:'queued'});
