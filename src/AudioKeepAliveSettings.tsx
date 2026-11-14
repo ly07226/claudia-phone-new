@@ -1,3 +1,4 @@
+// Deployment refresh: compact background settings UI.
 import {useEffect,useState} from 'react';
 
 const STORAGE_KEY='claudia:audio-keepalive-enabled';
