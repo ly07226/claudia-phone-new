@@ -1,5 +1,6 @@
 import type {CSSProperties} from 'react';
 import {ChatHub} from './ChatHub';
+import {takeProactiveOpen} from './ProactiveScheduler';
 import {interruptionLabel,validInterruption} from './chatCompletion';
 import {ReplyPending,ReplyFailureNotice} from './ReplyStatus';
 import {prepareQuote,quoteSummary} from './messageReferences';
@@ -138,6 +139,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     : s.characters.filter(isDailyFriend);
   const applications = !worldId ? s.characters.filter(c=>c.dailyFriendship?.status==='pending'&&c.dailyFriendship.application) : [];
   useEffect(()=>{setRequests(false);},[worldId]);
+  useEffect(()=>{if(worldId)return;const handle=()=>{const id=takeProactiveOpen();if(id)void open(id);};handle();window.addEventListener('claudia:open-proactive-chat',handle);return()=>window.removeEventListener('claudia:open-proactive-chat',handle);},[worldId]);
   useEffect(()=>{
     if(worldId || conversation)return;
     let active=true;
