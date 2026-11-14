@@ -1,5 +1,7 @@
+import {cloudConfigured,cloudFunctionRequest,hasCloudIdentity} from './cloudIdentity';
 import type {CSSProperties} from 'react';
 import {ChatHub} from './ChatHub';
+import {takeProactiveOpen} from './ProactiveScheduler';
 import {interruptionLabel,validInterruption} from './chatCompletion';
 import {ReplyPending,ReplyFailureNotice} from './ReplyStatus';
 import {prepareQuote,quoteSummary} from './messageReferences';
@@ -48,6 +50,34 @@ export function Chat({ worldId }: { worldId?: string }) {
   const s = usePhone();
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  // Only an already opted-in cloud device reports foreground chat presence.
+  // No login prompt, no automatic anonymous signup for ordinary local chats.
+  useEffect(()=>{
+    const id=conversation?.id;
+    if(!id||!cloudConfigured()||!hasCloudIdentity())return;
+    let alive=true;
+    const report=(visible:boolean)=>{
+      if(!alive||!navigator.onLine)return;
+      void cloudFunctionRequest('claudia-chat-presence','POST',{conversationId:id,visible}).catch(()=>{});
+    };
+    const sync=()=>report(document.visibilityState==='visible'&&document.hasFocus());
+    sync();
+    const timer=window.setInterval(sync,15000);
+    const hide=()=>report(false);
+    document.addEventListener('visibilitychange',sync);
+    window.addEventListener('focus',sync);
+    window.addEventListener('blur',hide);
+    window.addEventListener('pagehide',hide);
+    return ()=>{
+      // Best effort; the server also treats heartbeats older than 30s as stale.
+      report(false);alive=false;window.clearInterval(timer);
+      document.removeEventListener('visibilitychange',sync);
+      window.removeEventListener('focus',sync);
+      window.removeEventListener('blur',hide);
+      window.removeEventListener('pagehide',hide);
+    };
+  },[conversation?.id]);
+
   const [text, setText] = useState("");
   const [search, setSearch] = useState("");
   const enterGuard = useRef(createEnterSendGuard());
@@ -138,6 +168,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     : s.characters.filter(isDailyFriend);
   const applications = !worldId ? s.characters.filter(c=>c.dailyFriendship?.status==='pending'&&c.dailyFriendship.application) : [];
   useEffect(()=>{setRequests(false);},[worldId]);
+  useEffect(()=>{if(worldId)return;const handle=()=>{const id=takeProactiveOpen();if(id)void open(id);};handle();window.addEventListener('claudia:open-proactive-chat',handle);return()=>window.removeEventListener('claudia:open-proactive-chat',handle);},[worldId]);
   useEffect(()=>{
     if(worldId || conversation)return;
     let active=true;
@@ -258,6 +289,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       const c = await getConversation(id, worldId);
       if (navigation !== taskSequence.current) return;
       activeConversation.current = c.id;
+      if(c.chatSettings?.proactiveUnreadAt)void db.conversations.update(c.id,{chatSettings:{...c.chatSettings,proactiveUnreadAt:undefined}});
       followBottom.current = true;
       // Do not mount an empty conversation screen before its history arrives.
       // loadSnapshot commits conversation, messages and variants in one React batch.
