@@ -40,7 +40,7 @@ export async function readPhaseInstructionWord(file:File,onProgress?:(progress:W
  onProgress?.({stage:'reading',processed:0,total:0});
  const parsed=await readWizardDocument(file);
  const lines=(parsed.longBody??'').split(/\r?\n/);
- let phase:Phase|'unclassified'='unclassified';
+ let phase:Phase='green';
  const items:ImportedPhaseInstruction[]=[],seen=new Set<string>();
  onProgress?.({stage:'classifying',processed:0,total:lines.length});
  for(let i=0;i<lines.length;i++){
@@ -52,7 +52,7 @@ export async function readPhaseInstructionWord(file:File,onProgress?:(progress:W
     const text=line.replace(/^\s*(?:[-*•]|\d{1,4}[.、．)）])\s*/u,'').trim();
     if(!text||text.length>1000)throw Error('文档存在空指令或超过1000字的段落，请修改后重新上传。');
     const key=normalizedInstruction(text);
-    if(!seen.has(key)){seen.add(key);items.push({phase:phase==='unclassified'?classifyInstruction(text):phase,text});}
+    if(!seen.has(key)){seen.add(key);items.push({phase,text});}
     if(items.length>1000)throw Error('单次最多导入1000条指令，请拆分文档。');
    }
   }
