@@ -42,7 +42,7 @@ Deno.serve(async (request) => {
   let body: Record<string, unknown>;
   try {
     const raw = await request.text();
-    if (raw.length > 4096) return respond(413, { error: "payload_too_large" });
+    if (raw.length > 125000) return respond(413, { error: "payload_too_large" });
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw Error();
     body = parsed as Record<string, unknown>;
@@ -53,31 +53,24 @@ Deno.serve(async (request) => {
       !isId(body.timelineId) || typeof body.idempotencyKey !== "string" ||
       !keyPattern.test(body.idempotencyKey) || body.kind !== "reply" ||
       !Number.isSafeInteger(body.timelineEpoch) ||
-      (body.timelineEpoch as number) < 0) {
+      (body.timelineEpoch as number) < 0 || !Array.isArray(body.messages) ||
+      body.messages.length < 1 || body.messages.length > 80 ||
+      !body.messages.every((m: unknown) => m && typeof m === 'object' &&
+        ['system','user','assistant'].includes((m as {role?:string}).role ?? '') &&
+        typeof (m as {content?:unknown}).content === 'string' &&
+        ((m as {content:string}).content.length > 0) &&
+        ((m as {content:string}).content.length <= 30000))) {
     return respond(400, { error: "invalid_job" });
   }
 
-  // User ID is ALWAYS derived from the verified JWT, never request JSON.
-  // Conflict does not enqueue another run of the same logical message.
-  const row = {
-    user_id: identity.user.id,
-    conversation_id: body.conversationId,
-    client_message_id: body.clientMessageId,
-    timeline_id: body.timelineId,
-    timeline_epoch: body.timelineEpoch,
-    idempotency_key: body.idempotencyKey,
-    kind: "reply",
-  };
-  const { data: inserted, error: insertError } = await admin
-    .from("claudia_background_jobs")
-    .upsert(row, { onConflict: "user_id,idempotency_key", ignoreDuplicates: true })
-    .select("id,status")
-    .maybeSingle();
-  if (insertError) return respond(500, { error: "enqueue_failed" });
-  if (inserted) return respond(202, { ok: true, jobId: inserted.id, status: inserted.status });
-  const { data: existing, error: readError } = await admin
-    .from("claudia_background_jobs").select("id,status")
-    .eq("user_id", identity.user.id).eq("idempotency_key", body.idempotencyKey).maybeSingle();
-  if (readError || !existing) return respond(500, { error: "lookup_failed" });
-  return respond(200, { ok: true, jobId: existing.id, status: existing.status, duplicate: true });
+  // Verified user ID only. Store the immutable prompt atomically with the job.
+  // This mode uses the server operator's managed model, never the user's BYOK key.
+  const {data:jobId,error:enqueueError}=await admin.rpc('claudia_enqueue_with_context',{
+    p_user_id:identity.user.id,p_conversation_id:body.conversationId,
+    p_client_message_id:body.clientMessageId,p_timeline_id:body.timelineId,
+    p_timeline_epoch:body.timelineEpoch,p_idempotency_key:body.idempotencyKey,
+    p_messages:body.messages
+  });
+  if(enqueueError||typeof jobId!=='string')return respond(409,{error:'enqueue_rejected'});
+  return respond(202,{ok:true,jobId,status:'queued'});
 });
