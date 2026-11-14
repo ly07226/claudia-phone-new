@@ -1,14 +1,11 @@
+import {cloudConfigured,cloudFunctionRequest} from './cloudIdentity';
 import {useEffect,useState} from 'react';
 
 type PushState='checking'|'unsupported'|'not-installed'|'denied'|'unconfigured'|'unsubscribed'|'subscribed'|'error';
 const publicKey=(import.meta.env.VITE_PUSH_PUBLIC_KEY as string|undefined)?.trim()??'';
-const subscriptionApi=(import.meta.env.VITE_PUSH_SUBSCRIPTION_API as string|undefined)?.trim()??'';
+
 async function registerRemote(subscription:PushSubscription){
- if(!subscriptionApi)throw Error('服务端订阅接口尚未配置。');
- const target=new URL(subscriptionApi,window.location.origin);
- if(target.origin!==window.location.origin)throw Error('推送订阅接口必须与小手机同源，避免订阅凭据发往第三方。');
- const response=await fetch(target.href,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({subscription:subscription.toJSON()}),credentials:'include'});
- if(!response.ok)throw Error('服务端订阅登记失败（HTTP '+response.status+'）。');
+ await cloudFunctionRequest('claudia-push-subscriptions','POST',{subscription:subscription.toJSON()});
 }
 
 function decodeKey(key:string){const padded=key.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(key.length/4)*4,'=');const raw=atob(padded);return Uint8Array.from(raw,c=>c.charCodeAt(0));}
@@ -26,8 +23,8 @@ export function PushNotificationSettings(){
    const registration=await navigator.serviceWorker.getRegistration();
    const subscription=registration?await registration.pushManager.getSubscription():null;
    // A local PushSubscription does not prove server registration after a reload.
-   setState(publicKey&&subscriptionApi?'unsubscribed':'unconfigured');
-   if(subscription&&publicKey&&subscriptionApi)setMessage('发现本机已有订阅；请点击开启系统通知以重新向服务端登记。');
+   setState(publicKey&&cloudConfigured()?'unsubscribed':'unconfigured');
+   if(subscription&&publicKey&&cloudConfigured())setMessage('发现本机已有订阅；请点击开启系统通知以重新向服务端登记。');
   }catch(e){setState('error');setMessage(e instanceof Error?e.message:'无法读取推送订阅状态');}
  }
  useEffect(()=>{void inspect();},[]);
@@ -35,7 +32,7 @@ export function PushNotificationSettings(){
   if(busy)return;setBusy(true);setMessage('');
   try{
    if(!installed())throw Error('请先将小手机添加到 iPhone 主屏幕，再从桌面图标打开。');
-   if(!publicKey||!subscriptionApi)throw Error('推送服务器尚未配置，无法创建可用订阅。');
+   if(!publicKey||!cloudConfigured())throw Error('推送服务器尚未配置，无法创建可用订阅。');
    const permission=await Notification.requestPermission();
    if(permission!=='granted'){await inspect();return;}
    const registration=await navigator.serviceWorker.ready;
@@ -62,7 +59,7 @@ export function PushNotificationSettings(){
  }
  async function unsubscribe(){
   setBusy(true);setMessage('');
-  try{const registration=await navigator.serviceWorker.getRegistration();const sub=await registration?.pushManager.getSubscription();if(sub){if(!subscriptionApi)throw Error('服务端未配置，无法安全注销远程订阅。');const target=new URL(subscriptionApi,window.location.origin);if(target.origin!==window.location.origin)throw Error('推送订阅接口必须与小手机同源。');const response=await fetch(target.href,{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint}),credentials:'include'});if(!response.ok)throw Error('服务器注销失败（HTTP '+response.status+'）。');await sub.unsubscribe();}await inspect();setMessage('已取消本机与服务端的推送订阅。');}
+  try{const registration=await navigator.serviceWorker.getRegistration();const sub=await registration?.pushManager.getSubscription();if(sub){await cloudFunctionRequest('claudia-push-subscriptions','DELETE',{endpoint:sub.endpoint});await sub.unsubscribe();}await inspect();setMessage('已取消本机与服务端的推送订阅。');}
   catch(e){setState('error');setMessage(e instanceof Error?e.message:'取消失败');}
   finally{setBusy(false);}
  }
@@ -76,6 +73,6 @@ export function PushNotificationSettings(){
   {state==='subscribed'&&<button type="button" className="list-row" disabled={busy} onClick={()=>void unsubscribe()}>{busy?'正在处理…':'取消本机通知订阅'}</button>}
   {(state==='unconfigured'||state==='unsubscribed'||state==='subscribed'||state==='error')&&<button type="button" className="list-row" disabled={testBusy||busy} onClick={()=>void testLocalNotification()}>{testBusy?'正在测试…':'测试苹果系统通知（本机）'}</button>}
   {message&&<p role="status">{message}</p>}
-  <p className="hint">订阅只提交 PushSubscription，不包含 AI 密钥。服务器必须验证用户身份、持久化订阅并实现 Web Push 发送；本页面不会将本机订阅误报为远程投递成功。</p>
+  <p className="hint">云端通知采用无需注册的匿名设备身份；清除浏览器数据可能导致设备身份丢失。订阅只提交 PushSubscription，不包含 AI 密钥。服务器必须验证用户身份、持久化订阅并实现 Web Push 发送；本页面不会将本机订阅误报为远程投递成功。</p>
  </section>;
 }
