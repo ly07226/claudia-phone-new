@@ -10,7 +10,7 @@ const STORAGE='claudia-cloud-anon-session-v1';
 type Session={access_token:string;refresh_token:string;expires_at:number};
 let inflight:Promise<string>|null=null;
 export function cloudConfigured(){return /^https:\/\/[^/]+\.supabase\.co$/.test(base)&&!!key;}
-export function cloudFunctionUrl(name:'claudia-push-subscriptions'|'claudia-enqueue-reply'|'claudia-chat-presence'|'claudia-sync-replies'|'claudia-byok-public-key'){
+export function cloudFunctionUrl(name:'claudia-push-subscriptions'|'claudia-enqueue-reply'|'claudia-chat-presence'|'claudia-sync-replies'){
  if(!cloudConfigured())throw Error('云端后台服务尚未配置。');
  return base+'/functions/v1/'+name;
 }
