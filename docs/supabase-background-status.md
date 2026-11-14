@@ -35,3 +35,12 @@
 - 所有服务端写操作需再次检查用户身份与对象归属。
 - 部署前必须审查 Origin/CORS、速率限制、服务端密钥管理、Web Push endpoint 出站限制、幂等与并发。
 - 本分支未合并 main，未手动部署 Vercel。
+
+## 2026-11-14：免注册云端身份接入（开发分支）
+- 新增 `src/cloudIdentity.ts`：仅云端功能需要时才调用 Supabase Auth 匿名注册；自动刷新 JWT，刷新失败时拒绝悄悄换号，避免任务归属错乱。
+- `src/PushNotificationSettings.tsx` 改用 `Authorization: Bearer <JWT>` 和 Supabase Edge Functions，原来的 `VITE_PUSH_SUBSCRIPTION_API` 同源接口不再使用。
+- 必需的**公开**前端构建变量：`VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY`、`VITE_PUSH_PUBLIC_KEY`。请勿将 service_role、VAPID 私钥或 AI API Key 放入这些变量。
+- 项目所有者必须在 Supabase Auth 开启 **Anonymous Sign-ins**（匿名登录），且在 Edge Functions 设置 `CLAUDIA_APP_ORIGIN` 为精确的应用域名。Edge Functions 仍需部署。
+- 匿名用户并非永久可恢复的账户：清除浏览器数据或更换设备可能失去任务访问权；正式上线前应增加可选身份升级、设备恢复/解绑及配额滥用防护。
+- **重要**：Supabase 匿名 Auth 不等于阻止匿名滥用；服务端需增加速率限制、CAPTCHA/Turnstile 或配额防护。不能在这些保护完成前开放昂贵的后台 AI 调用。
+- 本轮仅完成前端静态协议接线；尚未运行 `tsc`、浏览器测试、Supabase 真机联调，也未部署或合并 main。
