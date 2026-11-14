@@ -25,17 +25,23 @@ function player():HTMLAudioElement {
 export function AudioKeepAliveSettings(){
  const [enabled,setEnabled]=useState(()=>{try{return localStorage.getItem(STORAGE_KEY)==='true';}catch{return false;}});
  const [playing,setPlaying]=useState(false);
+ const [backgrounded,setBackgrounded]=useState(()=>document.visibilityState==='hidden');
  const [error,setError]=useState('');
  const audioRef=useRef<HTMLAudioElement|null>(null);
  useEffect(()=>{
   const audio=player();audioRef.current=audio;
   const sync=()=>setPlaying(!audio.paused&&!audio.ended);
   audio.addEventListener('play',sync);audio.addEventListener('pause',sync);audio.addEventListener('ended',sync);
-  const onVisible=()=>{sync();};
+  const onVisible=()=>{setBackgrounded(document.visibilityState==='hidden');sync();};
+  const onPageShow=()=>{setBackgrounded(document.visibilityState==='hidden');sync();};
+  const onAudioError=()=>{sync();setError('音频播放发生错误，请点击开启重新尝试。');};
+  audio.addEventListener('error',onAudioError);
+  window.addEventListener('pageshow',onPageShow);
   document.addEventListener('visibilitychange',onVisible);
   // Do not autoplay on mount: iOS requires an explicit user gesture.
   return()=>{audio.removeEventListener('play',sync);audio.removeEventListener('pause',sync);
-   audio.removeEventListener('ended',sync);document.removeEventListener('visibilitychange',onVisible);};
+   audio.removeEventListener('ended',sync);audio.removeEventListener('error',onAudioError);
+   document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('pageshow',onPageShow);};
  },[]);
  async function toggle(){
   const audio=audioRef.current??player();
@@ -52,6 +58,7 @@ export function AudioKeepAliveSettings(){
    <span>{playing?'停止后台保活':'开启后台保活'}</span><span>{playing?'播放中':enabled?'已中断':'关闭'}</span>
   </button>
   {enabled&&!playing&&<p role="status">音频已中断，点击开启以重新启动。</p>}
+  {playing&&<p role="status">{backgrounded?'后台播放状态：音频尚在播放（网页恢复后才能核实是否持续）':'无声音频正在播放。切换 App 或锁屏后返回这里，可检查是否被系统暂停。'}</p>}
   {error&&<p role="alert">{error}</p>}
   <p className="hint">可能增加耗电、占用媒体控制中心或干扰其他音频。iOS 可能随时暂停网页；建议在锁屏及切换 App 后实际测试。</p>
  </section>;
