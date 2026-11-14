@@ -1,5 +1,8 @@
 // Deployment refresh: compact background settings UI.
-import {useEffect,useState} from 'react';
+import {useEffect,useState,type CSSProperties} from 'react';
+
+const switchStyle=(on:boolean):CSSProperties=>({position:'relative',width:52,height:32,minWidth:52,borderRadius:20,border:'none',padding:0,background:on?'#34c759':'#d1d5db',transition:'background .2s',cursor:'pointer',flexShrink:0});
+const knobStyle=(on:boolean):CSSProperties=>({position:'absolute',top:2,left:on?22:2,width:28,height:28,borderRadius:'50%',background:'#fff',boxShadow:'0 1px 3px #0003',transition:'left .2s'});
 
 const STORAGE_KEY='claudia:audio-keepalive-enabled';
 const TONE_SECONDS=30;
@@ -84,9 +87,7 @@ export function AudioKeepAliveSettings(){
  return <section className="card form" aria-label="后台音频保活">
   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
    <div><h3 style={{margin:0}}>后台保活</h3><p className="hint" style={{margin:'6px 0 0'}}>全局循环静音音频，切换页面不断开</p></div>
-   <button type="button" onClick={()=>void toggle()} aria-pressed={state.enabled} style={{flexShrink:0,border:'1px solid var(--border, #cbd5df)',borderRadius:999,padding:'9px 14px',background:state.enabled?'#dcefe5':'transparent',color:'inherit',font:'inherit'}}>
-    {state.enabled?'关闭':'开启'}
-   </button>
+   <button type="button" role="switch" aria-label="后台保活" aria-checked={state.enabled} onClick={()=>void toggle()} style={switchStyle(state.enabled)}><span style={knobStyle(state.enabled)}/></button>
   </div>
   {state.error&&<p role="status" className="hint" style={{margin:'8px 0 0'}}>{state.error}</p>}
  </section>;
