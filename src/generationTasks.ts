@@ -12,7 +12,7 @@ import type {Conversation,MessageQuote} from './chatTypes';
 /** Send the exact saved chat bubbles as separate iOS notifications, in order.
  * Never generate, mutate or split a second copy of the reply.
  */
-function shouldNotifyInBackground(){return audioKeepAliveEnabled()&&document.visibilityState==='hidden'&&!document.hasFocus();}
+function shouldNotifyInBackground(){return audioKeepAliveEnabled()&&document.visibilityState==='hidden';}
 async function notifyHiddenReply(characterId:string,conversationId:string,messageId?:string){
  if(typeof document==='undefined'||!shouldNotifyInBackground()||typeof Notification==='undefined'||Notification.permission!=='granted'||!('serviceWorker'in navigator))return;
  try{
