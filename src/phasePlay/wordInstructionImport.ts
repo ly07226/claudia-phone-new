@@ -2,12 +2,20 @@ import {readWizardDocument} from '../wizardDocumentImport';
 import {normalizedInstruction} from './library';
 import type {Phase} from './engine';
 
-export interface ImportedPhaseInstruction {phase:Phase|'all';text:string}
+export interface ImportedPhaseInstruction {phase:Phase|'unclassified';text:string}
 const heading=/^(?:【|\[|#\s*)?(红灯|黄灯|绿灯|红色|黄色|绿色|red|yellow|green)(?:指令|阶段|模式|灯)?(?:】|\])?\s*[:：]?\s*$/i;
 const color:Record<string,Phase>={红灯:'red',红色:'red',red:'red',黄灯:'yellow',黄色:'yellow',yellow:'yellow',绿灯:'green',绿色:'green',green:'green'};
-/** Parse Word paragraphs locally. Unlabelled lines use the user's chosen phase, never guessed by AI. */
-export function parsePhaseInstructionText(body:string,fallback:Phase|'all'):ImportedPhaseInstruction[]{
- let phase:Phase|'all'=fallback;
+/** Conservative rule-based classification; ambiguous text requires review. */
+export function classifyInstruction(text:string):Phase|'unclassified'{
+ const red=/(?:停下|停止|暂停|不动|静止|休息|别动|不要动|保持不动|等待下一|停住|停在那里|禁止继续|不许继续)/u.test(text);
+ const yellow=/(?:放慢|减慢|慢下来|慢速|缓慢|慢一点|慢慢|逐渐减速|轻一点|降低速度|降低节奏|减速|慢动作)/u.test(text);
+ const green=/(?:加快|加速|快一点|快速|提速|提高速度|跟着节拍|保持节奏|继续动作|持续动作|稳定节奏)/u.test(text);
+ if(Number(red)+Number(yellow)+Number(green)!==1)return 'unclassified';
+ return red?'red':yellow?'yellow':'green';
+}
+
+export function parsePhaseInstructionText(body:string):ImportedPhaseInstruction[]{
+ let phase:Phase|'unclassified'='unclassified';
  const items:ImportedPhaseInstruction[]=[];
  const seen=new Set<string>();
  for(const raw of body.split(/\r?\n/)){
@@ -20,14 +28,14 @@ export function parsePhaseInstructionText(body:string,fallback:Phase|'all'):Impo
   const key=normalizedInstruction(text);
   if(seen.has(key))continue;
   seen.add(key);
-  items.push({phase,text});
+  items.push({phase:phase==='unclassified'?classifyInstruction(text):phase,text});
   if(items.length>1000)throw Error('单次最多导入1000条指令，请拆分文档。');
  }
  if(!items.length)throw Error('Word 文档中没有识别到可用的文字指令。');
  return items;
 }
-export async function readPhaseInstructionWord(file:File,fallback:Phase|'all'){
+export async function readPhaseInstructionWord(file:File){
  if(!/\.docx$/i.test(file.name))throw Error('请上传 .docx 格式的 Word 文件；旧版 .doc 请先另存为 .docx。');
  const parsed=await readWizardDocument(file);
- return parsePhaseInstructionText(parsed.longBody??'',fallback);
+ return parsePhaseInstructionText(parsed.longBody??'');
 }
