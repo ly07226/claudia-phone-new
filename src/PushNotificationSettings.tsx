@@ -2,6 +2,13 @@ import {useEffect,useState} from 'react';
 
 type PushState='checking'|'unsupported'|'not-installed'|'denied'|'unconfigured'|'unsubscribed'|'subscribed'|'error';
 const publicKey=(import.meta.env.VITE_PUSH_PUBLIC_KEY as string|undefined)?.trim()??'';
+const subscriptionApi=(import.meta.env.VITE_PUSH_SUBSCRIPTION_API as string|undefined)?.trim()??'';
+async function registerRemote(subscription:PushSubscription){
+ if(!subscriptionApi)throw Error('服务端订阅接口尚未配置。');
+ const response=await fetch(subscriptionApi,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({subscription:subscription.toJSON()}),credentials:'include'});
+ if(!response.ok)throw Error('服务端订阅登记失败（HTTP '+response.status+'）。');
+}
+
 function decodeKey(key:string){const padded=key.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(key.length/4)*4,'=');const raw=atob(padded);return Uint8Array.from(raw,c=>c.charCodeAt(0));}
 function installed(){return window.matchMedia('(display-mode: standalone)').matches||(navigator as Navigator&{standalone?:boolean}).standalone===true;}
 export function PushNotificationSettings(){
@@ -16,7 +23,7 @@ export function PushNotificationSettings(){
   try{
    const registration=await navigator.serviceWorker.getRegistration();
    const subscription=registration?await registration.pushManager.getSubscription():null;
-   setState(subscription?'subscribed':publicKey?'unsubscribed':'unconfigured');
+   setState(subscription&&subscriptionApi?'subscribed':publicKey&&subscriptionApi?'unsubscribed':'unconfigured');
   }catch(e){setState('error');setMessage(e instanceof Error?e.message:'无法读取推送订阅状态');}
  }
  useEffect(()=>{void inspect();},[]);
@@ -24,16 +31,15 @@ export function PushNotificationSettings(){
   if(busy)return;setBusy(true);setMessage('');
   try{
    if(!installed())throw Error('请先将小手机添加到 iPhone 主屏幕，再从桌面图标打开。');
-   if(!publicKey)throw Error('推送服务器尚未配置，无法创建可用订阅。');
+   if(!publicKey||!subscriptionApi)throw Error('推送服务器尚未配置，无法创建可用订阅。');
    const permission=await Notification.requestPermission();
    if(permission!=='granted'){await inspect();return;}
    const registration=await navigator.serviceWorker.ready;
    const existing=await registration.pushManager.getSubscription();
    const subscription=existing??await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:decodeKey(publicKey) as BufferSource});
-   // A browser subscription alone cannot deliver notifications. Do not claim success without backend registration.
+   await registerRemote(subscription);
    setState('subscribed');
-   setMessage('设备已创建推送订阅；还需服务端安全保存订阅并发送推送，才能在后台收到通知。');
-   void subscription;
+   setMessage('设备订阅已提交到服务器；请通过远程推送测试确认实际投递。');
   }catch(e){setState('error');setMessage(e instanceof Error?e.message:'推送订阅失败');}
   finally{setBusy(false);}
  }
@@ -52,12 +58,12 @@ export function PushNotificationSettings(){
  }
  async function unsubscribe(){
   setBusy(true);setMessage('');
-  try{const registration=await navigator.serviceWorker.getRegistration();const sub=await registration?.pushManager.getSubscription();if(sub)await sub.unsubscribe();await inspect();setMessage('已取消本机浏览器推送订阅。');}
+  try{const registration=await navigator.serviceWorker.getRegistration();const sub=await registration?.pushManager.getSubscription();if(sub){if(!subscriptionApi)throw Error('服务端未配置，无法安全注销远程订阅。');const response=await fetch(subscriptionApi,{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint}),credentials:'include'});if(!response.ok)throw Error('服务器注销失败（HTTP '+response.status+'）。');await sub.unsubscribe();}await inspect();setMessage('已取消本机与服务端的推送订阅。');}
   catch(e){setState('error');setMessage(e instanceof Error?e.message:'取消失败');}
   finally{setBusy(false);}
  }
  const descriptions:Record<PushState,string>={
-  checking:'正在检查设备通知能力…',unsupported:'当前浏览器不支持网页推送。', 'not-installed':'iPhone 需要先添加到主屏幕，并从桌面图标打开。',denied:'系统已拒绝通知权限，请在 iPhone 设置中修改。',unconfigured:'推送服务尚未配置，暂时不能订阅。',unsubscribed:'设备支持推送，可以申请通知权限。',subscribed:'设备已有推送订阅，但是否能收到消息还取决于服务端投递。',error:'检查或订阅失败。'};
+  checking:'正在检查设备通知能力…',unsupported:'当前浏览器不支持网页推送。', 'not-installed':'iPhone 需要先添加到主屏幕，并从桌面图标打开。',denied:'系统已拒绝通知权限，请在 iPhone 设置中修改。',unconfigured:'推送服务尚未配置，暂时不能订阅。',unsubscribed:'设备支持推送，可以申请通知权限。',subscribed:'本机存在订阅；请用远程推送测试验证服务端登记和投递。',error:'检查或订阅失败。'};
  return <section className="card form" aria-label="苹果系统通知">
   <h3>苹果系统通知</h3>
   <p className="hint">用于角色回复完成、角色主动发消息后的锁屏及横幅提醒。需要安装到主屏幕、允许通知并配置推送服务器。</p>
@@ -66,6 +72,6 @@ export function PushNotificationSettings(){
   {state==='subscribed'&&<button type="button" className="list-row" disabled={busy} onClick={()=>void unsubscribe()}>{busy?'正在处理…':'取消本机通知订阅'}</button>}
   {(state==='unconfigured'||state==='unsubscribed'||state==='subscribed'||state==='error')&&<button type="button" className="list-row" disabled={testBusy||busy} onClick={()=>void testLocalNotification()}>{testBusy?'正在测试…':'测试苹果系统通知（本机）'}</button>}
   {message&&<p role="status">{message}</p>}
-  <p className="hint">订阅不会向推送服务发送 AI 密钥。当前仅实现设备端订阅入口；服务端登记、消息投递与跨设备同步仍待实现。</p>
+  <p className="hint">订阅只提交 PushSubscription，不包含 AI 密钥。服务器必须验证用户身份、持久化订阅并实现 Web Push 发送；本页面不会将本机订阅误报为远程投递成功。</p>
  </section>;
 }
