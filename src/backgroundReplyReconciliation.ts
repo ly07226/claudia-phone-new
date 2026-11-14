@@ -21,12 +21,17 @@ export function eligibleBackgroundReplies(
  if(!currentTimeline)return [];
  const userIds=new Set(active.filter(m=>m.role==='user').map(m=>m.id));
  const existingIds=new Set(active.map(m=>m.id));
+ // A remote reply may only attach to the latest unanswered user turn.
+ // Older cloud completions cannot overwrite a newer local reply.
+ const last=active.at(-1);
+ if(!last||last.role!=='user')return [];
  const jobs=new Map<string,BackgroundJobSnapshot>();
  for(const job of snapshot.jobs){
   if(job.conversation_id!==conversation.id||job.timeline_id!==currentTimeline||
      job.timeline_epoch!==(conversation.timelineEpoch??0)||
      job.kind!=='reply'||!['completed','notified'].includes(job.status)||
-     !validId.test(job.id)||!userIds.has(job.client_message_id))continue;
+     !validId.test(job.id)||!userIds.has(job.client_message_id)||
+     job.client_message_id!==last.id)continue;
   jobs.set(job.id,job);
  }
  const result:SafeBackgroundReply[]=[];
