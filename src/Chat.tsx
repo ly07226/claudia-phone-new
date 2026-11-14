@@ -1,5 +1,6 @@
 import type {CSSProperties} from 'react';
 import {ChatHub} from './ChatHub';
+import {takeProactiveOpen} from './ProactiveScheduler';
 import {interruptionLabel,validInterruption} from './chatCompletion';
 import {ReplyPending,ReplyFailureNotice} from './ReplyStatus';
 import {prepareQuote,quoteSummary} from './messageReferences';
@@ -138,6 +139,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     : s.characters.filter(isDailyFriend);
   const applications = !worldId ? s.characters.filter(c=>c.dailyFriendship?.status==='pending'&&c.dailyFriendship.application) : [];
   useEffect(()=>{setRequests(false);},[worldId]);
+  useEffect(()=>{if(worldId)return;const handle=()=>{const id=takeProactiveOpen();if(id)void open(id);};handle();window.addEventListener('claudia:open-proactive-chat',handle);return()=>window.removeEventListener('claudia:open-proactive-chat',handle);},[worldId]);
   useEffect(()=>{
     if(worldId || conversation)return;
     let active=true;
@@ -258,6 +260,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       const c = await getConversation(id, worldId);
       if (navigation !== taskSequence.current) return;
       activeConversation.current = c.id;
+      if(c.chatSettings?.proactiveUnreadAt)void db.conversations.update(c.id,{chatSettings:{...c.chatSettings,proactiveUnreadAt:undefined}});
       followBottom.current = true;
       // Do not mount an empty conversation screen before its history arrives.
       // loadSnapshot commits conversation, messages and variants in one React batch.
