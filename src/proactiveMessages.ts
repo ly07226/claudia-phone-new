@@ -3,7 +3,8 @@ import {activeMessages} from './messagePath';
 import {buildContext,contextLimits} from './chatContext';
 import {resolveApi} from './chatService';
 import {requestChatReply} from './chatProvider';
-import {commitTimelineProjection,ensureTimelineInTransaction,timelineTables} from './timelines';
+import {commitTimelineProjection,ensureTimelineInTransaction} from './timelines';
+import {isDailyFriend} from './chatRelationships';
 import {messageTables,addGeneratedVariant} from './messageOperations';
 import type {Conversation} from './chatTypes';
 
@@ -31,6 +32,9 @@ export async function sendProactiveMessage(id:string,force=false):Promise<boolea
   const c=await db.conversations.get(id);
   if(!c||c.mode!=='daily'||c.worldId||!c.chatSettings?.proactiveEnabled)return false;
   const path=await activeMessages(id);
+  if(path.at(-1)?.role==='user')return false;
+  const character=await db.characters.get(c.characterId);
+  if(!character||!isDailyFriend(character))return false;
   const latestUserAt=[...path].reverse().find(m=>m.role==='user')?.createdAt??0;
   if(!force&&!proactiveEligible(c,latestUserAt,now))return false;
   const anchor=Math.max(c.createdAt,c.chatSettings.proactiveEnabledAt??c.createdAt,latestUserAt);
@@ -74,7 +78,6 @@ export async function sendProactiveMessage(id:string,force=false):Promise<boolea
    saved=true;
   });
   if(saved){
-   const character=await db.characters.get(c.characterId);
    window.dispatchEvent(new CustomEvent<ProactiveNotice>(proactiveEvent,{detail:{conversationId:id,characterId:c.characterId,name:character?.name??'角色',avatar:character?.avatar,text}}));
   }
   return saved;
@@ -91,6 +94,7 @@ export async function scanProactiveMessages(){
   for(const c of conversations){
    if(!c.chatSettings?.proactiveEnabled||c.mode!=='daily')continue;
    const path=await activeMessages(c.id);
+   if(path.at(-1)?.role==='user')continue;
    const latestUserAt=[...path].reverse().find(m=>m.role==='user')?.createdAt??0;
    if(proactiveEligible(c,latestUserAt,Date.now()))await sendProactiveMessage(c.id).catch(()=>{});
   }
