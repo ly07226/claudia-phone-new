@@ -77,7 +77,7 @@ export function ProactiveScheduler(){
    document.removeEventListener('visibilitychange',foreground);
    window.removeEventListener('focus',foreground);
   };
- },[route.screen,route.spaceId]);
+ },[route.screen,route.screen==='phone'?route.spaceId:undefined]);
  useEffect(()=>{
   const onNotice=(e:Event)=>{const notice=(e as CustomEvent<ProactiveNotice>).detail;if(notice?.conversationId)setQueue(q=>[...q,notice].slice(-10));};
   window.addEventListener(proactiveEvent,onNotice);
