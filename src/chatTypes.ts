@@ -6,6 +6,11 @@ export interface ChatSettings {
   continuousSend?: boolean;
   keyboardAutoReply?: boolean;
   followRealTime?: boolean;
+  proactiveEnabled?: boolean;
+  proactiveHours?: number;
+  proactiveProbability?: number;
+  proactiveEnabledAt?: number;
+  proactiveAttemptFor?: number;
   remark?: string;
   pinned?: boolean;
   pinnedAt?: number;
