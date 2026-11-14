@@ -24,6 +24,7 @@ function player():HTMLAudioElement {
 }
 type KeepAliveSnapshot={enabled:boolean;playing:boolean;error:string};
 const readEnabled=()=>{try{return localStorage.getItem(STORAGE_KEY)==='true';}catch{return false;}};
+export function audioKeepAliveEnabled(){return readEnabled();}
 let snapshot:KeepAliveSnapshot={enabled:readEnabled(),playing:false,error:''};
 const subscribers=new Set<()=>void>();
 function publish(patch:Partial<KeepAliveSnapshot>){snapshot={...snapshot,...patch};subscribers.forEach(listener=>listener());}
