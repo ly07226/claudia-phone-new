@@ -25,7 +25,9 @@ export function PushNotificationSettings(){
   try{
    const registration=await navigator.serviceWorker.getRegistration();
    const subscription=registration?await registration.pushManager.getSubscription():null;
-   setState(subscription&&subscriptionApi?'subscribed':publicKey&&subscriptionApi?'unsubscribed':'unconfigured');
+   // A local PushSubscription does not prove server registration after a reload.
+   setState(publicKey&&subscriptionApi?'unsubscribed':'unconfigured');
+   if(subscription&&publicKey&&subscriptionApi)setMessage('发现本机已有订阅；请点击开启系统通知以重新向服务端登记。');
   }catch(e){setState('error');setMessage(e instanceof Error?e.message:'无法读取推送订阅状态');}
  }
  useEffect(()=>{void inspect();},[]);
@@ -65,7 +67,7 @@ export function PushNotificationSettings(){
   finally{setBusy(false);}
  }
  const descriptions:Record<PushState,string>={
-  checking:'正在检查设备通知能力…',unsupported:'当前浏览器不支持网页推送。', 'not-installed':'iPhone 需要先添加到主屏幕，并从桌面图标打开。',denied:'系统已拒绝通知权限，请在 iPhone 设置中修改。',unconfigured:'推送服务尚未配置，暂时不能订阅。',unsubscribed:'设备支持推送，可以申请通知权限。',subscribed:'本机存在订阅；请用远程推送测试验证服务端登记和投递。',error:'检查或订阅失败。'};
+  checking:'正在检查设备通知能力…',unsupported:'当前浏览器不支持网页推送。', 'not-installed':'iPhone 需要先添加到主屏幕，并从桌面图标打开。',denied:'系统已拒绝通知权限，请在 iPhone 设置中修改。',unconfigured:'推送服务尚未配置，暂时不能订阅。',unsubscribed:'设备支持推送，可以申请通知权限。',subscribed:'当前会话已收到服务端登记成功响应；远程投递仍需测试。',error:'检查或订阅失败。'};
  return <section className="card form" aria-label="苹果系统通知">
   <h3>苹果系统通知</h3>
   <p className="hint">用于角色回复完成、角色主动发消息后的锁屏及横幅提醒。需要安装到主屏幕、允许通知并配置推送服务器。</p>
