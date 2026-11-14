@@ -1,13 +1,14 @@
 import {test,expect} from '@playwright/test';
-import {classifyInstruction,parsePhaseInstructionText} from '../src/phasePlay/wordInstructionImport';
-test('Word instructions are not silently assigned to green',()=>{
- const items=parsePhaseInstructionText('1. 暂停动作，保持不动。\n2. 放慢节奏。\n3. 加快节奏。\n4. 想一想接下来做什么。');
- expect(items.map(x=>x.phase)).toEqual(['red','yellow','green','unclassified']);
+import {parsePhaseInstructionText} from '../src/phasePlay/wordInstructionImport';
+test('unlabelled instructions default to green',()=>{
+ const items=parsePhaseInstructionText('第一条指令\n第二条指令');
+ expect(items.map(x=>x.phase)).toEqual(['green','green']);
 });
-test('Word headings take priority over heuristic and preserve grouping',()=>{
- const items=parsePhaseInstructionText('【红灯】\n1. 停止动作。\n【黄灯】\n2. 放慢节奏。\n【绿灯】\n3. 保持稳定节奏。');
- expect(items.map(x=>x.phase)).toEqual(['red','yellow','green']);
+test('colon phase headings group all following lines until the next heading',()=>{
+ const items=parsePhaseInstructionText('红灯：\n第一条\n第二条\n绿灯：\n第三条\n黄灯:\n第四条');
+ expect(items.map(x=>x.phase)).toEqual(['red','red','green','yellow']);
 });
-test('mixed signals require manual classification',()=>{
- expect(classifyInstruction('先暂停再加快')).toBe('unclassified');
+test('bracketed headings work and content is not guessed from keywords',()=>{
+ const items=parsePhaseInstructionText('【红灯】\n继续动作\n【黄灯】\n暂停动作');
+ expect(items.map(x=>x.phase)).toEqual(['red','yellow']);
 });
