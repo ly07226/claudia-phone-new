@@ -39,7 +39,7 @@ export function AudioKeepAliveSettings(){
  },[]);
  async function toggle(){
   const audio=audioRef.current??player();
-  if(enabled){audio.pause();audio.currentTime=0;setEnabled(false);setPlaying(false);setError('');
+  if(playing){audio.pause();audio.currentTime=0;setEnabled(false);setPlaying(false);setError('');
    try{localStorage.removeItem(STORAGE_KEY);}catch{}return;}
   try{await audio.play();setEnabled(true);setPlaying(true);setError('');
    try{localStorage.setItem(STORAGE_KEY,'true');}catch{}}
