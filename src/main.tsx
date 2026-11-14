@@ -2,6 +2,7 @@ import {PhasePlayApp} from './phasePlay/PhasePlayApp';
 import {ChatHubScheduler} from './ChatHubScheduler';
 import {ProactiveScheduler} from './ProactiveScheduler';
 import {AudioKeepAliveSettings} from './AudioKeepAliveSettings';
+import {PushNotificationSettings} from './PushNotificationSettings';
 import {ThemeEditor} from './ThemeEditor';
 import {openPhoneApp,editPhoneDesktop,backPhonePage,usePhonePageNavigation} from './phonePageNavigation';
 import {useEffectiveTheme,themeSafeMode} from './themeAppearance';
@@ -453,6 +454,7 @@ function App() {
                   </div>
                   <IdentityCard spaceId={space?.spaceId || "daily"}/>
                   <AudioKeepAliveSettings/>
+                  <PushNotificationSettings/>
                   <button
                     className="list-row"
                     onClick={() => openPhoneApp("数据备份与恢复")}
