@@ -32,7 +32,6 @@ export async function sendProactiveMessage(id:string,force=false):Promise<boolea
   const c=await db.conversations.get(id);
   if(!c||c.mode!=='daily'||c.worldId||!c.chatSettings?.proactiveEnabled)return false;
   const path=await activeMessages(id);
-  if(path.at(-1)?.role==='user')return false;
   const character=await db.characters.get(c.characterId);
   if(!character||!isDailyFriend(character))return false;
   const latestUserAt=[...path].reverse().find(m=>m.role==='user')?.createdAt??0;
@@ -68,7 +67,7 @@ export async function sendProactiveMessage(id:string,force=false):Promise<boolea
    if(!current||current.sendingToken!==token||current.activeTimelineId!==locked.activeTimelineId||(current.timelineEpoch??0)!==(locked.timelineEpoch??0))return;
    await ensureTimelineInTransaction(id);
    const rows=await activeMessages(id);
-   if(rows.some(m=>m.role==='user'&&m.createdAt>latestUserAt))return;
+   if(rows.some(m=>m.role==='user'&&m.createdAt>latestUserAt)||!current.chatSettings?.proactiveEnabled)return;
    const last=rows.at(-1);
    const message={id:crypto.randomUUID(),conversationId:id,role:'assistant' as const,content:text,createdAt:Math.max(Date.now(),(last?.createdAt??0)+1)};
    await db.messages.add(message);
@@ -94,7 +93,6 @@ export async function scanProactiveMessages(){
   for(const c of conversations){
    if(!c.chatSettings?.proactiveEnabled||c.mode!=='daily')continue;
    const path=await activeMessages(c.id);
-   if(path.at(-1)?.role==='user')continue;
    const latestUserAt=[...path].reverse().find(m=>m.role==='user')?.createdAt??0;
    if(proactiveEligible(c,latestUserAt,Date.now()))await sendProactiveMessage(c.id).catch(()=>{});
   }
