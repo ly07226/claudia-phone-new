@@ -16,13 +16,15 @@ Deno.serve(async request=>{
  // Never run this managed-model worker against user-owned BYOK tasks.
  // The real BYOK worker must be a separate endpoint with encrypted credentials.
  // Managed worker must never claim a BYOK queue. No compatible job discriminator exists yet.
- if(true || Deno.env.get('CLAUDIA_MANAGED_WORKER_EXPLICIT_OPT_IN')!=='true'||Deno.env.get('CLAUDIA_BACKGROUND_EXECUTOR_READY')!=='true'||!url||!key||!aiKey||!model||!aiUrl)return json(503,{error:'executor_not_configured'});
+ if(Deno.env.get('CLAUDIA_MANAGED_WORKER_EXPLICIT_OPT_IN')!=='true'||Deno.env.get('CLAUDIA_BACKGROUND_EXECUTOR_READY')!=='true'||!url||!key||!aiKey||!model||!aiUrl)return json(503,{error:'executor_not_configured'});
  // Prevent SSRF: only a fixed operator-approved HTTPS endpoint, never a client-provided URL.
  let endpoint:URL;
  try{endpoint=new URL(aiUrl);if(endpoint.protocol!=='https:'||endpoint.username||endpoint.password||endpoint.search||endpoint.hash||endpoint.pathname!=='/v1/chat/completions'||!['api.openai.com'].includes(endpoint.hostname))throw Error();}
  catch{return json(503,{error:'invalid_managed_ai_endpoint'});}
  const admin=createClient(url,key,{auth:{autoRefreshToken:false,persistSession:false}});
- const {data:claimed,error:claimError}=await admin.rpc('claudia_claim_background_job',{p_lease_seconds:180});
+ // This legacy endpoint cannot distinguish BYOK jobs: refuse before any claim.
+ return json(503,{error:'managed_worker_retired_use_byok_worker'});
+ /* const {data:claimed,error:claimError}=await admin.rpc('claudia_claim_background_job',{p_lease_seconds:180});
  if(claimError)return json(500,{error:'claim_failed'});
  const job=(claimed as Job[]|null)?.[0];
  if(!job)return json(200,{ok:true,claimed:0});
@@ -56,5 +58,5 @@ Deno.serve(async request=>{
    try{await fetch(url+'/functions/v1/claudia-send-push',{method:'POST',headers:{Authorization:'Bearer '+pushSecret,'Content-Type':'application/json'},body:JSON.stringify({jobId:job.id}),signal:AbortSignal.timeout(10000)});}catch{/* persisted answer remains available for foreground sync */}
   }
  }
- return json(200,{ok:true,jobId:job.id,status:answer?'completed':'failed',errorCode:answer?null:errorCode});
+ return json(200,{ok:true,jobId:job.id,status:answer?'completed':'failed',errorCode:answer?null:errorCode}); */
 });
