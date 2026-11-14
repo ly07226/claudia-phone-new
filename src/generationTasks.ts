@@ -7,6 +7,17 @@ import {sendMessage,regenerateMessage,continueMessage,type ExpectedPath} from '.
 import {cancelGeneration,invalidateGeneration} from './messageOperations';
 import type {Conversation,MessageQuote} from './chatTypes';
 
+/** Best-effort notification when an already-running request finishes while the PWA is hidden. */
+async function notifyHiddenReply(characterId:string){
+ if(typeof document==='undefined'||document.visibilityState==='visible'||typeof Notification==='undefined'||Notification.permission!=='granted'||!('serviceWorker'in navigator))return;
+ try{
+  const registration=await navigator.serviceWorker.getRegistration();
+  if(!registration)return;
+  const character=await db.characters.get(characterId);
+  await registration.showNotification(character?.name??'Claudia Phone',{body:'角色回复已完成，点击返回小手机查看。',tag:'claudia-reply-'+characterId,icon:'/apple-icon.png?v=2'});
+ }catch{/* Notification delivery must never affect saved messages. */}
+}
+
 type Status='saving'|'generating'|'completed'|'failed'|'stopped'|'interrupted';
 export interface GenerationTask {
  id:string; conversationId:string; characterId:string; worldId?:string;
@@ -55,6 +66,7 @@ export function startGenerationTask(request:Request,onSaved?:()=>void){
   try{
    const result=request.continuationId?await continueMessage(c.id,request.continuationId,controller.signal,expectedPath,saved):request.messageId?await regenerateMessage(c.id,request.messageId,controller.signal,request.allowArchive,expectedPath,saved):await sendMessage(c.id,request.text,controller.signal,request.retry,saved,expectedPath,request.images,request.replyTo);
    update({status:result?.interruption?'interrupted':'completed',saved:true});
+   void notifyHiddenReply(c.characterId);
    if(request.retry||request.messageId||request.continuationId){try{const target=request.messageId??request.continuationId??(await activeMessages(c.id)).filter(m=>m.role==='user').at(-1)?.id;if(target){failures.set(c.id,(failures.get(c.id)??[]).filter(f=>f.messageId!==target||f.timelineId!==entry.state.timelineId||f.epoch!==entry.state.epoch));emit();}}catch{/* Failure-display cleanup cannot turn a saved reply into a failed generation. */}}
   }catch(error){
    update({status:controller.signal.aborted?'stopped':'failed',failure:controller.signal.aborted?undefined:describeReplyFailure(error),error:controller.signal.aborted?'回复已停止或当前路径已变化，已保存的消息和版本保留。':error instanceof Error?error.message:'回复未完成，已保存的消息保留。'});
