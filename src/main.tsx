@@ -1,5 +1,6 @@
 import {PhasePlayApp} from './phasePlay/PhasePlayApp';
 import {ChatHubScheduler} from './ChatHubScheduler';
+import {ProactiveScheduler} from './ProactiveScheduler';
 import {ThemeEditor} from './ThemeEditor';
 import {openPhoneApp,editPhoneDesktop,backPhonePage,usePhonePageNavigation} from './phonePageNavigation';
 import {useEffectiveTheme,themeSafeMode} from './themeAppearance';
@@ -358,6 +359,7 @@ function App() {
   return (
     <div className="stage" data-ios={environment.ios || undefined} data-standalone={environment.standalone || undefined}>
       <ChatHubScheduler/>
+      <ProactiveScheduler/>
       <aside className="brand">
         <span className="brand-mark">c.</span>
         <h1>
