@@ -70,7 +70,7 @@ export async function sendProactiveMessage(id:string,force=false):Promise<boolea
    await db.messages.add(message);
    await addGeneratedVariant(message,text,undefined);
    await commitTimelineProjection(id,'append');
-   await db.conversations.update(id,{updatedAt:Date.now()});
+   await db.conversations.update(id,{updatedAt:Date.now(),chatSettings:{...current.chatSettings,proactiveUnreadAt:Date.now()}});
    saved=true;
   });
   if(saved){
