@@ -14,7 +14,7 @@ import {MessageImages} from './ImageAttachments';
 import {prepareImage,attachmentError} from './imageAttachments';
 import {defaultChatHub,type ChatHubData,type HubTab,type SocialAuthor} from './chatHubTypes';
 import {changeChatHub,publishSocialPost,addSocialComment} from './chatHubStore';
-import {generateSocial,reactToUserSocialEvent} from './socialGeneration';
+import {generateSocial,reactToUserSocialEvent,releaseExpiredSocialJob} from './socialGeneration';
 import {isDailyFriend} from './chatRelationships';
 import {identityFor} from './userIdentity';
 import {getConversation} from './chatService';
@@ -52,7 +52,13 @@ export function ChatHub({characters,applications,onOpen,onRequests,chats}:{chara
  useEffect(()=>{if(socialMenu)menu.current?.showModal();},[socialMenu]);
  useEffect(()=>{if(!socialMenu&&!postActions&&!coverMenu)return;const outside=(e:PointerEvent)=>{const target=e.target as Element;if(!menu.current?.contains(target))setSocialMenu(false);if(!target.closest('.hub-post-operation'))setPostActions(null);if(!target.closest('.hub-cover-photo'))setCoverMenu(false);};const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'){setSocialMenu(false);setPostActions(null);setCoverMenu(false);}};document.addEventListener('pointerdown',outside);document.addEventListener('keydown',escape);return()=>{document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',escape);};},[socialMenu,postActions,coverMenu]);
  useEffect(()=>{if(h.tab!=='moments')return;const timer=setInterval(()=>setClock(Date.now()),60000);return()=>clearInterval(timer);},[h.tab]);
- useEffect(()=>{if(!h.job)return;const t=setTimeout(()=>setClock(Date.now()),Math.max(1,h.job.expiresAt-Date.now()+1));return()=>clearTimeout(t);},[h.job?.token]);
+ useEffect(()=>{
+  if(!h.job)return;
+  const finish=()=>{void releaseExpiredSocialJob().catch(()=>setError({tab:'moments',text:'无法更新已结束的生成任务，请重新打开朋友圈。'}));};
+  if(h.job.expiresAt<=Date.now()){finish();return;}
+  const t=setTimeout(finish,Math.max(1,h.job.expiresAt-Date.now()+1));
+  return()=>clearTimeout(t);
+ },[h.job?.token,h.job?.expiresAt]);
  useEffect(()=>{if(panels.current[h.tab])panels.current[h.tab]!.scrollTop=scrolls.get(h.tab)??0;},[h.tab,editor]);
  const act=async(fn:()=>Promise<unknown>)=>{const origin=h.tab;setError(null);try{await fn();}catch(e){setError({tab:origin,text:safeReplyErrorText(e instanceof Error?e.message:'操作失败，原数据保留。')??'操作失败'});}};
  async function image(files:FileList|null,cover=false){if(!files?.length)return;setPublishing(true);setError(null);try{if(!cover&&h.draft.images.length+files.length>3)throw Error('每条动态最多3张图片。');const prepared=await Promise.all(Array.from(files).slice(0,cover?1:3).map(prepareImage));await changeChatHub(h=>{if(cover)h.cover=prepared[0].id;else h.draft.images.push(...prepared.map(a=>a.id));},prepared.map(({notice,...a})=>a));await s.reload();setNotice(prepared.map(a=>a.notice).filter(Boolean).join(' '));}catch(e){setError({tab:'moments',text:attachmentError(e)});}finally{setPublishing(false);}}
@@ -60,7 +66,7 @@ export function ChatHub({characters,applications,onOpen,onRequests,chats}:{chara
  async function publishUser(){if(publishLock.current)return;publishLock.current=true;setPublishing(true);try{if(dirty.current)await changeChatHub(x=>{x.draft.text=draftRef.current;});const saved=await publishSocialPost(me);dirty.current=false;draftRef.current='';setDraftText('');setComposer(false);await resolveSocialFailure('publish-draft');automaticReaction(saved.posts[0].id);}catch(e){await recordSocialFailure(makeSocialFailure(e,{id:'publish-draft',kind:'publish'}));}finally{publishLock.current=false;setPublishing(false);}}
  async function ai(kind:'post'|'comment'|'reply',postId?:string,parentId?:string,characterId=actor){await generateSocial({kind,postId,parentId,characterId}).catch(()=>{});}
  async function retryPostComment(postId:string){
-  if(retryLock.current||h.job)return;
+  if(retryLock.current||h.job&&h.job.expiresAt>Date.now())return;
   const post=h.posts.find(p=>p.id===postId);
   if(!post||post.author.kind!=='user'||post.comments.some(c=>c.author.kind==='character'))return;
   const roles=characters.filter(isDailyFriend);
@@ -94,7 +100,7 @@ export function ChatHub({characters,applications,onOpen,onRequests,chats}:{chara
  </section>)}</div>
  {((error&&error.tab===h.tab)||toast&&h.tab==='moments')&&<div className="hub-toast" role="status">{toast&&h.tab==='moments'?toast:error?.text}</div>}{notice&&h.tab==='moments'&&<p className="hub-note" role="status">{notice}</p>}
  {commentTarget&&<form className="hub-comment-composer" aria-label="评论输入栏" onSubmit={e=>{e.preventDefault();void sendComment();}}><button type="button" disabled={commentSaving} onClick={cancelComment}>取消</button><input ref={commentInput} aria-label={`评论${commentTarget.author.name}的动态`} value={comments[commentTarget.id]??''} maxLength={1000} placeholder={replyTo[commentTarget.id]?'回复 '+(commentTarget.comments.find(c=>c.id===replyTo[commentTarget.id])?.author.name??'原评论'):'写评论…'} onChange={e=>setComments(x=>({...x,[commentTarget.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();cancelComment();}}}/><button aria-label="发送评论" disabled={commentSaving||!(comments[commentTarget.id]??'').trim()} type="submit"><Send size={18}/></button></form>}
- {socialMenu&&<dialog className="hub-dialog hub-role-dialog" aria-label="让角色立刻发一条新动态" ref={menu} onCancel={()=>setSocialMenu(false)} onClick={e=>{if(e.target!==e.currentTarget)return;const r=e.currentTarget.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)setSocialMenu(false);}}><h3>让角色立刻发一条新动态</h3><label className="hub-select">角色<select aria-label="朋友圈互动角色" value={actor} onChange={e=>setActor(e.target.value)}>{characters.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><p className="hub-note">使用当前 API，确认后将消耗 Token。</p><div className="hub-actions"><button onClick={()=>setSocialMenu(false)}>取消</button><button className="hub-main" disabled={!actor||!!h.job} onClick={()=>{setSocialMenu(false);void ai('post');}}>确认发布</button></div></dialog>}
+ {socialMenu&&<dialog className="hub-dialog hub-role-dialog" aria-label="让角色立刻发一条新动态" ref={menu} onCancel={()=>setSocialMenu(false)} onClick={e=>{if(e.target!==e.currentTarget)return;const r=e.currentTarget.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)setSocialMenu(false);}}><h3>让角色立刻发一条新动态</h3><label className="hub-select">角色<select aria-label="朋友圈互动角色" value={actor} onChange={e=>setActor(e.target.value)}>{characters.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><p className="hub-note">使用当前 API，确认后将消耗 Token。</p><div className="hub-actions"><button onClick={()=>setSocialMenu(false)}>取消</button><button className="hub-main" disabled={!actor||!!h.job&&h.job.expiresAt>Date.now()} onClick={()=>{setSocialMenu(false);void ai('post');}}>确认发布</button></div></dialog>}
  <nav className="hub-tabs" aria-label="聊天模块导航">{(['chats','contacts','moments','settings'] as const).map(tabId=>{const Icon=icons[tabId];return <button key={tabId} type="button" role="tab" aria-selected={h.tab===tabId} onClick={()=>tab(tabId)}><Icon size={19}/><span>{labels[tabId]}</span></button>;})}</nav>
  </div>;
 }
