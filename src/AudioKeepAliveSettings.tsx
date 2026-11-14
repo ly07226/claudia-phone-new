@@ -1,4 +1,4 @@
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useState} from 'react';
 
 const STORAGE_KEY='claudia:audio-keepalive-enabled';
 const TONE_SECONDS=30;
@@ -22,67 +22,62 @@ function player():HTMLAudioElement {
   media.setAttribute('playsinline','');}
  return media;
 }
+type KeepAliveSnapshot={enabled:boolean;playing:boolean;error:string};
+const readEnabled=()=>{try{return localStorage.getItem(STORAGE_KEY)==='true';}catch{return false;}};
+let snapshot:KeepAliveSnapshot={enabled:readEnabled(),playing:false,error:''};
+const subscribers=new Set<()=>void>();
+function publish(patch:Partial<KeepAliveSnapshot>){snapshot={...snapshot,...patch};subscribers.forEach(listener=>listener());}
+let initialized=false;
+/** Persistent audio owner: listeners must survive leaving Settings for Chat. */
+export function initializeAudioKeepAlive(){
+ if(initialized)return;
+ initialized=true;
+ const audio=player();
+ const sync=()=>publish({playing:!audio.paused&&!audio.ended});
+ const resume=()=>{
+  if(!readEnabled()||!audio.paused)return;
+  void audio.play().then(()=>publish({enabled:true,playing:true,error:''})).catch(()=>publish({playing:false,error:'系统中断了播放，请在设置中手动恢复。'}));
+ };
+ audio.addEventListener('play',sync);
+ audio.addEventListener('pause',sync);
+ audio.addEventListener('ended',sync);
+ audio.addEventListener('error',()=>publish({playing:false,error:'音频播放失败，请重新开启。'}));
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')resume();});
+ window.addEventListener('pageshow',resume);
+ // On a fresh page load, autoplay may be blocked. A user gesture can restore it.
+ if(readEnabled())resume();
+}
 export function AudioKeepAliveSettings(){
- const [enabled,setEnabled]=useState(()=>{try{return localStorage.getItem(STORAGE_KEY)==='true';}catch{return false;}});
- const [playing,setPlaying]=useState(false);
- const [resumeNotice,setResumeNotice]=useState('');
- const [diagnostic,setDiagnostic]=useState('尚未进行后台测试');
- const backgroundAt=useRef<number|null>(null);
- const audioTicks=useRef(0);
- const ticksAtBackground=useRef(0);
- const [backgrounded,setBackgrounded]=useState(()=>document.visibilityState==='hidden');
- const [error,setError]=useState('');
- const audioRef=useRef<HTMLAudioElement|null>(null);
+ const [state,setState]=useState<KeepAliveSnapshot>(()=>snapshot);
  useEffect(()=>{
-  const audio=player();audioRef.current=audio;
-  const sync=()=>setPlaying(!audio.paused&&!audio.ended);
-  audio.addEventListener('play',sync);audio.addEventListener('pause',sync);audio.addEventListener('ended',sync);
-  const onTick=()=>{audioTicks.current+=1;};
-  audio.addEventListener('timeupdate',onTick);
-  const resume=()=>{
-   if(backgroundAt.current!==null){
-    const elapsed=Math.round((Date.now()-backgroundAt.current)/1000);
-    const progressed=audioTicks.current-ticksAtBackground.current;
-    setDiagnostic(`后台停留 ${elapsed} 秒；期间观察到 ${progressed} 次音频进度事件。${progressed===0?' 无法确认后台持续播放。':' 音频进度曾更新，但不代表 API 一定持续运行。'}`);
-    backgroundAt.current=null;
-   }
-   setBackgrounded(document.visibilityState==='hidden');sync();
-   // Only resume a user-enabled session. Never start playback for new users.
-   let enabled=false;try{enabled=localStorage.getItem(STORAGE_KEY)==='true';}catch{}if(!enabled||!audio.paused)return;
-   void audio.play().then(()=>{setResumeNotice('');setError('');sync();}).catch(()=>{
-    setResumeNotice('系统已暂停音频；请点击「开启后台保活」手动恢复。');sync();
-   });
-  };
-  const onVisible=()=>{if(document.visibilityState==='visible')resume();else {backgroundAt.current=Date.now();ticksAtBackground.current=audioTicks.current;setBackgrounded(true);sync();}};
-  const onPageShow=()=>resume();
-  const onAudioError=()=>{sync();setError('音频播放发生错误，请点击开启重新尝试。');};
-  audio.addEventListener('error',onAudioError);
-  window.addEventListener('pageshow',onPageShow);
-  document.addEventListener('visibilitychange',onVisible);
-  // Do not autoplay on mount: iOS requires an explicit user gesture.
-  return()=>{audio.removeEventListener('play',sync);audio.removeEventListener('pause',sync);
-   audio.removeEventListener('ended',sync);audio.removeEventListener('error',onAudioError);audio.removeEventListener('timeupdate',onTick);
-   document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('pageshow',onPageShow);};
+  initializeAudioKeepAlive();
+  const sync=()=>setState(snapshot);
+  subscribers.add(sync);sync();
+  return()=>{subscribers.delete(sync);};
  },[]);
  async function toggle(){
-  const audio=audioRef.current??player();
-  if(playing){audio.pause();audio.currentTime=0;setEnabled(false);setPlaying(false);setError('');setResumeNotice('');
-   try{localStorage.removeItem(STORAGE_KEY);}catch{}return;}
-  try{await audio.play();setEnabled(true);setPlaying(true);setError('');setResumeNotice('');
-   try{localStorage.setItem(STORAGE_KEY,'true');}catch{}}
-  catch(e){setEnabled(false);setPlaying(false);setError(e instanceof Error?e.message:'音频启动失败，请在页面内点击重试。');}
+  initializeAudioKeepAlive();
+  const audio=player();
+  if(state.enabled&&state.playing){
+   try{localStorage.removeItem(STORAGE_KEY);}catch{}
+   audio.pause();audio.currentTime=0;
+   publish({enabled:false,playing:false,error:''});
+   return;
+  }
+  try{
+   await audio.play();
+   try{localStorage.setItem(STORAGE_KEY,'true');}catch{}
+   publish({enabled:true,playing:true,error:''});
+  }catch(e){publish({playing:false,error:e instanceof Error?e.message:'音频启动失败，请点击重试。'});}
  }
  return <section className="card form" aria-label="后台音频保活">
-  <h3>后台保活（实验性）</h3>
-  <p className="hint">播放 30 秒无声循环音频，尝试延长 iPhone 切出小手机后的运行时间。不保证后台定时器、网络或 AI 回复持续执行，也不等于离线推送。</p>
-  <button type="button" className="list-row" onClick={()=>void toggle()} aria-pressed={playing}>
-   <span>{playing?'停止后台保活':'开启后台保活'}</span><span>{playing?'播放中':enabled?'已中断':'关闭'}</span>
+  <h3>后台音频保活</h3>
+  <p className="hint">开启一次后持续循环播放无声音频，切换聊天页面不会停止。手动关闭才停止；系统强制中断后会尝试恢复。</p>
+  <button type="button" className="list-row" onClick={()=>void toggle()} aria-pressed={state.playing}>
+   <span>{state.enabled&&state.playing?'关闭后台保活':'开启后台保活'}</span>
+   <span>{state.playing?'循环播放中':state.enabled?'等待恢复':'关闭'}</span>
   </button>
-  {enabled&&!playing&&<p role="status">音频已中断，点击开启以重新启动。</p>}
-  {playing&&<p role="status">{backgrounded?'后台播放状态：音频尚在播放（网页恢复后才能核实是否持续）':'无声音频正在播放。切换 App 或锁屏后返回这里，可检查是否被系统暂停。'}</p>}
-  {resumeNotice&&<p role="status">{resumeNotice}</p>}
-  <p className="hint" role="status">后台测试记录：{diagnostic}</p>
-  {error&&<p role="alert">{error}</p>}
-  <p className="hint">可能增加耗电、占用媒体控制中心或干扰其他音频。iOS 可能随时暂停网页；建议在锁屏及切换 App 后实际测试。</p>
+  {state.error&&<p role="status">{state.error}</p>}
+  <p className="hint">后台运行效果受设备系统管理影响。开启后可在聊天中发送消息、切换 App，并检查回复及系统通知。</p>
  </section>;
 }
