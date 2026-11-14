@@ -10,7 +10,7 @@ const STORAGE='claudia-cloud-anon-session-v1';
 type Session={access_token:string;refresh_token:string;expires_at:number};
 let inflight:Promise<string>|null=null;
 export function cloudConfigured(){return /^https:\/\/[^/]+\.supabase\.co$/.test(base)&&!!key;}
-export function cloudFunctionUrl(name:'claudia-push-subscriptions'|'claudia-enqueue-reply'){
+export function cloudFunctionUrl(name:'claudia-push-subscriptions'|'claudia-enqueue-reply'|'claudia-chat-presence'){
  if(!cloudConfigured())throw Error('云端后台服务尚未配置。');
  return base+'/functions/v1/'+name;
 }
@@ -34,6 +34,7 @@ async function authRequest(path:string,body:Record<string,unknown>){
  if(!response.ok)throw Error(response.status===422?'请先在 Supabase 开启匿名身份验证。':'云端身份验证失败（HTTP '+response.status+'）。');
  return await response.json() as Record<string,unknown>;
 }
+export function hasCloudIdentity(){return !!read();}
 export async function cloudAccessToken():Promise<string>{
  if(!cloudConfigured())throw Error('云端后台服务尚未配置。');
  if(inflight)return inflight;
@@ -48,7 +49,7 @@ export async function cloudAccessToken():Promise<string>{
  })();
  try{return await inflight;}finally{inflight=null;}
 }
-export async function cloudFunctionRequest(name:'claudia-push-subscriptions'|'claudia-enqueue-reply',method:'POST'|'DELETE',body:unknown){
+export async function cloudFunctionRequest(name:'claudia-push-subscriptions'|'claudia-enqueue-reply'|'claudia-chat-presence',method:'POST'|'DELETE',body:unknown){
  const token=await cloudAccessToken();
  const response=await fetch(cloudFunctionUrl(name),{method,headers:{'Content-Type':'application/json','apikey':key,'Authorization':'Bearer '+token},body:JSON.stringify(body),cache:'no-store'});
  if(!response.ok)throw Error('云端接口请求失败（HTTP '+response.status+'）。');
