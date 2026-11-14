@@ -1,0 +1,56 @@
+import {useEffect,useState} from 'react';
+
+type PushState='checking'|'unsupported'|'not-installed'|'denied'|'unconfigured'|'unsubscribed'|'subscribed'|'error';
+const publicKey=(import.meta.env.VITE_PUSH_PUBLIC_KEY as string|undefined)?.trim()??'';
+function decodeKey(key:string){const padded=key.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(key.length/4)*4,'=');const raw=atob(padded);return Uint8Array.from(raw,c=>c.charCodeAt(0));}
+function installed(){return window.matchMedia('(display-mode: standalone)').matches||(navigator as Navigator&{standalone?:boolean}).standalone===true;}
+export function PushNotificationSettings(){
+ const [state,setState]=useState<PushState>('checking');
+ const [message,setMessage]=useState('');
+ const [busy,setBusy]=useState(false);
+ async function inspect(){
+  if(!('serviceWorker'in navigator)||!('PushManager'in window)||!('Notification'in window)){setState('unsupported');return;}
+  if(!installed()){setState('not-installed');return;}
+  if(Notification.permission==='denied'){setState('denied');return;}
+  try{
+   const registration=await navigator.serviceWorker.getRegistration();
+   const subscription=registration?await registration.pushManager.getSubscription():null;
+   setState(subscription?'subscribed':publicKey?'unsubscribed':'unconfigured');
+  }catch(e){setState('error');setMessage(e instanceof Error?e.message:'无法读取推送订阅状态');}
+ }
+ useEffect(()=>{void inspect();},[]);
+ async function subscribe(){
+  if(busy)return;setBusy(true);setMessage('');
+  try{
+   if(!installed())throw Error('请先将小手机添加到 iPhone 主屏幕，再从桌面图标打开。');
+   if(!publicKey)throw Error('推送服务器尚未配置，无法创建可用订阅。');
+   const permission=await Notification.requestPermission();
+   if(permission!=='granted'){await inspect();return;}
+   const registration=await navigator.serviceWorker.ready;
+   const existing=await registration.pushManager.getSubscription();
+   const subscription=existing??await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:decodeKey(publicKey) as BufferSource});
+   // A browser subscription alone cannot deliver notifications. Do not claim success without backend registration.
+   setState('subscribed');
+   setMessage('设备已创建推送订阅；还需服务端安全保存订阅并发送推送，才能在后台收到通知。');
+   void subscription;
+  }catch(e){setState('error');setMessage(e instanceof Error?e.message:'推送订阅失败');}
+  finally{setBusy(false);}
+ }
+ async function unsubscribe(){
+  setBusy(true);setMessage('');
+  try{const registration=await navigator.serviceWorker.getRegistration();const sub=await registration?.pushManager.getSubscription();if(sub)await sub.unsubscribe();await inspect();setMessage('已取消本机浏览器推送订阅。');}
+  catch(e){setState('error');setMessage(e instanceof Error?e.message:'取消失败');}
+  finally{setBusy(false);}
+ }
+ const descriptions:Record<PushState,string>={
+  checking:'正在检查设备通知能力…',unsupported:'当前浏览器不支持网页推送。', 'not-installed':'iPhone 需要先添加到主屏幕，并从桌面图标打开。',denied:'系统已拒绝通知权限，请在 iPhone 设置中修改。',unconfigured:'推送服务尚未配置，暂时不能订阅。',unsubscribed:'设备支持推送，可以申请通知权限。',subscribed:'设备已有推送订阅，但是否能收到消息还取决于服务端投递。',error:'检查或订阅失败。'};
+ return <section className="card form" aria-label="苹果系统通知">
+  <h3>苹果系统通知</h3>
+  <p className="hint">用于角色回复完成、角色主动发消息后的锁屏及横幅提醒。需要安装到主屏幕、允许通知并配置推送服务器。</p>
+  <p role="status">{descriptions[state]}</p>
+  {(state==='unsubscribed'||state==='error')&&<button type="button" className="list-row" disabled={busy||!publicKey} onClick={()=>void subscribe()}>{busy?'正在订阅…':'开启系统通知'}</button>}
+  {state==='subscribed'&&<button type="button" className="list-row" disabled={busy} onClick={()=>void unsubscribe()}>{busy?'正在处理…':'取消本机通知订阅'}</button>}
+  {message&&<p role="status">{message}</p>}
+  <p className="hint">订阅不会向推送服务发送 AI 密钥。当前仅实现设备端订阅入口；服务端登记、消息投递与跨设备同步仍待实现。</p>
+ </section>;
+}
