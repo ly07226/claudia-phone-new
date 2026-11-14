@@ -4,10 +4,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const jsonHeaders = { "Content-Type": "application/json", "Cache-Control": "no-store" };
+const allowedOrigin = Deno.env.get("CLAUDIA_APP_ORIGIN") || "";
+function corsHeaders() { return { ...jsonHeaders, "Access-Control-Allow-Origin": allowedOrigin, "Vary": "Origin", "Access-Control-Allow-Headers": "authorization, content-type, apikey", "Access-Control-Allow-Methods": "POST, DELETE, OPTIONS" }; }
 const MAX_BODY = 8192;
 
 function reply(status: number, data: Record<string, unknown>) {
-  return new Response(JSON.stringify(data), { status, headers: jsonHeaders });
+  return new Response(JSON.stringify(data), { status, headers: corsHeaders() });
 }
 function validSubscription(value: unknown): value is {
   endpoint: string; keys: { p256dh: string; auth: string };
@@ -30,14 +32,14 @@ function validSubscription(value: unknown): value is {
 }
 
 Deno.serve(async (request) => {
+  const origin = request.headers.get("Origin");
+  if (!allowedOrigin || !origin || origin !== allowedOrigin) return reply(403, { error: "origin_denied" });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
   if (request.method !== "POST" && request.method !== "DELETE") {
     return reply(405, { error: "method_not_allowed" });
   }
   // Supabase Edge Functions are hosted on a separate origin; use bearer JWT,
   // never cookies or permissive CORS. Browser callers must be from an allowed origin.
-  const allowedOrigin = Deno.env.get("CLAUDIA_APP_ORIGIN");
-  const origin = request.headers.get("Origin");
-  if (!allowedOrigin || !origin || origin !== allowedOrigin) return reply(403, { error: "origin_denied" });
   const bearer = request.headers.get("Authorization");
   if (!bearer?.startsWith("Bearer ")) return reply(401, { error: "unauthorized" });
   const size = Number(request.headers.get("Content-Length") || "0");
