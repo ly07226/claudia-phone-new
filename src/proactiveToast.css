@@ -10,3 +10,4 @@
 @keyframes claudia-proactive-in{from{opacity:0;transform:translate(-50%,-130%)}to{opacity:1;transform:translate(-50%,0)}}
 @keyframes claudia-proactive-out{from{opacity:1;transform:translate(-50%,0)}to{opacity:0;transform:translate(-50%,-130%)}}
 @media(prefers-reduced-motion:reduce){.claudia-proactive-toast{animation:none}.claudia-proactive-toast.is-leaving{animation:none;opacity:0}}
+\n.claudia-chat-unread{display:inline-block;width:8px;height:8px;min-width:8px;border-radius:50%;background:#e45e6d;align-self:center;margin-left:4px}\n
