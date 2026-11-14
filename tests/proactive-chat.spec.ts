@@ -31,3 +31,16 @@ test('主动消息通知为独立悬浮层，五秒后消失，不改动底层�
  expect(await page.locator('body').boundingBox()).toEqual(before);
  await expect(toast).toHaveCount(0,{timeout:8000});
 });
+
+test('主动消息采用到期定时器，不进行固定间隔轮询',async({page})=>{
+ await isolatedApp(page,'proactive-deadline-'+crypto.randomUUID());
+ const source=await page.evaluate(async()=>{
+  const response=await fetch('/src/ProactiveScheduler.tsx');
+  return response.text();
+ });
+ expect(source).toContain('setTimeout');
+ expect(source).toContain('visibilitychange');
+ expect(source).toContain('liveQuery');
+ expect(source).not.toContain('setInterval(');
+ expect(source).not.toContain('30000');
+});
