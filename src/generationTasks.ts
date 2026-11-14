@@ -22,7 +22,8 @@ async function notifyHiddenReply(characterId:string,conversationId:string,messag
   const reply=messageId?rows.find(row=>row.id===messageId):rows.at(-1);
   if(!reply||reply.role!=='assistant')return;
   const character=await db.characters.get(characterId);
-  const bubbles=messageBubbles(reply).filter(part=>part.kind==='text'&&part.text.trim());
+  const conversation=await db.conversations.get(conversationId);
+  const bubbles=messageBubbles(reply,conversation?.mode!=='daily').filter(part=>part.kind==='text'&&part.text.trim());
   for(let index=0;index<bubbles.length;index++){
    // Returning to the app stops the remaining banners; the saved bubbles stay intact.
    if(!shouldNotifyInBackground())break;
