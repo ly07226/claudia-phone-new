@@ -66,14 +66,14 @@ export function PushNotificationSettings(){
   finally{setBusy(false);}
  }
  const descriptions:Record<PushState,string>={
-  checking:'正在检查设备通知能力…',unsupported:'当前浏览器不支持网页推送。', 'not-installed':'iPhone/iPad 需要先添加到主屏幕，并从桌面图标打开。',denied:'系统已拒绝通知权限，请在 iPhone 设置中修改。',unconfigured:'推送服务尚未配置，暂时不能订阅。',unsubscribed:'设备支持推送，可以申请通知权限。',subscribed:'当前会话已收到服务端登记成功响应；远程投递仍需测试。',error:'检查或订阅失败。'};
+  checking:'正在检查设备通知能力…',unsupported:'当前浏览器不支持网页推送。', 'not-installed':'iPhone/iPad 需要先添加到主屏幕，并从桌面图标打开。',denied:'系统已拒绝通知权限，请在设备的应用或浏览器通知设置中修改。',unconfigured:'推送服务尚未配置，暂时不能订阅。',unsubscribed:'设备支持推送，可以申请通知权限。',subscribed:'当前会话已收到服务端登记成功响应；远程投递仍需测试。',error:'检查或订阅失败。'};
  return <section className="card form" aria-label="系统通知（iOS / Android）">
   <h3>系统通知（iOS / Android）</h3>
   <p className="hint">用于角色回复完成、角色主动发消息后的锁屏及横幅提醒。iPhone/iPad 需要安装到主屏幕；Android 设备可在支持 Web Push 的浏览器中授权。均需配置推送服务器。</p>
   <p role="status">{descriptions[state]}</p>
   {(state==='unsubscribed'||state==='error')&&<button type="button" className="list-row" disabled={busy||!publicKey} onClick={()=>void subscribe()}>{busy?'正在订阅…':'开启系统通知'}</button>}
   {state==='subscribed'&&<button type="button" className="list-row" disabled={busy} onClick={()=>void unsubscribe()}>{busy?'正在处理…':'取消本机通知订阅'}</button>}
-  {(state==='unconfigured'||state==='unsubscribed'||state==='subscribed'||state==='error')&&<button type="button" className="list-row" disabled={testBusy||busy} onClick={()=>void testLocalNotification()}>{testBusy?'正在测试…':'测试系统通知（iOS / Android）（本机）'}</button>}
+  {(state==='unconfigured'||state==='unsubscribed'||state==='subscribed'||state==='error')&&<button type="button" className="list-row" disabled={testBusy||busy} onClick={()=>void testLocalNotification()}>{testBusy?'正在测试…':'测试系统通知（本机）'}</button>}
   {message&&<p role="status">{message}</p>}
   <p className="hint">云端通知采用无需注册的匿名设备身份；清除浏览器数据可能导致设备身份丢失。订阅只提交 PushSubscription，不包含 AI 密钥。服务器必须验证用户身份、持久化订阅并实现 Web Push 发送；本页面不会将本机订阅误报为远程投递成功。</p>
  </section>;
