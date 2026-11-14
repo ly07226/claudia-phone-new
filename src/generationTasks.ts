@@ -11,19 +11,23 @@ import type {Conversation,MessageQuote} from './chatTypes';
 /** Send the exact saved chat bubbles as separate iOS notifications, in order.
  * Never generate, mutate or split a second copy of the reply.
  */
-async function notifyHiddenReply(characterId:string,conversationId:string){
+async function notifyHiddenReply(characterId:string,conversationId:string,expectedPath:ExpectedPath,messageId?:string){
  if(typeof document==='undefined'||document.visibilityState==='visible'||typeof Notification==='undefined'||Notification.permission!=='granted'||!('serviceWorker'in navigator))return;
  try{
   const registration=await navigator.serviceWorker.getRegistration();
   if(!registration)return;
+  const current=await db.conversations.get(conversationId);
+  if(!current||current.activeTimelineId!==expectedPath.timelineId||current.timelineEpoch!==expectedPath.epoch)return;
   const rows=await activeMessages(conversationId);
-  const reply=rows.at(-1);
+  const reply=messageId?rows.find(row=>row.id===messageId):rows.at(-1);
   if(!reply||reply.role!=='assistant')return;
   const character=await db.characters.get(characterId);
   const bubbles=messageBubbles(reply).filter(part=>part.kind==='text'&&part.text.trim());
   for(let index=0;index<bubbles.length;index++){
    // Returning to the app stops the remaining banners; the saved bubbles stay intact.
    if(document.visibilityState==='visible')break;
+   const latest=await db.conversations.get(conversationId);
+   if(!latest||latest.activeTimelineId!==expectedPath.timelineId||latest.timelineEpoch!==expectedPath.epoch)break;
    const part=bubbles[index];
    if(part.kind!=='text')continue;
    await registration.showNotification(character?.name??'Claudia Phone',{
@@ -85,7 +89,7 @@ export function startGenerationTask(request:Request,onSaved?:()=>void){
   try{
    const result=request.continuationId?await continueMessage(c.id,request.continuationId,controller.signal,expectedPath,saved):request.messageId?await regenerateMessage(c.id,request.messageId,controller.signal,request.allowArchive,expectedPath,saved):await sendMessage(c.id,request.text,controller.signal,request.retry,saved,expectedPath,request.images,request.replyTo);
    update({status:result?.interruption?'interrupted':'completed',saved:true});
-   if(!result?.interruption)void notifyHiddenReply(c.characterId,c.id);
+   if(!result?.interruption)void notifyHiddenReply(c.characterId,c.id,expectedPath,request.messageId??request.continuationId);
    if(request.retry||request.messageId||request.continuationId){try{const target=request.messageId??request.continuationId??(await activeMessages(c.id)).filter(m=>m.role==='user').at(-1)?.id;if(target){failures.set(c.id,(failures.get(c.id)??[]).filter(f=>f.messageId!==target||f.timelineId!==entry.state.timelineId||f.epoch!==entry.state.epoch));emit();}}catch{/* Failure-display cleanup cannot turn a saved reply into a failed generation. */}}
   }catch(error){
    update({status:controller.signal.aborted?'stopped':'failed',failure:controller.signal.aborted?undefined:describeReplyFailure(error),error:controller.signal.aborted?'回复已停止或当前路径已变化，已保存的消息和版本保留。':error instanceof Error?error.message:'回复未完成，已保存的消息保留。'});
