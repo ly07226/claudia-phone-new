@@ -2,7 +2,7 @@ import {PhasePlayApp} from './phasePlay/PhasePlayApp';
 import {ChatHubScheduler} from './ChatHubScheduler';
 import {ProactiveScheduler} from './ProactiveScheduler';
 import {BackgroundReplyReconciler} from './BackgroundReplyReconciler';
-import {AudioKeepAliveSettings} from './AudioKeepAliveSettings';
+import {AudioKeepAliveSettings,initializeAudioKeepAlive} from './AudioKeepAliveSettings';
 import {PushNotificationSettings} from './PushNotificationSettings';
 import {ThemeEditor} from './ThemeEditor';
 import {openPhoneApp,editPhoneDesktop,backPhonePage,usePhonePageNavigation} from './phonePageNavigation';
@@ -985,6 +985,7 @@ function App() {
     </div>
   );
 }
+initializeAudioKeepAlive();
 createRoot(document.getElementById("root")!).render(
   <SpaceRoot phone={<App />} />,
 );
