@@ -22,11 +22,14 @@ export function readChatViewport(scope:HTMLElement){
  if(!editing&&!keyboard)closed.height=visibleHeight;
  closed.keyboard=keyboard;closedViewports.set(scope,closed);
  // A panned viewport's offset is a coordinate, not another height deduction.
- const top=keyboard?Math.max(0,viewport?.offsetTop||0):0;
- const height=keyboard?visibleHeight:layoutHeight;
+ // The visual viewport may be panned by iOS while editing. Position the
+ // fixed chat shell at its actual top even if the keyboard heuristic has not
+ // settled yet; otherwise the footer can sit above a large blank strip.
+ const top=editing?Math.max(0,viewport?.offsetTop||0):0;
+ const height=editing?visibleHeight:(keyboard?visibleHeight:layoutHeight);
  // In standalone there is no Safari toolbar to reserve. Let CSS own the
  // closed viewport: an early/stale innerHeight must not pin a shorter px shell.
- const cssHeight=!keyboard&&standalone?(CSS.supports('height','100dvh')?'100dvh':'100vh'):`${height}px`;
+ const cssHeight=!editing&&!keyboard&&standalone?(CSS.supports('height','100dvh')?'100dvh':'100vh'):`${height}px`;
  return {top,height,bottom:top+height,keyboard,standalone,cssHeight};
 }
 const listeners=new Set<()=>void>();
