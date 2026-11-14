@@ -78,8 +78,10 @@ Deno.serve(async (request) => {
   // Only trusted provider origins are allowed in cloud mode (no arbitrary SSRF targets).
   let providerUrl: URL;
   try { providerUrl = new URL(body.baseUrl as string); } catch { return respond(400, { error: "invalid_provider_url" }); }
-  if (providerUrl.protocol !== "https:" || providerUrl.username || providerUrl.password || providerUrl.search || providerUrl.hash ||
-      !["generativelanguage.googleapis.com","api.openai.com","openrouter.ai"].includes(providerUrl.hostname))
+  if (providerUrl.protocol !== "https:" || providerUrl.port || providerUrl.username || providerUrl.password || providerUrl.search || providerUrl.hash ||
+      providerUrl.hostname!==({gemini:"generativelanguage.googleapis.com",openai:"api.openai.com",openrouter:"openrouter.ai"} as Record<string,string>)[String(body.provider)] ||
+      providerUrl.pathname!==({gemini:"/v1beta",openai:"/v1",openrouter:"/api/v1"} as Record<string,string>)[String(body.provider)] ||
+      (body.provider==="gemini")!==(body.protocol==="gemini"))
     return respond(422, { error: "unsupported_cloud_provider_origin" });
   // Verified user ID only. Store the immutable prompt atomically with the job.
   // This mode uses the server operator's managed model, never the user's BYOK key.
