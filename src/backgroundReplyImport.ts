@@ -14,7 +14,9 @@ export async function importBackgroundReplies(conversationId:string):Promise<{im
   const job=jobs.get(reply.job_id);
   if(!job||job.kind!=='reply'||!['completed','notified'].includes(job.status)||
      job.conversation_id!==conversationId||reply.conversation_id!==conversationId||
-     reply.message_id.length<1||reply.message_id.length>128||
+     typeof reply.message_id!=='string'||!/^[a-zA-Z0-9:_-]{1,128}$/.test(reply.message_id)||
+     typeof job.client_message_id!=='string'||typeof job.timeline_id!=='string'||
+     !Number.isSafeInteger(job.timeline_epoch)||job.timeline_epoch<0||
      typeof reply.body!=='string'||!reply.body.trim()||reply.body.length>200000){
    skipped++;continue;
   }
@@ -25,6 +27,8 @@ export async function importBackgroundReplies(conversationId:string):Promise<{im
    const timeline=await ensureTimelineInTransaction(conversationId);
    if(timeline.id!==job.timeline_id||timeline.epoch!==job.timeline_epoch)return false;
    const existing=await db.messages.get(reply.message_id);
+   const existingVariant=await db.messageVariants.get(reply.message_id);
+   if(existingVariant)return false;
    if(existing)return false; // Never overwrite an existing ID, including another conversation.
    const path=await activeMessages(conversationId);
    const tail=path.at(-1);
@@ -33,6 +37,8 @@ export async function importBackgroundReplies(conversationId:string):Promise<{im
    if(conversation.sendingToken&&(!conversation.sendingUntil||conversation.sendingUntil>Date.now()))return false;
    const created=Date.parse(reply.created_at);
    if(!Number.isFinite(created))return false;
+   // A completed job must never append a second assistant turn to an already
+   // answered user message, including a regenerated response with another ID.
    const message={id:reply.message_id,conversationId,role:'assistant' as const,
     content:reply.body,createdAt:created,archived:false};
    const variantId=crypto.randomUUID();
