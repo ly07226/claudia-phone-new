@@ -81,13 +81,12 @@ export function AudioKeepAliveSettings(){
   finally{if(token===operation)pending=false;}
  }
  return <section className="card form" aria-label="后台音频保活">
-  <h3>后台音频保活</h3>
-  <p className="hint">开启一次后持续循环播放无声音频，切换聊天页面不会停止。手动关闭才停止；系统强制中断后会尝试恢复。</p>
-  <button type="button" className="list-row" onClick={()=>void toggle()} aria-pressed={state.playing}>
-   <span>{state.enabled&&state.playing?'关闭后台保活':'开启后台保活'}</span>
-   <span>{state.playing?'循环播放中':state.enabled?'等待恢复':'关闭'}</span>
-  </button>
-  {state.error&&<p role="status">{state.error}</p>}
-  <p className="hint">后台运行效果受设备系统管理影响。开启后可在聊天中发送消息、切换 App，并检查回复及系统通知。</p>
+  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
+   <div><h3 style={{margin:0}}>后台保活</h3><p className="hint" style={{margin:'6px 0 0'}}>全局循环静音音频，切换页面不断开</p></div>
+   <button type="button" onClick={()=>void toggle()} aria-pressed={state.enabled} style={{flexShrink:0,border:'1px solid var(--border, #cbd5df)',borderRadius:999,padding:'9px 14px',background:state.enabled?'#dcefe5':'transparent',color:'inherit',font:'inherit'}}>
+    {state.enabled?'关闭':'开启'}
+   </button>
+  </div>
+  {state.error&&<p role="status" className="hint" style={{margin:'8px 0 0'}}>{state.error}</p>}
  </section>;
 }
