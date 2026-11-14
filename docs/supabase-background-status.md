@@ -44,3 +44,10 @@
 - 匿名用户并非永久可恢复的账户：清除浏览器数据或更换设备可能失去任务访问权；正式上线前应增加可选身份升级、设备恢复/解绑及配额滥用防护。
 - **重要**：Supabase 匿名 Auth 不等于阻止匿名滥用；服务端需增加速率限制、CAPTCHA/Turnstile 或配额防护。不能在这些保护完成前开放昂贵的后台 AI 调用。
 - 本轮仅完成前端静态协议接线；尚未运行 `tsc`、浏览器测试、Supabase 真机联调，也未部署或合并 main。
+
+## 2026-11-14：内部 Web Push 发送器（仅代码，未部署）
+- 新增 `supabase/functions/claudia-send-push/index.ts`：仅接受服务端共享密钥，按已完成且已保存回复的 job ID 查找所属用户的设备订阅，使用 VAPID Web Push 发送通用通知，清理 HTTP 404/410 的失效订阅。
+- 推送不包含聊天正文或 AI Key；匿名客户端不能调用发送接口。**部署时须关闭此函数的 Supabase JWT 网关校验，但必须先配置至少 32 字符随机 `CLAUDIA_INTERNAL_PUSH_SECRET`，并确保不向客户端暴露该值。** 其余两个面向用户的函数仍必须保持 JWT 校验。
+- 需要服务端环境变量 `CLAUDIA_VAPID_PUBLIC_KEY`、`CLAUDIA_VAPID_PRIVATE_KEY`、`CLAUDIA_VAPID_SUBJECT`（mailto: 管理邮箱）、`SUPABASE_URL` 和服务端密钥。VAPID 公钥需与客户端 `VITE_PUSH_PUBLIC_KEY` 一致。
+- 尚未做实际部署、类型检查、Deno/web-push 兼容性验证或远程推送投递测试。
+- **上线阻塞**：发送器目前没有投递幂等账本和调用限流；服务端内部密钥必须妥善管理，禁止对不受信任调用者开放；后台工作器仍未实现。用户无需手动登录，但匿名设备身份不可自动跨设备恢复。
