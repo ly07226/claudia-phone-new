@@ -2,8 +2,8 @@ import {readWizardDocument} from '../wizardDocumentImport';
 import {normalizedInstruction} from './library';
 import type {Phase} from './engine';
 
-export interface ImportedPhaseInstruction {phase:Phase|'unclassified';text:string}
-const heading=/^(?:【|\[|#\s*)?(红灯|黄灯|绿灯|红色|黄色|绿色|red|yellow|green)(?:指令|阶段|模式|灯)?(?:】|\])?\s*[:：]?\s*$/i;
+export interface ImportedPhaseInstruction {phase:Phase;text:string}
+const heading=/^\s*(?:【|\[|#+\s*)?(红灯|黄灯|绿灯|红色|黄色|绿色|red|yellow|green)(?:指令|阶段|模式|灯)?\s*(?:】|\])?\s*[:：]?\s*$/i;
 const color:Record<string,Phase>={红灯:'red',红色:'red',red:'red',黄灯:'yellow',黄色:'yellow',yellow:'yellow',绿灯:'green',绿色:'green',green:'green'};
 /** Conservative rule-based classification; ambiguous text requires review. */
 export function classifyInstruction(text:string):Phase|'unclassified'{
@@ -15,7 +15,7 @@ export function classifyInstruction(text:string):Phase|'unclassified'{
 }
 
 export function parsePhaseInstructionText(body:string):ImportedPhaseInstruction[]{
- let phase:Phase|'unclassified'='unclassified';
+ let phase:Phase='green';
  const items:ImportedPhaseInstruction[]=[];
  const seen=new Set<string>();
  for(const raw of body.split(/\r?\n/)){
@@ -28,7 +28,7 @@ export function parsePhaseInstructionText(body:string):ImportedPhaseInstruction[
   const key=normalizedInstruction(text);
   if(seen.has(key))continue;
   seen.add(key);
-  items.push({phase:phase==='unclassified'?classifyInstruction(text):phase,text});
+  items.push({phase,text});
   if(items.length>1000)throw Error('单次最多导入1000条指令，请拆分文档。');
  }
  if(!items.length)throw Error('Word 文档中没有识别到可用的文字指令。');
