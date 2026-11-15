@@ -1,3 +1,4 @@
+import {getSummaryApi} from './dedicatedSummaryApi';
 import {db} from './store';
 import {getMemoryScope} from './memoryStore';
 import {activeMessages} from './messagePath';
@@ -37,11 +38,8 @@ export async function runDailyDigest(scope:MemoryScope){
   if(!start)return;
   const raw=messages.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant')).map(m=>`[${m.role==='user'?'用户':'角色'}] ${m.content}`);
   if(!raw.length)return;
-  const selected=c.summaryApiConfigId;
-  if(!selected)throw Error('请先在自动总结设置中选择独立总结 API');
-  const config=await db.apiConfigs.get(selected),credential=await db.apiCredentials.get(selected);
-  if(!config?.enabled||!credential?.apiKey)throw Error('总结专用 API 未启用或密钥缺失');
-  const key=credential.apiKey;const pieces:string[]=[];let chunk='';
+  const {config,key}=await getSummaryApi(scope);
+const pieces:string[]=[];let chunk='';
   for(const line of raw){if(line.length>20000)throw Error('单条消息过长，已暂停二级总结，未截断原文');if(chunk.length+line.length>16000&&chunk){pieces.push(chunk);chunk='';}chunk+=line+'\n';}if(chunk)pieces.push(chunk);
   if(pieces.length>40)throw Error('日期原文过长，超过单次总结安全上限，未读取不完整内容');
   const signature=JSON.stringify([scope,start,end,pieces]);
