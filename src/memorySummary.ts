@@ -60,7 +60,7 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
    }else chunk.push(turn);
   }
   if(!oversized&&chunk.length)inputs.push(JSON.stringify(chunk.map(x=>x.messages)));
-  const fits=group.length>0&&!oversized;
+  const fits=group.length>0&&!oversized;\n  const previous=state.checkpoint;\n  const resume=previous&&scopeKey(previous.scope)===scopeKey(scope)&&previous.timelineId===data.t.id&&previous.throughNodeId===group.at(-1)?.nodeId&&JSON.stringify(previous.turns)===JSON.stringify(group.map(x=>x.ref))&&JSON.stringify(previous.inputs)===JSON.stringify(inputs);\n  if(fits&&!resume)state.checkpoint={scope:structuredClone(scope),timelineId:data.t.id,throughNodeId:group.at(-1)!.nodeId,turns:group.map(x=>x.ref),inputs,completed:[]};
   const job:MemorySummaryJob={id:crypto.randomUUID(),scope:structuredClone(scope),epoch:c.timelineEpoch??0,timelineId:data.t.id,snapshotHeadId:data.t.headNodeId!,throughNodeId:group.at(-1)?.nodeId??data.t.headNodeId!,status:fits?'running':'failed',startedAt:Date.now(),leaseUntil:Date.now()+Math.max(summaryLimits.leaseMs,inputs.length*75000),...(!fits?{...(!full?{diagnostic:{version:1 as const,stage:'input' as const,code:'input-budget' as const,inputRounds:inputs.length,pendingRounds:data.turns.length,inputTokenEstimate:attemptedTokens}}:{}),error:full?'capacity' as const:'input-too-large' as const,finishedAt:Date.now()}:{})};
   state.job=job;await db.conversations.update(c.id,{memorySummary:state});
   return fits?{job,turns:group.map(x=>x.ref),inputs}:undefined;
@@ -77,14 +77,14 @@ async function execute(scope:MemoryScope,manual:boolean){
   const {config,key:apiKey}=await resolveApi(c);
   failure='format';const facts:SummaryFact[]=[];
   const stats={candidates:0,accepted:0,rejected:0,reasons:{} as Record<string,number>};
-  for(const input of claimed.inputs){
+  for(let index=0;index<claimed.inputs.length;index++){\n   const input=claimed.inputs[index];\n   const saved=(await db.conversations.get(scope.conversationId))?.memorySummary?.checkpoint;\n   if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]){const part=saved.completed[index];facts.push(...part.facts);stats.candidates+=part.candidates;stats.accepted+=part.accepted;stats.rejected+=part.rejected;for(const [reason,count] of Object.entries(part.reasons))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;}\n   const before=facts.length;
    const raw=await requestSummary(config,apiKey,input,controller.signal);
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
    try{
     const parsed=parseSummary(raw),selected=selectSummaryCandidates(parsed,input);
     facts.push(...selected.accepted);stats.candidates+=parsed.length;stats.accepted+=selected.accepted.length;
     stats.rejected+=selected.rejected.length;
-    for(const r of selected.rejected)stats.reasons[r.reason]=(stats.reasons[r.reason]??0)+1;
+    const reasons:Record<string,number>={};\n    for(const r of selected.rejected){stats.reasons[r.reason]=(stats.reasons[r.reason]??0)+1;reasons[r.reason]=(reasons[r.reason]??0)+1;}\n    await db.transaction('rw',db.conversations,async()=>{const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);next.checkpoint!.completed[index]={facts:facts.slice(before),candidates:parsed.length,accepted:selected.accepted.length,rejected:selected.rejected.length,reasons};await db.conversations.update(scope.conversationId,{memorySummary:next});});
    }catch(e){if((e as Error).message==='empty')failure='empty';if(e instanceof SummaryFormatError)diagnostic={...e.diagnostic,receivedChars:raw.length,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)};throw e;}
   }
   job.selection=stats;
@@ -102,7 +102,7 @@ async function execute(scope:MemoryScope,manual:boolean){
    const known=summaryDuplicateIndex(all.map(e=>e.content));
    let added=0,duplicates=0;
    for(const fact of facts){if(known.has(fact)){duplicates++;continue;}failure='capacity';await createMemory(scope,{kind:fact.quality?.importance==='high'&&['major-event','relationship','identity','boundary','ongoing-conflict','continuity'].includes(fact.quality.category)?'core':'long',source:'auto',content:`【${labels[fact.type]}】${fact.content}`});known.add(fact);added++;}
-   state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
+   state.checkpoint=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
   });
  }catch(error){if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;failure=diagnostic.code==='truncated'?'format':'provider';}if(diagnostic)diagnostic={...diagnostic,inputRounds:claimed.turns.length,inputTokenEstimate:memoryTokenCost(system)+Math.max(...claimed.inputs.map(memoryTokenCost))};await fail(job,failure,diagnostic).catch(()=>{});}finally{clearTimeout(timer);}
 }
