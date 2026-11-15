@@ -49,7 +49,7 @@ export async function buildContext(
   const timedHistory=conversation.mode==='daily'&&conversation.chatSettings?.followRealTime;
   const timeZone=Intl.DateTimeFormat().resolvedOptions().timeZone;
   const formatter=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
-  const timestampPrefix=(m:Message)=>timedHistory&&Number.isFinite(m.createdAt)&&m.createdAt>0&&m.createdAt<=now?`[消息发送时间：${formatter.format(m.createdAt)}；此时的动作与场景不自动持续到现在]\n`:'';
+  const timestampPrefix=(m:Message)=>timedHistory&&Number.isFinite(m.createdAt)&&m.createdAt>0&&m.createdAt<=now?`[消息发送时间：${formatter.format(m.createdAt)}]\n`:'';
   const historyBudget=contextLimits.historyChars;
   if(system.length + (time?.content.length??0) > contextLimits.systemChars)
     throw Error("角色、世界与真实时间上下文合计过长，请缩短角色或世界设定。");
