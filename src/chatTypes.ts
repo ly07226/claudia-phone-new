@@ -25,6 +25,7 @@ export interface Conversation {
   smartTimeMemories?: import('./smartTimeMemory').SmartTimeMemory[];
   dailyDigestSettings?: {enabled:boolean;days:1|2};
   dailyDigests?: import('./dailyDigest').DailyDigest[];
+  dailyDigestCheckpoint?: import('./dailyDigest').DailyDigestCheckpoint;
   summaryApiConfigId?: string;
   activeTimelineId?: string;
   timelineEpoch?: number;
