@@ -1,5 +1,6 @@
 import {MemoryDeleteDialog} from './MemoryDeleteDialog';
 import {MemorySummarySettings} from './MemorySummarySettings';
+import {SmartTimeMemoryPanel} from './SmartTimeMemoryPanel';
 import {useEffect,useRef,useState} from 'react';
 import {liveQuery} from 'dexie';
 import {Brain,Plus,ShieldCheck,ChevronLeft,ChevronRight,Heart,BookOpen,Sparkles} from 'lucide-react';
@@ -25,7 +26,7 @@ export function MemoryApp(){
  </div>;
 }
 function MemoryPanel({scope}:{scope:MemoryScope}){
- const [view,setView]=useState<'home'|'core'|'long'|'summary'|'detail'|'short'>('home'),[selectedId,setSelectedId]=useState<string>(),[kind,setKind]=useState<StoredMemoryKind|'short'>('core'),[entries,setEntries]=useState<EffectiveMemory[]>([]),[short,setShort]=useState<ShortMemory>(),[revision,setRevision]=useState(0),[loading,setLoading]=useState(true),[error,setError]=useState('');
+ const [view,setView]=useState<'home'|'core'|'long'|'summary'|'detail'|'short'|'time'>('home'),[selectedId,setSelectedId]=useState<string>(),[kind,setKind]=useState<StoredMemoryKind|'short'>('core'),[entries,setEntries]=useState<EffectiveMemory[]>([]),[short,setShort]=useState<ShortMemory>(),[revision,setRevision]=useState(0),[loading,setLoading]=useState(true),[error,setError]=useState('');
  const [editor,setEditor]=useState<{entry?:EffectiveMemory;kind:StoredMemoryKind;text:string;revision:number}>(),[history,setHistory]=useState<MemoryEntry[]>(),[remove,setRemove]=useState<EffectiveMemory>(),[deleteError,setDeleteError]=useState(''),[busy,setBusy]=useState(false),[reload,setReload]=useState(0);const lock=useRef(false),mounted=useRef(true);
  useEffect(()=>{mounted.current=true;const subscription=liveQuery(async()=>({stored:await listMemories(scope),short:await readShortMemory(scope)})).subscribe({next:r=>{setEntries(r.stored.entries);setRevision(r.stored.revision);setShort(r.short);setLoading(false);setError('');},error:e=>{setError(errorText(e));setLoading(false);}});return()=>{mounted.current=false;subscription.unsubscribe();};},[scope,reload]);
  async function act(fn:()=>Promise<unknown>,deleting=false){if(lock.current)return;lock.current=true;setBusy(true);setError('');if(deleting)setDeleteError('');try{await fn();if(mounted.current){setEditor(undefined);setRemove(undefined);setHistory(undefined);}}catch(e){if(mounted.current){if(deleting)setDeleteError(errorText(e));else setError(errorText(e));}}finally{lock.current=false;if(mounted.current)setBusy(false);}}
@@ -34,15 +35,17 @@ function MemoryPanel({scope}:{scope:MemoryScope}){
  const goBack=()=>{setEditor(undefined);setHistory(undefined);setRemove(undefined);if(view==='detail')setView(selected?.kind==='long'?'long':'core');else setView('home');};
  return <section aria-label="角色记忆" className="memory-panel">
  <p className="memory-scope">{scope.mode==='daily'?'日常记忆 · 持续积累，不按剧情分支拆分':'剧情记忆 · 当前有效时间线（继承共同过去，独立积累未来）'}</p>
- <div className="memory-nav-head">{view!=='home'&&<button type="button" aria-label="返回记忆首页" onClick={goBack}><ChevronLeft size={20}/></button>}<h3>{view==='home'?'记忆卡片':view==='core'?'核心记忆':view==='long'?'长期记忆':view==='summary'?'自动记忆总结':view==='short'?'短期记忆':'记忆详情'}</h3>{(view==='core'||view==='long')&&<button type="button" aria-label="添加记忆" title="添加记忆" onClick={()=>{setEditor({kind:view,text:'',revision});setSelectedId(undefined);setHistory(undefined);setRemove(undefined);}}><Plus size={20}/></button>}</div>
+ <div className="memory-nav-head">{view!=='home'&&<button type="button" aria-label="返回记忆首页" onClick={goBack}><ChevronLeft size={20}/></button>}<h3>{view==='home'?'记忆卡片':view==='core'?'核心记忆':view==='long'?'长期记忆':view==='summary'?'自动记忆总结':view==='short'?'短期记忆':view==='time'?'智能时间记忆':'记忆详情'}</h3>{(view==='core'||view==='long')&&<button type="button" aria-label="添加记忆" title="添加记忆" onClick={()=>{setEditor({kind:view,text:'',revision});setSelectedId(undefined);setHistory(undefined);setRemove(undefined);}}><Plus size={20}/></button>}</div>
  {loading&&<p role="status">正在读取…</p>}{error&&<p role="alert">{error}<button disabled={busy} onClick={()=>{setLoading(true);setReload(n=>n+1);}}>重新读取</button></p>}
  {view==='home'&&<div className="memory-home-links">
  <button onClick={()=>openList('core')}><Heart size={22}/><span><strong>核心记忆</strong><small>重要事件、深度交流与智能时间记忆 · {entries.filter(e=>e.kind==='core').length}条</small></span><ChevronRight size={18}/></button>
  <button onClick={()=>openList('long')}><BookOpen size={22}/><span><strong>长期记忆</strong><small>人物背景、经历与持续性信息 · {entries.filter(e=>e.kind==='long').length}条</small></span><ChevronRight size={18}/></button>
  <button onClick={()=>setView('summary')}><Sparkles size={22}/><span><strong>自动记忆总结</strong><small>一级总结、二级总结、专用 API</small></span><ChevronRight size={18}/></button>
+ <button onClick={()=>setView('time')}><Heart size={22}/><span><strong>智能时间记忆</strong><small>日期、纪念日与周期提醒</small></span><ChevronRight size={18}/></button>
  <button onClick={()=>setView('short')}><Brain size={22}/><span><strong>短期记忆</strong><small>近期消息与事件摘要</small></span><ChevronRight size={18}/></button>
  </div>}
  {view==='summary'&&<MemorySummarySettings scope={scope}/>}
+ {view==='time'&&<SmartTimeMemoryPanel scope={scope}/>}
  {(view==='core'||view==='long')&&<><div className="memory-list-caption"><small>点击一条记忆查看完整内容</small><span>{entries.filter(e=>e.kind===view).length}条</span></div>
  {editor&&!editor.entry&&<form className="memory-editor" onSubmit={e=>{e.preventDefault();void act(()=>createMemory(scope,{kind:editor.kind,content:editor.text,source:'manual'},editor.revision));}}><h3>新增{view==='core'?'核心':'长期'}记忆</h3><label>记忆内容<textarea autoComplete="off" value={editor.text} maxLength={memoryLimits.entryChars} required onChange={e=>setEditor({...editor,text:e.target.value})}/></label><div className="memory-actions"><button type="submit" disabled={busy||!editor.text.trim()}>保存记忆</button><button type="button" disabled={busy} onClick={()=>setEditor(undefined)}>取消</button></div></form>}
  {!loading&&entries.filter(e=>e.kind===view).length===0&&<p className="memory-empty">暂无{view==='core'?'核心':'长期'}记忆。</p>}
