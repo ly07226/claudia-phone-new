@@ -42,9 +42,23 @@ export async function runDailyDigest(scope:MemoryScope){
    return;
   }
   const {config,key}=await getSummaryApi(scope);
-const pieces:string[]=[];let chunk='';
-  for(const line of raw){if(line.length>20000)throw Error('单条消息过长，已暂停二级总结，未截断原文');if(chunk.length+line.length>16000&&chunk){pieces.push(chunk);chunk='';}chunk+=line+'\n';}if(chunk)pieces.push(chunk);
-  if(pieces.length>40)throw Error('日期原文过长，超过单次总结安全上限，未读取不完整内容');
+  // Split by Unicode code points: never discard any part of an oversized message.
+  // Keep stable part labels so a resumed checkpoint matches exactly.
+  const pieces:string[]=[];let chunk='';
+  const flush=()=>{if(chunk){pieces.push(chunk);chunk='';}};
+  for(let messageIndex=0;messageIndex<raw.length;messageIndex++){
+   const chars=Array.from(raw[messageIndex]);
+   for(let offset=0,part=0;offset<chars.length;part++){
+    const label='[消息 '+(messageIndex+1)+' · 片段 '+(part+1)+'] ';
+    const capacity=16000-label.length-2;
+    const segment=label+chars.slice(offset,offset+capacity).join('')+'\n';
+    offset+=capacity;
+    if(chunk.length+segment.length>16000)flush();
+    chunk+=segment;
+   }
+  }
+  flush();
+  if(pieces.length>40)throw Error('该自然日内容超过40个片段的费用保护上限，请缩小总结范围；原文没有丢失');
   const signature=JSON.stringify([scope,start,end,pieces]);
   const saved=(await db.conversations.get(c.id))?.dailyDigestCheckpoint;
   const resume=saved&&saved.startDay===start&&saved.endDay===end&&JSON.stringify(saved.scope)===JSON.stringify(scope)&&saved.sourceSignature===signature&&JSON.stringify(saved.pieces)===JSON.stringify(pieces);
