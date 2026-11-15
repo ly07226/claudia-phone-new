@@ -1,6 +1,7 @@
 import {db} from './store';
 export interface SummaryLease {name:string;owner:string;expiresAt:number;updatedAt:number}
-const LEASE_MS=120000;
+// Long grace period tolerates iOS background timer suspension during a paid request.
+const LEASE_MS=30*60*1000;
 const HEARTBEAT_MS=20000;
 /**
  * Cross-tab fallback when Web Locks is absent.
