@@ -98,21 +98,19 @@ for(const provider of ['openai-compatible','gemini'])test('Story实际生成保�
  const text=JSON.stringify(request);expect(text).toContain('恰好四');expect(text).toContain('STORY_OPEN_ONLY');expect(text).not.toContain('PRIVATE_MEMORY');expect(text).not.toContain('昨晚在看菜单');expect(r.choices).toHaveLength(4);expect(r.record!.mode).toBe('story');expect(r.record!.sources.map(s=>s.source)).toEqual(['story-instruction','story-input']);expect(r.record!.attempts[0].fallback).toBe(false);
 });
 
-test('真实时间：最后一条用户意图优先，旧继续指令不覆盖新时段',async({page})=>{
- await isolatedApp(page,'realtime-intent-'+crypto.randomUUID());
+test('真实时间：隔夜不清空话题记忆，也不强制重置场景',async({page})=>{
+ await isolatedApp(page,'realtime-memory-'+crypto.randomUUID());
  const result=await page.evaluate(async()=>{
-  const {realTimeSession,sessionHistory}=await import('/src/realTimeContext.ts');
+  const {realTimeSession,realTimeContext}=await import('/src/realTimeContext.ts');
   const now=Date.now(),id='daily';
   const rows=[
-   {id:'a',conversationId:id,role:'assistant',content:'昨晚的动作',createdAt:now-10*3600000},
-   {id:'u1',conversationId:id,role:'user',content:'继续昨晚',createdAt:now-1000},
-   {id:'u2',conversationId:id,role:'user',content:'在干嘛',createdAt:now-500}
+   {id:'a',conversationId:id,role:'assistant',content:'昨晚我们约好今天去看展',createdAt:now-10*3600000},
+   {id:'u',conversationId:id,role:'user',content:'票你买好了吗',createdAt:now-500}
   ] as any;
   const session=realTimeSession(id,rows,now,'daily');
-  const context=sessionHistory(rows,session);
-  return {newSession:session.newSession,resume:session.resume,last:context.at(-1)?.content};
+  return {newSession:session.newSession,context:realTimeContext(id,rows,now,'Asia/Shanghai','daily')?.content};
  });
- expect(result.newSession).toBe(true);
- expect(result.resume).toBe(false);
- expect(result.last).toContain('不能当作当前正在发生');
+ expect(result.newSession).toBe(false);
+ expect(result.context).toContain('保留人物关系、过去事实、承诺、共同经历及相关长期记忆');
+ expect(result.context).not.toContain('默认开启新时段');
 });
