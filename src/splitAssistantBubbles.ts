@@ -1,3 +1,23 @@
+/** Punctuation-only fragments belong to adjacent speech, never a separate bubble.
+ * Preserve every character and the original ordering for deletion/quote offsets. */
+export function mergePunctuationBubbles(parts:string[]):string[]{
+  const out:string[]=[];
+  let leading="";
+  for(const part of parts){
+    if(!/[\\p{L}\\p{N}\\p{S}]/u.test(part)){
+      if(out.length)out[out.length-1]+=part;
+      else leading+=part;
+    }else{
+      out.push(leading+part);
+      leading="";
+    }
+  }
+  if(leading) {
+    if(out.length)out[out.length-1]+=leading;
+    else out.push(leading);
+  }
+  return out;
+}
 /** Display-only, lossless slices. Never write these fragments to Message or context. */
 export function legacyAssistantBubbles(content: string): string[] {
   if (!content.trim()) return [];
@@ -102,20 +122,7 @@ export function legacyAssistantBubbles(content: string): string[] {
   }
   if (group.trim()) result.push(group);
   else if (group && result.length) result[result.length - 1] += group;
-  // Stray punctuation/blank lines must not create their own display bubble.
-  const bubbles: string[] = [];
-  let prefix = "";
-  for (const piece of result) {
-    if (!/[\p{L}\p{N}\p{S}]/u.test(piece)) {
-      if (bubbles.length) bubbles[bubbles.length - 1] += piece;
-      else prefix += piece;
-    } else {
-      bubbles.push(prefix + piece);
-      prefix = "";
-    }
-  }
-  // An entirely punctuation-only reply has no visible bubble; Message stays intact.
-  return bubbles;
+  return mergePunctuationBubbles(result);
 }
 
 /** Recognize complete roleplay wrappers only, never infer a fault from an open bracket.
@@ -166,5 +173,6 @@ export function splitAssistantBubbles(content: string): string[] {
     }
   }
   if(pending&&out.length)out[out.length-1]+=pending;
-  return out.join('')===content?out:[content];
+  const merged=mergePunctuationBubbles(out);
+  return merged.join('')===content?merged:[content];
 }
