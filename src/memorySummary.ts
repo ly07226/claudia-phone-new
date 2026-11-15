@@ -64,7 +64,7 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   const previous=state.checkpoint;
   const resume=previous&&scopeKey(previous.scope)===scopeKey(scope)&&previous.timelineId===data.t.id&&previous.throughNodeId===group.at(-1)?.nodeId&&JSON.stringify(previous.turns)===JSON.stringify(group.map(x=>x.ref))&&JSON.stringify(previous.inputs)===JSON.stringify(inputs);
   if(fits&&!resume)state.checkpoint={scope:structuredClone(scope),timelineId:data.t.id,throughNodeId:group.at(-1)!.nodeId,turns:group.map(x=>x.ref),inputs,completed:[]};
-  const job:MemorySummaryJob={id:crypto.randomUUID(),scope:structuredClone(scope),epoch:c.timelineEpoch??0,timelineId:data.t.id,snapshotHeadId:data.t.headNodeId!,throughNodeId:group.at(-1)?.nodeId??data.t.headNodeId!,status:fits?'running':'failed',startedAt:Date.now(),leaseUntil:Date.now()+Math.max(summaryLimits.leaseMs,inputs.length*75000),...(!fits?{...(!full?{diagnostic:{version:1 as const,stage:'input' as const,code:'input-budget' as const,inputRounds:inputs.length,pendingRounds:data.turns.length,inputTokenEstimate:attemptedTokens}}:{}),error:full?'capacity' as const:'input-too-large' as const,finishedAt:Date.now()}:{})};
+  const job:MemorySummaryJob={id:crypto.randomUUID(),scope:structuredClone(scope),epoch:c.timelineEpoch??0,timelineId:data.t.id,snapshotHeadId:data.t.headNodeId!,throughNodeId:group.at(-1)?.nodeId??data.t.headNodeId!,status:fits?'running':'failed',startedAt:Date.now(),leaseUntil:Date.now()+Math.max(summaryLimits.leaseMs,inputs.length*210000+90000),...(!fits?{...(!full?{diagnostic:{version:1 as const,stage:'input' as const,code:'input-budget' as const,inputRounds:inputs.length,pendingRounds:data.turns.length,inputTokenEstimate:attemptedTokens}}:{}),error:full?'capacity' as const:'input-too-large' as const,finishedAt:Date.now()}:{})};
   state.job=job;await db.conversations.update(c.id,{memorySummary:state});
   return fits?{job,turns:group.map(x=>x.ref),inputs}:undefined;
  });
@@ -74,7 +74,7 @@ async function fail(job:MemorySummaryJob,error:SummaryFailure,diagnostic?:Summar
 }
 async function execute(scope:MemoryScope,manual:boolean){
  let claimed:Claim|undefined;try{claimed=await claim(scope,manual);}catch(e){if(manual)throw e;return;}if(!claimed)return;
- const {job}=claimed;let failure:SummaryFailure='provider',diagnostic:SummaryDiagnostic|undefined;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.max(60000,claimed.inputs.length*70000));
+ const {job}=claimed;let failure:SummaryFailure='provider',diagnostic:SummaryDiagnostic|undefined;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.max(60000,claimed.inputs.length*200000+90000));
  try{
   const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('stale-path');
   const {config,key:apiKey}=await resolveApi(c);
@@ -83,7 +83,7 @@ async function execute(scope:MemoryScope,manual:boolean){
   for(let index=0;index<claimed.inputs.length;index++){
    const input=claimed.inputs[index];
    const saved=(await db.conversations.get(scope.conversationId))?.memorySummary?.checkpoint;
-   if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]){const part=saved.completed[index];facts.push(...part.facts);if(part.eventSummary)events.push(part.eventSummary);stats.candidates+=part.candidates;stats.accepted+=part.accepted;stats.rejected+=part.rejected;for(const [reason,count] of Object.entries(part.reasons))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;}
+   if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]&&saved.completed[index].eventSummary!==undefined){const part=saved.completed[index];facts.push(...part.facts);if(part.eventSummary)events.push(part.eventSummary);stats.candidates+=part.candidates;stats.accepted+=part.accepted;stats.rejected+=part.rejected;for(const [reason,count] of Object.entries(part.reasons))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;}
    const before=facts.length;
    const raw=await requestSummary(config,apiKey,input,controller.signal);
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
