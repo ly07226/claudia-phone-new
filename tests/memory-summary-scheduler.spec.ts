@@ -29,7 +29,7 @@ test('summary errors: transient retry only, never quota/auth/safety/format',asyn
  expect(decisions.rate.kind).toBe('transient');
 });
 
-test('automatic summary: provider 503 gets two attempts, then waits another interval',async({page})=>{
+test('automatic summary: provider 503 ends immediately, then waits another interval',async({page})=>{
  await isolatedApp(page,'summary-retry-'+crypto.randomUUID());
  const id=await page.evaluate(async()=>{
   const {db}=await import('/src/store.ts');
@@ -50,12 +50,12 @@ test('automatic summary: provider 503 gets two attempts, then waits another inte
  await page.route('https://summary-retry.test/**',route=>{calls++;return route.fulfill({status:503,json:{error:{message:'server unavailable'}}});});
  await page.evaluate(async id=>{const {tryAutoSummary}=await import('/src/memorySummary.ts');await tryAutoSummary(id);},id);
  await expect.poll(async()=>page.evaluate(async id=>(await(await import('/src/store.ts')).db.conversations.get(id))?.memorySummary?.deferUntilPending,id)).toBe(40);
- expect(calls).toBe(2);
+ expect(calls).toBe(1);
  const state=await page.evaluate(async id=>(await(await import('/src/store.ts')).db.conversations.get(id))?.memorySummary,id);
  expect(state?.job?.failureKind).toBe('transient');
  expect(state?.receipts).toHaveLength(0);
  await page.evaluate(async id=>{await(await import('/src/memorySummary.ts')).tryAutoSummary(id);},id);
- expect(calls).toBe(2);
+ expect(calls).toBe(1);
 });
 
 test('automatic summary: authentication error stops after one attempt and defers',async({page})=>{
