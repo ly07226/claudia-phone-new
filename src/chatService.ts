@@ -23,11 +23,13 @@ const HEART_OPEN='[心声]';
 const HEART_CLOSE='[/心声]';
 export function parseHeartVoice(raw:string){
  const start=raw.lastIndexOf(HEART_OPEN),end=raw.lastIndexOf(HEART_CLOSE);
- if(start<0||end<start)return {text:raw,heartVoice:undefined};
+ // Never expose internal heart markers in visible chat, including truncated replies.
+ if(start<0)return {text:raw.replaceAll(HEART_CLOSE,''),heartVoice:undefined};
+ if(end<start)return {text:raw.slice(0,start).trim()||raw.replaceAll(HEART_OPEN,''),heartVoice:undefined};
  const voice=raw.slice(start+HEART_OPEN.length,end).trim();
  const text=(raw.slice(0,start)+raw.slice(end+HEART_CLOSE.length)).trim();
- if(!text||!voice)return {text:raw,heartVoice:undefined};
- return {text,heartVoice:voice.slice(0,3000)};
+ if(!text)return {text:raw.replaceAll(HEART_OPEN,'').replaceAll(HEART_CLOSE,''),heartVoice:undefined};
+ return {text,heartVoice:voice?voice.slice(0,3000):undefined};
 }
 export async function getConversation(characterId: string, worldId?: string) {
   return db.transaction(
