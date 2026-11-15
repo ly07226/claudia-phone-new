@@ -8,7 +8,7 @@ export interface SummaryQuality {category:typeof summaryQualityCategories[number
 export interface SummaryFact {type:SummaryCategory;content:string;quality?:SummaryQuality}
 export interface SummaryTurn {userIds:string[];assistantId:string}
 export interface SummarySelectionStats {candidates:number;accepted:number;rejected:number;reasons:Partial<Record<SummaryQualityRejection,number>>}
-export interface SummaryReceipt {selection?:SummarySelectionStats;id:string;revision:number;scope:MemoryScope;epoch:number;timelineId:string;throughNodeId:string;turns:SummaryTurn[];createdAt:number;added:number;duplicates:number}
+export interface SummaryReceipt {shortSummary?:string;selection?:SummarySelectionStats;id:string;revision:number;scope:MemoryScope;epoch:number;timelineId:string;throughNodeId:string;turns:SummaryTurn[];createdAt:number;added:number;duplicates:number}
 export type SummaryFailure='provider'|'format'|'empty'|'stale-path'|'capacity'|'input-too-large'|'interrupted'|'state';
 export const summaryDiagnosticCodes=['input-budget','truncated','json-syntax','ambiguous-json','root-shape','missing-field','unexpected-field','invalid-array','too-many-facts','empty','invalid-item','invalid-enum','invalid-content','empty-content','fact-too-long','output-limit','structured-unsupported','response-shape','invalid-quality'] as const;
 export interface SummaryDiagnostic {version:1;stage:'input'|'response'|'parse'|'validate';code:typeof summaryDiagnosticCodes[number];suspectedTruncated?:boolean;missingFields?:('memories'|'type'|'content')[];itemIndex?:number;inputRounds?:number;pendingRounds?:number;inputTokenEstimate?:number;outputTokenLimit?:number;receivedChars?:number}
