@@ -58,6 +58,9 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
    try{inputs=buildSummaryInputs(group,system,summaryLimits.inputTokens);}
    catch{oversized=true;}
   }
+  // One combined call for normal groups; at most two chunks (five calls) for unusually long groups.
+  // Never silently discard raw turns to fit the budget.
+  if(inputs.length>2)oversized=true;
   const fits=group.length>0&&!oversized;
   const previous=state.checkpoint;
   const resume=previous&&scopeKey(previous.scope)===scopeKey(scope)&&previous.timelineId===data.t.id&&previous.throughNodeId===group.at(-1)?.nodeId&&JSON.stringify(previous.turns)===JSON.stringify(group.map(x=>x.ref))&&JSON.stringify(previous.inputs)===JSON.stringify(inputs);
@@ -96,11 +99,22 @@ async function execute(scope:MemoryScope,manual:boolean){
    const saved=(await db.conversations.get(scope.conversationId))?.memorySummary?.checkpoint;
    if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]&&saved.completed[index].eventSummary!==undefined){const part=saved.completed[index];facts.push(...part.facts);if(part.eventSummary)events.push(part.eventSummary);stats.candidates+=part.candidates;stats.accepted+=part.accepted;stats.rejected+=part.rejected;for(const [reason,count] of Object.entries(part.reasons))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;}
    const before=facts.length;
-   const raw=await requestSummary(config,apiKey,input,controller.signal);
+   const combined=claimed.inputs.length===1;
+   const raw=await requestSummary(config,apiKey,input,controller.signal,combined);
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
    try{
-    const parsed=parseSummary(raw),selected=selectSummaryCandidates(parsed,input);
-    const eventSummary=await requestChunkEvents(config,apiKey,input,controller.signal);
+    let memoryJson=raw,eventSummary='';
+    if(combined){
+     let result:unknown;
+     try{result=JSON.parse(raw.trim());}catch{throw new SummaryResponseError({version:1,stage:'parse',code:'json-syntax'});}
+     if(!result||typeof result!=='object'||Array.isArray(result)||Object.keys(result).sort().join(',')!=='memories,summary'||typeof (result as {summary?:unknown}).summary!=='string')throw new SummaryResponseError({version:1,stage:'validate',code:'response-shape'});
+     const response=result as {memories:unknown;summary:string};
+     if(response.summary.length>1200)throw new SummaryResponseError({version:1,stage:'validate',code:'output-limit'});
+     eventSummary=response.summary.trim();
+     memoryJson=JSON.stringify({memories:response.memories});
+    }
+    const parsed=parseSummary(memoryJson),selected=selectSummaryCandidates(parsed,input);
+    if(!combined)eventSummary=await requestChunkEvents(config,apiKey,input,controller.signal);
     if(eventSummary)events.push(eventSummary);
     facts.push(...selected.accepted);stats.candidates+=parsed.length;stats.accepted+=selected.accepted.length;
     stats.rejected+=selected.rejected.length;
@@ -114,7 +128,7 @@ async function execute(scope:MemoryScope,manual:boolean){
   // interval, never to an individual API chunk. It is separate from raw messages.
   const uniqueEvents=events.filter(Boolean);
   const previousSummaries=(await visibleSummaryReceipts(scope)).filter(r=>r.shortSummary?.trim()).slice(-2).map(r=>r.shortSummary!);
-  const groupSummary=await requestGroupDigest(config,apiKey,uniqueEvents,controller.signal,previousSummaries);
+  const groupSummary=claimed.inputs.length===1?(uniqueEvents[0]??''):await requestGroupDigest(config,apiKey,uniqueEvents,controller.signal,previousSummaries);
 
   failure='stale-path';
   await db.transaction('rw',tables(),async()=>{
