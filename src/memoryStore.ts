@@ -1,4 +1,5 @@
 import type {SummaryReceipt} from './memorySummaryTypes';
+import {summarySourceFingerprint} from './summarySourceFingerprint';
 import {db} from './store';
 import {activeMessages} from './messagePath';
 import {visibleMessage} from './messageBubbles';
@@ -84,9 +85,15 @@ export async function readShortMemory(scope:MemoryScope,maxMessages=30):Promise<
  if(!Number.isInteger(maxMessages)||maxMessages<1||maxMessages>memoryLimits.shortMessages)throw Error('短期消息范围需为1–200条。');
  return db.transaction('r',tables(),async()=>{const c=await checked(scope),t=c.activeTimelineId?await db.timelines.get(c.activeTimelineId):undefined;
   const nodes=t?await nodesForHead(c.id,t.headNodeId):[],byMessage=new Map(nodes.map(n=>[n.messageId,n.id]));
-  const rows=(await activeMessages(c.id)).filter(m=>m.role==='user'||m.role==='assistant').map(visibleMessage).slice(-maxMessages);
-  const receipts=(await visibleSummaryReceipts(scope)).filter(r=>r.shortSummary?.trim()).slice(-5);
-  return {kind:'short',scope,summaries:receipts.map(r=>({text:r.shortSummary!,createdAt:r.createdAt,throughNodeId:r.throughNodeId})),context:{timelineId:t?.id,epoch:c.timelineEpoch??0,revision:t?.revision,headNodeId:t?.headNodeId},messages:rows.map(m=>({messageId:m.id,variantId:m.activeVariantId,nodeId:byMessage.get(m.id),role:m.role as 'user'|'assistant',content:m.content,assetIds:(m.attachments??[]).map(a=>a.assetId),createdAt:m.createdAt}))};
+  const rowsForProvenance=(await activeMessages(c.id)).filter(m=>m.role==='user'||m.role==='assistant');
+  const rows=rowsForProvenance.map(visibleMessage).slice(-maxMessages);
+  const receipts:SummaryReceipt[]=[];
+  for(const receipt of await visibleSummaryReceipts(scope)){
+   if(!receipt.shortSummary?.trim()||!receipt.sourceFingerprint)continue;
+   if(await summarySourceFingerprint(receipt,rowsForProvenance)===receipt.sourceFingerprint)receipts.push(receipt);
+  }
+  const recentReceipts=receipts.slice(-5);
+  return {kind:'short',scope,summaries:recentReceipts.map(r=>({text:r.shortSummary!,createdAt:r.createdAt,throughNodeId:r.throughNodeId})),context:{timelineId:t?.id,epoch:c.timelineEpoch??0,revision:t?.revision,headNodeId:t?.headNodeId},messages:rows.map(m=>({messageId:m.id,variantId:m.activeVariantId,nodeId:byMessage.get(m.id),role:m.role as 'user'|'assistant',content:m.content,assetIds:(m.attachments??[]).map(a=>a.assetId),createdAt:m.createdAt}))};
  });
 }
 
