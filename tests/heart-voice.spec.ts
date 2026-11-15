@@ -7,7 +7,10 @@ test('heart voice is separated from dialogue in one model response',()=>{
  expect(reply.text).toBe('瞎说什么呢。\\n什么地尽头。');
  expect(reply.heartVoice).toBe('她怎么总爱胡思乱想。');
 });
-test('truncated metadata never leaks into visible dialogue',()=>{\n expect(parseHeartVoice('有哥哥在。[心声]不能丢给用户的残片').text).toBe('有哥哥在。');\n});\ntest('ordinary replies without heart metadata are unchanged',()=>{
+test('truncated metadata never leaks into visible dialogue',()=>{
+ expect(parseHeartVoice('有哥哥在。[心声]不能丢给用户的残片').text).toBe('有哥哥在。');
+});
+test('ordinary replies without heart metadata are unchanged',()=>{
  expect(parseHeartVoice('有哥哥在。')).toEqual({text:'有哥哥在。',heartVoice:undefined});
 });
 test('heart voice is only mounted after the first bubble',()=>{
