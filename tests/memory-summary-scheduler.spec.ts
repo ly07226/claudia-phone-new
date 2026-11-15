@@ -57,3 +57,30 @@ test('automatic summary: provider 503 gets two attempts, then waits another inte
  await page.evaluate(async id=>{await(await import('/src/memorySummary.ts')).tryAutoSummary(id);},id);
  expect(calls).toBe(2);
 });
+
+test('automatic summary: authentication error stops after one attempt and defers',async({page})=>{
+ await isolatedApp(page,'summary-auth-'+crypto.randomUUID());
+ const id=await page.evaluate(async()=>{
+  const {db}=await import('/src/store.ts');
+  const {getConversation}=await import('/src/chatService.ts');
+  const {getMemoryScope}=await import('/src/memoryStore.ts');
+  const {saveSummarySettings}=await import('/src/memorySummary.ts');
+  await db.characters.put({id:'auth-character',name:'Auth',persona:''});
+  const c=await getConversation('auth-character');
+  const messages=[];
+  for(let i=0;i<20;i++)messages.push({id:'au'+i,conversationId:c.id,role:'user',content:'第'+i+'轮',createdAt:i*2+1},{id:'aa'+i,conversationId:c.id,role:'assistant',content:'第'+i+'轮回复',createdAt:i*2+2});
+  await db.messages.bulkPut(messages);
+  await db.apiConfigs.put({id:'auth-api',name:'mock',provider:'openai-compatible',baseUrl:'https://summary-auth.test/v1',model:'fixture',temperature:0,maxTokens:4000,enabled:true,isDefault:true,createdAt:1,updatedAt:1});
+  await db.apiCredentials.put({configId:'auth-api',apiKey:'synthetic'});
+  await saveSummarySettings(await getMemoryScope(c.id),true,20);
+  return c.id;
+ });
+ let calls=0;
+ await page.route('https://summary-auth.test/**',route=>{calls++;return route.fulfill({status:401,json:{error:{code:'invalid_api_key',message:'synthetic'}}});});
+ await page.evaluate(async id=>{await(await import('/src/memorySummary.ts')).tryAutoSummary(id);},id);
+ await expect.poll(async()=>page.evaluate(async id=>(await(await import('/src/store.ts')).db.conversations.get(id))?.memorySummary?.deferUntilPending,id)).toBe(40);
+ expect(calls).toBe(1);
+ const state=await page.evaluate(async id=>(await(await import('/src/store.ts')).db.conversations.get(id))?.memorySummary,id);
+ expect(state?.job?.failureKind).toBe('auth');
+ expect(state?.receipts).toHaveLength(0);
+});
