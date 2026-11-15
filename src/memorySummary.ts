@@ -135,7 +135,7 @@ export function runMemorySummary(scope:MemoryScope,manual=true){
  */
 const autoLoops=new Set<string>();
 export async function tryAutoSummary(conversationId:string){
- if(autoLoops.has(conversationId))return;
+ if(autoLoops.has(conversationId)||!navigator.onLine||document.hidden)return;
  const c=await db.conversations.get(conversationId);
  if(!c?.memorySummary?.enabled)return;
  const scope=await getMemoryScope(conversationId);
@@ -143,17 +143,20 @@ export async function tryAutoSummary(conversationId:string){
  autoLoops.add(conversationId);
  void (async()=>{
   for(let group=0;group<3;group++){
+   if(!navigator.onLine||document.hidden)break;
    const before=await summaryStatus(scope);
    const state=(await db.conversations.get(conversationId))?.memorySummary;
    if(!state?.enabled||before.pending<before.interval||before.pending<(state.deferUntilPending??0))break;
    let succeeded=false;
    for(let attempt=0;attempt<2;attempt++){
+    if(!navigator.onLine||document.hidden)return;
     await runMemorySummary(scope,false);
     const current=(await db.conversations.get(conversationId))?.memorySummary;
     if(current?.job?.status==='succeeded'){succeeded=true;break;}
     if(current?.job?.status!=='failed')return;
    }
    if(!succeeded){
+    if(!navigator.onLine||document.hidden)return;
     await db.transaction('rw',db.conversations,async()=>{
      const latest=await db.conversations.get(conversationId);
      if(!latest?.memorySummary?.enabled||latest.memorySummary.job?.status!=='failed')return;
