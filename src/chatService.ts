@@ -21,7 +21,7 @@ import { requestReply,requestChatReply } from "./chatProvider";
 /** Separate authored roleplay inner voice from the visible reply in the SAME model call. */
 const HEART_OPEN='[心声]';
 const HEART_CLOSE='[/心声]';
-function parseHeartVoice(raw:string){
+export function parseHeartVoice(raw:string){
  const start=raw.lastIndexOf(HEART_OPEN),end=raw.lastIndexOf(HEART_CLOSE);
  if(start<0||end<start)return {text:raw,heartVoice:undefined};
  const voice=raw.slice(start+HEART_OPEN.length,end).trim();
