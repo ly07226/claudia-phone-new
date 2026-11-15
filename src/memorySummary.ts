@@ -48,9 +48,10 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   for(const turn of (full?[]:data.turns.slice(0,state.interval))){
    const text=JSON.stringify([...selected,turn].map(x=>x.messages));attemptedTokens=memoryTokenCost(system)+memoryTokenCost(text);if(attemptedTokens>summaryLimits.inputTokens)break;selected.push(turn);input=text;
   }
-  // Auto mode never catches up via repeated small paid requests. If the full
-  // interval cannot fit, stop visibly; manual mode may process a safe prefix.
-  const fits=selected.length>0&&(manual||selected.length===Math.min(data.turns.length,state.interval));
+  // Process the largest whole-turn prefix that fits. A long interval is a
+  // trigger threshold, not a requirement to fit all turns into one request.
+  // Automatic execution still makes at most one paid request per invocation.
+  const fits=selected.length>0;
   const job:MemorySummaryJob={id:crypto.randomUUID(),scope:structuredClone(scope),epoch:c.timelineEpoch??0,timelineId:data.t.id,snapshotHeadId:data.t.headNodeId!,throughNodeId:selected.at(-1)?.nodeId??data.t.headNodeId!,status:fits?'running':'failed',startedAt:Date.now(),leaseUntil:Date.now()+summaryLimits.leaseMs,...(!fits?{...(!full?{diagnostic:{version:1 as const,stage:'input' as const,code:'input-budget' as const,inputRounds:selected.length,pendingRounds:data.turns.length,inputTokenEstimate:attemptedTokens}}:{}),error:full?'capacity' as const:'input-too-large' as const,finishedAt:Date.now()}:{})};
   state.job=job;await db.conversations.update(c.id,{memorySummary:state});
   return fits?{job,turns:selected.map(x=>x.ref),input}:undefined;
