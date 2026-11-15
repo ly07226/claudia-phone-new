@@ -240,7 +240,7 @@ async function generate(
     }
     // One request, not a second heart-voice API call. Continuation stays plain text.
     if(!options.continuation){
-      const heartInstruction='\\n\\n心声输出协议：正常完成本轮角色对话及动作后，在回复最末尾附加 [心声]角色此刻未说出口的内心独白[/心声]。心声为原创角色心理描写，不是模型推理过程；不要输出好感度、占有欲等数值，不要在普通对话中出现这些标签。心声控制在 150 字以内。';
+      const heartInstruction='\n\n心声输出协议：正常完成本轮角色对话及动作后，在回复最末尾附加 [心声]角色此刻未说出口的内心独白[/心声]。心声为原创角色心理描写，不是模型推理过程；不要输出好感度、占有欲等数值，不要在普通对话中出现这些标签。心声控制在 150 字以内。';
       if(context[0]?.role==='system'&&context[0].content.length+heartInstruction.length<=contextLimits.systemChars)context[0]={...context[0],content:context[0].content+heartInstruction};
     }
     const result=c.mode==='daily'?await requestChatReply(config,key,context,controller.signal):{text:await requestReply(config,key,context,controller.signal),interruption:undefined};
