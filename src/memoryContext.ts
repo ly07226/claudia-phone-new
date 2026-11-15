@@ -61,7 +61,11 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   });
   let lastAssistant=-1;for(let i=requestPath.length-1;i>=0;i--)if(requestPath[i].role==='assistant'){lastAssistant=i;break;}
   const pending=requestPath.slice(lastAssistant+1).filter(m=>m.role==='user');
-  const query=(pending.length?pending:requestPath.filter(m=>m.role==='user').slice(-1)).map(m=>m.content).join('\n');
+  // Include a small recent conversational window so elliptical follow-ups
+  // ("票买好了吗") can retrieve facts mentioned by the other speaker ("看展").
+  // The latest pending user messages remain first-class retrieval evidence.
+  const recent=requestPath.slice(-6).filter(m=>m.role==='user'||m.role==='assistant');
+  const query=[...recent,...pending.filter(m=>!recent.some(r=>r.id===m.id))].map(m=>m.content).join('\n');
   const selected=selectMemoryContext(entries,query,remainingChars);
   trace(c.id,{status:selected.text?'injected':selected.skippedBudget?'budget':selected.skippedIrrelevant?'irrelevant':'empty',eligible:entries.length,selected:selected.selected,truncated:selected.truncated,estimatedTokens:selected.estimatedTokens,skippedIrrelevant:selected.skippedIrrelevant,skippedBudget:selected.skippedBudget});
   return selected.text;
