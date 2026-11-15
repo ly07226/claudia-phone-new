@@ -2437,3 +2437,9 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
 
 /* Preserve the existing assistant bubble surface sizing after adding the heart wrapper. */
 .chat-immersive .chat-assistant > .chat-heart-bubble-unit > .chat-bubble-surface { width: fit-content; max-width: 100%; min-width: 0; margin: 0; }
+
+/* Regression guard: keep original user right-alignment and all multi-bubble gaps. */
+.chat-immersive .chat-user > .chat-heart-bubble-unit + .chat-heart-bubble-unit { margin-top: 12px; }
+.chat-immersive .chat-user > .chat-heart-bubble-unit { align-self: flex-end; align-items: flex-end; }
+.chat-immersive .chat-user > .chat-heart-bubble-unit > .chat-bubble-surface { width: fit-content; max-width: 100%; min-width: 0; margin: 0; }
+.chat-heart-card { box-sizing: border-box; }
