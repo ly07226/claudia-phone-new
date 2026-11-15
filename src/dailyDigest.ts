@@ -11,7 +11,7 @@ export interface DailyDigestCheckpoint {scope:MemoryScope;startDay:string;endDay
 export interface DailyDigest {id:string;scope:MemoryScope;startDay:string;endDay:string;text:string;createdAt:number;sourceMessageIds?:string[];sourceFingerprint?:string}
 export function dayKey(date:Date){return [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');}
 function dayStart(day:string){return new Date(day+'T00:00:00').getTime();}
-export async function saveDailyDigestSettings(scope:MemoryScope,enabled:boolean,days:1|2){await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('会话不存在');await db.conversations.update(c.id,{dailyDigestSettings:{enabled,days}});});}
+export async function saveDailyDigestSettings(scope:MemoryScope,enabled:boolean,days:1|2|3|7|14){await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('会话不存在');await db.conversations.update(c.id,{dailyDigestSettings:{enabled,days}});});}
 export async function dailyDigestStatus(scope:MemoryScope){const c=await db.conversations.get(scope.conversationId);return {settings:c?.dailyDigestSettings??{enabled:false,days:1 as const},digests:(c?.dailyDigests??[]).filter(d=>JSON.stringify(d.scope)===JSON.stringify(scope))};}
 const locks=new Set<string>();
 async function runDailyDigestLocked(scope:MemoryScope){
@@ -26,7 +26,7 @@ async function runDailyDigestLocked(scope:MemoryScope){
   const firstDate=new Date(first);
   const cursor=new Date(firstDate.getFullYear(),firstDate.getMonth(),firstDate.getDate());
   const ordinal=(d:Date)=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);
-  if(days===2){cursor.setDate(cursor.getDate()-(ordinal(cursor)%2));endAnchor.setDate(endAnchor.getDate()-(ordinal(endAnchor)%2));}
+  if(days>1){cursor.setDate(cursor.getDate()-(ordinal(cursor)%days));endAnchor.setDate(endAnchor.getDate()-(ordinal(endAnchor)%days));}
   const existing=c.dailyDigests??[];
   let start='',end='';
   // Pick the oldest unsummarized completed calendar window, never skip a missed day.
