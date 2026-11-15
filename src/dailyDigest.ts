@@ -8,7 +8,7 @@ import {visibleMessage} from './messageBubbles';
 import {requestReply} from './chatProvider';
 import type {MemoryScope} from './memoryTypes';
 export interface DailyDigestCheckpoint {scope:MemoryScope;startDay:string;endDay:string;sourceSignature:string;pieces:string[];completed:string[];updatedAt:number}
-export interface DailyDigest {id:string;scope:MemoryScope;startDay:string;endDay:string;text:string;createdAt:number;sourceMessageIds?:string[]}
+export interface DailyDigest {id:string;scope:MemoryScope;startDay:string;endDay:string;text:string;createdAt:number;sourceMessageIds?:string[];sourceFingerprint?:string}
 export function dayKey(date:Date){return [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');}
 function dayStart(day:string){return new Date(day+'T00:00:00').getTime();}
 export async function saveDailyDigestSettings(scope:MemoryScope,enabled:boolean,days:1|2){await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('会话不存在');await db.conversations.update(c.id,{dailyDigestSettings:{enabled,days}});});}
@@ -39,6 +39,8 @@ async function runDailyDigestLocked(scope:MemoryScope){
   if(!start)return;
   const sourceMessages=messages.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));
   const sourceSnapshot=JSON.stringify(sourceMessages.map(m=>[m.id,m.role,m.createdAt,m.content]));
+  const sourceHash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(sourceSnapshot));
+  const sourceFingerprint=Array.from(new Uint8Array(sourceHash),v=>v.toString(16).padStart(2,'0')).join('');
   const raw=sourceMessages.map(m=>`[${m.role==='user'?'用户':'角色'}] ${m.content}`);
   if(!raw.length){
    await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current)return;if((current.dailyDigests??[]).some(d=>d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope)))return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text:'',createdAt:Date.now()}]});});
@@ -111,7 +113,7 @@ async function runDailyDigestLocked(scope:MemoryScope){
   const latestMessages=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)):(await activeMessages(c.id)).map(visibleMessage);
   const latestSource=latestMessages.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));
   if(JSON.stringify(latestSource.map(m=>[m.id,m.role,m.createdAt,m.content]))!==sourceSnapshot)throw Error('总结期间历史原文已修改，已保留分片检查点，请重新检查');
-  await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current?.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days)return;if((current.dailyDigests??[]).some(d=>d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope)))return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text,createdAt:Date.now(),sourceMessageIds:sourceMessages.map(m=>m.id)}],dailyDigestCheckpoint:undefined});});
+  await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current?.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days)return;if((current.dailyDigests??[]).some(d=>d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope)))return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text,createdAt:Date.now(),sourceMessageIds:sourceMessages.map(m=>m.id),sourceFingerprint}],dailyDigestCheckpoint:undefined});});
  }finally{locks.delete(lock);}
 }
 
