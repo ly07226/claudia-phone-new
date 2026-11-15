@@ -1,4 +1,4 @@
-import {db} from './store';
+import {db,defaultTheme} from './store';
 import {testConnection,validateConfig,type ApiConfig} from './api';
 import type {MemoryScope} from './memoryTypes';
 export interface DedicatedSummaryApi {provider:'openai-compatible'|'openai'|'gemini'|'openrouter'|'custom';protocol?:'openai-chat'|'gemini';baseUrl:string;model:string;apiKey:string;temperature:number;maxTokens:number;enabled:boolean}
@@ -19,8 +19,7 @@ export async function saveSummaryApi(value:DedicatedSummaryApi){
  if(invalid)throw Error(invalid);
  await db.transaction('rw',db.themes,async()=>{
   const global=await db.themes.get('global');
-  if(!global)throw Error('全局设置尚未初始化');
-  await db.themes.update('global',{dedicatedSummaryApi:value});
+  await db.themes.put({...defaultTheme,...global,dedicatedSummaryApi:value,id:'global'});
  });
 }
 export async function testSummaryApi(value:DedicatedSummaryApi){
