@@ -91,7 +91,7 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
   // They are not constrained by the ordinary 4k-per-book / 8k-total lore budgets.
   const sorted=candidates.map(c=>({...c,entry:normalizeEntry(c.entry)})).sort((a,b)=>Number(b.entry.constant)-Number(a.entry.constant) || b.entry.priority-a.entry.priority || a.entry.createdAt-b.entry.createdAt || (a.entry.id<b.entry.id?-1:a.entry.id>b.entry.id?1:0));
   const selected:LoreEntry[]=[],diagnostics:LoreDiagnostic[]=[];
-  const used=new Map<string,number>();let total=0;
+  const used=new Map<string,number>();let total=0,optionalTotal=0;
   for(const {entry,book} of sorted) {
     const result=assess(entry,book,history,random,regex[entry.id]);
     const d=result.diagnostic;diagnostics.push(d);
@@ -103,9 +103,9 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
       d.reason="context-budget";
       throw Error("常驻世界书内容超出当前模型上下文安全预算，请调整角色设定或常驻规则后重试；本次未请求 AI。");
     }
-    if(!entry.constant && total+cost>Math.min(loreLimits.promptChars,remainingBudget)){d.reason="context-budget";continue;}
+    if(!entry.constant && (total+cost>remainingBudget || optionalTotal+cost>loreLimits.promptChars)){d.reason="context-budget";continue;}
     if(!entry.constant && bookUsed+cost>book.charBudget){d.reason="book-budget";continue;}
-    used.set(book.id,bookUsed+cost);total+=cost;selected.push(entry);
+    if(!entry.constant) {used.set(book.id,bookUsed+cost);optionalTotal+=cost;}total+=cost;selected.push(entry);
     d.outcome="injected";d.reason="injected";
   }
   return {entries:selected,activated:selected.map(e=>e.id),diagnostics,regexErrors:Object.fromEntries(Object.entries(regex).filter(([,r])=>r.error).map(([id,r])=>[id,r.error]))};
