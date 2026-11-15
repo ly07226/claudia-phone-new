@@ -37,7 +37,10 @@ export async function runDailyDigest(scope:MemoryScope){
   }
   if(!start)return;
   const raw=messages.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant')).map(m=>`[${m.role==='user'?'用户':'角色'}] ${m.content}`);
-  if(!raw.length)return;
+  if(!raw.length){
+   await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current)return;if((current.dailyDigests??[]).some(d=>d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope)))return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text:'',createdAt:Date.now()}]});});
+   return;
+  }
   const {config,key}=await getSummaryApi(scope);
 const pieces:string[]=[];let chunk='';
   for(const line of raw){if(line.length>20000)throw Error('单条消息过长，已暂停二级总结，未截断原文');if(chunk.length+line.length>16000&&chunk){pieces.push(chunk);chunk='';}chunk+=line+'\n';}if(chunk)pieces.push(chunk);
