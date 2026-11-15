@@ -285,6 +285,8 @@ export function Chat({ worldId }: { worldId?: string }) {
     const navigation = ++taskSequence.current;
     setError("");
     appliedSnapshot.current=null;
+    historyWindowRef.current=null;
+    setVisibleMessageLimit(100);
     setMessages([]);
     setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
     setReplyPresentation(null);
