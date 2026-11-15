@@ -12,15 +12,16 @@ export function realTimeSession(conversationId:string,path:readonly Message[],no
   const previous=rows[start-1],current=rows.slice(start);
   const elapsed=previous&&reliableMessageTime(previous.createdAt,now)?now-previous.createdAt:undefined;
   const reliable=elapsed!==undefined&&current.length>0&&current.every(m=>reliableMessageTime(m.createdAt,now)&&m.createdAt>=previous!.createdAt);
-  const resume=current.some(m=>{
+  const latestUser=[...current].reverse().find(m=>m.role==='user');
+  const resume=(latestUser?[latestUser]:[]).some(m=>{
     const text=m.content.trim();
     if(/^(?:不要|不想|别|不再|不用|不必).{0,8}(?:继续|接着)/u.test(text))return false;
     return /继续.{0,12}(?:刚才|之前|上次|昨晚|昨天|旧|剧情|场景|话题)|(?:接着|接上).{0,16}(?:说|聊|剧情|场景|刚才|之前)|^(?:继续|接着说|继续吧)[。！!～~\s]*$/u.test(text);
   });
-  const greeting=current.some(m=>/^(?:早上好|晚上好|下午好|上午好|中午好|早安|晚安|我回来了|(?:我)?(?:刚刚|刚)下班(?:了)?|(?:我)?(?:刚刚|刚)(?:睡)?醒(?:了)?)(?:[呀啊哦呢啦了～~！!。，,?？\s]|$)/u.test(m.content.trim()));
+  const greeting=(latestUser?[latestUser]:[]).some(m=>/^(?:早上好|晚上好|下午好|上午好|中午好|早安|晚安|我回来了|(?:我)?(?:刚刚|刚)下班(?:了)?|(?:我)?(?:刚刚|刚)(?:睡)?醒(?:了)?)(?:[呀啊哦呢啦了～~！!。，,?？\s]|$)/u.test(m.content.trim()));
   // A new topic can begin immediately, without waiting for a clock threshold.
   // Only treat explicit conversational pivots as a hard boundary; ordinary follow-ups stay continuous.
-  const topicChange=current.some(m=>m.role==='user'&&/^(?:对了|话说|说起来|换个话题|换个问题|不说这个了|先不聊这个|另外|还有一件事|我想聊(?:点|个)?别的|突然想起)(?:[，,：:\\s]|$)/u.test(m.content.trim()));
+  const topicChange=(latestUser?[latestUser]:[]).some(m=>m.role==='user'&&/^(?:对了|话说|说起来|换个话题|换个问题|不说这个了|先不聊这个|另外|还有一件事|我想聊(?:点|个)?别的|突然想起)(?:[，,：:\\s]|$)/u.test(m.content.trim()));
   const newSession=mode==='daily'&&reliable&&!resume&&(elapsed!>=4*3600000||(elapsed!>=30*60000&&greeting)||topicChange);
   return {previous,current,elapsed,resume,topicChange,newSession,reason:elapsed!==undefined&&elapsed>=4*3600000?'long-gap':topicChange?'topic-change':'greeting'};
 }
