@@ -39,13 +39,13 @@ export function sessionHistory(history:readonly Message[],session:ReturnType<typ
   const firstHistory=history.findIndex(m=>!currentIds.has(m.id));
   return history.map((m,i)=>{
     const marker=session.newSession?(i===firstCurrent?sessionMarkers.current:i===lastHistory?sessionMarkers.lastHistory:i===firstHistory?sessionMarkers.history:undefined):undefined;
-    const content=marker?`${marker}\\n\\n${m.content}`:m.content;
+    const content=marker?`${marker}\n\n${m.content}`:m.content;
     // Keep the boundary adjacent to the last user turn, where the model chooses
     // its next action; earlier history markers alone are easy to overlook.
     const isLatestCurrentUser=session.newSession&&m.role==='user'&&currentIds.has(m.id)&&
       !history.slice(i+1).some(next=>next.role==='user'&&currentIds.has(next.id));
     return {role:m.role as 'user'|'assistant',content:isLatestCurrentUser?
-      `${content}\\n\\n[当前时段回复约束：以上是用户此刻的新消息。旧时段的动作、姿势、地点和未完成情节仅为过去记忆，不能当作当前正在发生。先回应本条消息的字面意图；除非用户明确要求接续旧情节，否则不得从昨晚的动作中直接续写。保留人物性格与共同经历，不臆造间隔期间发生的事。]`:content};
+      `${content}\n\n[当前时段回复约束：以上是用户此刻的新消息。旧时段的动作、姿势、地点和未完成情节仅为过去记忆，不能当作当前正在发生。先回应本条消息的字面意图；除非用户明确要求接续旧情节，否则不得从昨晚的动作中直接续写。保留人物性格与共同经历，不臆造间隔期间发生的事。]`:content};
   });
 }
 /** Pure presentation of current-path original timestamps; never reads variants or other scopes. */
