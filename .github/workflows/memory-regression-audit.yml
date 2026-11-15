@@ -1,8 +1,5 @@
 name: Memory regression audit
 on:
-  push:
-    branches:
-      - feature/automatic-memory-summary-v2
   workflow_dispatch:
 jobs:
   verify:
