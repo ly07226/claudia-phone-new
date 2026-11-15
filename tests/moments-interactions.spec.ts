@@ -26,7 +26,7 @@ test('朋友圈省略号删除动态及关联评论，并持久化',async({page}
  page.once('dialog',dialog=>dialog.accept());
  await post.getByRole('button',{name:'删除动态'}).click();
  await expect(page.locator('.hub-post')).toHaveCount(7);
- expect(await page.evaluate(async()=>((await(await import('/src/store.ts')).db.themes.get('global'))?.chatHub?.posts.some(p=>p.id==='p0'))).toBe(false);
+ expect(await page.evaluate(async()=>((await(await import('/src/store.ts')).db.themes.get('global'))?.chatHub?.posts.some(p=>p.id==='p0')))).toBe(false);
  await page.reload();await page.getByRole('button',{name:'聊天',exact:true}).click();
  await expect(page.locator('.hub-post')).toHaveCount(7);
 });
