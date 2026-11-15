@@ -23,6 +23,9 @@ export interface Conversation {
   memoryStore?: MemoryStore;
   memorySummary?: MemorySummaryState;
   smartTimeMemories?: import('./smartTimeMemory').SmartTimeMemory[];
+  dailyDigestSettings?: {enabled:boolean;days:1|2};
+  dailyDigests?: import('./dailyDigest').DailyDigest[];
+  summaryApiConfigId?: string;
   activeTimelineId?: string;
   timelineEpoch?: number;
   chatSettings?: ChatSettings;
