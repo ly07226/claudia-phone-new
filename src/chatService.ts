@@ -23,12 +23,12 @@ const HEART_OPEN='[心声]';
 const HEART_CLOSE='[/心声]';
 export function parseHeartVoice(raw:string){
  const start=raw.lastIndexOf(HEART_OPEN),end=raw.lastIndexOf(HEART_CLOSE);
- // Never expose internal heart markers in visible chat, including truncated replies.
+ // An incomplete metadata block must never become a visible character reply.
  if(start<0)return {text:raw.replaceAll(HEART_CLOSE,''),heartVoice:undefined};
- if(end<start)return {text:raw.slice(0,start).trim()||raw.replaceAll(HEART_OPEN,''),heartVoice:undefined};
+ if(end<start)return {text:raw.slice(0,start).replaceAll(HEART_CLOSE,'').trim(),heartVoice:undefined};
  const voice=raw.slice(start+HEART_OPEN.length,end).trim();
- const text=(raw.slice(0,start)+raw.slice(end+HEART_CLOSE.length)).trim();
- if(!text)return {text:raw.replaceAll(HEART_OPEN,'').replaceAll(HEART_CLOSE,''),heartVoice:undefined};
+ const text=(raw.slice(0,start)+raw.slice(end+HEART_CLOSE.length)).replaceAll(HEART_OPEN,'').replaceAll(HEART_CLOSE,'').trim();
+ if(!text)return {text:'',heartVoice:undefined};
  return {text,heartVoice:voice?voice.slice(0,3000):undefined};
 }
 export async function getConversation(characterId: string, worldId?: string) {
