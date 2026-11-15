@@ -90,3 +90,29 @@ test("长篇常驻规则优先完整注入，空间不足明确失败而非静�
  expect(result.optional).toBe(true);
  expect(result.overflow).toContain("当前聊天设定过长");
 });
+
+test("长篇关键词条目按相关片段检索，不暴露检索过程",async({page})=>{
+ await ready(page);
+ const r=await page.evaluate(async()=>{
+  const {newBook,newEntry}=await import("/src/loreTypes.ts");
+  const {planLore}=await import("/src/loreEngine.ts");
+  const b={...newBook(),charBudget:1200};
+  const e={...newEntry(b.id),primaryKeys:["灯塔"],content:"普通背景。".repeat(500)+"\\n\\n"+"灯塔的守夜人名叫阿岚，必须记住这件事。"+"\\n\\n"+"无关档案。".repeat(500)};
+  const h:any=[{id:"u",role:"user",content:"灯塔的守夜人是谁？"}];
+  const result=planLore([{book:b,entry:e}],h,4000);
+  return {length:result.entries[0]?.content.length,content:result.entries[0]?.content,reason:result.diagnostics[0].reason};
+ });
+ expect(r.reason).toBe("injected");
+ expect(r.length).toBeLessThan(1200);
+ expect(r.content).toContain("阿岚");
+ expect(r.content).not.toContain("检索中");
+});
+test("Gemini 单系统指令序列化保留常驻资料和会话内容",async({page})=>{
+ await ready(page);
+ const r=await page.evaluate(async()=>{
+  const {geminiMessages}=await import("/src/chatProvider.ts");
+  return geminiMessages([{role:"system",content:"基础人格"},{role:"system",content:"常驻语言规则"},{role:"user",content:"你好"}]);
+ });
+ expect(JSON.stringify(r)).toContain("常驻语言规则");
+ expect(JSON.stringify(r)).toContain("你好");
+});
