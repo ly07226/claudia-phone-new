@@ -147,15 +147,34 @@ export function Chat({ worldId }: { worldId?: string }) {
     if(jumpTo.current){const target=Array.from(history.querySelectorAll<HTMLElement>("[data-message-id]")).find(el=>el.dataset.messageId===jumpTo.current);if(target){history.scrollTop+=target.getBoundingClientRect().top-history.getBoundingClientRect().top-history.clientHeight/3;history.querySelectorAll(".chat-message-highlight").forEach(el=>el.classList.remove("chat-message-highlight"));target.classList.add("chat-message-highlight");clearTimeout(highlightTimer.current);highlightTimer.current=setTimeout(()=>target.classList.remove("chat-message-highlight"),2400);followBottom.current=false;}jumpTo.current=null;savedScroll.current=null;}
     else if(savedScroll.current!==null){history.scrollTop=savedScroll.current;savedScroll.current=null;}
   },[management]);
+  const pendingQuoteJump=useRef<{id:string;part:BubblePart}|null>(null);
   function locateQuote(id:string,part:BubblePart){
+    const index=messages.findIndex(m=>m.id===id);
+    if(index<0){setFeedback('原消息已删除或不在当前分支。');return;}
+    const needed=messages.length-index;
+    if(needed>visibleMessageLimit){
+      pendingQuoteJump.current={id,part};
+      followBottom.current=false;
+      setVisibleMessageLimit(Math.ceil(needed/100)*100);
+      return;
+    }
+    scrollToQuote(id,part);
+  }
+  function scrollToQuote(id:string,part:BubblePart){
     const history=historyRef.current;if(!history)return;
     const group=Array.from(history.querySelectorAll<HTMLElement>('[data-message-id]')).find(el=>el.dataset.messageId===id);
     const target=group&&Array.from(group.querySelectorAll<HTMLElement>('[data-bubble-key]')).find(el=>el.dataset.bubbleKey===partKey(part));
-    if(!target){setFeedback('原消息已删除或不在当前分支。');return;}
+    if(!target){setFeedback('无法定位引用消息。');return;}
     followBottom.current=false;scrollRequested.current=false;preserveTop.current=null;
     history.scrollTop+=target.getBoundingClientRect().top-history.getBoundingClientRect().top-history.clientHeight/3;
     history.querySelectorAll('.chat-message-highlight').forEach(el=>el.classList.remove('chat-message-highlight'));target.classList.add('chat-message-highlight');clearTimeout(highlightTimer.current);highlightTimer.current=setTimeout(()=>target.classList.remove('chat-message-highlight'),2400);
   }
+  useLayoutEffect(()=>{
+    const target=pendingQuoteJump.current;
+    if(!target)return;
+    pendingQuoteJump.current=null;
+    scrollToQuote(target.id,target.part);
+  },[visibleMessageLimit]);
   const userIdentity = identityFor(s.theme, conversation?.mode === "world" ? `world:${conversation.worldId}` : "daily");
   const userAvatar = s.assets.find(a=>a.id===userIdentity.avatar)?.data;
   const avatarSrc = s.assets.find((a) => a.id === character?.avatar)?.data;
@@ -286,6 +305,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     setError("");
     appliedSnapshot.current=null;
     historyWindowRef.current=null;
+    pendingQuoteJump.current=null;
     setVisibleMessageLimit(100);
     setMessages([]);
     setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
@@ -461,7 +481,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   useLayoutEffect(()=>{
     const previous=historyWindowRef.current;
     const el=historyRef.current;
-    if(previous&&el){el.scrollTop=previous.top+el.scrollHeight-previous.height;historyWindowRef.current=null;}
+    if(previous&&el){el.scrollTop=previous.top+el.scrollHeight-previous.height;historyWindowRef.current=null;preserveTop.current=null;}
   },[visibleMessageLimit]);
   // Keep expensive message bubble JSX stable while the composer text changes.
   // Include state read by message actions so menus, versions and continuations stay current.
