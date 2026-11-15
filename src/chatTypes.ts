@@ -27,6 +27,7 @@ export interface Conversation {
   dailyDigests?: import('./dailyDigest').DailyDigest[];
   dailyDigestCheckpoint?: import('./dailyDigest').DailyDigestCheckpoint;
   summaryApiConfigId?: string;
+  dedicatedSummaryApi?: import('./dedicatedSummaryApi').DedicatedSummaryApi;
   activeTimelineId?: string;
   timelineEpoch?: number;
   chatSettings?: ChatSettings;
