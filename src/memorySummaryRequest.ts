@@ -2,16 +2,18 @@ import {browserTransport,type ApiConfig,type ApiTransport} from './api';
 import {requestReply} from './chatProvider';
 import {summaryLimits,type SummaryDiagnostic} from './memorySummaryTypes';
 import {summaryPrompt,summaryResponseSchema} from './memorySummaryFormat';
+const combinedPrompt=summaryPrompt+'\\n同时输出一个summary字符串字段，记录本片段对后续剧情真正重要的事件与未完成事项，通常0～5条，每条尽量30～80字。不要复述日常对话；保留人物主体、否定、因果、状态。无关键事件时为空字符串。根对象必须恰好包含memories与summary。';
+const combinedSchema={...summaryResponseSchema,properties:{...summaryResponseSchema.properties,summary:{type:'STRING'}},required:['memories','summary']};
 export class SummaryResponseError extends Error {constructor(public diagnostic:SummaryDiagnostic){super('summary-response');}}
 /** Summary-only protocol options/metadata. Normal chat requests are unchanged.
  * No fallback request is issued if an endpoint rejects structured output.
  */
-export async function requestSummary(config:ApiConfig,key:string,input:string,signal:AbortSignal){
+export async function requestSummary(config:ApiConfig,key:string,input:string,signal:AbortSignal,combined=false){
  const gemini=config.provider==='gemini'||(config.provider==='custom'&&config.protocol==='gemini');
  let diagnostic:SummaryDiagnostic|undefined;
  const transport:ApiTransport={send:async(url,init)=>{
   const body=JSON.parse(String(init.body));
-  if(gemini)body.generationConfig={...body.generationConfig,responseMimeType:'application/json',responseSchema:summaryResponseSchema};
+  if(gemini)body.generationConfig={...body.generationConfig,responseMimeType:'application/json',responseSchema:combined?combinedSchema:summaryResponseSchema};
   else body.response_format={type:'json_object'};
   const response=await browserTransport.send(url,{...init,body:JSON.stringify(body)});
   let data:any;try{data=await response.clone().json();}catch{if(response.ok)diagnostic={version:1,stage:'response',code:'response-shape'};return response;}
@@ -32,7 +34,7 @@ export async function requestSummary(config:ApiConfig,key:string,input:string,si
   return response;
  }};
  try{
-  const text=await requestReply({...config,maxTokens:Math.min(config.maxTokens,summaryLimits.outputTokens)},key,[{role:'system',content:summaryPrompt},{role:'user',content:input}],signal,transport,false);
+  const text=await requestReply({...config,maxTokens:Math.min(config.maxTokens,summaryLimits.outputTokens)},key,[{role:'system',content:combined?combinedPrompt:summaryPrompt},{role:'user',content:input}],signal,transport,false);
   if(diagnostic)throw new SummaryResponseError({...diagnostic,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)});
   return text;
  }catch(error){if(diagnostic)throw new SummaryResponseError({...diagnostic,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)});throw error;}
