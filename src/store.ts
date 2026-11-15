@@ -85,6 +85,7 @@ export interface Asset {
   createdAt: number;
 }
 class PhoneDB extends Dexie {
+  summaryLeases!: Table<import('./summaryLock').SummaryLease>;
   storySessions!: Table<StorySession>;
   storyNodes!: Table<StoryNode>;
   timelines!: Table<MemoryTimeline>;
@@ -171,6 +172,8 @@ class PhoneDB extends Dexie {
     this.version(6).stores({timelines:"id,conversationId,parentTimelineId",pathNodes:"id,conversationId,[conversationId+parentNodeId+fingerprint]"});
     // Additive v7: existing records and IDs are retained.
     this.version(7).stores(storySchemas);
+    // Additive v8: cross-window summary leases, existing records unchanged.
+    this.version(8).stores({summaryLeases:'name,expiresAt'});
 
   }
 }
