@@ -132,7 +132,7 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
    // when all formerly referenced IDs still exist in the request path.
    const windowMessages=[...pathById.values()].filter(m=>m.createdAt>=dayEnd(d.startDay)&&m.createdAt<dayEnd(d.endDay)&&(m.role==='user'||m.role==='assistant'));
    if(windowMessages.length!==source.length||windowMessages.some((m,i)=>m.id!==source[i]?.id))continue;
-   const payload=JSON.stringify(source.map(m=>[m!.id,m!.role,m!.createdAt,m!.content]));
+   const payload=JSON.stringify(source.map(m=>[m!.id,m!.role,m!.createdAt,m!.content,m!.activeVariantId??null,(m!.attachments??[]).map(a=>a.assetId)]));
    const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(payload));
    const fingerprint=Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');
    if(fingerprint===d.sourceFingerprint)digests.push(d);
