@@ -40,6 +40,17 @@ function MemoryPanel({scope}:{scope:MemoryScope}){
  {kind!=='short'&&entries.filter(e=>e.kind===kind).map(e=><article className="memory-card" key={e.id}><div className="memory-meta"><span>{e.source==='manual'?'手动 · 已保护':'自动总结'}</span>{e.source==='manual'&&<ShieldCheck size={15} aria-label="手动保护"/>}{scope.mode==='world'&&<span>{e.inherited?'继承记忆':'当前分支独有'}</span>}</div><p>{e.content}</p><div className="memory-actions"><button disabled={busy} onClick={()=>{setHistory(undefined);setRemove(undefined);setEditor({entry:e,kind:e.kind,text:e.content,revision});}}>编辑</button><button disabled={busy} onClick={()=>{void getMemoryHistory(scope,e.id).then(rows=>{if(mounted.current){setHistory(rows);setEditor(undefined);setRemove(undefined);}}).catch(err=>{if(mounted.current)setError(errorText(err));});}}>历史版本</button><button disabled={busy} onClick={()=>{setDeleteError('');setRemove(e);setEditor(undefined);setHistory(undefined);}}>删除</button></div></article>)}
  {remove&&<MemoryDeleteDialog busy={busy} error={deleteError} onCancel={()=>setRemove(undefined)} onConfirm={()=>void act(()=>deleteMemory(scope,remove.id,remove.revision),true)}/>}
  {history&&<section className="memory-history" aria-label="记忆历史版本"><h3>历史版本</h3><button onClick={()=>setHistory(undefined)}>关闭历史</button>{history.map(e=><article key={e.revision}><small>修订 {e.revision} · {e.source==='manual'?'手动 · 已保护':'自动总结'} · {new Date(e.updatedAt).toLocaleString()}</small><p>{e.deleted?'已删除（局部删除标记）':e.content}</p></article>)}</section>}
- {kind==='short'&&<><p className="memory-scope">只读展示当前有效路径最近 30 条消息，不另存聊天副本。</p>{!loading&&!short?.messages.length&&<p className="memory-empty">暂无短期记忆。</p>}{short?.messages.map(m=><article className="memory-card" key={m.nodeId??m.messageId}><small>{m.role==='user'?'用户':'角色'}</small><p>{m.content||'图片消息'}{m.assetIds.length>0&&`［${m.assetIds.length} 张图片］`}</p></article>)}</>}
+ {kind==='short'&&<>
+ <p className="memory-scope">已完成的剧情事件摘要按时间展示；最近30条原始消息仍可查看。摘要只读，遵循当前世界与剧情分支。</p>
+ <h3>事件摘要</h3>
+ {!loading&&!short?.summaries?.length&&<p className="memory-empty">暂无已完成的事件摘要。</p>}
+ {short?.summaries?.map((item,index)=><article className="memory-card" key={item.throughNodeId+':'+index}>
+  <div className="memory-meta"><span>第 {index+1} 组 · {new Date(item.createdAt).toLocaleString()}</span></div>
+  <p>{item.text}</p>
+ </article>)}
+ <details><summary>查看最近30条原始消息</summary>
+ {short?.messages.map(m=><article className="memory-card" key={m.nodeId??m.messageId}><small>{m.role==='user'?'用户':'角色'}</small><p>{m.content||'图片消息'}{m.assetIds.length>0&&`［${m.assetIds.length} 张图片］`}</p></article>)}
+ </details>
+ </>}
  </section>;
 }
