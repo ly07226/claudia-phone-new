@@ -73,10 +73,16 @@ export async function requestReply(
   const url = gemini
     ? `${base}/models/${encodeURIComponent(c.model.replace(/^models\//, ""))}:generateContent`
     : `${base}/chat/completions`;
+  // Gemini supports exactly one systemInstruction. Preserve all system-role
+  // lore as actual system instruction rather than downgrading it to user text.
+  const geminiSystem=messages.filter(m=>m.role==="system").map(m=>m.content).join("\n\n");
+  const geminiContext=gemini
+    ? [messages[0],...messages.slice(1).filter(m=>m.role!=="system")]
+    : messages;
   const body = gemini
     ? {
-        systemInstruction: { parts: [{ text: messages[0].content }] },
-        contents: geminiMessages(messages),
+        systemInstruction: { parts: [{ text: geminiSystem }] },
+        contents: geminiMessages(geminiContext),
         generationConfig: {
           temperature: c.temperature,
           maxOutputTokens: c.maxTokens,
