@@ -109,6 +109,7 @@ export async function ensureVariant(m: Message): Promise<MessageVariant> {
     content: m.content,
     source: "legacy",
     replyInterruption:m.replyInterruption,
+    heartVoice:m.heartVoice,
     createdAt: m.createdAt,
   };
   await db.messageVariants.add(v);
@@ -157,6 +158,7 @@ export async function selectVariant(
       content: v.content,
       userEdited: v.userEdited,
       replyInterruption:v.replyInterruption,
+      heartVoice:v.heartVoice,
       bubbleDeletion: undefined,
     });
     await commitTimelineProjection(id,"switch");
@@ -302,7 +304,7 @@ export async function restoreRevision(
     activeVariantId: m.activeVariantId,
   });
 }
-export async function addGeneratedVariant(m: Message, content: string, replyInterruption?: import("./chatCompletion").ReplyInterruption) {
+export async function addGeneratedVariant(m: Message, content: string, replyInterruption?: import("./chatCompletion").ReplyInterruption, heartVoice?:string) {
   const previous = await variantsFor(m);
   const v: MessageVariant = {
     id: crypto.randomUUID(),
@@ -310,6 +312,7 @@ export async function addGeneratedVariant(m: Message, content: string, replyInte
     messageId: m.id,
     content,
     source: "generated",
+    heartVoice,
     replyInterruption,
     createdAt: Math.max(Date.now(), ...previous.map((v) => v.createdAt + 1)),
   };
@@ -317,6 +320,7 @@ export async function addGeneratedVariant(m: Message, content: string, replyInte
   await db.messages.update(m.id, {
     activeVariantId: v.id,
     content,
+    heartVoice,
     userEdited: false,
     replyInterruption,
     bubbleDeletion: undefined,
