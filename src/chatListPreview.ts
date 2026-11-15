@@ -11,7 +11,14 @@ export async function chatListPreviews(characterIds: string[], worldId?: string)
   const result: Record<string, ChatPreview> = {};
   for (const c of conversations) {
     if (result[c.characterId]) continue;
-    const last = (await activeMessages(c.id)).filter(m => m.role === "user" || m.role === "assistant").map(visibleMessage).at(-1);
+    // Project only the newest eligible message. Previously we constructed
+    // visibleMessage() for every historical turn just to display one preview.
+    const path = await activeMessages(c.id);
+    let last: ReturnType<typeof visibleMessage> | undefined;
+    for(let i=path.length-1;i>=0;i--){
+      const m=path[i];
+      if(m.role==="user"||m.role==="assistant"){last=visibleMessage(m);break;}
+    }
     result[c.characterId] = { conversationId: c.id, remark: c.chatSettings?.remark, pinned: c.chatSettings?.pinned, pinnedAt: c.chatSettings?.pinnedAt, unread: !!c.chatSettings?.proactiveUnreadAt, content: last?.content.replace(/\s+/g, " ").trim() || (last?.attachments?.length?"[图片]":""), createdAt: last?.createdAt };
   }
   return result;
