@@ -85,7 +85,8 @@ export async function readShortMemory(scope:MemoryScope,maxMessages=30):Promise<
  return db.transaction('r',tables(),async()=>{const c=await checked(scope),t=c.activeTimelineId?await db.timelines.get(c.activeTimelineId):undefined;
   const nodes=t?await nodesForHead(c.id,t.headNodeId):[],byMessage=new Map(nodes.map(n=>[n.messageId,n.id]));
   const rows=(await activeMessages(c.id)).filter(m=>m.role==='user'||m.role==='assistant').map(visibleMessage).slice(-maxMessages);
-  return {kind:'short',scope,context:{timelineId:t?.id,epoch:c.timelineEpoch??0,revision:t?.revision,headNodeId:t?.headNodeId},messages:rows.map(m=>({messageId:m.id,variantId:m.activeVariantId,nodeId:byMessage.get(m.id),role:m.role as 'user'|'assistant',content:m.content,assetIds:(m.attachments??[]).map(a=>a.assetId),createdAt:m.createdAt}))};
+  const receipts=(await visibleSummaryReceipts(scope)).filter(r=>r.shortSummary?.trim()).slice(-5);
+  return {kind:'short',scope,summaries:receipts.map(r=>({text:r.shortSummary!,createdAt:r.createdAt,throughNodeId:r.throughNodeId})),context:{timelineId:t?.id,epoch:c.timelineEpoch??0,revision:t?.revision,headNodeId:t?.headNodeId},messages:rows.map(m=>({messageId:m.id,variantId:m.activeVariantId,nodeId:byMessage.get(m.id),role:m.role as 'user'|'assistant',content:m.content,assetIds:(m.attachments??[]).map(a=>a.assetId),createdAt:m.createdAt}))};
  });
 }
 
