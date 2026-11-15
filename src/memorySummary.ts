@@ -4,7 +4,6 @@ import {db} from './store';
 import {getMemoryScope,listMemories,listMemoryRevisions,createMemory,sealMemorySummaryForks,visibleSummaryReceipts} from './memoryStore';
 import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelines';
 import {visibleMessage} from './messageBubbles';
-import {resolveApi} from './chatService';
 import {selectSummaryCandidates,summaryDuplicateIndex} from './memorySummaryQuality';
 import {requestSummary,requestChunkEvents,requestGroupDigest,SummaryResponseError} from './memorySummaryRequest';
 import {parseSummary,summaryPrompt,SummaryFormatError} from './memorySummaryFormat';
@@ -91,7 +90,11 @@ async function execute(scope:MemoryScope,manual:boolean){
  const {job}=claimed;let failure:SummaryFailure='provider',diagnostic:SummaryDiagnostic|undefined;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.max(60000,claimed.inputs.length*200000+90000));
  try{
   const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('stale-path');
-  const {config,key:apiKey}=await resolveApi(c);
+  const selected=c.summaryApiConfigId;
+  if(!selected)throw Error('请先配置总结专用 API');
+  const config=await db.apiConfigs.get(selected),credential=await db.apiCredentials.get(selected);
+  if(!config?.enabled||!credential?.apiKey)throw Error('总结专用 API 未启用或密钥缺失');
+  const apiKey=credential.apiKey;
   failure='format';const facts:SummaryFact[]=[],events:string[]=[];
   const stats={candidates:0,accepted:0,rejected:0,reasons:{} as Record<string,number>};
   for(let index=0;index<claimed.inputs.length;index++){
