@@ -9,7 +9,7 @@ export async function summarySourceFingerprint(receipt:Pick<SummaryReceipt,'turn
  if(new Set(ids).size!==ids.length)return undefined;
  const source=ids.map(id=>byId.get(id));
  if(source.some(m=>!m))return undefined;
- const payload=JSON.stringify(source.map(m=>[m!.id,m!.role,m!.createdAt,m!.content,m!.activeVariantId??null]));
+ const payload=JSON.stringify(source.map(m=>[m!.id,m!.role,m!.createdAt,m!.content,m!.activeVariantId??null,(m!.attachments??[]).map(a=>a.assetId)]));
  const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(payload));
  return Array.from(new Uint8Array(bytes),v=>v.toString(16).padStart(2,'0')).join('');
 }
