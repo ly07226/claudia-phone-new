@@ -15,13 +15,25 @@ export async function runDailyDigest(scope:MemoryScope){
  const lock=scope.conversationId;if(locks.has(lock))return;locks.add(lock);
  try{
   const c=await db.conversations.get(scope.conversationId);if(!c?.dailyDigestSettings?.enabled)return;
-  const days=c.dailyDigestSettings.days,now=new Date(),today=dayKey(now);
-  // Calendar boundaries: fixed local dates, never a rolling 24/48-hour timer.
-  const anchor=new Date(now.getFullYear(),now.getMonth(),now.getDate());
-  if(days===2){const ordinal=Math.floor(Date.UTC(anchor.getFullYear(),anchor.getMonth(),anchor.getDate())/86400000);anchor.setDate(anchor.getDate()-(ordinal%2));}
-  const end=dayKey(anchor);const startDate=new Date(anchor);startDate.setDate(startDate.getDate()-days);const start=dayKey(startDate);
-  const latest=await db.conversations.get(scope.conversationId);if(latest?.dailyDigests?.some(d=>d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope)))return;
+  const days=c.dailyDigestSettings.days,now=new Date();
   const messages=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)): (await activeMessages(c.id)).map(visibleMessage);
+  const first=messages.filter(m=>m.role==='user'||m.role==='assistant').reduce((min,m)=>Math.min(min,m.createdAt),Infinity);
+  if(!Number.isFinite(first))return;
+  const endAnchor=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  const firstDate=new Date(first);
+  const cursor=new Date(firstDate.getFullYear(),firstDate.getMonth(),firstDate.getDate());
+  const ordinal=(d:Date)=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);
+  if(days===2){cursor.setDate(cursor.getDate()-(ordinal(cursor)%2));endAnchor.setDate(endAnchor.getDate()-(ordinal(endAnchor)%2));}
+  const existing=c.dailyDigests??[];
+  let start='',end='';
+  // Pick the oldest unsummarized completed calendar window, never skip a missed day.
+  for(let i=0;i<5000&&cursor.getTime()<endAnchor.getTime();i++){
+   const next=new Date(cursor);next.setDate(next.getDate()+days);
+   const from=dayKey(cursor),to=dayKey(next);
+   if(!existing.some(d=>d.startDay===from&&d.endDay===to&&JSON.stringify(d.scope)===JSON.stringify(scope))){start=from;end=to;break;}
+   cursor.setDate(cursor.getDate()+days);
+  }
+  if(!start)return;
   const raw=messages.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant')).map(m=>`[${m.role==='user'?'用户':'角色'}] ${m.content}`);
   if(!raw.length)return;
   const selected=c.summaryApiConfigId;
