@@ -94,7 +94,15 @@ export function Chat({ worldId }: { worldId?: string }) {
   const busy=localBusy||runningTask(generationTask)||remotePending;
   const taskMatches=!!conversation&&generationTask?.timelineId===conversation.activeTimelineId&&generationTask?.epoch===(conversation.timelineEpoch??0);
   const failedTasks=useGenerationFailures(conversation?.id);
-  const visibleFailures=useMemo(()=>failedTasks.filter(f=>f.timelineId===conversation?.activeTimelineId&&f.epoch===(conversation?.timelineEpoch??0)&&(!f.messageId||messages.some(m=>m.id===f.messageId))),[failedTasks,conversation?.activeTimelineId,conversation?.timelineEpoch,messages]);
+  const visibleFailures=useMemo(()=>{
+    const ids=new Set(messages.map(m=>m.id));
+    return failedTasks.filter(f=>f.timelineId===conversation?.activeTimelineId&&f.epoch===(conversation?.timelineEpoch??0)&&(!f.messageId||ids.has(f.messageId)));
+  },[failedTasks,conversation?.activeTimelineId,conversation?.timelineEpoch,messages]);
+  const failuresByMessage=useMemo(()=>{
+    const groups=new Map<string,typeof visibleFailures>();
+    for(const f of visibleFailures)if(f.messageId){const list=groups.get(f.messageId)||[];list.push(f);groups.set(f.messageId,list);}
+    return groups;
+  },[visibleFailures]);
   useEffect(()=>{setLeaseClock(Date.now());const until=conversation?.sendingUntil;if(!until)return;const timer=setTimeout(()=>setLeaseClock(Date.now()),Math.max(0,until-Date.now()+1));return()=>clearTimeout(timer);},[conversation?.id,conversation?.sendingToken,conversation?.sendingUntil]);
   const [savingMessage, setSavingMessage] = useState(false);
   const [attachmentOpen,setAttachmentOpen]=useState(false);
@@ -512,7 +520,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 }}
                 onVersion={(v) => void chooseVariant(m, v)}
               />
-              {visibleFailures.filter(f=>f.messageId===m.id).map(f=><ReplyFailureNotice key={f.id} details={f.failure}/>)}
+              {(failuresByMessage.get(m.id)||[]).map(f=><ReplyFailureNotice key={f.id} details={f.failure}/>)}
               {m.role==='assistant'&&conversation.mode==='daily' &&validInterruption(m.replyInterruption)&&<p role="status" className="hint">
                 {interruptionLabel(m.replyInterruption)}
                 {m.id===messages.at(-1)?.id&&!m.userEdited&&!m.bubbleDeletion&&<button type="button" className="text-button" title="会额外调用一次 API，原文保留。" disabled={busy} onClick={()=>{
@@ -525,7 +533,7 @@ export function Chat({ worldId }: { worldId?: string }) {
             ));
   },[
     messages,visibleMessages,timeLabels,replyPresentation,variants,displayName,avatarSrc,userAvatar,
-    userIdentity.name,conversation,onBubbleReveal,visibleFailures,busy
+    userIdentity.name,conversation,onBubbleReveal,failuresByMessage,busy
   ]);
   if(requests && !worldId && !conversation)return <div className="chat-hub-new-contacts"><button className="message-action" onClick={()=>s.set({activeApp:'角色管理'})}>添加联系人（角色管理）</button><FriendRequests characters={applications} onClose={()=>setRequests(false)}/></div>;
   const listContent=(<>
