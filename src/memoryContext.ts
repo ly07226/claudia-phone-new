@@ -117,6 +117,10 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
    if(!eligibleDigestScope(d.scope)||dayEnd(d.endDay)>prefixLast||!d.sourceMessageIds||!d.sourceFingerprint)continue;
    const source=d.sourceMessageIds.map(id=>pathById.get(id));
    if(source.some(m=>!m))continue;
+   // A deleted or inserted message changes the complete calendar window, even
+   // when all formerly referenced IDs still exist in the request path.
+   const windowMessages=[...pathById.values()].filter(m=>m.createdAt>=dayEnd(d.startDay)&&m.createdAt<dayEnd(d.endDay)&&(m.role==='user'||m.role==='assistant'));
+   if(windowMessages.length!==source.length||windowMessages.some((m,i)=>m.id!==source[i]?.id))continue;
    const payload=JSON.stringify(source.map(m=>[m!.id,m!.role,m!.createdAt,m!.content]));
    const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(payload));
    const fingerprint=Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');
