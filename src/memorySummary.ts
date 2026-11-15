@@ -1,3 +1,4 @@
+import {getSummaryApi} from './dedicatedSummaryApi';
 import {classifySummaryError} from './memorySummaryErrors';
 import {activeMessages} from './messagePath';
 import {db} from './store';
@@ -90,11 +91,8 @@ async function execute(scope:MemoryScope,manual:boolean){
  const {job}=claimed;let failure:SummaryFailure='provider',diagnostic:SummaryDiagnostic|undefined;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.max(60000,claimed.inputs.length*200000+90000));
  try{
   const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('stale-path');
-  const selected=c.summaryApiConfigId;
-  if(!selected)throw Error('请先配置总结专用 API');
-  const config=await db.apiConfigs.get(selected),credential=await db.apiCredentials.get(selected);
-  if(!config?.enabled||!credential?.apiKey)throw Error('总结专用 API 未启用或密钥缺失');
-  const apiKey=credential.apiKey;
+  const {config,key:apiKey}=await getSummaryApi(scope);
+
   failure='format';const facts:SummaryFact[]=[],events:string[]=[];
   const stats={candidates:0,accepted:0,rejected:0,reasons:{} as Record<string,number>};
   for(let index=0;index<claimed.inputs.length;index++){
