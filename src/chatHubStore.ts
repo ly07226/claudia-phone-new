@@ -8,3 +8,11 @@ export async function publishSocialPost(author:SocialAuthor){return changeChatHu
  h.posts.unshift({id:crypto.randomUUID(),author,text:h.draft.text,images:[...h.draft.images],createdAt:Date.now(),liked:false,comments:[]});h.draft={text:'',images:[]};
 });}
 export async function addSocialComment(postId:string,text:string,author:SocialAuthor,parentId?:string){let id='';await changeChatHub(h=>{const p=h.posts.find(p=>p.id===postId);if(!p)throw Error('原动态已不存在。');id=crypto.randomUUID();p.comments.push({id,parentId,text,author,createdAt:Date.now()});});return id;}
+
+/** Delete a moment and its dependent interaction state without leaving invalid references. */
+export async function deleteSocialPost(postId:string){return changeChatHub(h=>{
+ const index=h.posts.findIndex(p=>p.id===postId);if(index<0)return;
+ h.posts.splice(index,1);
+ if(h.job?.postId===postId)h.job=undefined;
+ h.failures=h.failures?.filter(f=>f.postId!==postId);
+});}
