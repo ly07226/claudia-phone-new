@@ -118,5 +118,14 @@ async function runDailyDigestLocked(scope:MemoryScope){
 /** Cross-tab exclusive lock. If another tab owns the job, skip rather than duplicate a paid call. */
 export async function runDailyDigest(scope:MemoryScope){
  const name='claudia-daily-digest:'+scope.conversationId;
- await withSummaryLock(name,()=>runDailyDigestLocked(scope));
+ await withSummaryLock(name,async()=>{
+  // Catch up missed completed calendar windows, without blocking normal chat.
+  for(let i=0;i<7;i++){
+   if(typeof document!=='undefined'&&document.hidden)break;
+   const before=(await dailyDigestStatus(scope)).digests.length;
+   await runDailyDigestLocked(scope);
+   const after=(await dailyDigestStatus(scope)).digests.length;
+   if(after<=before)break;
+  }
+ });
 }
