@@ -296,14 +296,14 @@ test("独立标点行必须单独成气泡，后续正文另成气泡",async({pa
  await page.goto("/");
  const result=await page.evaluate(async()=>{
   const {splitAssistantBubbles,legacyAssistantBubbles}=await import("/src/splitAssistantBubbles.ts");
-  return ["?\\n装傻这一块还真是没人比得过你^^","。\\n我在这里。","你好。\\n？\\n下一句。","？"].map(input=>({input,modern:splitAssistantBubbles(input),legacy:legacyAssistantBubbles(input)}));
+  return ["?\n装傻这一块还真是没人比得过你^^","。\n我在这里。","你好。\n？\n下一句。","？"].map(input=>({input,modern:splitAssistantBubbles(input),legacy:legacyAssistantBubbles(input)}));
  });
  for(const {input,modern,legacy} of result){
   expect(modern.join("")).toBe(input);
   expect(legacy.join("")).toBe(input);
  }
- expect(result[0].modern).toEqual(["?\\n","装傻这一块还真是没人比得过你^^"]);
- expect(result[0].legacy).toEqual(["?\\n","装傻这一块还真是没人比得过你^^"]);
+ expect(result[0].modern).toEqual(["?\n","装傻这一块还真是没人比得过你^^"]);
+ expect(result[0].legacy).toEqual(["?\n","装傻这一块还真是没人比得过你^^"]);
  expect(result[1].modern).toHaveLength(2);
  expect(result[2].modern.some((s:string)=>s.trim()==="？")).toBe(true);
  expect(result[3].modern).toEqual(["？"]);
