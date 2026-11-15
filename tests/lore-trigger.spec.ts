@@ -83,9 +83,10 @@ test("长篇常驻规则优先完整注入，空间不足明确失败而非静�
   const planned=planLore([{book,entry:optional},{book,entry:constant}],history,18000);
   let overflow="";
   try {planLore([{book,entry:constant}],history,1000);} catch(e) {overflow=String(e);}
-  return {first:planned.entries[0]?.id,contains:planned.entries.some(e=>e.id==="always"),overflow};
+  return {first:planned.entries[0]?.id,contains:planned.entries.some(e=>e.id==="always"),optional:planned.entries.some(e=>e.id==="optional"),overflow};
  });
  expect(result.first).toBe("always");
  expect(result.contains).toBe(true);
+ expect(result.optional).toBe(true);
  expect(result.overflow).toContain("常驻世界书内容超出");
 });
