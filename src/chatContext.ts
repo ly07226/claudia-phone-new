@@ -73,6 +73,7 @@ export async function buildContext(
   // A precise deletion can leave a genuine leading AI message. Retain it;
   // only drop an incomplete leading turn introduced by history truncation.
   while (history[0]?.role === "assistant"&&path[0]?.role!=="assistant") history.shift();
+  // Reserve the actual remaining system budget for lore before constructing the request.
   const lore = await loreForConversation(
     conversation,
     history,
@@ -104,6 +105,12 @@ export async function buildContext(
   }
   if(requestHistory.reduce((n,m)=>n+m.content.length,0)>contextLimits.historyChars)throw Error("聊天及引用内容超过24000字符安全上限，本次未请求模型；消息仍已保存。");
   const context = injectLore(system,requestHistory,lore.entries);
+  // Enforce the system budget after all insertion positions/roles are resolved.
+  // Otherwise a large always-on rule at a non-profile slot could evade the
+  // preflight calculation and fail unpredictably at the provider.
+  const injectedSystemChars=context.filter(m=>m.role==='system').reduce((n,m)=>n+m.content.length,0);
+  if(injectedSystemChars+(time?.content.length??0)>contextLimits.systemChars)
+    throw Error("当前聊天设定过长，暂时无法生成回复。请在设置中调整后重试。");
   // Gemini accepts only the first systemInstruction. Keep the independently built
   // time block there without changing profile data or downgrading the profile role.
   const timed = time ? [{...context[0], content: `${context[0].content}\n\n${time.content}`}, ...context.slice(1)] : context;
