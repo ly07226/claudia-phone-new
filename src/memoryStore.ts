@@ -70,7 +70,7 @@ async function write(scope:MemoryScope,input:MemoryInput|undefined,id?:string,ex
   if(input&&(!['core','long'].includes(input.kind)||!['manual','auto'].includes(source)||!content||content.length>memoryLimits.entryChars))throw Error('核心/长期记忆需为1–12000字符，且来源有效；短期上下文不重复持久化。');
   if(state.entries.length>=memoryLimits.events||state.entries.reduce((n,e)=>n+e.content.length,content.length)>memoryLimits.totalChars)throw Error('记忆达到本阶段安全容量上限，未清理或覆盖旧记忆。');
   let timeline:MemoryTimeline|undefined;if(scope.mode==='world')timeline=await db.timelines.get(scope.timelineId);
-  const now=Math.max(0,Date.now(),previous?.updatedAt??0),entry:MemoryEntry={id:previous?.id??crypto.randomUUID(),revision:state.revision+1,scope:structuredClone(scope),kind:input?.kind??previous!.kind,source,content,deleted:!input,createdAt:previous?.createdAt??now,updatedAt:now,...(timeline?.headNodeId?{anchorNodeId:timeline.headNodeId}:{})};
+  const now=Math.max(0,Date.now(),previous?.updatedAt??0),entry:MemoryEntry={id:previous?.id??crypto.randomUUID(),revision:state.revision+1,scope:structuredClone(scope),kind:input?.kind??previous!.kind,source,content,deleted:!input,...(input?.sourceReceiptId?{sourceReceiptId:input.sourceReceiptId}:{}),createdAt:previous?.createdAt??now,updatedAt:now,...(timeline?.headNodeId?{anchorNodeId:timeline.headNodeId}:{})};
   state.entries.push(entry);state.revision++;await validateMemoryStore(db,{...c,memoryStore:state});await db.conversations.update(c.id,{memoryStore:state});return entry;
  });
 }
