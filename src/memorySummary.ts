@@ -151,7 +151,7 @@ async function execute(scope:MemoryScope,manual:boolean){
 const running=new Map<string,Promise<void>>();
 export function runMemorySummary(scope:MemoryScope,manual=true){
  const old=running.get(scope.conversationId);if(old)return old;
- const task=Promise.resolve().then(()=>execute(scope,manual)).finally(()=>{if(running.get(scope.conversationId)===task)running.delete(scope.conversationId);});running.set(scope.conversationId,task);return task;
+ const task=Promise.resolve().then(async()=>{if(typeof navigator!=='undefined'&&navigator.locks?.request){await navigator.locks.request('claudia-primary-summary:'+scope.conversationId,{mode:'exclusive',ifAvailable:true},async lock=>{if(lock)await execute(scope,manual);});}else await execute(scope,manual);}).finally(()=>{if(running.get(scope.conversationId)===task)running.delete(scope.conversationId);});running.set(scope.conversationId,task);return task;
 }
 /** One initial attempt and at most one retry per due group.
  * After two failures, defer until a whole additional interval of completed turns.
