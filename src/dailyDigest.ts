@@ -60,7 +60,7 @@ async function runDailyDigestLocked(scope:MemoryScope){
    }
   }
   flush();
-  if(pieces.length>40)throw Error('该自然日内容超过40个片段的费用保护上限，请缩小总结范围；原文没有丢失');
+  if(pieces.length>500)throw Error('该自然日超过500个片段的单次处理保护上限；已保留原文，请分日期处理');
   const signature=JSON.stringify([scope,start,end,pieces]);
   const saved=(await db.conversations.get(c.id))?.dailyDigestCheckpoint;
   const resume=saved&&saved.startDay===start&&saved.endDay===end&&JSON.stringify(saved.scope)===JSON.stringify(scope)&&saved.sourceSignature===signature&&JSON.stringify(saved.pieces)===JSON.stringify(pieces);
@@ -79,10 +79,29 @@ async function runDailyDigestLocked(scope:MemoryScope){
     await db.conversations.update(c.id,{dailyDigestCheckpoint:{...checkpoint,completed:completed.slice(),updatedAt:Date.now()}});
    });
   }
-  let text=summaries.join('\n\n');
-  if(summaries.length>1){if(text.length>80000)throw Error('合并输入超过预算，已暂停且没有截断原文');
-   text=await requestReply({...config,maxTokens:Math.max(1000,Math.min(config.maxTokens,3000))},key,[{role:'system',content:'将这些分片剧情摘要合并为一份按时间顺序的自然日总结。保留因果、关系变化、伏笔和未完成事项；不能虚构。'},{role:'user',content:text}],new AbortController().signal);
+  // Hierarchical reduction: no 80k hard-stop and no silent truncation.
+  // Each merge request stays under its own input budget.
+  let layer=summaries.slice(),depth=0;
+  while(layer.length>1){
+   if(++depth>20)throw Error('二级总结合并层级超过保护上限，已保留分片检查点');
+   const next:string[]=[];let group:string[]=[];
+   const flush=async()=>{
+    if(!group.length)return;
+    if(group.length===1){next.push(group[0]);group=[];return;}
+    const merged=await requestReply({...config,maxTokens:Math.max(1000,Math.min(config.maxTokens,3000))},key,[{role:'system',content:'将按时间顺序的剧情片段摘要合并，保留因果、人物关系变化、伏笔和未完成事项。不能虚构，也不能把猜测写成事实。'},{role:'user',content:group.join('\\n\\n')}],new AbortController().signal);
+    if(!merged.trim())throw Error('二级总结合并结果为空');
+    next.push(merged);group=[];
+   };
+   for(const summary of layer){
+    if(summary.length>30000)throw Error('单片段摘要超出合并预算，保留检查点并暂停');
+    if(group.length&&group.join('\\n\\n').length+summary.length+2>30000)await flush();
+    group.push(summary);
+   }
+   await flush();
+   if(next.length>=layer.length)throw Error('摘要合并未能收敛，保留检查点并暂停');
+   layer=next;
   }
+  const text=layer[0]??'';
   const scopeNow=await getMemoryScope(c.id);if(JSON.stringify(scopeNow)!==JSON.stringify(scope))return;
   await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current?.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days)return;if((current.dailyDigests??[]).some(d=>d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope)))return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text,createdAt:Date.now(),sourceMessageIds:sourceMessages.map(m=>m.id)}],dailyDigestCheckpoint:undefined});});
  }finally{locks.delete(lock);}
