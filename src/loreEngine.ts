@@ -87,7 +87,9 @@ export function entryActive(raw:LoreEntry,b:Lorebook,h:Message[],random:()=>numb
 export interface LoreCandidate {entry:LoreEntry;book:Lorebook}
 /** Metadata only. Entry content, keys and chat text are never part of diagnostics. */
 export function planLore(candidates:LoreCandidate[],history:Message[],remainingBudget=loreLimits.promptChars,random:()=>number=Math.random,regex:Record<string,RegexHits>={}) {
-  const sorted=candidates.map(c=>({...c,entry:normalizeEntry(c.entry)})).sort((a,b)=>b.entry.priority-a.entry.priority || a.entry.createdAt-b.entry.createdAt || (a.entry.id<b.entry.id?-1:a.entry.id>b.entry.id?1:0));
+  // Always-on instructions must be considered before optional keyword lore.
+  // They are not constrained by the ordinary 4k-per-book / 8k-total lore budgets.
+  const sorted=candidates.map(c=>({...c,entry:normalizeEntry(c.entry)})).sort((a,b)=>Number(b.entry.constant)-Number(a.entry.constant) || b.entry.priority-a.entry.priority || a.entry.createdAt-b.entry.createdAt || (a.entry.id<b.entry.id?-1:a.entry.id>b.entry.id?1:0));
   const selected:LoreEntry[]=[],diagnostics:LoreDiagnostic[]=[];
   const used=new Map<string,number>();let total=0;
   for(const {entry,book} of sorted) {
@@ -95,8 +97,14 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
     const d=result.diagnostic;diagnostics.push(d);
     if(!result.eligible) continue;
     const cost=entry.content.length+2,bookUsed=used.get(book.id)||0;
-    if(total+cost>Math.min(loreLimits.promptChars,remainingBudget)){d.reason="context-budget";continue;}
-    if(bookUsed+cost>book.charBudget){d.reason="book-budget";continue;}
+    // Constant rules are mandatory. Never silently drop one and then generate a
+    // reply that appears to obey a rule which the model never received.
+    if(entry.constant && total+cost>remainingBudget) {
+      d.reason="context-budget";
+      throw Error("常驻世界书内容超出当前模型上下文安全预算，请调整角色设定或常驻规则后重试；本次未请求 AI。");
+    }
+    if(!entry.constant && total+cost>Math.min(loreLimits.promptChars,remainingBudget)){d.reason="context-budget";continue;}
+    if(!entry.constant && bookUsed+cost>book.charBudget){d.reason="book-budget";continue;}
     used.set(book.id,bookUsed+cost);total+=cost;selected.push(entry);
     d.outcome="injected";d.reason="injected";
   }
