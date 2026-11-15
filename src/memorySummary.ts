@@ -93,7 +93,7 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
 }
 async function fail(job:MemorySummaryJob,error:SummaryFailure,diagnostic?:SummaryDiagnostic,decision?:ReturnType<typeof classifySummaryError>){
  await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(job.scope.conversationId);if(c?.memorySummary?.job?.id!==job.id)return;const state=structuredClone(c.memorySummary);state.job={...state.job!,status:'failed',error,...(decision?{retryable:decision.retry,failureKind:decision.kind}:{}),...(diagnostic?{diagnostic}:{}),finishedAt:Date.now()};
-  if(state.autoAttempt?.throughNodeId===job.throughNodeId&&state.autoAttempt.count>=2){state.deferUntilPending=state.autoAttempt.pendingAtStart+state.interval;}
+  if(state.autoAttempt?.throughNodeId===job.throughNodeId){state.deferUntilPending=Math.max(state.deferUntilPending??0,state.autoAttempt.pendingAtStart+state.interval);state.autoAttempt=undefined;}
   await db.conversations.update(c.id,{memorySummary:state});});
 }
 async function execute(scope:MemoryScope,manual:boolean){
@@ -193,8 +193,8 @@ export function runMemorySummary(scope:MemoryScope,manual=true){
  const old=running.get(scope.conversationId);if(old)return old;
  const task=Promise.resolve().then(()=>withSummaryLock('claudia-primary-summary:'+scope.conversationId,()=>execute(scope,manual))).finally(()=>{if(running.get(scope.conversationId)===task)running.delete(scope.conversationId);});running.set(scope.conversationId,task);return task;
 }
-/** One initial attempt and at most one retry per due group.
- * After two failures, defer until a whole additional interval of completed turns.
+/** One automatic attempt per due group.
+ * After a failure, defer until a whole additional interval of completed turns.
  * The failed group's turns are not marked as summarized.
  */
 const autoLoops=new Set<string>();
