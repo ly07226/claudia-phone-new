@@ -30,7 +30,14 @@ async function snapshot(scope:MemoryScope,initialize=false){
  const nodes=t?await nodesForHead(c.id,t.headNodeId):(await activeMessages(c.id)).map(message=>({id:'',message}));
  const turns:{ref:SummaryTurn;nodeId:string;messages:{role:string;content:string;images:number}[]}[]=[];let users:string[]=[],messages:{role:string;content:string;images:number}[]=[];
  for(const n of nodes){const m=visibleMessage(n.message);if(m.role==='user'){users.push(m.id);messages.push({role:'user',content:m.content,images:m.attachments?.length??0});}else if(m.role==='assistant'&&users.length){messages.push({role:'assistant',content:m.content,images:0});turns.push({ref:{userIds:users,assistantId:m.id},nodeId:n.id,messages});users=[];messages=[];}}
- const done=new Set((await visibleSummaryReceipts(scope)).flatMap(r=>r.turns.map(key)));
+ const done=new Set<string>();
+ for(const receipt of await visibleSummaryReceipts(scope)){
+  // Legacy receipts have no content fingerprint; do not mark their source
+  // as permanently processed when its current text cannot be verified.
+  if(!receipt.sourceFingerprint)continue;
+  if(await summarySourceFingerprint(receipt,nodes.map(n=>n.message))!==receipt.sourceFingerprint)continue;
+  for(const turn of receipt.turns)done.add(key(turn));
+ }
  return {t,nodes,turns:turns.filter(turn=>!done.has(key(turn.ref)))};
 }
 export async function summaryStatus(scope:MemoryScope){
