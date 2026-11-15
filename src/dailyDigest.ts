@@ -86,7 +86,7 @@ async function runDailyDigestLocked(scope:MemoryScope){
   const fingerprint=await crypto.subtle.digest('SHA-256',bytes);
   const signature=Array.from(new Uint8Array(fingerprint),v=>v.toString(16).padStart(2,'0')).join('');
   const saved=(await db.conversations.get(c.id))?.dailyDigestCheckpoint;
-  const resume=saved&&saved.startDay===start&&saved.endDay===end&&JSON.stringify(saved.scope)===JSON.stringify(scope)&&(saved.sourceSignature===signature||(saved.sourceSignature.startsWith('[')&&saved.sourceSignature===JSON.stringify([scope,start,end,pieces])))&&JSON.stringify(saved.pieces)===JSON.stringify(pieces);
+  const resume=saved&&saved.startDay===start&&saved.endDay===end&&JSON.stringify(saved.scope)===JSON.stringify(scope)&&saved.sourceSignature===signature&&JSON.stringify(saved.pieces)===JSON.stringify(pieces);
   const completed=resume?saved.completed.slice():[];
   if(resume&&saved.sourceSignature!==signature)await db.conversations.update(c.id,{dailyDigestCheckpoint:{...saved,sourceSignature:signature,updatedAt:Date.now()}});
   if(!resume)await db.conversations.update(c.id,{dailyDigestCheckpoint:{scope:structuredClone(scope),startDay:start,endDay:end,sourceSignature:signature,pieces,completed:[],updatedAt:Date.now()}});
