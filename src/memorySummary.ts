@@ -181,7 +181,7 @@ async function execute(scope:MemoryScope,manual:boolean){
    const used=memoryState?.entries.length??0;
    const chars=(memoryState?.entries??[]).reduce((n,e)=>n+e.content.length,0);
    const requiredChars=pending.reduce((n,f)=>n+`【${labels[f.type]}】${f.content}`.length,0);
-   if(used+pending.length>memoryLimits.events||chars+requiredChars>memoryLimits.totalChars){failure='capacity';throw Error('capacity');}
+   if(used+pending.length>memoryLimits.events||chars+requiredChars>memoryLimits.totalChars||pending.some(f=>`【${labels[f.type]}】${f.content}`.length>memoryLimits.entryChars)){failure='capacity';throw Error('capacity');}
    let added=0,duplicates=facts.length-pending.length;
    for(const fact of pending){failure='capacity';await createMemory(scope,{kind:fact.quality?.importance==='high'&&['major-event','relationship','identity','boundary','ongoing-conflict','continuity'].includes(fact.quality.category)?'core':'long',source:'auto',sourceReceiptId:job.id,content:`【${labels[fact.type]}】${fact.content}`});added++;}
    state.checkpoint=undefined;state.autoAttempt=undefined;state.deferUntilPending=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,sourceFingerprint,shortSummary:groupSummary,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
