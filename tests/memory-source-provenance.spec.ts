@@ -12,10 +12,12 @@ test('primary receipt fingerprint rejects edited, deleted and switched-variant s
   const edited=await summarySourceFingerprint(receipt,[{...original[0],content:'约定周日见面'},original[1]]);
   const deleted=await summarySourceFingerprint(receipt,[original[1]]);
   const variant=await summarySourceFingerprint(receipt,[original[0],{...original[1],activeVariantId:'variant-b'}]);
-  return {initial,edited,deleted,variant};
+  const attachment=await summarySourceFingerprint(receipt,[{...original[0],attachments:[{assetId:'image-1'}]},original[1]]);
+  return {initial,edited,deleted,variant,attachment};
  });
  expect(result.initial).toMatch(/^[0-9a-f]{64}$/);
  expect(result.edited).not.toBe(result.initial);
  expect(result.deleted).toBeUndefined();
  expect(result.variant).not.toBe(result.initial);
+ expect(result.attachment).not.toBe(result.initial);
 });
