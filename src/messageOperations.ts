@@ -209,9 +209,10 @@ export async function editMessage(
       await db.messageVariants.update(variant.id, {
         content,
         userEdited: true,
+        heartVoice:undefined,
         replyInterruption:undefined,
       });
-    await db.messages.update(messageId, { content, userEdited: true, bubbleDeletion:undefined,replyInterruption:undefined });
+    await db.messages.update(messageId, { content, heartVoice:undefined, userEdited: true, bubbleDeletion:undefined,replyInterruption:undefined });
     await commitTimelineProjection(id,"edit");
   });
 }
