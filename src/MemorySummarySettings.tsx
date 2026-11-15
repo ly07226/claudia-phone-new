@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {liveQuery} from 'dexie';
 import {db} from './store';
 import {providers} from './api';
@@ -8,10 +8,11 @@ import {summaryStatus,saveSummarySettings,runMemorySummary} from './memorySummar
 import {dailyDigestStatus,saveDailyDigestSettings,runDailyDigest} from './dailyDigest';
 import {summaryFailureText,summaryDiagnosticText,summaryResultText} from './memorySummaryTypes';
 export function MemorySummarySettings({scope}:{scope:MemoryScope}){
+ const loadedApi=useRef<string|null>(null);
  const [apiTest,setApiTest]=useState(''),[testingApi,setTestingApi]=useState(false),[apiSaving,setApiSaving]=useState(false),[showKey,setShowKey]=useState(false);
  const [summaryApi,setSummaryApi]=useState<DedicatedSummaryApi>({provider:'openai-compatible',baseUrl:'',model:'',apiKey:'',temperature:0.2,maxTokens:3000,enabled:true});
  const [tab,setTab]=useState<'first'|'second'|'api'>('first'),[digest,setDigest]=useState<Awaited<ReturnType<typeof dailyDigestStatus>>>();
- useEffect(()=>{let alive=true;const sub=liveQuery(async()=>({digest:await dailyDigestStatus(scope),conversation:await db.conversations.get(scope.conversationId)})).subscribe({next:v=>{if(alive){setDigest(v.digest);if(v.conversation?.dedicatedSummaryApi)setSummaryApi(v.conversation.dedicatedSummaryApi);}}});return()=>{alive=false;sub.unsubscribe();};},[scope]);
+ useEffect(()=>{let alive=true;const sub=liveQuery(async()=>({digest:await dailyDigestStatus(scope),conversation:await db.conversations.get(scope.conversationId)})).subscribe({next:v=>{if(alive){setDigest(v.digest);if(loadedApi.current!==scope.conversationId){loadedApi.current=scope.conversationId;setSummaryApi(v.conversation?.dedicatedSummaryApi??{provider:'openai-compatible',baseUrl:'',model:'',apiKey:'',temperature:0.2,maxTokens:3000,enabled:true});}}}});return()=>{alive=false;sub.unsubscribe();};},[scope]);
  const [state,setState]=useState<Awaited<ReturnType<typeof summaryStatus>>>(),[error,setError]=useState(''),[saving,setSaving]=useState(false),[refresh,setRefresh]=useState(0);
  useEffect(()=>{let alive=true,sequence=0;const subscription=liveQuery(()=>db.conversations.get(scope.conversationId)).subscribe({next:()=>{const ticket=++sequence;void summaryStatus(scope).then(s=>{if(alive&&ticket===sequence){setState(s);setError('');}}).catch(()=>{if(alive&&ticket===sequence)setError('总结状态暂时不可用，请刷新状态。');});},error:()=>{if(alive)setError('总结状态暂时不可用，请刷新状态。');}});return()=>{alive=false;sequence++;subscription.unsubscribe();};},[scope,refresh]);
  async function settings(enabled:boolean,interval:number){setSaving(true);try{await saveSummarySettings(scope,enabled,interval);}catch{setError('设置保存失败，原设置未清除。');}finally{setSaving(false);}}
