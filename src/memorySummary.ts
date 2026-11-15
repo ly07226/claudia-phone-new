@@ -185,18 +185,15 @@ export async function tryAutoSummary(conversationId:string){
    const before=await summaryStatus(scope);
    const state=(await db.conversations.get(conversationId))?.memorySummary;
    if(!state?.enabled||before.pending<before.interval||before.pending<(state.deferUntilPending??0))break;
-   let succeeded=false;
-   for(let attempt=0;attempt<2;attempt++){
-    const attemptState=(await db.conversations.get(conversationId))?.memorySummary;
-    if((attemptState?.deferUntilPending??0)>before.pending)return;
-
-    if(!navigator.onLine||document.hidden)return;
-    await runMemorySummary(scope,false);
-    const current=(await db.conversations.get(conversationId))?.memorySummary;
-    if(current?.job?.status==='succeeded'){succeeded=true;break;}
-    if(current?.job?.status!=='failed')return;
-    if(current.job.retryable===false)break;
-   }
+   // One attempt per due cycle. A failure is terminal for this cycle:
+   // do not silently issue another paid API request, even for transient errors.
+   const attemptState=(await db.conversations.get(conversationId))?.memorySummary;
+   if((attemptState?.deferUntilPending??0)>before.pending)return;
+   if(!navigator.onLine||document.hidden)return;
+   await runMemorySummary(scope,false);
+   const current=(await db.conversations.get(conversationId))?.memorySummary;
+   const succeeded=current?.job?.status==='succeeded';
+   if(!succeeded&&current?.job?.status!=='failed')return;
    if(!succeeded){
     if(!navigator.onLine||document.hidden)return;
     await db.transaction('rw',db.conversations,async()=>{
