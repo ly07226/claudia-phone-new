@@ -78,7 +78,7 @@ function assess(raw: LoreEntry, b: Lorebook, h: Message[], random: () => number,
       if(!passes) return fail("secondary-miss");
     }
   }
-  if(e.useProbability && !(e.probability!>=100 || (e.probability!>0 && random()<e.probability!/100))) return fail("probability");
+  if(!e.constant && e.useProbability && !(e.probability!>=100 || (e.probability!>0 && random()<e.probability!/100))) return fail("probability");
   return {eligible:true,diagnostic:d};
 }
 export function entryActive(raw:LoreEntry,b:Lorebook,h:Message[],random:()=>number=Math.random,regex?:RegexHits) {
@@ -101,7 +101,7 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
     // reply that appears to obey a rule which the model never received.
     if(entry.constant && total+cost>remainingBudget) {
       d.reason="context-budget";
-      throw Error("常驻世界书内容超出当前模型上下文安全预算，请调整角色设定或常驻规则后重试；本次未请求 AI。");
+      throw Error("当前聊天设定过长，暂时无法生成回复。请在设置中调整后重试。");
     }
     if(!entry.constant && (total+cost>remainingBudget || optionalTotal+cost>loreLimits.promptChars)){d.reason="context-budget";continue;}
     if(!entry.constant && bookUsed+cost>book.charBudget){d.reason="book-budget";continue;}
