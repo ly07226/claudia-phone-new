@@ -12,7 +12,21 @@ export interface DailyDigest {id:string;scope:MemoryScope;startDay:string;endDay
 export function dayKey(date:Date){return [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');}
 function dayStart(day:string){return new Date(day+'T00:00:00').getTime();}
 export async function saveDailyDigestSettings(scope:MemoryScope,enabled:boolean,days:1|2|3|7|14){await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('会话不存在');await db.conversations.update(c.id,{dailyDigestSettings:{enabled,days}});});}
-export async function dailyDigestStatus(scope:MemoryScope){const c=await db.conversations.get(scope.conversationId);return {settings:c?.dailyDigestSettings??{enabled:false,days:1 as const},digests:(c?.dailyDigests??[]).filter(d=>JSON.stringify(d.scope)===JSON.stringify(scope))};}
+async function digestSourceMatches(d:DailyDigest,messages:ReturnType<typeof visibleMessage>[]){
+ if(!d.sourceMessageIds||!d.sourceFingerprint)return false;
+ const source=messages.filter(m=>m.createdAt>=dayStart(d.startDay)&&m.createdAt<dayStart(d.endDay)&&(m.role==='user'||m.role==='assistant'));
+ if(source.length!==d.sourceMessageIds.length||source.some((m,i)=>m.id!==d.sourceMessageIds![i]))return false;
+ const payload=JSON.stringify(source.map(m=>[m.id,m.role,m.createdAt,m.content]));
+ const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(payload));
+ return Array.from(new Uint8Array(hash),v=>v.toString(16).padStart(2,'0')).join('')===d.sourceFingerprint;
+}
+export async function dailyDigestStatus(scope:MemoryScope){
+ const c=await db.conversations.get(scope.conversationId);
+ const messages=c?(scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)):(await activeMessages(c.id)).map(visibleMessage)):[];
+ const digests:DailyDigest[]=[];
+ for(const d of c?.dailyDigests??[])if(JSON.stringify(d.scope)===JSON.stringify(scope)&&await digestSourceMatches(d,messages))digests.push(d);
+ return {settings:c?.dailyDigestSettings??{enabled:false,days:1 as const},digests};
+}
 const locks=new Set<string>();
 async function runDailyDigestLocked(scope:MemoryScope){
  const lock=scope.conversationId;if(locks.has(lock))return;locks.add(lock);
@@ -27,7 +41,7 @@ async function runDailyDigestLocked(scope:MemoryScope){
   const cursor=new Date(firstDate.getFullYear(),firstDate.getMonth(),firstDate.getDate());
   const ordinal=(d:Date)=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);
   if(days>1){cursor.setDate(cursor.getDate()-(ordinal(cursor)%days));endAnchor.setDate(endAnchor.getDate()-(ordinal(endAnchor)%days));}
-  const existing=c.dailyDigests??[];
+  const existing=(await dailyDigestStatus(scope)).digests;
   let start='',end='';
   // Pick the oldest unsummarized completed calendar window, never skip a missed day.
   for(let i=0;i<5000&&cursor.getTime()<endAnchor.getTime();i++){
@@ -43,7 +57,7 @@ async function runDailyDigestLocked(scope:MemoryScope){
   const sourceFingerprint=Array.from(new Uint8Array(sourceHash),v=>v.toString(16).padStart(2,'0')).join('');
   const raw=sourceMessages.map(m=>`[${m.role==='user'?'用户':'角色'}] ${m.content}`);
   if(!raw.length){
-   await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current)return;if((current.dailyDigests??[]).some(d=>d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope)))return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text:'',createdAt:Date.now()}]});});
+   await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current)return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]).filter(d=>!(d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope))),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text:'',createdAt:Date.now(),sourceMessageIds:[],sourceFingerprint:sourceFingerprint}]});});
    return;
   }
   const {config,key}=await getSummaryApi(scope);
@@ -113,7 +127,7 @@ async function runDailyDigestLocked(scope:MemoryScope){
   const latestMessages=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)):(await activeMessages(c.id)).map(visibleMessage);
   const latestSource=latestMessages.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));
   if(JSON.stringify(latestSource.map(m=>[m.id,m.role,m.createdAt,m.content]))!==sourceSnapshot)throw Error('总结期间历史原文已修改，已保留分片检查点，请重新检查');
-  await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current?.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days)return;if((current.dailyDigests??[]).some(d=>d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope)))return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text,createdAt:Date.now(),sourceMessageIds:sourceMessages.map(m=>m.id),sourceFingerprint}],dailyDigestCheckpoint:undefined});});
+  await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current?.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days)return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]).filter(d=>!(d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope))),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text,createdAt:Date.now(),sourceMessageIds:sourceMessages.map(m=>m.id),sourceFingerprint}],dailyDigestCheckpoint:undefined});});
  }finally{locks.delete(lock);}
 }
 
