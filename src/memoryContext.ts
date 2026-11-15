@@ -1,4 +1,5 @@
 import {db} from './store';
+import {visibleMessage} from './messageBubbles';
 import {nextOccurrence,localDay,addDays} from './smartTimeMemory';
 import {getMemoryScope,listMemories,visibleSummaryReceipts} from './memoryStore';
 import {timelineTables,nodesForHead,messageFingerprint} from './timelines';
@@ -99,7 +100,7 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   const prefixLast=Math.max(...requestPath.map(m=>m.createdAt),0);
   const current=await db.conversations.get(c.id);
   const sameScope=(a:unknown)=>JSON.stringify(a)===JSON.stringify(scope);
-  const pathById=new Map(requestPath.map(m=>[m.id,m]));
+  const pathById=new Map(requestPath.map(m=>{const visible=visibleMessage(m);return [visible.id,visible] as const;}));
   const digests:NonNullable<NonNullable<typeof current>['dailyDigests']> = [];
   for(const d of current?.dailyDigests??[]){
    if(!sameScope(d.scope)||dayEnd(d.endDay)>prefixLast||!d.sourceMessageIds||!d.sourceFingerprint)continue;
