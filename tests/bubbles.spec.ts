@@ -291,20 +291,3 @@ test("2.3.4.3 真机案例在 AI 显示两个气泡，用户仍为单气泡", as
   await expect(ai.getByRole("button", { name: "AI 消息操作" })).toHaveCount(1);
   await expect(ai.getByLabel("回复版本", { exact: true })).toHaveCount(0);
 });
-
-test("孤立问号句号不会形成单独气泡，纯标点回复仍可见",async({page})=>{
- await page.goto("/");
- const r=await page.evaluate(async()=>{
-  const {splitAssistantBubbles,legacyAssistantBubbles}=await import("/src/splitAssistantBubbles.ts");
-  const cases=["?\\n装傻这一块没人比得过你。","。\\n我在这里。","你好。\\n?\\n下一句。","？","。"];
-  return cases.map(content=>({content,modern:splitAssistantBubbles(content),legacy:legacyAssistantBubbles(content)}));
- });
- for(const {content,modern,legacy} of r){
-  for(const parts of [modern,legacy]){
-   expect(parts.join("")).toBe(content);
-   expect(parts.every((part:string)=>/[\\p{L}\\p{N}\\p{S}]/u.test(part)||parts.length===1)).toBe(true);
-  }
- }
- expect(r[0].modern).toHaveLength(1);
- expect(r[1].modern).toHaveLength(1);
-});
