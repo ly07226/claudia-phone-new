@@ -90,7 +90,28 @@ export async function reactToUserSocialEvent(postId:string,commentId?:string){
  if(!post||(commentId?comment?.author.kind!=='user':post.author.kind!=='user'))return;
  const kind=commentId?'reply':'comment',request={kind,postId,parentId:commentId} as const;
  if(reactionEvent(hub!,request)?.reaction)return;
- const roles=(await db.characters.toArray()).filter(isDailyFriend);let characterId:string|undefined;
+ const roles=(await db.characters.toArray()).filter(isDailyFriend);
+ // Each daily friend can comment once on a new user post. Serialize model requests
+ // through the existing social job lock; never stop the remaining friends on one failure.
+ if(!commentId){
+  if(post.reaction)return;
+  const ordered=roles.sort((a,b)=>a.id.localeCompare(b.id));
+  const token=crypto.randomUUID();let accepted=false;
+  await changeChatHub(h=>{const p=h.posts.find(x=>x.id===postId);if(!p||p.author.kind!=='user'||p.reaction)return;p.reaction={token,status:ordered.length?'queued':'skipped',...(ordered.length?{characterId:ordered[0].id}:{reason:'no-role'})};accepted=ordered.length>0;});
+  if(!accepted)return;
+  const task=reactionTail.then(async()=>{
+   await Promise.allSettled([...running.values()]);
+   for(const role of ordered){
+    const current=(await db.themes.get('global'))?.chatHub?.posts.find(p=>p.id===postId);
+    if(!current)break;
+    if(current.comments.some(c=>c.author.kind==='character'&&c.author.id===role.id))continue;
+    try{await generateSocial({kind:'comment',postId,characterId:role.id,...(role.id===ordered[0].id?{reactionToken:token}:{})});}
+    catch{/* Per-character failures are recorded by generateSocial; continue other friends. */}
+   }
+  });
+  reactionTail=task.catch(()=>{});return task;
+ }
+ let characterId:string|undefined;
  if(comment){const parent=comment.parentId?post.comments.find(c=>c.id===comment.parentId):undefined;characterId=parent?.author.kind==='character'?parent.author.id:!comment.parentId&&post.author.kind==='character'?post.author.id:undefined;if(!characterId||!roles.some(c=>c.id===characterId))return;}
  else {const conversations=await db.conversations.filter(c=>c.mode==='daily'&&!c.worldId&&roles.some(r=>r.id===c.characterId)).toArray();conversations.sort((a,b)=>b.updatedAt-a.updatedAt||a.characterId.localeCompare(b.characterId));characterId=conversations[0]?.characterId??roles.sort((a,b)=>a.id.localeCompare(b.id))[0]?.id;}
  const token=crypto.randomUUID();let accepted=false;
