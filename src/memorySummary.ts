@@ -42,9 +42,9 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   if(state.job?.status==='running'&&Date.now()<state.job.leaseUntil)return;
   // A failed job is terminal for that attempt, never a permanent disable.
   // The next successful chat turn may claim a fresh job; completed chunks resume.
-  if(!manual&&state.job?.status==='failed'&&Date.now()-(state.job.finishedAt??state.job.startedAt)<30000)return;
+
   const data=await snapshot(scope,true);if(!data.t?.headNodeId)throw Error('state');
-  if(!data.turns.length||(!manual&&data.turns.length<state.interval))return;
+  if(!data.turns.length||(!manual&&(data.turns.length<state.interval||data.turns.length<(state.deferUntilPending??0))))return;
   await sealMemorySummaryForks(scope);
   const full=state.receipts.length>=summaryLimits.receipts;
   // The configured interval is the logical group. Split only the API inputs;
@@ -119,7 +119,7 @@ async function execute(scope:MemoryScope,manual:boolean){
    const known=summaryDuplicateIndex(all.map(e=>e.content));
    let added=0,duplicates=0;
    for(const fact of facts){if(known.has(fact)){duplicates++;continue;}failure='capacity';await createMemory(scope,{kind:fact.quality?.importance==='high'&&['major-event','relationship','identity','boundary','ongoing-conflict','continuity'].includes(fact.quality.category)?'core':'long',source:'auto',content:`【${labels[fact.type]}】${fact.content}`});known.add(fact);added++;}
-   state.checkpoint=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,shortSummary:groupSummary,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
+   state.checkpoint=undefined;state.deferUntilPending=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,shortSummary:groupSummary,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
   });
  }catch(error){if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;failure=diagnostic.code==='truncated'?'format':'provider';}if(diagnostic)diagnostic={...diagnostic,inputRounds:claimed.turns.length,inputTokenEstimate:memoryTokenCost(system)+Math.max(...claimed.inputs.map(memoryTokenCost))};await fail(job,failure,diagnostic).catch(()=>{});}finally{clearTimeout(timer);}
 }
@@ -128,19 +128,36 @@ export function runMemorySummary(scope:MemoryScope,manual=true){
  const old=running.get(scope.conversationId);if(old)return old;
  const task=Promise.resolve().then(()=>execute(scope,manual)).finally(()=>{if(running.get(scope.conversationId)===task)running.delete(scope.conversationId);});running.set(scope.conversationId,task);return task;
 }
-/** Called once after a normal successful reply; never on view mount or regenerate. */
+/** One initial attempt and at most one retry per due group.
+ * After two failures, defer until a whole additional interval of completed turns.
+ * The failed group's turns are not marked as summarized.
+ */
 export async function tryAutoSummary(conversationId:string){
  const c=await db.conversations.get(conversationId);
  if(!c?.memorySummary?.enabled)return;
  const scope=await getMemoryScope(conversationId);
- // Bounded catch-up; stop immediately on failure, disabled setting or branch change.
  void (async()=>{
-  for(let i=0;i<3;i++){
-   await runMemorySummary(scope,false);
-   const current=await db.conversations.get(conversationId);
-   if(!current?.memorySummary?.enabled||current.memorySummary.job?.status!=='succeeded')break;
-   const status=await summaryStatus(scope).catch(()=>null);
-   if(!status||status.pending<status.interval)break;
+  for(let group=0;group<3;group++){
+   const before=await summaryStatus(scope);
+   const state=(await db.conversations.get(conversationId))?.memorySummary;
+   if(!state?.enabled||before.pending<before.interval||before.pending<(state.deferUntilPending??0))break;
+   let succeeded=false;
+   for(let attempt=0;attempt<2;attempt++){
+    await runMemorySummary(scope,false);
+    const current=(await db.conversations.get(conversationId))?.memorySummary;
+    if(current?.job?.status==='succeeded'){succeeded=true;break;}
+    if(current?.job?.status!=='failed')return;
+   }
+   if(!succeeded){
+    await db.transaction('rw',db.conversations,async()=>{
+     const latest=await db.conversations.get(conversationId);
+     if(!latest?.memorySummary?.enabled||latest.memorySummary.job?.status!=='failed')return;
+     const next=structuredClone(latest.memorySummary);
+     next.deferUntilPending=Math.max(before.pending+before.interval,next.deferUntilPending??0);
+     await db.conversations.update(conversationId,{memorySummary:next});
+    });
+    break;
+   }
   }
  })().catch(()=>{});
 }
