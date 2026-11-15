@@ -1,15 +1,14 @@
+import {SummaryApiEditor} from './SummaryApiEditor';
 import {useEffect,useRef,useState} from 'react';
 import {liveQuery} from 'dexie';
 import {db} from './store';
-import {providers} from './api';
-import {saveSummaryApi,testSummaryApi,type DedicatedSummaryApi} from './dedicatedSummaryApi';
+import type {DedicatedSummaryApi} from './dedicatedSummaryApi';
 import type {MemoryScope} from './memoryTypes';
 import {summaryStatus,saveSummarySettings,runMemorySummary} from './memorySummary';
 import {dailyDigestStatus,saveDailyDigestSettings,runDailyDigest} from './dailyDigest';
 import {summaryFailureText,summaryDiagnosticText,summaryResultText} from './memorySummaryTypes';
 export function MemorySummarySettings({scope}:{scope:MemoryScope}){
  const loadedApi=useRef(false);
- const [apiTest,setApiTest]=useState(''),[testingApi,setTestingApi]=useState(false),[apiSaving,setApiSaving]=useState(false),[showKey,setShowKey]=useState(false);
  const [summaryApi,setSummaryApi]=useState<DedicatedSummaryApi>({provider:'openai-compatible',baseUrl:'',model:'',apiKey:'',temperature:0.2,maxTokens:3000,enabled:true});
  const [tab,setTab]=useState<'first'|'second'|'api'>('first'),[digest,setDigest]=useState<Awaited<ReturnType<typeof dailyDigestStatus>>>();
  useEffect(()=>{let alive=true;const sub=liveQuery(async()=>({digest:await dailyDigestStatus(scope),global:await db.themes.get('global')})).subscribe({next:v=>{if(alive){setDigest(v.digest);if(!loadedApi.current){loadedApi.current=true;setSummaryApi(v.global?.dedicatedSummaryApi??{provider:'openai-compatible',baseUrl:'',model:'',apiKey:'',temperature:0.2,maxTokens:3000,enabled:true});}}}});return()=>{alive=false;sub.unsubscribe();};},[scope]);
@@ -17,17 +16,7 @@ export function MemorySummarySettings({scope}:{scope:MemoryScope}){
  useEffect(()=>{let alive=true,sequence=0;const subscription=liveQuery(()=>db.conversations.get(scope.conversationId)).subscribe({next:()=>{const ticket=++sequence;void summaryStatus(scope).then(s=>{if(alive&&ticket===sequence){setState(s);setError('');}}).catch(()=>{if(alive&&ticket===sequence)setError('总结状态暂时不可用，请刷新状态。');});},error:()=>{if(alive)setError('总结状态暂时不可用，请刷新状态。');}});return()=>{alive=false;sequence++;subscription.unsubscribe();};},[scope,refresh]);
  async function settings(enabled:boolean,interval:number){setSaving(true);try{await saveSummarySettings(scope,enabled,interval);}catch{setError('设置保存失败，原设置未清除。');}finally{setSaving(false);}}
  return <section className="memory-editor" aria-label="自动总结设置"><div className="memory-actions"><button type="button" onClick={()=>setTab('first')}>一级总结</button><button type="button" onClick={()=>setTab('second')}>二级总结</button><button type="button" onClick={()=>setTab('api')}>专用 API</button></div>
- {tab==='api'&&<><h3>总结专用 API</h3><p>全局共用：只需设置一次，所有角色、所有世界的一级和二级总结都使用这一接口；不影响聊天 API。</p>
- <label>服务商<select value={summaryApi.provider} onChange={e=>{const provider=e.target.value as DedicatedSummaryApi['provider'];setSummaryApi(v=>({...v,provider,baseUrl:providers[provider]?.defaultUrl??'',protocol:provider==='custom'?'openai-chat':undefined}));setApiTest('');}}><option value="openai-compatible">OpenAI 兼容接口</option><option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="openrouter">OpenRouter</option><option value="custom">自定义</option></select></label>
- {summaryApi.provider==='custom'&&<label>协议<select value={summaryApi.protocol??'openai-chat'} onChange={e=>setSummaryApi(v=>({...v,protocol:e.target.value as 'openai-chat'|'gemini'}))}><option value="openai-chat">OpenAI Chat</option><option value="gemini">Gemini</option></select></label>}
- <label>API 地址<input type="url" value={summaryApi.baseUrl} placeholder="https://api.example.com/v1" onChange={e=>setSummaryApi(v=>({...v,baseUrl:e.target.value}))}/></label>
- <label>模型名称<input value={summaryApi.model} placeholder="模型 ID" onChange={e=>setSummaryApi(v=>({...v,model:e.target.value}))}/></label>
- <label>API Key<input type={showKey?'text':'password'} autoComplete="off" value={summaryApi.apiKey} placeholder="总结专用密钥" onChange={e=>setSummaryApi(v=>({...v,apiKey:e.target.value}))}/></label>
- <label><input type="checkbox" checked={showKey} onChange={e=>setShowKey(e.target.checked)}/>显示密钥</label>
- <label>最大输出 Token<input type="number" min={1} max={1000000} value={summaryApi.maxTokens} onChange={e=>setSummaryApi(v=>({...v,maxTokens:Number(e.target.value)}))}/></label>
- <label>启用总结接口<input type="checkbox" checked={summaryApi.enabled} onChange={e=>setSummaryApi(v=>({...v,enabled:e.target.checked}))}/></label>
- <div className="memory-actions"><button type="button" disabled={apiSaving} onClick={async()=>{setApiSaving(true);setApiTest('');try{await saveSummaryApi(summaryApi);setApiTest('总结专用接口已保存');}catch(e){setApiTest(e instanceof Error?e.message:'保存失败');}finally{setApiSaving(false);}}}>保存接口</button><button type="button" disabled={testingApi} onClick={async()=>{setTestingApi(true);setApiTest('');try{const result=await testSummaryApi(summaryApi);setApiTest(result.status==='success'?'连接测试成功':result.message);}catch{setApiTest('连接测试失败，请检查接口设置');}finally{setTestingApi(false);}}}>{testingApi?'正在测试…':'测试连接'}</button></div>
- {apiTest&&<p role="status">{apiTest}</p>}<p className="memory-scope">密钥保存在本机全局设置中。请保护备份文件，不要在共享设备上保存私人密钥。</p></>}
+ {tab==='api'&&<SummaryApiEditor value={summaryApi} onChange={setSummaryApi}/>}
  {tab==='second'&&<><h3>二级自然日全文总结</h3><p>按手机本地完整自然日重新读取聊天原文；不使用一级摘要替代原文。总结接口独立于正常聊天。</p><label>开启二级总结<input type="checkbox" checked={digest?.settings.enabled??false} onChange={e=>void saveDailyDigestSettings(scope,e.target.checked,digest?.settings.days??1).catch(()=>setError('二级总结设置保存失败'))}/></label><label>总结周期<select value={digest?.settings.days??1} onChange={e=>void saveDailyDigestSettings(scope,digest?.settings.enabled??false,Number(e.target.value) as 1|2).catch(()=>setError('二级总结设置保存失败'))}><option value={1}>每天（完整自然日）</option><option value={2}>每两天（两个完整自然日）</option></select></label><div className="memory-actions"><button onClick={()=>void runDailyDigest(scope).catch(e=>setError(e instanceof Error?e.message:'二级总结失败'))}>检查并总结已结束日期</button></div>{digest?.digests.map(d=><article className="memory-card" key={d.id}><small>{d.startDay} 至 {d.endDay}</small><p>{d.text}</p></article>)}</>}
  {tab==='first'&&<><h3>一级自动总结</h3><p>开启后，每完成指定轮次调用总结专用 API。默认关闭。手动总结也会消耗 Token。</p>
  {!state&&<p role="status">正在读取总结进度…</p>}{error&&<p role="alert">{error}<button onClick={()=>setRefresh(n=>n+1)}>刷新状态</button></p>}
