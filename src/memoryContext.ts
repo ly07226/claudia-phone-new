@@ -99,8 +99,17 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   const prefixLast=Math.max(...requestPath.map(m=>m.createdAt),0);
   const current=await db.conversations.get(c.id);
   const sameScope=(a:unknown)=>JSON.stringify(a)===JSON.stringify(scope);
-  const pathIds=new Set(requestPath.map(m=>m.id));
-  const digests=(current?.dailyDigests??[]).filter(d=>sameScope(d.scope)&&dayEnd(d.endDay)<=prefixLast&&d.sourceMessageIds?.every(id=>pathIds.has(id)));
+  const pathById=new Map(requestPath.map(m=>[m.id,m]));
+  const digests:NonNullable<NonNullable<typeof current>['dailyDigests']> = [];
+  for(const d of current?.dailyDigests??[]){
+   if(!sameScope(d.scope)||dayEnd(d.endDay)>prefixLast||!d.sourceMessageIds||!d.sourceFingerprint)continue;
+   const source=d.sourceMessageIds.map(id=>pathById.get(id));
+   if(source.some(m=>!m))continue;
+   const payload=JSON.stringify(source.map(m=>[m!.id,m!.role,m!.createdAt,m!.content]));
+   const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(payload));
+   const fingerprint=Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');
+   if(fingerprint===d.sourceFingerprint)digests.push(d);
+  }
   const terms=words(query);
   const rankedDigests=digests.map(d=>({d,score:[...terms].filter(w=>words(d.text.slice(0,5000)).has(w)).length})).sort((a,b)=>b.score-a.score||b.d.endDay.localeCompare(a.d.endDay));
   const digestRows=rankedDigests.filter(x=>x.score>0).slice(0,2).map(x=>({range:x.d.startDay+'～'+x.d.endDay,text:x.d.text}));
