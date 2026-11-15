@@ -18,6 +18,17 @@ import { db } from "./store";
 import type { Conversation, MessageQuote } from "./chatTypes";
 import { buildContext, contextLimits } from "./chatContext";
 import { requestReply,requestChatReply } from "./chatProvider";
+/** Separate authored roleplay inner voice from the visible reply in the SAME model call. */
+const HEART_OPEN='[心声]';
+const HEART_CLOSE='[/心声]';
+function parseHeartVoice(raw:string){
+ const start=raw.lastIndexOf(HEART_OPEN),end=raw.lastIndexOf(HEART_CLOSE);
+ if(start<0||end<start)return {text:raw,heartVoice:undefined};
+ const voice=raw.slice(start+HEART_OPEN.length,end).trim();
+ const text=(raw.slice(0,start)+raw.slice(end+HEART_CLOSE.length)).trim();
+ if(!text||!voice)return {text:raw,heartVoice:undefined};
+ return {text,heartVoice:voice.slice(0,3000)};
+}
 export async function getConversation(characterId: string, worldId?: string) {
   return db.transaction(
     "rw",
@@ -227,9 +238,16 @@ async function generate(
       context.push({role:'assistant',content:target.content},{role:'user',content:'[续接操作：请从上条角色回复的断点继续，仅输出后续文字。此操作不是新的剧情行动。]'});
       if(context[0].content.length>contextLimits.systemChars)throw Error('续接系统上下文超出安全预算，原回复已保留；未发出额外请求。');
     }
+    // One request, not a second heart-voice API call. Continuation stays plain text.
+    if(!options.continuation){
+      const heartInstruction='\\n\\n心声输出协议：正常完成本轮角色对话及动作后，在回复最末尾附加 [心声]角色此刻未说出口的内心独白[/心声]。心声为原创角色心理描写，不是模型推理过程；不要输出好感度、占有欲等数值，不要在普通对话中出现这些标签。心声控制在 150 字以内。';
+      if(context[0]?.role==='system'&&context[0].content.length+heartInstruction.length<=contextLimits.systemChars)context[0]={...context[0],content:context[0].content+heartInstruction};
+    }
     const result=c.mode==='daily'?await requestChatReply(config,key,context,controller.signal):{text:await requestReply(config,key,context,controller.signal),interruption:undefined};
     interruption=result.interruption;
-    const reply=options.continuation&&target?appendContinuation(target.content,result.text):result.text;
+    const parsed=options.continuation?{text:result.text,heartVoice:target?.heartVoice}:parseHeartVoice(result.text);
+    const reply=options.continuation&&target?appendContinuation(target.content,parsed.text):parsed.text;
+    const heartVoice=parsed.heartVoice;
     const preserveTimeout=interruption==='timeout'&&!signal?.aborted;
     if (controller.signal.aborted&&!preserveTimeout)
       throw Error("请求已取消，原消息和版本已保留。");
@@ -258,7 +276,7 @@ async function generate(
             await db.messages.update(later.id, { archived: true });
         }
         await ensureVariant(m);
-        await addGeneratedVariant(m, reply,interruption);
+        await addGeneratedVariant(m, reply,interruption,heartVoice);
       } else {
         const last = rows.at(-1);
         const m = {
@@ -269,7 +287,7 @@ async function generate(
           createdAt: Math.max(Date.now(), (last?.createdAt || 0) + 1),
         };
         await db.messages.add(m);
-        await addGeneratedVariant(m, reply,interruption);
+        await addGeneratedVariant(m, reply,interruption,heartVoice);
       }
       const nextPath=await commitTimelineProjection(id,options.messageId?"regenerate":"append");
       // Continuation changes only the assistant version. Carry an unsent image
