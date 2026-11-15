@@ -127,4 +127,18 @@ export function runMemorySummary(scope:MemoryScope,manual=true){
  const task=Promise.resolve().then(()=>execute(scope,manual)).finally(()=>{if(running.get(scope.conversationId)===task)running.delete(scope.conversationId);});running.set(scope.conversationId,task);return task;
 }
 /** Called once after a normal successful reply; never on view mount or regenerate. */
-export async function tryAutoSummary(conversationId:string){const c=await db.conversations.get(conversationId);if(c?.memorySummary?.enabled)void runMemorySummary(await getMemoryScope(conversationId),false);}
+export async function tryAutoSummary(conversationId:string){
+ const c=await db.conversations.get(conversationId);
+ if(!c?.memorySummary?.enabled)return;
+ const scope=await getMemoryScope(conversationId);
+ // Bounded catch-up; stop immediately on failure, disabled setting or branch change.
+ void (async()=>{
+  for(let i=0;i<3;i++){
+   await runMemorySummary(scope,false);
+   const current=await db.conversations.get(conversationId);
+   if(!current?.memorySummary?.enabled||current.memorySummary.job?.status!=='succeeded')break;
+   const status=await summaryStatus(scope).catch(()=>null);
+   if(!status||status.pending<status.interval)break;
+  }
+ })().catch(()=>{});
+}
