@@ -50,6 +50,10 @@ export function Chat({ worldId }: { worldId?: string }) {
   const s = usePhone();
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  // Keep the complete message path in memory for quoting and editing, but mount
+  // only the newest bubbles. Older turns remain accessible on demand.
+  const [visibleMessageLimit,setVisibleMessageLimit]=useState(100);
+  const historyWindowRef=useRef<{height:number;top:number}|null>(null);
   // Only an already opted-in cloud device reports foreground chat presence.
   // No login prompt, no automatic anonymous signup for ordinary local chats.
   useEffect(()=>{
@@ -441,6 +445,8 @@ export function Chat({ worldId }: { worldId?: string }) {
     setConversation(null);
     setReplyTo(null);
     setMessages([]);
+    setVisibleMessageLimit(100);
+    historyWindowRef.current=null;
     setText("");
     setError("");
     setFeedback("");
@@ -449,11 +455,17 @@ export function Chat({ worldId }: { worldId?: string }) {
     setShowSnapshots(false);
   }
   const timeLabels=useMemo(()=>chatTimeLabels(messages),[messages]);
+  const visibleMessages=useMemo(()=>messages.slice(-visibleMessageLimit),[messages,visibleMessageLimit]);
+  useLayoutEffect(()=>{
+    const previous=historyWindowRef.current;
+    const el=historyRef.current;
+    if(previous&&el){el.scrollTop=previous.top+el.scrollHeight-previous.height;historyWindowRef.current=null;}
+  },[visibleMessageLimit]);
   // Keep expensive message bubble JSX stable while the composer text changes.
   // Include state read by message actions so menus, versions and continuations stay current.
   const renderedMessages=useMemo(()=>{
     if(!conversation)return null;
-    return messages.map((m) => (
+    return visibleMessages.map((m) => (
               <Fragment key={m.id}>
               {timeLabels.has(m.id)&&<div className="chat-time-divider" data-chat-time-for={m.id}><time dateTime={new Date(m.createdAt).toISOString()}>{timeLabels.get(m.id)}</time></div>}
               <ChatMessage
@@ -490,7 +502,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               </Fragment>
             ));
   },[
-    messages,timeLabels,replyPresentation,variants,displayName,avatarSrc,userAvatar,
+    messages,visibleMessages,timeLabels,replyPresentation,variants,displayName,avatarSrc,userAvatar,
     userIdentity.name,conversation,onBubbleReveal,visibleFailures,busy
   ]);
   if(requests && !worldId && !conversation)return <div className="chat-hub-new-contacts"><button className="message-action" onClick={()=>s.set({activeApp:'角色管理'})}>添加联系人（角色管理）</button><FriendRequests characters={applications} onClose={()=>setRequests(false)}/></div>;
@@ -568,6 +580,7 @@ export function Chat({ worldId }: { worldId?: string }) {
             {!messages.length && (
               <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
             )}
+            {messages.length>visibleMessageLimit&&<button type="button" className="text-button" aria-label="加载更早的聊天消息" onClick={()=>{const el=historyRef.current;if(el)historyWindowRef.current={height:el.scrollHeight,top:el.scrollTop};setVisibleMessageLimit(n=>n+100);}}>加载更早的消息（还有 {messages.length-visibleMessageLimit} 条）</button>}
             {renderedMessages}
             {remotePending&&<p role="status">请求状态待确认：可能仍在其他窗口处理中。可等待，或停止后手动重试；不会自动重复请求。</p>}
             {!busy&&conversation.sendingToken&&!runningTask(generationTask)&&<p role="status">上次请求尚未确认完成，可能已中断；不会自动重发。请确认后手动重试。</p>}
