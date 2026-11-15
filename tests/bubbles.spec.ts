@@ -308,3 +308,12 @@ test("独立标点行必须单独成气泡，后续正文另成气泡",async({pa
  expect(result[2].modern.some((s:string)=>s.trim()==="？")).toBe(true);
  expect(result[3].modern).toEqual(["？"]);
 });
+
+test("独立问号气泡按字符收缩宽度，不随正文气泡拉伸",async({page})=>{
+ await openLegacy(page,"?\n装傻这一块还真是没人比得过你^^");
+ const bubbles=page.locator(".chat-assistant .chat-bubble-surface");
+ await expect(bubbles).toHaveCount(2);
+ const sizes=await bubbles.evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().width));
+ expect(sizes[0]).toBeLessThan(sizes[1]);
+ expect(sizes[0]).toBeLessThan(90);
+});
