@@ -3,8 +3,8 @@ import {parseHeartVoice} from '../src/chatService';
 import {readFileSync} from 'node:fs';
 
 test('heart voice is separated from dialogue in one model response',()=>{
- const reply=parseHeartVoice('瞎说什么呢。\\n什么地尽头。\\n[心声]她怎么总爱胡思乱想。[/心声]');
- expect(reply.text).toBe('瞎说什么呢。\\n什么地尽头。');
+ const reply=parseHeartVoice('瞎说什么呢。\n什么地尽头。\n[心声]她怎么总爱胡思乱想。[/心声]');
+ expect(reply.text).toBe('瞎说什么呢。\n什么地尽头。');
  expect(reply.heartVoice).toBe('她怎么总爱胡思乱想。');
 });
 test('truncated metadata never leaks into visible dialogue',()=>{
