@@ -40,7 +40,9 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=structuredClone(c.memorySummary??emptySummaryState());
   if(!manual&&!state.enabled)return;
   if(state.job?.status==='running'&&Date.now()<state.job.leaseUntil)return;
-  if(!manual&&state.job&&scopeKey(state.job.scope)===scopeKey(scope)&&state.job.status==='failed'&&state.job.error!=='input-too-large'&&!state.checkpoint?.completed.length)return;
+  // A failed job is terminal for that attempt, never a permanent disable.
+  // The next successful chat turn may claim a fresh job; completed chunks resume.
+  if(!manual&&state.job?.status==='failed'&&Date.now()-(state.job.finishedAt??state.job.startedAt)<30000)return;
   const data=await snapshot(scope,true);if(!data.t?.headNodeId)throw Error('state');
   if(!data.turns.length||(!manual&&data.turns.length<state.interval))return;
   await sealMemorySummaryForks(scope);
