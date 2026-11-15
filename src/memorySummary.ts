@@ -59,9 +59,9 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
    try{inputs=buildSummaryInputs(group,system,summaryLimits.inputTokens);}
    catch{oversized=true;}
   }
-  // One combined call for normal groups; at most two chunks (five calls) for unusually long groups.
+  // Preserve the full configured turn group; oversized turns are split into resumable bounded chunks.
   // Never silently discard raw turns to fit the budget.
-  if(inputs.length>2)oversized=true;
+  if(inputs.length>100)oversized=true;
   const fits=group.length>0&&!oversized;
   const previous=state.checkpoint;
   const resume=previous&&scopeKey(previous.scope)===scopeKey(scope)&&previous.timelineId===data.t.id&&previous.throughNodeId===group.at(-1)?.nodeId&&JSON.stringify(previous.turns)===JSON.stringify(group.map(x=>x.ref))&&JSON.stringify(previous.inputs)===JSON.stringify(inputs);
@@ -130,7 +130,20 @@ async function execute(scope:MemoryScope,manual:boolean){
   // interval, never to an individual API chunk. It is separate from raw messages.
   const uniqueEvents=events.filter(Boolean);
   const previousSummaries=(await visibleSummaryReceipts(scope)).filter(r=>r.shortSummary?.trim()).slice(-2).map(r=>r.shortSummary!);
-  const groupSummary=claimed.inputs.length===1?(uniqueEvents[0]??''):await requestGroupDigest(config,apiKey,uniqueEvents,controller.signal,previousSummaries);
+  let groupSummary=uniqueEvents[0]??'';
+  if(claimed.inputs.length>1){
+   let layer=uniqueEvents.slice();let depth=0;
+   while(layer.length>1){
+    if(++depth>12)throw Error('一级总结事件合并超过层级上限');
+    const next:string[]=[];
+    for(let i=0;i<layer.length;i+=6){
+     const batch=layer.slice(i,i+6);
+     next.push(batch.length===1?batch[0]:await requestGroupDigest(config,apiKey,batch,controller.signal,depth===1?previousSummaries:[]));
+    }
+    layer=next;
+   }
+   groupSummary=layer[0]??'';
+  }
 
   failure='stale-path';
   await db.transaction('rw',tables(),async()=>{
