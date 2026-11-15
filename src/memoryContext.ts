@@ -51,7 +51,7 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
  try{
   const entries=await db.transaction('rw',[...timelineTables(),db.characters,db.worlds,db.worldProfiles],async()=>{
    const current=await db.conversations.get(c.id);
-   if(!current?.memoryStore?.entries.length)return []; // No explicit memory entries; secondary digests and time reminders are still evaluated below.
+   if(!current)return []; // Digests and time reminders can still be injected without explicit memory entries.
    const scope=await getMemoryScope(c.id);
    if(scope.characterId!==c.characterId||scope.mode!==c.mode||scope.worldId!==c.worldId||(scope.mode==='world'&&((c.activeTimelineId&&scope.timelineId!==c.activeTimelineId)||scope.epoch!==(c.timelineEpoch??0)))){status='scope-changed';throw Error('memory scope changed');}
    const {entries}=await listMemories(scope);
