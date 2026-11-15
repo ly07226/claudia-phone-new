@@ -315,6 +315,16 @@ async function generate(
           });
       });
   }
+  // A due reminder is acknowledged only when the successful reply actually mentions it.
+  // Never consume a reminder after a failed or interrupted generation.
+  if(!interruption&&!options.messageId)void (async()=>{
+   const {getMemoryScope}=await import('./memoryStore');
+   const {dueTimeMemories,acknowledgeTimeMemory,nextOccurrence}=await import('./smartTimeMemory');
+   const scope=await getMemoryScope(id);
+   for(const item of await dueTimeMemories(scope)){
+    if((item.method==='role'||item.method==='both')&&reply.includes(item.title))await acknowledgeTimeMemory(scope,item.id,nextOccurrence(item));
+   }
+  })().catch(()=>{});
   // Detached from views and from normal reply completion. No auto retry on failure.
   if(!options.messageId&&!interruption)void import('./memorySummary').then(m=>m.tryAutoSummary(id)).catch(()=>{});
   return {interruption};
