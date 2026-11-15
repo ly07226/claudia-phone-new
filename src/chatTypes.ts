@@ -22,6 +22,7 @@ export interface Conversation {
   /** Independent memory journal. Not persona, lore, messages, or prompt injection. */
   memoryStore?: MemoryStore;
   memorySummary?: MemorySummaryState;
+  smartTimeMemories?: import('./smartTimeMemory').SmartTimeMemory[];
   activeTimelineId?: string;
   timelineEpoch?: number;
   chatSettings?: ChatSettings;
