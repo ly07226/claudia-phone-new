@@ -66,6 +66,15 @@ export function realTimeContext(conversationId:string,path:readonly Message[],no
   lines.push('用户明确询问现实时间（现在几点、今天星期几、现在是早上还是晚上等）时，优先使用本上下文的设备日期、时间、星期和时区，不得依据剧情、旧消息或自身知识猜测。设备时钟不保证绝对准确。');
   const session=realTimeSession(conversationId,path,now,mode);
   const {previous}=session;
+  if(mode==='daily'&&session.current.length){
+    const latest=[...session.current].reverse().find(m=>m.role==='user');
+    const lastCharacter=[...path].reverse().find(m=>m.role==='assistant'&&reliableMessageTime(m.createdAt,now));
+    const priorCharacter=lastCharacter&&lastCharacter.createdAt<=(session.previous?.createdAt??now);
+    lines.push('[本轮情境证据] 以下是供人物判断的原始证据，不是新的剧情事实。');
+    if(lastCharacter&&priorCharacter)lines.push(`此前角色最后一次发言时间：${formatAt(lastCharacter.createdAt)}；这条发言属于此前时刻，不保证其中的姿势、地点或动作在现在持续。`);
+    if(latest)lines.push(`本轮用户消息时间：${formatAt(latest.createdAt)}；应优先理解其自然语言意图，不要求用户说切换场景、继续剧情等指令。`);
+    lines.push('判断顺序：先确认双方关系及此前事件，再判断现实时间是否已过去、旧动作是否仍有持续依据，最后结合用户当前消息自然回复。事实可以保留，动作是否持续必须有证据；不确定时不要强行续演旧动作，也不必向用户解释这套判断。');
+  }
   if(mode==='daily')lines.push('[日常聊天优先级] 现实时间以本次请求提供的设备时间为准。过去聊天里出现的中午、早晨、昨天、地点和正在进行的动作只属于当时，不是当前现实。用户最新消息是当前话题的最高优先级：即使只相隔数秒，用户转向新话题也必须自然回应新话题，不要把新内容强行解释成旧场景的延续。保留共同经历和人物记忆，但不能把过去的现场动作、姿势或地点当作现在仍在发生。如果用户自然承接先前的事情，应理解其语义并继续；无需用户说任何控制剧情的指令。');
   if(previous&&reliableMessageTime(previous.createdAt,now)){
     lines.push(`上次有效互动（本轮用户消息之前，原始发送时间）：${formatAt(previous.createdAt)}。`);
