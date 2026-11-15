@@ -2426,7 +2426,7 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
 /* Heart voice: only the first bubble owns the reveal; avatar and bubble grid stay unchanged. */
 .chat-heart-avatar-anchor { position: relative; grid-column: 1; grid-row: 1; width: var(--chat-avatar-size,48px); height: var(--chat-avatar-size,48px); overflow: visible; }
 .chat-heart-avatar-anchor > .chat-avatar { width: 100%; height: 100%; }
-.chat-heart-trigger { position: absolute; left: calc(100% - 5px); top: calc(100% - 12px); width: 24px; height: 24px; border: 0; padding: 0; margin: 0; background: transparent; display: grid; place-items: center; cursor: pointer; z-index: 2; touch-action: manipulation; }
+.chat-heart-trigger { position: absolute; left: calc(100% - 9px); top: calc(100% - 12px); width: 24px; height: 24px; border: 0; padding: 0; margin: 0; background: transparent; display: grid; place-items: center; cursor: pointer; z-index: 2; touch-action: manipulation; }
 .chat-heart-trigger svg { display: block; width: 8px; height: 8px; }
 .chat-heart-trigger:focus-visible { outline: 2px solid var(--theme-accent,#777); outline-offset: 1px; border-radius: 50%; }
 .chat-heart-bubble-unit { display: flex; flex-direction: column; align-items: flex-start; max-width: 100%; min-width: 0; }
