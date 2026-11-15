@@ -71,7 +71,7 @@ async function fail(job:MemorySummaryJob,error:SummaryFailure,diagnostic?:Summar
 }
 async function execute(scope:MemoryScope,manual:boolean){
  let claimed:Claim|undefined;try{claimed=await claim(scope,manual);}catch(e){if(manual)throw e;return;}if(!claimed)return;
- const {job}=claimed;let failure:SummaryFailure='provider',diagnostic:SummaryDiagnostic|undefined;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),60000);
+ const {job}=claimed;let failure:SummaryFailure='provider',diagnostic:SummaryDiagnostic|undefined;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.max(60000,claimed.inputs.length*70000));
  try{
   const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('stale-path');
   const {config,key:apiKey}=await resolveApi(c);
