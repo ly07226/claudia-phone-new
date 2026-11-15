@@ -2422,3 +2422,24 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
   contain: layout style;
 }
 .desktop-drag-ghost .app-icon { flex: 0 0 61px; }
+
+/* Heart voice: only the first bubble owns the reveal; avatar and bubble grid stay unchanged. */
+.chat-heart-avatar-anchor { position: relative; grid-column: 1; grid-row: 1; width: var(--chat-avatar-size,48px); height: var(--chat-avatar-size,48px); overflow: visible; }
+.chat-heart-avatar-anchor > .chat-avatar { width: 100%; height: 100%; }
+.chat-heart-trigger { position: absolute; left: calc(100% - 9px); top: calc(100% - 12px); width: 24px; height: 24px; border: 0; padding: 0; margin: 0; background: transparent; display: grid; place-items: center; cursor: pointer; z-index: 2; touch-action: manipulation; }
+.chat-heart-trigger svg { display: block; width: 8px; height: 8px; }
+.chat-heart-trigger:focus-visible { outline: 2px solid var(--theme-accent,#777); outline-offset: 1px; border-radius: 50%; }
+.chat-heart-bubble-unit { display: flex; flex-direction: column; align-items: flex-start; max-width: 100%; min-width: 0; }
+.chat-immersive .chat-assistant > .chat-heart-bubble-unit + .chat-heart-bubble-unit { margin-top: 12px; }
+.chat-heart-card { width: min(320px, calc(100vw - 120px)); max-width: calc(100vw - 120px); margin-top: 10px; padding: 13px 15px; border: 1px solid #d2c8d3; border-radius: 16px; background: #eae5ebee; color: #453e48; box-shadow: 0 5px 18px #302b3614; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-heart-card-heading { color: #756478; font-size: 12px; font-weight: 600; margin-bottom: 9px; }
+.chat-heart-card p { margin: 0; font-size: 13px; line-height: 1.65; font-style: italic; }
+
+/* Preserve the existing assistant bubble surface sizing after adding the heart wrapper. */
+.chat-immersive .chat-assistant > .chat-heart-bubble-unit > .chat-bubble-surface { width: fit-content; max-width: 100%; min-width: 0; margin: 0; }
+
+/* Regression guard: keep original user right-alignment and all multi-bubble gaps. */
+.chat-immersive .chat-user > .chat-heart-bubble-unit + .chat-heart-bubble-unit { margin-top: 12px; }
+.chat-immersive .chat-user > .chat-heart-bubble-unit { align-self: flex-end; align-items: flex-end; }
+.chat-immersive .chat-user > .chat-heart-bubble-unit > .chat-bubble-surface { width: fit-content; max-width: 100%; min-width: 0; margin: 0; }
+.chat-heart-card { box-sizing: border-box; }

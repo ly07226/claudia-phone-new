@@ -45,6 +45,8 @@ export interface Message {
   replyInterruption?: import("./chatCompletion").ReplyInterruption;
   replyTo?: MessageQuote;
   bubbleDeletion?: BubbleDeletion;
+  /** Optional authored character inner monologue, never model reasoning. */
+  heartVoice?: string;
   id: string;
   conversationId: string;
   role: "user" | "assistant" | "system" | "tool";
@@ -72,6 +74,7 @@ export interface ContextMessage {
   content: string;
 }
 export interface MessageVariant {
+  heartVoice?: string;
   replyInterruption?: import("./chatCompletion").ReplyInterruption;
   id: string;
   conversationId: string;

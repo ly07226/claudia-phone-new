@@ -107,6 +107,9 @@ export function ChatMessage({
   onLocate: (id:string,part:BubblePart)=>void;
 }) {
   const root=useRef<HTMLDivElement>(null);
+  const [heartOpen,setHeartOpen]=useState(false);
+  const heartVoice=m.role==='assistant'?(variants.find(v=>v.id===m.activeVariantId)?.heartVoice??m.heartVoice)?.trim():undefined;
+  useEffect(()=>setHeartOpen(false),[m.id,m.activeVariantId]);
   const bubbles=useMemo(()=>messageBubbles(m,conversation.mode!=='daily'),[m,conversation.mode]);
   const fragments=bubbles.filter((p):p is Extract<BubblePart,{kind:'text'}>=>p.kind==='text');
   const openMenu=(target?:HTMLElement)=>{
@@ -126,7 +129,10 @@ export function ChatMessage({
   return (
     <div className={`chat-message-row chat-message-row-${m.role}`}>
       {m.role !== "user" && (
-        <MessageAvatar src={characterAvatar} name={characterName} />
+        <div className="chat-heart-avatar-anchor">
+          <MessageAvatar src={characterAvatar} name={characterName} />
+          {heartVoice && <button type="button" className="chat-heart-trigger" aria-label={heartOpen?"收起心声":"展开心声"} aria-expanded={heartOpen} onClick={()=>setHeartOpen(v=>!v)}><svg width="8" height="8" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 9C3.5 7.5 0 5.3 0 3.1 0 .5 3 0 5 2.1 7 0 10 .5 10 3.1 10 5.3 6.5 7.5 5 9Z" fill="#27262D" fillOpacity=".6"/></svg></button>}
+        </div>
       )}
       <div className="chat-message-stack">
         <div
@@ -151,8 +157,9 @@ export function ChatMessage({
           </button>
           {m.replyTo&&<button type="button" className="message-quote" aria-label="定位引用消息" disabled={!quoteAvailable} onClick={()=>onLocate(m.replyTo!.messageId,m.replyTo!.part)}><strong>{m.replyTo.role==='user'?userName:characterName}</strong><span>{quoteAvailable?quoteSummary(m.replyTo):'原消息已删除或不在当前分支'}</span></button>}
           {bubbles.some(p=>p.kind==='image')&&<MessageImages ids={bubbles.flatMap(p=>p.kind==='image'?[p.assetId]:[])}/>}
-          {fragments.slice(0,visibleCount).map((fragment) => (
-            <div className="chat-bubble-surface" key={partKey(fragment)} data-bubble-key={partKey(fragment)} tabIndex={0}>
+          {fragments.slice(0,visibleCount).map((fragment,fragmentIndex) => (
+            <div className={m.role==="assistant"?"chat-heart-bubble-unit":"chat-heart-bubble-unit chat-heart-user-unit"} key={partKey(fragment)}>
+            <div className="chat-bubble-surface" data-bubble-key={partKey(fragment)} tabIndex={0}>
               <p>
                 {m.role === "assistant" ? (
                   <AssistantBubbleText content={fragment.text} />
@@ -160,6 +167,8 @@ export function ChatMessage({
                   fragment.text
                 )}
               </p>
+            </div>
+            {fragmentIndex===0 && heartVoice && heartOpen && <section className="chat-heart-card" aria-label="内心独白"><div className="chat-heart-card-heading">♡ 内心独白</div><p>{heartVoice}</p></section>}
             </div>
           ))}
           {m.role === "assistant" && variants.length > 1 && (
