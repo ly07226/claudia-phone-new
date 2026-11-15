@@ -1,6 +1,6 @@
 import type {SummaryQualityRejection} from './memorySummaryQuality';
 import type {MemoryScope} from './memoryTypes';
-export const summaryLimits={inputTokens:12000,outputTokens:1600,outputChars:12000,facts:8,factChars:800,receipts:500,leaseMs:90000};
+export const summaryLimits={inputTokens:12000,outputTokens:1600,outputChars:12000,facts:8,factChars:800,receipts:5000,leaseMs:90000};
 export type SummaryCategory='fact'|'belief'|'speculation'|'pending';
 /** Request-only quality/evidence metadata; never added to stored MemoryEntry. */
 export const summaryQualityCategories=['identity','relationship','major-event','preference','boundary','habit','commitment','ongoing-conflict','continuity','routine','short-plan','resolved'] as const;
@@ -17,7 +17,7 @@ export interface MemorySummaryJob {sourceFingerprint?:string;retryable?:boolean;
 export interface SummaryCheckpoint {scope:MemoryScope;timelineId:string;throughNodeId:string;turns:SummaryTurn[];inputs:string[];completed:{facts:SummaryFact[];eventSummary?:string;candidates:number;accepted:number;rejected:number;reasons:Record<string,number>}[]}
 export interface MemorySummaryState {autoAttempt?:{throughNodeId:string;count:number;pendingAtStart:number};deferUntilPending?:number;checkpoint?:SummaryCheckpoint;version:1;enabled:boolean;interval:number;revision:number;receipts:SummaryReceipt[];job?:MemorySummaryJob}
 export const emptySummaryState=():MemorySummaryState=>({version:1,enabled:false,interval:40,revision:0,receipts:[]});
-export const summaryFailureText:Record<SummaryFailure,string>={provider:'总结请求失败或已超时。聊天不受影响；可手动重试，重试可能再次计费。',format:'总结格式无效，未写入记忆。',empty:'没有提取到有效记忆，未记为成功；可稍后手动重试。','stale-path':'总结期间会话路径发生变化，结果未写入。',capacity:'记忆或总结进度达到安全容量上限，未清理旧记录。','input-too-large':'待总结片段超过输入预算，未调用模型。可手动分次总结安全范围；单轮过长时需先缩短该段。',interrupted:'上次总结未完成，不会自动重试；确认后可重新请求，可能再次消耗 Token。',state:'总结状态失效或无法保存，未确认写入成功。'};
+export const summaryFailureText:Record<SummaryFailure,string>={provider:'总结请求失败或已超时。聊天不受影响；可手动重试，重试可能再次计费。',format:'总结格式无效，未写入记忆。',empty:'没有提取到有效记忆，未记为成功；可稍后手动重试。','stale-path':'总结期间会话路径发生变化，结果未写入。',capacity:'当前会话的记忆修订或总结记录达到容量保护上限；历史原文和已保存记录均未删除。请先备份，后续可升级分段存储。','input-too-large':'待总结片段超过输入预算，未调用模型。可手动分次总结安全范围；单轮过长时需先缩短该段。',interrupted:'上次总结未完成，不会自动重试；确认后可重新请求，可能再次消耗 Token。',state:'总结状态失效或无法保存，未确认写入成功。'};
 
 export const summaryRejectionText:Record<SummaryQualityRejection,string>={'unsupported-evidence':'原文证据不匹配',temporary:'缺少持续价值','low-importance':'重要性不足','weak-impact':'持续影响依据不足','unsupported-inference':'推断依据不足','uncertain-as-fact':'计划或不确定内容被当作事实','lost-condition':'遗漏否定或条件','unsupported-detail':'细节或主体不一致','unattributed-view':'观点归属不明确'};
 export function summaryResultText(job:MemorySummaryJob){
