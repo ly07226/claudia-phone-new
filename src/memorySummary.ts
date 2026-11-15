@@ -97,6 +97,10 @@ async function execute(scope:MemoryScope,manual:boolean){
    }catch(e){if((e as Error).message==='empty')failure='empty';if(e instanceof SummaryFormatError)diagnostic={...e.diagnostic,receivedChars:raw.length,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)};throw e;}
   }
   job.selection=stats;
+  // A single bounded, chronological event digest belongs to the whole configured
+  // interval, never to an individual API chunk. It is separate from raw messages.
+  const uniqueEvents=[...new Set(facts.map(f=>f.content.trim()).filter(Boolean))];
+  const groupSummary=uniqueEvents.join('；').slice(0,4000);
 
   failure='stale-path';
   await db.transaction('rw',tables(),async()=>{
@@ -111,7 +115,7 @@ async function execute(scope:MemoryScope,manual:boolean){
    const known=summaryDuplicateIndex(all.map(e=>e.content));
    let added=0,duplicates=0;
    for(const fact of facts){if(known.has(fact)){duplicates++;continue;}failure='capacity';await createMemory(scope,{kind:fact.quality?.importance==='high'&&['major-event','relationship','identity','boundary','ongoing-conflict','continuity'].includes(fact.quality.category)?'core':'long',source:'auto',content:`【${labels[fact.type]}】${fact.content}`});known.add(fact);added++;}
-   state.checkpoint=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
+   state.checkpoint=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,shortSummary:groupSummary,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
   });
  }catch(error){if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;failure=diagnostic.code==='truncated'?'format':'provider';}if(diagnostic)diagnostic={...diagnostic,inputRounds:claimed.turns.length,inputTokenEstimate:memoryTokenCost(system)+Math.max(...claimed.inputs.map(memoryTokenCost))};await fail(job,failure,diagnostic).catch(()=>{});}finally{clearTimeout(timer);}
 }
