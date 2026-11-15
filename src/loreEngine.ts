@@ -89,9 +89,9 @@ export function retrieveLorePassages(content:string,history:Message[],budget:num
   if(content.length<=budget)return content;
   if(budget<=0)return "";
   const query=history.filter(m=>m.role==="user").slice(-3).map(m=>m.content).join(" ").toLowerCase();
-  const terms=[...new Set((query.match(/[\\p{Script=Han}]{2,4}|[a-z0-9]{3,}/gu)||[]))].slice(0,80);
+  const terms=[...new Set((query.match(/[\p{Script=Han}]{2,4}|[a-z0-9]{3,}/gu)||[]))].slice(0,80);
   const chunks:string[]=[];
-  for(const paragraph of content.split(/\\n{2,}/)){
+  for(const paragraph of content.split(/\n{2,}/)){
     for(let i=0;i<paragraph.length;i+=700)chunks.push(paragraph.slice(i,i+700));
   }
   const ranked=chunks.map((text,index)=>({text,index,score:terms.reduce((n,t)=>n+(text.toLowerCase().includes(t)?1:0),0)}))
@@ -103,7 +103,7 @@ export function retrieveLorePassages(content:string,history:Message[],budget:num
     if(item.text.length>room){if(!chosen.length)chosen.push({text:item.text.slice(0,room),index:item.index});break;}
     chosen.push(item);used+=item.text.length+2;
   }
-  return chosen.sort((a,b)=>a.index-b.index).map(x=>x.text).join("\\n\\n");
+  return chosen.sort((a,b)=>a.index-b.index).map(x=>x.text).join("\n\n");
 }
 export interface LoreCandidate {entry:LoreEntry;book:Lorebook}
 /** Metadata only. Entry content, keys and chat text are never part of diagnostics. */
