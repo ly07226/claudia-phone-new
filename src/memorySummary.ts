@@ -74,6 +74,12 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
    const count=previous?.throughNodeId===job.throughNodeId?previous.count+1:1;
    state.autoAttempt={throughNodeId:job.throughNodeId,count,pendingAtStart:data.turns.length};
   }
+  if(!manual&&!fits){
+   // A terminal local failure must not be retried on every foreground wake or chat turn.
+   // Preserve all unsummarized turns and reconsider after one additional interval.
+   state.deferUntilPending=data.turns.length+state.interval;
+   state.autoAttempt=undefined;
+  }
   state.job=job;await db.conversations.update(c.id,{memorySummary:state});
   return fits?{job,turns:group.map(x=>x.ref),inputs}:undefined;
  });
