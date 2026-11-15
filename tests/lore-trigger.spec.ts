@@ -69,3 +69,23 @@ test("手机编辑器默认即时、旧条目历史可排除AI，诊断可读且
  expect(await page.evaluate(async()=>(await(await import("/src/store.ts")).db.loreEntries.get("old-entry"))?.scanAssistant)).toBe(false);
  await page.reload();expect(await page.evaluate(async()=>{const {db}=await import("/src/store.ts");await db.open();const c=await db.conversations.toArray();return(await import("/src/loreDiagnostics.ts")).lastLoreTrace(c[0].id);})).toBeNull();
 });
+
+
+test("长篇常驻规则优先完整注入，空间不足明确失败而非静默跳过",async({page})=>{
+ await ready(page);
+ const result=await page.evaluate(async()=>{
+  const {newBook,newEntry}=await import("/src/loreTypes.ts");
+  const {planLore}=await import("/src/loreEngine.ts");
+  const book=newBook();
+  const constant={...newEntry(book.id),id:"always",constant:true,content:"常驻规则".repeat(1100),priority:1};
+  const optional={...newEntry(book.id),id:"optional",constant:false,primaryKeys:["命中"],content:"可选资料",priority:999};
+  const history:any=[{id:"u",role:"user",content:"命中"}];
+  const planned=planLore([{book,entry:optional},{book,entry:constant}],history,18000);
+  let overflow="";
+  try {planLore([{book,entry:constant}],history,1000);} catch(e) {overflow=String(e);}
+  return {first:planned.entries[0]?.id,contains:planned.entries.some(e=>e.id==="always"),overflow};
+ });
+ expect(result.first).toBe("always");
+ expect(result.contains).toBe(true);
+ expect(result.overflow).toContain("常驻世界书内容超出");
+});
