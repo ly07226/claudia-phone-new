@@ -27,5 +27,5 @@ export interface ShortMemory {
  context:{timelineId?:string;epoch:number;revision?:number;headNodeId?:string};
  messages:ShortMemoryItem[];
 }
-export const memoryLimits={events:2000,entryChars:12000,totalChars:1000000,forks:4096,shortMessages:200};
+export const memoryLimits={events:20000,entryChars:12000,totalChars:10000000,forks:16384,shortMessages:200};
 export const emptyMemoryStore=():MemoryStore=>({version:1,revision:0,entries:[],forks:[]});
