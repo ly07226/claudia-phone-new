@@ -10,6 +10,7 @@ import {requestSummary,requestChunkEvents,requestGroupDigest,SummaryResponseErro
 import {parseSummary,summaryPrompt,SummaryFormatError} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
+import {buildSummaryInputs} from './memorySummaryChunks';
 import type {MemoryScope} from './memoryTypes';
 import {emptySummaryState,summaryLimits,type SummaryFact,type SummaryTurn,type SummaryFailure,type MemorySummaryJob,type SummaryDiagnostic} from './memorySummaryTypes';
 const tables=()=>[...timelineTables(),db.characters,db.worlds,db.worldProfiles];
@@ -52,18 +53,11 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   // The configured interval is the logical group. Split only the API inputs;
   // do not advance the receipt until every chunk of the group succeeds.
   const group=full?[]:data.turns.slice(0,state.interval);
-  const inputs:string[]=[];let chunk:typeof group=[],attemptedTokens=memoryTokenCost(system),oversized=false;
-  for(const turn of group){
-   const next=JSON.stringify([...chunk,turn].map(x=>x.messages));
-   attemptedTokens=memoryTokenCost(system)+memoryTokenCost(next);
-   if(attemptedTokens>summaryLimits.inputTokens){
-    if(!chunk.length){oversized=true;break;}
-    inputs.push(JSON.stringify(chunk.map(x=>x.messages)));chunk=[turn];
-    attemptedTokens=memoryTokenCost(system)+memoryTokenCost(JSON.stringify(chunk.map(x=>x.messages)));
-    if(attemptedTokens>summaryLimits.inputTokens){oversized=true;break;}
-   }else chunk.push(turn);
+  let inputs:string[]=[];let attemptedTokens=memoryTokenCost(system),oversized=false;
+  if(group.length){
+   try{inputs=buildSummaryInputs(group,system,summaryLimits.inputTokens);}
+   catch{oversized=true;}
   }
-  if(!oversized&&chunk.length)inputs.push(JSON.stringify(chunk.map(x=>x.messages)));
   const fits=group.length>0&&!oversized;
   const previous=state.checkpoint;
   const resume=previous&&scopeKey(previous.scope)===scopeKey(scope)&&previous.timelineId===data.t.id&&previous.throughNodeId===group.at(-1)?.nodeId&&JSON.stringify(previous.turns)===JSON.stringify(group.map(x=>x.ref))&&JSON.stringify(previous.inputs)===JSON.stringify(inputs);
