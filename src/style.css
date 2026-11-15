@@ -2431,7 +2431,7 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
 .chat-heart-trigger:focus-visible { outline: 2px solid var(--theme-accent,#777); outline-offset: 1px; border-radius: 50%; }
 .chat-heart-bubble-unit { display: flex; flex-direction: column; align-items: flex-start; max-width: 100%; min-width: 0; }
 .chat-immersive .chat-assistant > .chat-heart-bubble-unit + .chat-heart-bubble-unit { margin-top: 12px; }
-.chat-heart-card { width: min(320px, 100%); margin-top: 10px; padding: 13px 15px; border: 1px solid #d2c8d3; border-radius: 16px; background: #eae5ebee; color: #453e48; box-shadow: 0 5px 18px #302b3614; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-heart-card { width: min(320px, calc(100vw - 120px)); max-width: calc(100vw - 120px); margin-top: 10px; padding: 13px 15px; border: 1px solid #d2c8d3; border-radius: 16px; background: #eae5ebee; color: #453e48; box-shadow: 0 5px 18px #302b3614; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-heart-card-heading { color: #756478; font-size: 12px; font-weight: 600; margin-bottom: 9px; }
 .chat-heart-card p { margin: 0; font-size: 13px; line-height: 1.65; font-style: italic; }
 
