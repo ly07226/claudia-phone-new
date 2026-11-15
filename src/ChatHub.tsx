@@ -75,8 +75,9 @@ export function ChatHub({characters,applications,onOpen,onRequests,chats}:{chara
   if(!post||post.author.kind!=='user')return;
   const roles=characters.filter(isDailyFriend);
   const failed=failures.find(f=>f.postId===postId&&f.kind==='comment'&&f.characterId&&roles.some(c=>c.id===f.characterId));
-  const characterId=failed?.characterId??roles.find(c=>c.id===actor)?.id??roles[0]?.id;
-  if(!characterId){setError({tab:'moments',text:'暂无可用于评论的日常好友。'});return;}
+  const available=roles.filter(c=>!post.comments.some(comment=>comment.author.kind==='character'&&comment.author.id===c.id));
+  const characterId=available.find(c=>c.id===failed?.characterId)?.id??available.find(c=>c.id===actor)?.id??available[0]?.id;
+  if(!characterId){setError({tab:'moments',text:'所有日常好友均已评论，或暂无可用于评论的日常好友。'});return;}
   retryLock.current=true;setPostActions(null);setRetryingPost(postId);
   try{await generateSocial({kind:'comment',postId,characterId});for(const f of failures.filter(f=>f.postId===postId&&f.kind==='comment'&&f.characterId===characterId))await resolveSocialFailure(f.id);await changeChatHub(h=>{const p=h.posts.find(p=>p.id===postId);if(p?.reaction?.characterId===characterId&&p.reaction.status==='failed')p.reaction.status='done';});}
   catch{/* Existing social failure handling preserves the original post. */}
