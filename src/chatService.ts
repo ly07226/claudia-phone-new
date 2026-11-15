@@ -250,6 +250,7 @@ async function generate(
     const parsed=options.continuation?{text:result.text,heartVoice:target?.heartVoice}:parseHeartVoice(result.text);
     const reply=options.continuation&&target?appendContinuation(target.content,parsed.text):parsed.text;
     const heartVoice=parsed.heartVoice;
+    if(!reply.trim())throw Error('AI 本次未返回有效角色回复，已忽略不完整心声；可重试生成。');
     const preserveTimeout=interruption==='timeout'&&!signal?.aborted;
     if (controller.signal.aborted&&!preserveTimeout)
       throw Error("请求已取消，原消息和版本已保留。");
