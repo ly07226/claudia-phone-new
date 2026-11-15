@@ -7,7 +7,7 @@ export type MemoryScope=(Owner&{mode:'daily';spaceId:'daily';worldId?:never;time
 /** Immutable revision. id identifies the same logical memory across local overrides. */
 export interface MemoryEntry {
  id:string;revision:number;scope:MemoryScope;kind:StoredMemoryKind;source:MemorySource;
- content:string;deleted:boolean;anchorNodeId?:string;createdAt:number;updatedAt:number;
+ content:string;deleted:boolean;anchorNodeId?:string;sourceReceiptId?:string;createdAt:number;updatedAt:number;
 }
 export interface MemoryFork {
  timelineId:string;epoch:number;parentTimelineId?:string;sharedHeadNodeId?:string;
@@ -17,7 +17,7 @@ export interface MemoryFork {
  summaryRevisionAtFork?:number;
 }
 export interface MemoryStore {version:1;revision:number;entries:MemoryEntry[];forks:MemoryFork[]}
-export interface MemoryInput {kind:StoredMemoryKind;content:string;source?:MemorySource}
+export interface MemoryInput {kind:StoredMemoryKind;content:string;source?:MemorySource;sourceReceiptId?:string}
 export interface EffectiveMemory extends MemoryEntry {inherited:boolean}
 export interface ShortMemoryItem {messageId:string;variantId?:string;nodeId?:string;role:'user'|'assistant';content:string;assetIds:string[];createdAt:number}
 export interface ShortMemory {
