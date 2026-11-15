@@ -1,4 +1,5 @@
 import {db} from './store';
+import {summarySourceFingerprint} from './summarySourceFingerprint';
 import {visibleMessage} from './messageBubbles';
 import {nextOccurrence,localDay,addDays} from './smartTimeMemory';
 import {getMemoryScope,listMemories,visibleSummaryReceipts} from './memoryStore';
@@ -69,13 +70,23 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   // The latest pending user messages remain first-class retrieval evidence.
   const recent=requestPath.slice(-6).filter(m=>m.role==='user'||m.role==='assistant');
   const query=[...recent,...pending.filter(m=>!recent.some(r=>r.id===m.id))].map(m=>m.content).join('\n');
-  const selected=selectMemoryContext(entries,query,remainingChars);
+  // A source edit/delete must invalidate every derived automatic fact before
+  // selection, not just the visible text of the primary/secondary summary.
+  const receiptScope=await getMemoryScope(c.id);
+  const receiptsForSource=await visibleSummaryReceipts(receiptScope);
+  const validReceiptIds=new Set<string>();
+  for(const receipt of receiptsForSource){
+   if(!receipt.sourceFingerprint)continue; // legacy receipts lack verifiable provenance
+   if(await summarySourceFingerprint(receipt,requestPath)===receipt.sourceFingerprint)validReceiptIds.add(receipt.id);
+  }
+  const reliableEntries=entries.filter(e=>e.source!=='auto'||(!!e.sourceReceiptId&&validReceiptIds.has(e.sourceReceiptId)));
+  const selected=selectMemoryContext(reliableEntries,query,remainingChars);
   // Include only receipts visible on the active branch AND completed within
   // the exact request prefix. Regeneration must not read future events.
   if(remainingChars>selected.text.length+300){
    const scope=await getMemoryScope(c.id);
    const receipts=await visibleSummaryReceipts(scope);
-   let safe=receipts;
+   let safe=receipts.filter(r=>validReceiptIds.has(r.id));
    if(scope.mode==='world'){
     const timeline=await db.timelines.get(scope.timelineId);
     const nodes=timeline?await nodesForHead(c.id,timeline.headNodeId):[];
