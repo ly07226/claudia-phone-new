@@ -1,3 +1,4 @@
+import {installMemorySummaryScheduler} from './memorySummaryScheduler';
 import {PhasePlayApp} from './phasePlay/PhasePlayApp';
 import {ChatHubScheduler} from './ChatHubScheduler';
 import {ProactiveScheduler} from './ProactiveScheduler';
@@ -986,6 +987,7 @@ function App() {
   );
 }
 initializeAudioKeepAlive();
+installMemorySummaryScheduler();
 createRoot(document.getElementById("root")!).render(
   <SpaceRoot phone={<App />} />,
 );
