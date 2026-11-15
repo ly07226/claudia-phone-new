@@ -2,7 +2,7 @@ import {db} from './store';
 import {visibleMessage} from './messageBubbles';
 import {nextOccurrence,localDay,addDays} from './smartTimeMemory';
 import {getMemoryScope,listMemories,visibleSummaryReceipts} from './memoryStore';
-import {timelineTables,nodesForHead,messageFingerprint} from './timelines';
+import {timelineTables,nodesForHead,messageFingerprint,getTimelineAncestors} from './timelines';
 import type {Conversation,Message} from './chatTypes';
 import type {EffectiveMemory} from './memoryTypes';
 /** Provider-independent conservative token proxy: one UTF-8 byte per token.
@@ -100,10 +100,21 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   const prefixLast=Math.max(...requestPath.map(m=>m.createdAt),0);
   const current=await db.conversations.get(c.id);
   const sameScope=(a:unknown)=>JSON.stringify(a)===JSON.stringify(scope);
+  // Parent-branch digests may be inherited only when every source message is
+  // still present and identical in the actual request prefix. Never inherit
+  // sibling or future-branch digests.
+  const ancestorIds=scope.mode==='world'
+   ?new Set((await getTimelineAncestors(c.id,scope.timelineId)).map(t=>t.id))
+   :new Set<string>();
+  const eligibleDigestScope=(candidate:typeof scope)=>{
+   if(candidate.conversationId!==scope.conversationId||candidate.characterId!==scope.characterId||candidate.mode!==scope.mode)return false;
+   if(scope.mode==='daily')return sameScope(candidate);
+   return candidate.mode==='world'&&candidate.worldId===scope.worldId&&candidate.spaceId===scope.spaceId&&candidate.epoch===scope.epoch&&ancestorIds.has(candidate.timelineId);
+  };
   const pathById=new Map(requestPath.map(m=>{const visible=visibleMessage(m);return [visible.id,visible] as const;}));
   const digests:NonNullable<NonNullable<typeof current>['dailyDigests']> = [];
   for(const d of current?.dailyDigests??[]){
-   if(!sameScope(d.scope)||dayEnd(d.endDay)>prefixLast||!d.sourceMessageIds||!d.sourceFingerprint)continue;
+   if(!eligibleDigestScope(d.scope)||dayEnd(d.endDay)>prefixLast||!d.sourceMessageIds||!d.sourceFingerprint)continue;
    const source=d.sourceMessageIds.map(id=>pathById.get(id));
    if(source.some(m=>!m))continue;
    const payload=JSON.stringify(source.map(m=>[m!.id,m!.role,m!.createdAt,m!.content]));
