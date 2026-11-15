@@ -15,9 +15,10 @@ export function realTimeSession(conversationId:string,path:readonly Message[],no
   // A gap is evidence of elapsed real time, not a command to change topics.
   // Natural continuation is interpreted by the model using the latest message,
   // character state and history; no user-facing trigger phrases are required.
-  const newSession=mode==='daily'&&reliable&&elapsed!>=4*3600000;
-  const resume=false,topicChange=false;
-  return {previous,current,elapsed,resume,topicChange,newSession,reason:'long-gap'};
+  // Elapsed time is evidence only. Do not reset the scene or memories by a fixed threshold.
+  const newSession=false,resume=false,topicChange=false;
+  return {previous,current,elapsed,resume,topicChange,newSession,reason:'time-evidence'};
+
 }
 export const sessionMarkers={
   history:'[过去交流时段开始：以下记录仅作共同历史，不是当前现场]',
@@ -75,20 +76,13 @@ export function realTimeContext(conversationId:string,path:readonly Message[],no
     if(latest)lines.push(`本轮用户消息时间：${formatAt(latest.createdAt)}；应优先理解其自然语言意图，不要求用户说切换场景、继续剧情等指令。`);
     lines.push('判断顺序：先确认双方关系及此前事件，再判断现实时间是否已过去、旧动作是否仍有持续依据，最后结合用户当前消息自然回复。事实可以保留，动作是否持续必须有证据；不确定时不要强行续演旧动作，也不必向用户解释这套判断。');
   }
-  if(mode==='daily')lines.push('[日常聊天优先级] 现实时间以本次请求提供的设备时间为准。过去聊天里出现的中午、早晨、昨天、地点和正在进行的动作只属于当时，不是当前现实。用户最新消息是当前话题的最高优先级：即使只相隔数秒，用户转向新话题也必须自然回应新话题，不要把新内容强行解释成旧场景的延续。保留共同经历和人物记忆，但不能把过去的现场动作、姿势或地点当作现在仍在发生。如果用户自然承接先前的事情，应理解其语义并继续；无需用户说任何控制剧情的指令。');
+  if(mode==='daily')lines.push('[日常聊天优先级] 现实时间以本次请求提供的设备时间为准。过去聊天里出现的中午、早晨、昨天、地点和正在进行的动作只属于当时，不是当前现实。用户最新消息决定本轮回应的焦点，不决定历史事实是否存在。即使只相隔数秒，用户自然转向新话题也要自然回应；即使相隔很久，用户自然承接旧话题也应理解。保留共同经历、未解决事项和人物记忆，但不能把过去的现场动作、姿势或地点当作现在仍在发生。如果用户自然承接先前的事情，应理解其语义并继续；无需用户说任何控制剧情的指令。');
   if(previous&&reliableMessageTime(previous.createdAt,now)){
     lines.push(`上次有效互动（本轮用户消息之前，原始发送时间）：${formatAt(previous.createdAt)}。`);
     const elapsed=now-previous.createdAt;
     lines.push(`距离上次互动：${duration(elapsed)}。`);
-    if(mode==='daily'){
-      if(session.newSession){
-        lines.push(`[新交流时段提示] 当前对话时段：新的现实交流时段。${session.reason==='long-gap'?'可靠互动间隔已达到4小时，默认开启新时段。':session.reason==='topic-change'?'用户当前表达显示交流情境发生变化。':'现实交流情境发生变化。'}`);
-        lines.push('上一轮对话属于过去的交流时段，其事件属于共同历史，不是当前正在发生的现场。本轮待回复用户消息应作为当前时段的交流起点，不得强行解释成用户在旧场景里假装刚见面。不要默认双方仍停留在上轮场景；不机械延续旧地点、姿势、物品、动作或未完成的现场情节。允许自然提及过去的共同经历，但不得编造间隔期间用户或角色经历的具体事件。');
-        lines.push('请求副本中的过去交流段与当前时段标签只是时间边界，不是角色台词或用户原文；标记后的原始内容保持不变。历史记录可作为记忆来源，不可据此自动续写旧现场；这些标签不覆盖角色人设、世界书规则或用户明确意图。');
-      }
-      else if(elapsed<30*60000)lines.push('[连续对话提示] 不足30分钟，若用户未改变话题可自然承接；用户改变话题时必须立即跟随。');
-      else if(session.elapsed!==undefined)lines.push('[时间流逝提示] 仅提示实际时间间隔，保留对话连续性，不强制结束旧场景。');
-    }
+    if(mode==='daily')lines.push('[时间与语义判断] 时间间隔只说明现实时间经过，不决定话题切换、记忆清空或动作继续。根据本轮消息和历史语义判断是否自然承接上次话题；即使当前谈论另一件事，也保留人物关系、过去事实、承诺、共同经历及相关长期记忆。');
+
     if(formatAt(previous.createdAt).slice(0,10)!==calendar.slice(0,10))lines.push('[日期变化提示] 现实自然日期已变化，但不能仅凭跨零点强制切换场景。');
   }
   if(mode==='world')lines.push('[剧本时间边界] 现实互动间隔不等于剧情时间跳跃，剧本时间推进仅以剧情内容和用户指令为准，不因现实间隔自动跳过剧情或动作。');
