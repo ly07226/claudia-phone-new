@@ -85,7 +85,7 @@ export async function readShortMemory(scope:MemoryScope,maxMessages=30):Promise<
  if(!Number.isInteger(maxMessages)||maxMessages<1||maxMessages>memoryLimits.shortMessages)throw Error('短期消息范围需为1–200条。');
  return db.transaction('r',tables(),async()=>{const c=await checked(scope),t=c.activeTimelineId?await db.timelines.get(c.activeTimelineId):undefined;
   const nodes=t?await nodesForHead(c.id,t.headNodeId):[],byMessage=new Map(nodes.map(n=>[n.messageId,n.id]));
-  const rowsForProvenance=(await activeMessages(c.id)).filter(m=>m.role==='user'||m.role==='assistant');
+  const rowsForProvenance=(t?nodes.map(n=>n.message):await activeMessages(c.id)).filter(m=>m.role==='user'||m.role==='assistant');
   const rows=rowsForProvenance.map(visibleMessage).slice(-maxMessages);
   const receipts:SummaryReceipt[]=[];
   for(const receipt of await visibleSummaryReceipts(scope)){
