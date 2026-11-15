@@ -44,6 +44,7 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   // The next successful chat turn may claim a fresh job; completed chunks resume.
 
   const data=await snapshot(scope,true);if(!data.t?.headNodeId)throw Error('state');
+  if(!manual&&state.deferUntilPending!==undefined&&data.turns.length>=state.deferUntilPending){state.autoAttempt=undefined;state.deferUntilPending=undefined;}
   if(!data.turns.length||(!manual&&(data.turns.length<state.interval||data.turns.length<(state.deferUntilPending??0))))return;
   await sealMemorySummaryForks(scope);
   const full=state.receipts.length>=summaryLimits.receipts;
@@ -158,7 +159,7 @@ export async function tryAutoSummary(conversationId:string){
    for(let attempt=0;attempt<2;attempt++){
     const attemptState=(await db.conversations.get(conversationId))?.memorySummary;
     if((attemptState?.deferUntilPending??0)>before.pending)return;
-    if(attemptState?.autoAttempt?.count&&attemptState.autoAttempt.count>=2)return;
+
     if(!navigator.onLine||document.hidden)return;
     await runMemorySummary(scope,false);
     const current=(await db.conversations.get(conversationId))?.memorySummary;
