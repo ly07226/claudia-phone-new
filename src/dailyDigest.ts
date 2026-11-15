@@ -57,7 +57,7 @@ async function runDailyDigestLocked(scope:MemoryScope){
   const sourceFingerprint=Array.from(new Uint8Array(sourceHash),v=>v.toString(16).padStart(2,'0')).join('');
   const raw=sourceMessages.map(m=>`[${m.role==='user'?'用户':'角色'}] ${m.content}`);
   if(!raw.length){
-   await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current)return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]).filter(d=>!(d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope))),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text:'',createdAt:Date.now(),sourceMessageIds:[],sourceFingerprint:sourceFingerprint}]});});
+   await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current)return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]).filter(d=>!(d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope))),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text:'',createdAt:Date.now(),sourceMessageIds:[],sourceFingerprint}]});});
    return;
   }
   const {config,key}=await getSummaryApi(scope);
