@@ -21,6 +21,7 @@ export interface MemoryInput {kind:StoredMemoryKind;content:string;source?:Memor
 export interface EffectiveMemory extends MemoryEntry {inherited:boolean}
 export interface ShortMemoryItem {messageId:string;variantId?:string;nodeId?:string;role:'user'|'assistant';content:string;assetIds:string[];createdAt:number}
 export interface ShortMemory {
+ summaries?:{text:string;createdAt:number;throughNodeId:string}[];
  kind:'short';scope:MemoryScope;
  /** Context provenance only; daily stored memories never branch on these fields. */
  context:{timelineId?:string;epoch:number;revision?:number;headNodeId?:string};
