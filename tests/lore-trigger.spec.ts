@@ -77,7 +77,7 @@ test("长篇常驻规则优先完整注入，空间不足明确失败而非静�
   const {newBook,newEntry}=await import("/src/loreTypes.ts");
   const {planLore}=await import("/src/loreEngine.ts");
   const book=newBook();
-  const constant={...newEntry(book.id),id:"always",constant:true,content:"常驻规则".repeat(1100),priority:1};
+  const constant={...newEntry(book.id),id:"always",constant:true,useProbability:true,probability:0,content:"常驻规则".repeat(1100),priority:1};
   const optional={...newEntry(book.id),id:"optional",constant:false,primaryKeys:["命中"],content:"可选资料",priority:999};
   const history:any=[{id:"u",role:"user",content:"命中"}];
   const planned=planLore([{book,entry:optional},{book,entry:constant}],history,18000);
@@ -88,5 +88,5 @@ test("长篇常驻规则优先完整注入，空间不足明确失败而非静�
  expect(result.first).toBe("always");
  expect(result.contains).toBe(true);
  expect(result.optional).toBe(true);
- expect(result.overflow).toContain("常驻世界书内容超出");
+ expect(result.overflow).toContain("当前聊天设定过长");
 });
