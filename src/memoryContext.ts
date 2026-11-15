@@ -107,7 +107,7 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   // Time memories are dormant outside their configured reminder window.
   // They are data, not instructions to override role rules or user preferences.
   const today=localDay(new Date());
-  const timeRows=(current?.smartTimeMemories??[]).filter(r=>sameScope(r.scope)&&r.enabled&&(r.method==='role'||r.method==='both')).flatMap(r=>{
+  const timeRows=(current?.smartTimeMemories??[]).filter(r=>sameScope(r.scope)&&r.enabled&&r.category!=='period'&&(r.method==='role'||r.method==='both')).flatMap(r=>{
    const due=nextOccurrence(r,today);
    if(!due||addDays(due,-r.advanceDays)>today||today>due||r.lastNoticeFor===due)return [];
    return [{id:r.id,title:r.title,estimatedDate:due,category:r.category,uncertain:r.category==='period'}];
