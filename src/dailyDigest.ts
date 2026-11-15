@@ -1,3 +1,4 @@
+import {withSummaryLock} from './summaryLock';
 import {getSummaryApi} from './dedicatedSummaryApi';
 import {db} from './store';
 import {getMemoryScope} from './memoryStore';
@@ -89,12 +90,5 @@ async function runDailyDigestLocked(scope:MemoryScope){
 /** Cross-tab exclusive lock. If another tab owns the job, skip rather than duplicate a paid call. */
 export async function runDailyDigest(scope:MemoryScope){
  const name='claudia-daily-digest:'+scope.conversationId;
- if(typeof navigator!=='undefined'&&navigator.locks?.request){
-  await navigator.locks.request(name,{mode:'exclusive',ifAvailable:true},async lock=>{
-   if(lock)await runDailyDigestLocked(scope);
-  });
-  return;
- }
- // Older WebKit: in-tab lock only; do not claim cross-tab paid-call protection.
- await runDailyDigestLocked(scope);
+ await withSummaryLock(name,()=>runDailyDigestLocked(scope));
 }
