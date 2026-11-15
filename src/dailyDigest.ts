@@ -38,6 +38,7 @@ async function runDailyDigestLocked(scope:MemoryScope){
   }
   if(!start)return;
   const sourceMessages=messages.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));
+  const sourceSnapshot=JSON.stringify(sourceMessages.map(m=>[m.id,m.role,m.createdAt,m.content]));
   const raw=sourceMessages.map(m=>`[${m.role==='user'?'用户':'角色'}] ${m.content}`);
   if(!raw.length){
    await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current)return;if((current.dailyDigests??[]).some(d=>d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope)))return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text:'',createdAt:Date.now()}]});});
@@ -105,6 +106,10 @@ async function runDailyDigestLocked(scope:MemoryScope){
   }
   const text=layer[0]??'';
   const scopeNow=await getMemoryScope(c.id);if(JSON.stringify(scopeNow)!==JSON.stringify(scope))return;
+  const latestConversation=await db.conversations.get(c.id);if(!latestConversation)return;
+  const latestMessages=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)):(await activeMessages(c.id)).map(visibleMessage);
+  const latestSource=latestMessages.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));
+  if(JSON.stringify(latestSource.map(m=>[m.id,m.role,m.createdAt,m.content]))!==sourceSnapshot)throw Error('总结期间历史原文已修改，已保留分片检查点，请重新检查');
   await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current?.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days)return;if((current.dailyDigests??[]).some(d=>d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope)))return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text,createdAt:Date.now(),sourceMessageIds:sourceMessages.map(m=>m.id)}],dailyDigestCheckpoint:undefined});});
  }finally{locks.delete(lock);}
 }
