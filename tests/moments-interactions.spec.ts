@@ -18,3 +18,20 @@ for(const width of [390,430])test(`七款主题的横向操作条与底部评论
 test('封面点击后显示更换入口；时间简洁且原始时间戳保持',async({page})=>{
  await setup(page);await expect(page.getByRole('button',{name:'更换封面',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'朋友圈封面操作'}).click();await expect(page.getByRole('button',{name:'更换封面',exact:true})).toBeVisible();await page.locator('.hub-my-profile strong').click();await expect(page.getByRole('button',{name:'更换封面',exact:true})).toHaveCount(0);await expect(page.locator('.hub-post time').first()).toHaveText('刚刚');const results=await page.evaluate(async()=>{const {formatMomentTime:f}=await import('/src/momentTime.ts');const n=Date.parse('2026-11-09T12:00:00Z');return [f(n,n),f(n-5*60000,n),f(n-2*3600000,n),f(Date.parse('2025-01-01'),n)];});expect(results.slice(0,3)).toEqual(['刚刚','5分钟前','2小时前']);expect(results[3]).toMatch(/2025\/1\/1/);
 });
+
+test('朋友圈省略号删除动态及关联评论，并持久化',async({page})=>{
+ await setup(page);
+ const post=page.locator('.hub-post').first();
+ await post.getByRole('button',{name:'动态操作'}).click();
+ page.once('dialog',dialog=>dialog.accept());
+ await post.getByRole('button',{name:'删除动态'}).click();
+ await expect(page.locator('.hub-post')).toHaveCount(7);
+ expect(await page.evaluate(async()=>((await(await import('/src/store.ts')).db.themes.get('global'))?.chatHub?.posts.some(p=>p.id==='p0'))).toBe(false);
+ await page.reload();await page.getByRole('button',{name:'聊天',exact:true}).click();
+ await expect(page.locator('.hub-post')).toHaveCount(7);
+});
+test('朋友圈多角色评论入口不再限制一位',async({page})=>{
+ await setup(page);
+ await page.getByRole('button',{name:'发布朋友圈'}).click();
+ await expect(page.getByText('发表后可由多位日常好友分别评论')).toBeVisible();
+});
