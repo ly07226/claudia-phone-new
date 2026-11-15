@@ -5,7 +5,7 @@ import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelin
 import {visibleMessage} from './messageBubbles';
 import {resolveApi} from './chatService';
 import {selectSummaryCandidates,summaryDuplicateIndex} from './memorySummaryQuality';
-import {requestSummary,requestGroupDigest,SummaryResponseError} from './memorySummaryRequest';
+import {requestSummary,requestChunkEvents,requestGroupDigest,SummaryResponseError} from './memorySummaryRequest';
 import {parseSummary,summaryPrompt,SummaryFormatError} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
@@ -78,28 +78,30 @@ async function execute(scope:MemoryScope,manual:boolean){
  try{
   const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('stale-path');
   const {config,key:apiKey}=await resolveApi(c);
-  failure='format';const facts:SummaryFact[]=[];
+  failure='format';const facts:SummaryFact[]=[],events:string[]=[];
   const stats={candidates:0,accepted:0,rejected:0,reasons:{} as Record<string,number>};
   for(let index=0;index<claimed.inputs.length;index++){
    const input=claimed.inputs[index];
    const saved=(await db.conversations.get(scope.conversationId))?.memorySummary?.checkpoint;
-   if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]){const part=saved.completed[index];facts.push(...part.facts);stats.candidates+=part.candidates;stats.accepted+=part.accepted;stats.rejected+=part.rejected;for(const [reason,count] of Object.entries(part.reasons))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;}
+   if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]){const part=saved.completed[index];facts.push(...part.facts);if(part.eventSummary)events.push(part.eventSummary);stats.candidates+=part.candidates;stats.accepted+=part.accepted;stats.rejected+=part.rejected;for(const [reason,count] of Object.entries(part.reasons))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;}
    const before=facts.length;
    const raw=await requestSummary(config,apiKey,input,controller.signal);
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
    try{
     const parsed=parseSummary(raw),selected=selectSummaryCandidates(parsed,input);
+    const eventSummary=await requestChunkEvents(config,apiKey,input,controller.signal);
+    if(eventSummary)events.push(eventSummary);
     facts.push(...selected.accepted);stats.candidates+=parsed.length;stats.accepted+=selected.accepted.length;
     stats.rejected+=selected.rejected.length;
     const reasons:Record<string,number>={};
     for(const r of selected.rejected){stats.reasons[r.reason]=(stats.reasons[r.reason]??0)+1;reasons[r.reason]=(reasons[r.reason]??0)+1;}
-    await db.transaction('rw',db.conversations,async()=>{const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);next.checkpoint!.completed[index]={facts:facts.slice(before),candidates:parsed.length,accepted:selected.accepted.length,rejected:selected.rejected.length,reasons};await db.conversations.update(scope.conversationId,{memorySummary:next});});
+    await db.transaction('rw',db.conversations,async()=>{const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);next.checkpoint!.completed[index]={facts:facts.slice(before),eventSummary,candidates:parsed.length,accepted:selected.accepted.length,rejected:selected.rejected.length,reasons};await db.conversations.update(scope.conversationId,{memorySummary:next});});
    }catch(e){if((e as Error).message==='empty')failure='empty';if(e instanceof SummaryFormatError)diagnostic={...e.diagnostic,receivedChars:raw.length,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)};throw e;}
   }
   job.selection=stats;
   // A single bounded, chronological event digest belongs to the whole configured
   // interval, never to an individual API chunk. It is separate from raw messages.
-  const uniqueEvents=[...new Set(facts.map(f=>f.content.trim()).filter(Boolean))];
+  const uniqueEvents=events.filter(Boolean);
   const groupSummary=await requestGroupDigest(config,apiKey,uniqueEvents,controller.signal);
 
   failure='stale-path';
