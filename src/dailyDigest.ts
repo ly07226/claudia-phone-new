@@ -16,7 +16,7 @@ async function digestSourceMatches(d:DailyDigest,messages:ReturnType<typeof visi
  if(!d.sourceMessageIds||!d.sourceFingerprint)return false;
  const source=messages.filter(m=>m.createdAt>=dayStart(d.startDay)&&m.createdAt<dayStart(d.endDay)&&(m.role==='user'||m.role==='assistant'));
  if(source.length!==d.sourceMessageIds.length||source.some((m,i)=>m.id!==d.sourceMessageIds![i]))return false;
- const payload=JSON.stringify(source.map(m=>[m.id,m.role,m.createdAt,m.content]));
+ const payload=JSON.stringify(source.map(m=>[m.id,m.role,m.createdAt,m.content,m.activeVariantId??null,(m.attachments??[]).map(a=>a.assetId)]));
  const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(payload));
  return Array.from(new Uint8Array(hash),v=>v.toString(16).padStart(2,'0')).join('')===d.sourceFingerprint;
 }
@@ -52,7 +52,7 @@ async function runDailyDigestLocked(scope:MemoryScope){
   }
   if(!start)return;
   const sourceMessages=messages.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));
-  const sourceSnapshot=JSON.stringify(sourceMessages.map(m=>[m.id,m.role,m.createdAt,m.content]));
+  const sourceSnapshot=JSON.stringify(sourceMessages.map(m=>[m.id,m.role,m.createdAt,m.content,m.activeVariantId??null,(m.attachments??[]).map(a=>a.assetId)]));
   const sourceHash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(sourceSnapshot));
   const sourceFingerprint=Array.from(new Uint8Array(sourceHash),v=>v.toString(16).padStart(2,'0')).join('');
   const raw=sourceMessages.map(m=>`[${m.role==='user'?'用户':'角色'}] ${m.content}`);
@@ -126,7 +126,7 @@ async function runDailyDigestLocked(scope:MemoryScope){
   const latestConversation=await db.conversations.get(c.id);if(!latestConversation)return;
   const latestMessages=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)):(await activeMessages(c.id)).map(visibleMessage);
   const latestSource=latestMessages.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));
-  if(JSON.stringify(latestSource.map(m=>[m.id,m.role,m.createdAt,m.content]))!==sourceSnapshot)throw Error('总结期间历史原文已修改，已保留分片检查点，请重新检查');
+  if(JSON.stringify(latestSource.map(m=>[m.id,m.role,m.createdAt,m.content,m.activeVariantId??null,(m.attachments??[]).map(a=>a.assetId)]))!==sourceSnapshot)throw Error('总结期间历史原文已修改，已保留分片检查点，请重新检查');
   await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current?.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days)return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]).filter(d=>!(d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope))),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text,createdAt:Date.now(),sourceMessageIds:sourceMessages.map(m=>m.id),sourceFingerprint}],dailyDigestCheckpoint:undefined});});
  }finally{locks.delete(lock);}
 }
