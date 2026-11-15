@@ -82,7 +82,7 @@ async function runDailyDigestLocked(scope:MemoryScope){
   }
   flush();
   if(pieces.length>500)throw Error('该自然日超过500个片段的单次处理保护上限；已保留原文，请分日期处理');
-  const bytes=new TextEncoder().encode(JSON.stringify([scope,start,end,pieces]));
+  const bytes=new TextEncoder().encode(JSON.stringify([scope,start,end,sourceSnapshot,pieces]));
   const fingerprint=await crypto.subtle.digest('SHA-256',bytes);
   const signature=Array.from(new Uint8Array(fingerprint),v=>v.toString(16).padStart(2,'0')).join('');
   const saved=(await db.conversations.get(c.id))?.dailyDigestCheckpoint;
