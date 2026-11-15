@@ -13,7 +13,7 @@ function dayStart(day:string){return new Date(day+'T00:00:00').getTime();}
 export async function saveDailyDigestSettings(scope:MemoryScope,enabled:boolean,days:1|2){await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('会话不存在');await db.conversations.update(c.id,{dailyDigestSettings:{enabled,days}});});}
 export async function dailyDigestStatus(scope:MemoryScope){const c=await db.conversations.get(scope.conversationId);return {settings:c?.dailyDigestSettings??{enabled:false,days:1 as const},digests:(c?.dailyDigests??[]).filter(d=>JSON.stringify(d.scope)===JSON.stringify(scope))};}
 const locks=new Set<string>();
-export async function runDailyDigest(scope:MemoryScope){
+async function runDailyDigestLocked(scope:MemoryScope){
  const lock=scope.conversationId;if(locks.has(lock))return;locks.add(lock);
  try{
   const c=await db.conversations.get(scope.conversationId);if(!c?.dailyDigestSettings?.enabled)return;
@@ -84,4 +84,17 @@ export async function runDailyDigest(scope:MemoryScope){
   const scopeNow=await getMemoryScope(c.id);if(JSON.stringify(scopeNow)!==JSON.stringify(scope))return;
   await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(c.id);if(!current?.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days)return;if((current.dailyDigests??[]).some(d=>d.startDay===start&&d.endDay===end&&JSON.stringify(d.scope)===JSON.stringify(scope)))return;await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text,createdAt:Date.now()}],dailyDigestCheckpoint:undefined});});
  }finally{locks.delete(lock);}
+}
+
+/** Cross-tab exclusive lock. If another tab owns the job, skip rather than duplicate a paid call. */
+export async function runDailyDigest(scope:MemoryScope){
+ const name='claudia-daily-digest:'+scope.conversationId;
+ if(typeof navigator!=='undefined'&&navigator.locks?.request){
+  await navigator.locks.request(name,{mode:'exclusive',ifAvailable:true},async lock=>{
+   if(lock)await runDailyDigestLocked(scope);
+  });
+  return;
+ }
+ // Older WebKit: in-tab lock only; do not claim cross-tab paid-call protection.
+ await runDailyDigestLocked(scope);
 }
