@@ -5,7 +5,7 @@ import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelin
 import {visibleMessage} from './messageBubbles';
 import {resolveApi} from './chatService';
 import {selectSummaryCandidates,summaryDuplicateIndex} from './memorySummaryQuality';
-import {requestSummary,SummaryResponseError} from './memorySummaryRequest';
+import {requestSummary,requestGroupDigest,SummaryResponseError} from './memorySummaryRequest';
 import {parseSummary,summaryPrompt,SummaryFormatError} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
@@ -100,7 +100,7 @@ async function execute(scope:MemoryScope,manual:boolean){
   // A single bounded, chronological event digest belongs to the whole configured
   // interval, never to an individual API chunk. It is separate from raw messages.
   const uniqueEvents=[...new Set(facts.map(f=>f.content.trim()).filter(Boolean))];
-  const groupSummary=uniqueEvents.join('；').slice(0,4000);
+  const groupSummary=await requestGroupDigest(config,apiKey,uniqueEvents,controller.signal);
 
   failure='stale-path';
   await db.transaction('rw',tables(),async()=>{
