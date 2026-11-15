@@ -158,7 +158,7 @@ export function ChatMessage({
           {m.replyTo&&<button type="button" className="message-quote" aria-label="定位引用消息" disabled={!quoteAvailable} onClick={()=>onLocate(m.replyTo!.messageId,m.replyTo!.part)}><strong>{m.replyTo.role==='user'?userName:characterName}</strong><span>{quoteAvailable?quoteSummary(m.replyTo):'原消息已删除或不在当前分支'}</span></button>}
           {bubbles.some(p=>p.kind==='image')&&<MessageImages ids={bubbles.flatMap(p=>p.kind==='image'?[p.assetId]:[])}/>}
           {fragments.slice(0,visibleCount).map((fragment,fragmentIndex) => (
-            <div className={m.role==="assistant"?"chat-heart-bubble-unit":"chat-heart-bubble-unit chat-heart-user-unit"} key={partKey(fragment)}>
+            <div className={`${m.role==="assistant"?"chat-heart-bubble-unit":"chat-heart-bubble-unit chat-heart-user-unit"}${/^[?？.!！。]+$/.test(fragment.text.trim())?" chat-punctuation-bubble-unit":""}`} key={partKey(fragment)}>
             <div className="chat-bubble-surface" data-bubble-key={partKey(fragment)} tabIndex={0}>
               <p>
                 {m.role === "assistant" ? (
