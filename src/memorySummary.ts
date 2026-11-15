@@ -104,7 +104,8 @@ async function execute(scope:MemoryScope,manual:boolean){
   // A single bounded, chronological event digest belongs to the whole configured
   // interval, never to an individual API chunk. It is separate from raw messages.
   const uniqueEvents=events.filter(Boolean);
-  const groupSummary=await requestGroupDigest(config,apiKey,uniqueEvents,controller.signal);
+  const previousSummaries=(await visibleSummaryReceipts(scope)).filter(r=>r.shortSummary?.trim()).slice(-2).map(r=>r.shortSummary!);
+  const groupSummary=await requestGroupDigest(config,apiKey,uniqueEvents,controller.signal,previousSummaries);
 
   failure='stale-path';
   await db.transaction('rw',tables(),async()=>{
