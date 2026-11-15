@@ -84,6 +84,27 @@ function assess(raw: LoreEntry, b: Lorebook, h: Message[], random: () => number,
 export function entryActive(raw:LoreEntry,b:Lorebook,h:Message[],random:()=>number=Math.random,regex?:RegexHits) {
   return assess(raw,b,h,random,regex).eligible;
 }
+/** Local, deterministic passage retrieval. No API calls or additional credentials. */
+export function retrieveLorePassages(content:string,history:Message[],budget:number):string {
+  if(content.length<=budget)return content;
+  if(budget<=0)return "";
+  const query=history.filter(m=>m.role==="user").slice(-3).map(m=>m.content).join(" ").toLowerCase();
+  const terms=[...new Set((query.match(/[\\p{Script=Han}]{2,4}|[a-z0-9]{3,}/gu)||[]))].slice(0,80);
+  const chunks:string[]=[];
+  for(const paragraph of content.split(/\\n{2,}/)){
+    for(let i=0;i<paragraph.length;i+=700)chunks.push(paragraph.slice(i,i+700));
+  }
+  const ranked=chunks.map((text,index)=>({text,index,score:terms.reduce((n,t)=>n+(text.toLowerCase().includes(t)?1:0),0)}))
+    .sort((a,b)=>b.score-a.score||a.index-b.index);
+  const chosen:{text:string;index:number}[]=[];let used=0;
+  for(const item of ranked){
+    const room=budget-used-(chosen.length?2:0);
+    if(room<=0)break;
+    if(item.text.length>room){if(!chosen.length)chosen.push({text:item.text.slice(0,room),index:item.index});break;}
+    chosen.push(item);used+=item.text.length+2;
+  }
+  return chosen.sort((a,b)=>a.index-b.index).map(x=>x.text).join("\\n\\n");
+}
 export interface LoreCandidate {entry:LoreEntry;book:Lorebook}
 /** Metadata only. Entry content, keys and chat text are never part of diagnostics. */
 export function planLore(candidates:LoreCandidate[],history:Message[],remainingBudget=loreLimits.promptChars,random:()=>number=Math.random,regex:Record<string,RegexHits>={}) {
@@ -96,7 +117,12 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
     const result=assess(entry,book,history,random,regex[entry.id]);
     const d=result.diagnostic;diagnostics.push(d);
     if(!result.eligible) continue;
-    const cost=entry.content.length+2,bookUsed=used.get(book.id)||0;
+    // Optional long entries are retrieved as relevant passages instead of
+    // being silently discarded because their original content exceeds a budget.
+    const available=Math.min(remainingBudget-total, loreLimits.promptChars-optionalTotal,book.charBudget-(used.get(book.id)||0));
+    const effective=entry.constant?entry:{...entry,content:retrieveLorePassages(entry.content,history,Math.max(0,available-2))};
+    const cost=effective.content.length+2,bookUsed=used.get(book.id)||0;
+    if(!effective.content.trim()){d.reason="context-budget";continue;}
     // Constant rules are mandatory. Never silently drop one and then generate a
     // reply that appears to obey a rule which the model never received.
     if(entry.constant && total+cost>remainingBudget) {
@@ -105,7 +131,7 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
     }
     if(!entry.constant && (total+cost>remainingBudget || optionalTotal+cost>loreLimits.promptChars)){d.reason="context-budget";continue;}
     if(!entry.constant && bookUsed+cost>book.charBudget){d.reason="book-budget";continue;}
-    if(!entry.constant) {used.set(book.id,bookUsed+cost);optionalTotal+=cost;}total+=cost;selected.push(entry);
+    if(!entry.constant) {used.set(book.id,bookUsed+cost);optionalTotal+=cost;}total+=cost;selected.push(effective);
     d.outcome="injected";d.reason="injected";
   }
   return {entries:selected,activated:selected.map(e=>e.id),diagnostics,regexErrors:Object.fromEntries(Object.entries(regex).filter(([,r])=>r.error).map(([id,r])=>[id,r.error]))};
