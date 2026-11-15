@@ -1,5 +1,5 @@
 import {db} from './store';
-import {getMemoryScope,listMemories} from './memoryStore';
+import {getMemoryScope,listMemories,visibleSummaryReceipts} from './memoryStore';
 import {timelineTables,nodesForHead,messageFingerprint} from './timelines';
 import type {Conversation,Message} from './chatTypes';
 import type {EffectiveMemory} from './memoryTypes';
@@ -67,6 +67,17 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   const recent=requestPath.slice(-6).filter(m=>m.role==='user'||m.role==='assistant');
   const query=[...recent,...pending.filter(m=>!recent.some(r=>r.id===m.id))].map(m=>m.content).join('\n');
   const selected=selectMemoryContext(entries,query,remainingChars);
+  // Daily short summaries are past context, not a live-scene instruction.
+  // Keep a strict independent budget; never crowd out existing core facts.
+  if(c.mode==='daily'&&remainingChars>selected.text.length+300){
+   const scope=await getMemoryScope(c.id);
+   const summaries=(await visibleSummaryReceipts(scope)).filter(r=>r.shortSummary?.trim()).slice(-2);
+   const rows=summaries.map(r=>r.shortSummary!).filter(Boolean);
+   const block=rows.length?'\\n[近期已完成对话组的历史摘要（非当前现场）]\\n'+json(rows)+'\\n[摘要结束]':'';
+   if(block&&memoryTokenCost(block)<=900&&selected.text.length+block.length<=remainingChars){
+    selected.text+=block;selected.estimatedTokens+=memoryTokenCost(block);
+   }
+  }
   trace(c.id,{status:selected.text?'injected':selected.skippedBudget?'budget':selected.skippedIrrelevant?'irrelevant':'empty',eligible:entries.length,selected:selected.selected,truncated:selected.truncated,estimatedTokens:selected.estimatedTokens,skippedIrrelevant:selected.skippedIrrelevant,skippedBudget:selected.skippedBudget});
   return selected.text;
  }catch{
