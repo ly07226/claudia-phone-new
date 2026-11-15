@@ -94,13 +94,13 @@ async function runDailyDigestLocked(scope:MemoryScope){
    const flush=async()=>{
     if(!group.length)return;
     if(group.length===1){next.push(group[0]);group=[];return;}
-    const merged=await requestReply({...config,maxTokens:Math.max(1000,Math.min(config.maxTokens,3000))},key,[{role:'system',content:'将按时间顺序的剧情片段摘要合并，保留因果、人物关系变化、伏笔和未完成事项。不能虚构，也不能把猜测写成事实。'},{role:'user',content:group.join('\\n\\n')}],new AbortController().signal);
+    const merged=await requestReply({...config,maxTokens:Math.max(1000,Math.min(config.maxTokens,3000))},key,[{role:'system',content:'将按时间顺序的剧情片段摘要合并，保留因果、人物关系变化、伏笔和未完成事项。不能虚构，也不能把猜测写成事实。'},{role:'user',content:group.join('\n\n')}],new AbortController().signal);
     if(!merged.trim())throw Error('二级总结合并结果为空');
     next.push(merged);group=[];
    };
    for(const summary of layer){
     if(summary.length>30000)throw Error('单片段摘要超出合并预算，保留检查点并暂停');
-    if(group.length&&group.join('\\n\\n').length+summary.length+2>30000)await flush();
+    if(group.length&&group.join('\n\n').length+summary.length+2>30000)await flush();
     group.push(summary);
    }
    await flush();
