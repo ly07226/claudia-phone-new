@@ -59,6 +59,8 @@ export interface DesktopItem {
   icon?: string;
 }
 export interface Theme {
+  /** One summary-only provider for every character and conversation. */
+  dedicatedSummaryApi?: import('./dedicatedSummaryApi').DedicatedSummaryApi;
   chatHub?: import("./chatHubTypes").ChatHubData;
   storyReading?: StoryReadingPreferences;
   palette?: ThemePalette;
