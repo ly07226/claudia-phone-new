@@ -133,10 +133,14 @@ export function runMemorySummary(scope:MemoryScope,manual=true){
  * After two failures, defer until a whole additional interval of completed turns.
  * The failed group's turns are not marked as summarized.
  */
+const autoLoops=new Set<string>();
 export async function tryAutoSummary(conversationId:string){
+ if(autoLoops.has(conversationId))return;
  const c=await db.conversations.get(conversationId);
  if(!c?.memorySummary?.enabled)return;
  const scope=await getMemoryScope(conversationId);
+ if(autoLoops.has(conversationId))return;
+ autoLoops.add(conversationId);
  void (async()=>{
   for(let group=0;group<3;group++){
    const before=await summaryStatus(scope);
@@ -160,5 +164,5 @@ export async function tryAutoSummary(conversationId:string){
     break;
    }
   }
- })().catch(()=>{});
+ })().catch(()=>{}).finally(()=>autoLoops.delete(conversationId));
 }
