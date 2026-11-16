@@ -26,6 +26,13 @@ Deno.serve(async request=>{
   if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))throw Error();
   body=parsed as Record<string,unknown>;
  }catch{return reply(400,{error:"invalid_json"});}
+ if(body.action==='list-bindings'){
+  const {data:bindings,error:listError}=await admin.from("claudia_wechat_bindings")
+   .select("id,character_id,conversation_id,status,created_at,updated_at")
+   .eq("user_id",identity.user.id).order("created_at",{ascending:false}).limit(100);
+  if(listError)return reply(500,{error:"binding_list_failed"});
+  return reply(200,{ok:true,bindings:bindings??[]});
+ }
  const afterSeq=body.afterSeq===undefined?0:body.afterSeq;
  const mode=body.mode===undefined?'messages':body.mode;
  if(typeof body.bindingId!=="string"||!uuid.test(body.bindingId)||
