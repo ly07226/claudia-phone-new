@@ -71,7 +71,7 @@ test('独立段落的禁止规则不被错误合并到上一段',async({page})=>
  await isolatedApp(page,'lore-paragraph-'+crypto.randomUUID());
  const result=await page.evaluate(async()=>{
   const {retrieveLorePassages}=await import('/src/loreEngine.ts');
-  return retrieveLorePassages('角色喜欢喝茶。\\n\\n不得改变人物核心性格。',[],15);
+  return retrieveLorePassages('角色喜欢喝茶。\\n\\n不得改变人物核心性格。',[{role:'user',content:'核心性格'}] as any,15);
  });
  expect(result).toContain('不得改变人物核心性格。');
  expect(result).not.toContain('角色喜欢喝茶。');
