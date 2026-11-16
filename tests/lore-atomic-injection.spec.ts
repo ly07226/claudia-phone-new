@@ -76,3 +76,14 @@ test('独立段落的禁止规则不被错误合并到上一段',async({page})=>
  expect(result).toContain('不得改变人物核心性格。');
  expect(result).not.toContain('角色喜欢喝茶。');
 });
+
+test('预算容得下完整段落时不拆散隐含的性格限制',async({page})=>{
+ await isolatedApp(page,'lore-character-paragraph-'+crypto.randomUUID());
+ const result=await page.evaluate(async()=>{
+  const {retrieveLorePassages}=await import('/src/loreEngine.ts');
+  const paragraph='角色说话常带玩笑。真正生气时会沉默，不会突然变得刻薄。';
+  const content=paragraph+'\\n\\n他喜欢晴天。';
+  return retrieveLorePassages(content,[{role:'user',content:'生气'}] as any,paragraph.length);
+ });
+ expect(result).toBe('角色说话常带玩笑。真正生气时会沉默，不会突然变得刻薄。');
+});
