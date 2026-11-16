@@ -1,5 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {QRCodeSVG} from 'qrcode.react';
+import {authorizeWechatAi,disableWechatAi,deleteWechatAi,getWechatAiStatus} from './wechatAiAuthorization';
 import {db} from './store';
 import {startWechatLogin,pollWechatLogin} from './wechatQrLogin';
 import {listWechatCloudBindings} from './wechatCloudIdentity';
@@ -21,6 +22,34 @@ export function WechatIntegrationSettings(){
  const [qrStatus,setQrStatus]=useState('未开始');
  const [polling,setPolling]=useState(false);
  const [pollTick,setPollTick]=useState(0);
+ const [aiBinding,setAiBinding]=useState('');
+ const [aiStatus,setAiStatus]=useState('');
+ const [aiModel,setAiModel]=useState('');
+ const [aiEndpoint,setAiEndpoint]=useState('https://api.openai.com/v1/chat/completions');
+ const [aiPrompt,setAiPrompt]=useState('');
+ const [aiKey,setAiKey]=useState('');
+ const [aiBusy,setAiBusy]=useState(false);
+ const aiAction=async(action:'status'|'authorize'|'disable'|'delete')=>{
+  if(!aiBinding||aiBusy)return;
+  setAiBusy(true);setNotice('');
+  try{
+   if(action==='status'){
+    const result=await getWechatAiStatus(aiBinding);
+    setAiStatus(result.enabled?'已授权并启用':result.configured?'已配置但停用':'尚未授权');
+   }else if(action==='authorize'){
+    if(!window.confirm('确定把当前填写的 API Key 与角色提示词加密保存到你自己的 Supabase，并允许云端在手机关闭后调用 AI 吗？'))return;
+    await authorizeWechatAi({bindingId:aiBinding,systemPrompt:aiPrompt,
+     model:aiModel,endpoint:aiEndpoint,apiKey:aiKey});
+    setAiKey('');setAiStatus('已授权并启用');
+   }else if(action==='disable'){
+    await disableWechatAi(aiBinding);setAiStatus('已停用');
+   }else{
+    if(!window.confirm('确定删除这个微信角色的云端 AI 配置及已存储的 API Key 吗？'))return;
+    await deleteWechatAi(aiBinding);setAiStatus('已删除');
+   }
+  }catch(error){setNotice(error instanceof Error?error.message:'云端 AI 操作失败');}
+  finally{setAiBusy(false);}
+ };
  useEffect(()=>{
   if(section!=='account')return;
   let active=true;
@@ -122,7 +151,26 @@ export function WechatIntegrationSettings(){
     <p>扫码状态：{qrStatus}{polling?' · 查询中':''}</p>
     <p>二维码过期时间：{new Date(qr.expiresAt).toLocaleTimeString()}</p>
    </div>}
-   <p>仅保存 Supabase 配置还不能让微信自动回复。云端 AI 需要额外授权，且必须能在手机关闭后安全运行。</p>
+   {bindings?.some(b=>b.status==='connected')&&<div className="card form">
+    <h4>云端 AI 回复授权</h4>
+    <p>只针对你主动选择的已连接微信角色。此处不会自动读取或上传本地 API Key；云端暂只支持手动填写的提示词与微信文字历史，不等同于小手机完整记忆。</p>
+    <label>已绑定角色
+     <select value={aiBinding} onChange={e=>{setAiBinding(e.target.value);setAiStatus('');}}>
+      <option value="">选择角色</option>
+      {bindings.filter(b=>b.status==='connected').map(b=><option key={b.id} value={b.id}>{b.character_id}</option>)}
+     </select>
+    </label>
+    <label>AI 模型<input value={aiModel} onChange={e=>setAiModel(e.target.value)} placeholder="例如 gpt-4.1-mini"/></label>
+    <label>API 端点<input value={aiEndpoint} onChange={e=>setAiEndpoint(e.target.value)}/></label>
+    <label>角色提示词<textarea rows={5} value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)} placeholder="请自行核对并填写要授权到云端的角色设定"/></label>
+    <label>API Key（仅提交到自己的 Supabase）<input type="password" autoComplete="off" value={aiKey} onChange={e=>setAiKey(e.target.value)}/></label>
+    <button type="button" disabled={!aiBinding||aiBusy} onClick={()=>void aiAction('status')}>查询授权状态</button>
+    <button type="button" disabled={!aiBinding||!aiModel||!aiPrompt||!aiKey||aiBusy} onClick={()=>void aiAction('authorize')}>确认授权云端 AI</button>
+    <button type="button" disabled={!aiBinding||aiBusy} onClick={()=>void aiAction('disable')}>停用云端 AI</button>
+    <button type="button" disabled={!aiBinding||aiBusy} onClick={()=>void aiAction('delete')}>删除云端 AI 配置与密钥</button>
+    {aiStatus&&<p role="status">{aiStatus}</p>}
+   </div>}
+   <p>云端 AI 授权与实际监听器部署是两回事；授权成功不代表微信自动回复已通过测试。</p>
   </div>}
   {notice&&<p role="status">{notice}</p>}
  </section>;
