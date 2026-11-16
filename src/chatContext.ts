@@ -27,6 +27,7 @@ export async function buildContext(
   if (conversation.mode === "daily" && conversation.worldId)
     throw Error("日常会话关联异常。");
   let system = `你正在进行角色扮演。遵循角色资料回应用户。只使用本会话提供的资料，不声称知道其他聊天空间的经历。\n角色：${c.name}\n基础人格与设定：${c.persona}\n说话方式：${c.speakingStyle || "按基础人格自然回应"}`;
+  // Apply to every role and both daily/world modes. Character cards are facts, not prose templates.
   const profileChars=system.length;
   if (conversation.mode === "world") {
     if (!conversation.worldId) throw Error("世界会话缺少世界。");
@@ -39,7 +40,7 @@ export async function buildContext(
     if (!p) throw Error("角色已解除该世界关联。");
     system += `\n当前聊天空间：世界聊天\n世界：${w.name}\n简介：${w.description}\n规则：${w.rules || ""}\n背景：${w.background || ""}\n本世界角色设定：${p.setting}`;
   } else system += "\n当前聊天空间：日常聊天。此空间不采用任何世界背景。";
-  system += '\n角色生成约束（全局）：角色资料、说话方式、世界书和历史记忆只用于理解已确立的事实与人物行为逻辑，不是必须在回复里逐条展示的素材。不得直接照搬、拼接或仅替换近义词来复述人设卡原句；外貌、身高、眼睛、痣、气质等静态标签，只有在当前互动确实相关时才自然提及，不要为了证明人设而额外加入描写。不得擅自补写资料和当前剧情没有确立的具体事实，包括新人物、既往经历、关系进展、秘密、物品、地点、时间、承诺及用户的行为、心理或台词；不能把猜测写成既成事实。可以基于已有事实与当轮互动进行合理的即时反应、对话和剧情推进，但新增情节必须作为当下发生的行为自然展开，不得伪装成此前已存在的设定。优先回应用户当前输入，避免无关外貌描写、模板化心理旁白、重复动作与刻意加戏；一句话足够时无需扩写。';
+  system += '\n角色生成约束（全局）：角色资料、说话方式、世界书和历史记忆只用于理解已确立的事实与人物行为逻辑，不是必须在回复里逐条展示的素材。不得直接照搬、拼接或仅替换近义词来复述人设卡原句；外貌、身高、眼睛、痣、气质等静态标签，只有在当前互动确实相关时才自然提及，不要为了证明人设而额外加入描写。不得擅自补写资料和当前剧情没有确立的具体事实，包括新人物、既往经历、关系进展、秘密、物品、地点、时间、承诺及用户的行为、心理或台词；不能把猜测写成既成事实。可以基于已有事实与当轮互动进行合理的即时反应、对话和剧情推进，但新增情节必须作为当下发生的行为自然展开，不得伪装成此前已存在的设定。优先回应用户当前输入，避免无关外貌描写、模板化心理旁白、重复动作与刻意加戏；一句话足够时无需扩写。特别注意跨轮次的描写重复：参考近期角色回复，已经描写过的静态外貌特征（例如眼睛的具体颜色、发色、身高、痣）不要在后续回复中反复重新介绍，也不要通过换同义词、换比喻或换句式重复。眼神、动作和情绪可以自然变化，但不必每次附带眼睛颜色、嗓音质感、喉结或耳根等固定标签；除非用户主动提及、情节确实需要辨认该特征，或该特征发生了与当前情节有关的变化。避免每条回复都堆砌相似的微表情、身体细节和华丽修饰；优先通过有信息量的对话、具体行动及符合人物性格的反应表现角色。反重复只约束无必要的表达频率，不得改变或抹除角色既定外貌事实、身份、关系、动机、性格矛盾、行为边界与说话风格；人物特有的称呼、口头禅、语气、幽默、哄人方式及符合情境的亲密互动可以自然保留，不要为了避免重复而把角色写得冷淡、机械、失去辨识度。角色的既定事实保持一致，表达方式随当下情境自然变化。';
   // Reject excessive profile input rather than silently omitting critical world rules.
   if (system.length > contextLimits.systemChars)
     throw Error("角色与世界设定合计过长，请缩短到约 24000 字符以内。");
@@ -121,7 +122,7 @@ export async function buildContext(
     if(time)sources.push({source:'time',text:time.content,role:'system'});
     if(memory)sources.push({source:'memory',text:memory,role:'system'});
     const trace=lastMemoryContextTrace(conversation.id);
-    registerRequestDiagnostics(conversation.mode,result,sources,{history:{available:path.length,included:history.length},budget:{systemLimit:contextLimits.systemChars,historyLimit:historyBudget,loreAllowance:Math.max(0,Math.min(loreLimits.promptChars,contextLimits.systemChars-system.length-(time?.content.length??0)-4)),systemUsed:result.filter(m=>m.role==='system').reduce((n,m)=>n+m.content.length,0),historyUsed:requestHistory.reduce((n,m)=>n+m.content.length,0)},memory:trace??undefined,lore:lore.diagnostics.map(d=>({trigger:d.triggerMode,outcome:d.outcome,reason:d.reason,scanned:d.scannedMessageCount,matchedUser:d.matchedMessages.filter(m=>m.role==='user').length,matchedAssistant:d.matchedMessages.filter(m=>m.role==='assistant').length,crossMessage:d.crossMessageMatch})),skippedBooks:{disabled:lore.skippedBooks.filter(b=>b.reason==='book-disabled').length,outOfScope:lore.skippedBooks.filter(b=>b.reason==='out-of-scope').length}});
+    registerRequestDiagnostics(conversation.mode,result,sources,{history:{available:path.length,included:history.length},budget:{systemLimit:contextLimits.systemChars,historyLimit:historyBudget,loreAllowance:Math.max(0,Math.min(loreLimits.promptChars,contextLimits.systemChars-system.length-(time?.content.length??0)-4)),systemUsed:result.filter(m=>m.role==='system').reduce((n,m)=>n+m.content.length,0),historyUsed:requestHistory.reduce((n,m)=>n+m.content.length,0)},memory:trace??undefined,lore:lore.diagnostics.map(d=>({trigger:d.triggerMode,outcome:d.outcome,completeness:d.completeness,reason:d.reason,scanned:d.scannedMessageCount,matchedUser:d.matchedMessages.filter(m=>m.role==='user').length,matchedAssistant:d.matchedMessages.filter(m=>m.role==='assistant').length,crossMessage:d.crossMessageMatch})),skippedBooks:{disabled:lore.skippedBooks.filter(b=>b.reason==='book-disabled').length,outOfScope:lore.skippedBooks.filter(b=>b.reason==='out-of-scope').length}});
   }
   return result;
 }

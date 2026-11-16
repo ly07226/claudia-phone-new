@@ -6,7 +6,7 @@ type Role=ContextMessage['role'];
 export interface SourceInput {source:ContextSource;text:string;role?:Role;position?:string;depth?:number;scope?:'global'|'world'}
 export interface FormatSignals {abcdLabels:number;choiceProtocolHint:boolean}
 export interface SourceDiagnostic extends FormatSignals {source:ContextSource;chars:number;role?:Role;position?:string;depth?:number;scope?:'global'|'world';duplicateOf?:number}
-export interface LoreDecision {trigger:'constant'|'instant'|'history';outcome:'injected'|'skipped';reason:string;scanned:number;matchedUser:number;matchedAssistant:number;crossMessage:boolean}
+export interface LoreDecision {trigger:'constant'|'instant'|'history';outcome:'injected'|'skipped';completeness?:'full'|'partial'|'omitted';reason:string;scanned:number;matchedUser:number;matchedAssistant:number;crossMessage:boolean}
 export interface RequestDiagnostics {
  sequence:number;ms:number;mode:RequestMode;status:'built'|'request'|'response'|'network-error'|'http-error'|'invalid-response';
  sources:SourceDiagnostic[];sourcesOmitted:number;lore:LoreDecision[];loreOmitted:number;
@@ -46,7 +46,7 @@ export function registerRequestDiagnostics(mode:RequestMode,messages:ContextMess
    return {source:s.source,chars:s.text.length,...formatSignals(s.text),...(s.role?{role:s.role}:{}),...(['before-profile','after-profile','before-conversation','after-conversation','at-depth'].includes(s.position??'')?{position:s.position}:{}),...(Number.isFinite(s.depth)?{depth:s.depth}:{}),...(s.scope?{scope:s.scope}:{}),...(duplicate>=0?{duplicateOf:duplicate}:{})};
   });
   // Copy known scalar fields only; never copy diagnostic caller objects wholesale.
-  const decisions=(details.lore??[]).slice(0,1000).map(d=>({trigger:d.trigger,outcome:d.outcome,reason:reasons.has(d.reason)?d.reason:'unknown',scanned:d.scanned,matchedUser:d.matchedUser,matchedAssistant:d.matchedAssistant,crossMessage:d.crossMessage}));
+  const decisions=(details.lore??[]).slice(0,1000).map(d=>({trigger:d.trigger,outcome:d.outcome,completeness:['full','partial','omitted'].includes(d.completeness??'')?d.completeness:(d.outcome==='injected'?'full':'omitted'),reason:reasons.has(d.reason)?d.reason:'unknown',scanned:d.scanned,matchedUser:d.matchedUser,matchedAssistant:d.matchedAssistant,crossMessage:d.crossMessage}));
   const record:RequestDiagnostics={sequence:++sequence,ms:Math.round(performance.now()),mode,status:'built',sources:safeSources,sourcesOmitted:Math.max(0,sources.length-safeSources.length),lore:decisions,loreOmitted:Math.max(0,(details.lore?.length??0)-decisions.length),skippedBooks:{disabled:details.skippedBooks?.disabled??0,outOfScope:details.skippedBooks?.outOfScope??0},history:{available:details.history?.available??0,included:details.history?.included??0},...(details.memory?{memory:{selected:details.memory.selected,skippedIrrelevant:details.memory.skippedIrrelevant,skippedBudget:details.memory.skippedBudget}}:{}),...(details.budget?{budget:{systemLimit:details.budget.systemLimit,historyLimit:details.budget.historyLimit,loreAllowance:details.budget.loreAllowance,systemUsed:details.budget.systemUsed,historyUsed:details.budget.historyUsed}}:{}),attempts:[]};
   associations.set(messages,record.sequence);records=[...records.slice(-19),record];for(const f of listeners)f();
  }catch{/* No diagnostics failure may prevent a request. */}

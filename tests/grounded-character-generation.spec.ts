@@ -20,6 +20,9 @@ test('角色生成约束进入日常和世界提示词且不污染角色卡',asy
   expect(s).toContain('不得直接照搬、拼接或仅替换近义词');
   expect(s).toContain('不得擅自补写资料和当前剧情没有确立的具体事实');
   expect(s).toContain('优先回应用户当前输入');
+  expect(s).toContain('反重复只约束无必要的表达频率');
+  expect(s).toContain('不得改变或抹除角色既定外貌事实');
+  expect(s).toContain('人物特有的称呼、口头禅、语气');
   expect(s).toContain('黑发，偶尔开玩笑。');
  }
  expect(result.d).not.toContain('世界身份不同');
