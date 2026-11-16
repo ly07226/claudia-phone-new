@@ -66,9 +66,11 @@ Deno.serve(async request=>{
   // Disabling or deleting a profile must prevent any new send attempt.
   const {data:permission,error:permissionError}=await db.from("claudia_wechat_ai_profiles")
    .select("enabled").eq("binding_id",row.binding_id).maybeSingle();
+  const {data:snapshot,error:snapshotError}=await db.from("claudia_wechat_context_snapshots")
+   .select("revision").eq("binding_id",row.binding_id).maybeSingle();
   const {data:bound,error:boundError}=await db.from("claudia_wechat_bindings")
    .select("status").eq("id",row.binding_id).maybeSingle();
-  if(permissionError||boundError||permission?.enabled!==true||bound?.status!=="connected")
+  if(permissionError||boundError||snapshotError||!snapshot||permission?.enabled!==true||bound?.status!=="connected")
    throw Error("cloud_ai_authorization_revoked");
   const [peer,context,token]=await Promise.all([
    decrypt(source.ilink_peer_ciphertext,encryptionKey),
