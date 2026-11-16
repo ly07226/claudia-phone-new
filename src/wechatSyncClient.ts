@@ -4,7 +4,7 @@
  */
 import {cloudFunctionRequest} from './cloudIdentity';
 export interface WechatSyncedMessage {
- id:string;sync_seq:number;external_message_id:string;direction:'inbound'|'outbound';
+ id:string;sync_seq:number;change_seq?:number;external_message_id:string;direction:'inbound'|'outbound';
  body:string;status:string;local_message_id:string|null;received_at:string;in_reply_to:string|null;
 }
 export interface WechatSyncPage {
@@ -50,4 +50,30 @@ export async function collectWechatSyncPages(
    if(!page.hasMore)return {nextSeq:cursor,hasMore:false};
  }
  return {nextSeq:cursor,hasMore:true};
+}
+
+/** Independent status-change stream. Do not use its cursor as the message cursor. */
+export async function fetchWechatStatusPage(bindingId:string,afterSeq=0):Promise<WechatSyncPage>{
+ if(!/^[0-9a-f-]{36}$/i.test(bindingId)||!Number.isSafeInteger(afterSeq)||afterSeq<0)
+   throw Error('微信状态同步游标无效。');
+ const response=await cloudFunctionRequest('claudia-wechat-sync','POST',{
+  bindingId,afterSeq,mode:'changes'
+ });
+ const value:unknown=await response.json();
+ if(!value||typeof value!=='object'||Array.isArray(value))
+  throw Error('微信状态数据格式无效。');
+ const page=value as WechatSyncPage;
+ if(page.ok!==true||(page.mode as string)!=='changes'||page.binding?.id!==bindingId||
+  !Array.isArray(page.messages)||!Number.isSafeInteger(page.nextSeq)||
+  page.nextSeq<afterSeq||typeof page.hasMore!=='boolean')
+  throw Error('微信状态数据不完整。');
+ let previous=afterSeq;
+ for(const row of page.messages){
+  if(!row||!Number.isSafeInteger(row.change_seq)||row.change_seq!<=previous)
+   throw Error('微信状态变化顺序错误。');
+  previous=row.change_seq!;
+ }
+ if(page.messages.length&&page.nextSeq!==previous||page.hasMore&&!page.messages.length)
+  throw Error('微信状态游标不一致。');
+ return page;
 }
