@@ -24,4 +24,6 @@ test('角色生成约束进入日常和世界提示词且不污染角色卡',asy
  }
  expect(result.d).not.toContain('世界身份不同');
  expect(result.w).toContain('世界身份不同');
+ expect(result.w.indexOf('世界身份不同')).toBeLessThan(result.w.indexOf('角色生成约束（全局）'));
+ expect(result.d.indexOf('黑发，偶尔开玩笑。')).toBeLessThan(result.d.indexOf('角色生成约束（全局）'));
 });
