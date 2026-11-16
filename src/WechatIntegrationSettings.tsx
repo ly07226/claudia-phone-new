@@ -31,6 +31,40 @@ export function WechatIntegrationSettings(){
  const [aiKey,setAiKey]=useState('');
  const [aiBusy,setAiBusy]=useState(false);
  const [memoryStatus,setMemoryStatus]=useState('');
+ const [autoMemory,setAutoMemory]=useState(false);
+ const [autoMemoryBusy,setAutoMemoryBusy]=useState(false);
+ useEffect(()=>{
+  if(!aiBinding){setAutoMemory(false);return;}
+  setAutoMemory(localStorage.getItem('claudia-wechat-auto-context:'+aiBinding)==='yes');
+ },[aiBinding]);
+ useEffect(()=>{
+  if(!autoMemory||!aiBinding||section!=='account')return;
+  const binding=bindings?.find(b=>b.id===aiBinding&&b.status==='connected');
+  if(!binding)return;
+  let active=true;
+  let busy=false;
+  const run=async()=>{
+   if(!active||busy||document.visibilityState!=='visible')return;
+   busy=true;setAutoMemoryBusy(true);
+   try{
+    const result=await syncWechatEffectiveContext(binding.id,binding.conversation_id);
+    if(active)setMemoryStatus('前台自动同步成功：'+result.messageCount+' 段有效上下文');
+   }catch(error){
+    if(active)setMemoryStatus(error instanceof Error?error.message:'前台自动同步失败');
+   }finally{busy=false;if(active)setAutoMemoryBusy(false);}
+  };
+  void run();
+  const interval=window.setInterval(()=>void run(),60000);
+  const onVisible=()=>{if(document.visibilityState==='visible')void run();};
+  document.addEventListener('visibilitychange',onVisible);
+  return ()=>{active=false;window.clearInterval(interval);document.removeEventListener('visibilitychange',onVisible);};
+ },[autoMemory,aiBinding,section,bindings]);
+ const toggleAutoMemory=(checked:boolean)=>{
+  if(!aiBinding)return;
+  if(checked&&!window.confirm('开启后，只要这个设置页面保持打开且处于前台，就会定期将角色当前有效上下文同步到你自己的 Supabase。确认开启？'))return;
+  localStorage.setItem('claudia-wechat-auto-context:'+aiBinding,checked?'yes':'no');
+  setAutoMemory(checked);
+ };
  const memoryAction=async(action:'sync'|'delete')=>{
   const binding=bindings?.find(b=>b.id===aiBinding&&b.status==='connected');
   if(!binding||aiBusy)return;
@@ -184,6 +218,10 @@ export function WechatIntegrationSettings(){
     <label>角色提示词<textarea rows={5} value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)} placeholder="请自行核对并填写要授权到云端的角色设定"/></label>
     <label>API Key（仅提交到自己的 Supabase）<input type="password" autoComplete="off" value={aiKey} onChange={e=>setAiKey(e.target.value)}/></label>
     <p>角色记忆：仅在你确认后，将当前日常聊天实际构建出的角色、世界书、记忆与有效历史同步到自己的云端。</p>
+    <label><input type="checkbox" checked={autoMemory} disabled={!aiBinding}
+     onChange={e=>toggleAutoMemory(e.target.checked)}/>
+     开启前台定期同步（设置页面打开时，每分钟及重新进入前台时同步）{autoMemoryBusy?' · 同步中':''}
+    </label>
     <button type="button" disabled={!aiBinding||aiBusy} onClick={()=>void memoryAction('sync')}>同步当前角色完整有效上下文</button>
     <button type="button" disabled={!aiBinding||aiBusy} onClick={()=>void memoryAction('delete')}>删除云端角色上下文</button>
     {memoryStatus&&<p role="status">{memoryStatus}</p>}
