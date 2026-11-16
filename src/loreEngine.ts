@@ -101,7 +101,9 @@ export function retrieveLorePassages(content:string,history:Message[],budget:num
       if(chunk && chunk.length+sentence.length>700){chunks.push(chunk);chunk="";}
       if(sentence.length>700){
         if(chunk){chunks.push(chunk);chunk="";}
-        for(let i=0;i<sentence.length;i+=700)chunks.push(sentence.slice(i,i+700));
+        // An oversized sentence is atomic: include it only if it fits the
+        // available budget, rather than inventing a broken partial rule.
+        chunks.push(sentence);
       } else chunk+=sentence;
     }
     if(chunk)chunks.push(chunk);
