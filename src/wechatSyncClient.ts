@@ -2,7 +2,15 @@
  * Call only for an authorized daily binding, then apply through a separately
  * reviewed timeline-aware merge (not ordinary chatService.sendMessage).
  */
-import {cloudFunctionRequest} from './cloudIdentity';
+import {readWechatCloudConfig} from './wechatCloudConfig';
+/** Never fall back to the website owner's global Supabase project.
+ * WeChat-specific authentication is not implemented yet; fail closed.
+ */
+async function wechatRequest(_body:unknown):Promise<Response>{
+ const config=readWechatCloudConfig();
+ if(!config)throw Error('请先在微信接入中配置自己的 Supabase。');
+ throw Error('微信专用云端身份与接口授权尚未接通；不会向网站公共后台发送微信数据。');
+}
 export interface WechatSyncedMessage {
  id:string;sync_seq:number;change_seq?:number;external_message_id:string;direction:'inbound'|'outbound';
  body:string;status:string;local_message_id:string|null;received_at:string;in_reply_to:string|null;
@@ -15,7 +23,7 @@ export interface WechatSyncPage {
 export async function fetchWechatSyncPage(bindingId:string,afterSeq=0):Promise<WechatSyncPage>{
  if(!/^[0-9a-f-]{36}$/i.test(bindingId)||!Number.isSafeInteger(afterSeq)||afterSeq<0)
    throw Error('微信同步游标无效。');
- const response=await cloudFunctionRequest('claudia-wechat-sync','POST',{bindingId,afterSeq});
+ const response=await wechatRequest({bindingId,afterSeq});
  const value:unknown=await response.json();
  if(!value||typeof value!=='object'||Array.isArray(value))throw Error('微信同步数据格式无效。');
  const page=value as Partial<WechatSyncPage>;
@@ -56,9 +64,7 @@ export async function collectWechatSyncPages(
 export async function fetchWechatStatusPage(bindingId:string,afterSeq=0):Promise<WechatSyncPage>{
  if(!/^[0-9a-f-]{36}$/i.test(bindingId)||!Number.isSafeInteger(afterSeq)||afterSeq<0)
    throw Error('微信状态同步游标无效。');
- const response=await cloudFunctionRequest('claudia-wechat-sync','POST',{
-  bindingId,afterSeq,mode:'changes'
- });
+ const response=await wechatRequest({bindingId,afterSeq,mode:'changes'});
  const value:unknown=await response.json();
  if(!value||typeof value!=='object'||Array.isArray(value))
   throw Error('微信状态数据格式无效。');
