@@ -14,6 +14,7 @@ export interface LoreDiagnostic {
   crossMessageMatch: boolean;
   attribution: "first-match-per-key" | "unavailable";
   outcome: "injected" | "skipped";
+  completeness: "full" | "partial" | "omitted";
   reason: LoreSkipReason;
 }
 const ref = (m: Message): LoreMessageRef => ({id:m.id,role:m.role as LoreMessageRef["role"]});
@@ -39,7 +40,7 @@ function scanBuffer(messages: Message[], foldCase = false) {
 }
 function assess(raw: LoreEntry, b: Lorebook, h: Message[], random: () => number, regex?: RegexHits) {
   const e = normalizeEntry(raw);
-  const d: LoreDiagnostic = {entryId:e.id,lorebookId:b.id,triggerMode:e.constant?"constant":e.triggerMode!,scanAssistant:e.constant || e.triggerMode === "instant" ? null : e.scanAssistant!,scannedMessageCount:0,matchedMessages:[],crossMessageMatch:false,attribution:"first-match-per-key",outcome:"skipped",reason:"primary-miss"};
+  const d: LoreDiagnostic = {entryId:e.id,lorebookId:b.id,triggerMode:e.constant?"constant":e.triggerMode!,scanAssistant:e.constant || e.triggerMode === "instant" ? null : e.scanAssistant!,scannedMessageCount:0,matchedMessages:[],crossMessageMatch:false,attribution:"first-match-per-key",outcome:"skipped",completeness:"omitted",reason:"primary-miss"};
   const fail = (reason:LoreSkipReason) => ({eligible:false,diagnostic:{...d,reason}});
   if (!b.enabled) return fail("book-disabled");
   if (!e.enabled) return fail("entry-disabled");
@@ -90,20 +91,34 @@ export function retrieveLorePassages(content:string,history:Message[],budget:num
   if(budget<=0)return "";
   const query=history.filter(m=>m.role==="user").slice(-3).map(m=>m.content).join(" ").toLowerCase();
   const terms=[...new Set((query.match(/[\p{Script=Han}]{2,4}|[a-z0-9]{3,}/gu)||[]))].slice(0,80);
+  // Keep paragraphs and sentence boundaries whenever possible; never silently
+  // truncate a rule in the middle of a sentence just to fill the budget.
   const chunks:string[]=[];
   for(const paragraph of content.split(/\n{2,}/)){
-    for(let i=0;i<paragraph.length;i+=700)chunks.push(paragraph.slice(i,i+700));
+    const sentences=paragraph.match(/[^。！？!?；;\n]+[。！？!?；;]?|\n/g) || [paragraph];
+    let chunk="";
+    for(const sentence of sentences){
+      if(chunk && chunk.length+sentence.length>700){chunks.push(chunk);chunk="";}
+      if(sentence.length>700){
+        if(chunk){chunks.push(chunk);chunk="";}
+        for(let i=0;i<sentence.length;i+=700)chunks.push(sentence.slice(i,i+700));
+      } else chunk+=sentence;
+    }
+    if(chunk)chunks.push(chunk);
   }
   const ranked=chunks.map((text,index)=>({text,index,score:terms.reduce((n,t)=>n+(text.toLowerCase().includes(t)?1:0),0)}))
     .sort((a,b)=>b.score-a.score||a.index-b.index);
   const chosen:{text:string;index:number}[]=[];let used=0;
   for(const item of ranked){
-    const room=budget-used-(chosen.length?2:0);
+    const separator=chosen.length?2:0;
+    const room=budget-used-separator;
     if(room<=0)break;
-    if(item.text.length>room){if(!chosen.length)chosen.push({text:item.text.slice(0,room),index:item.index});break;}
-    chosen.push(item);used+=item.text.length+2;
+    if(item.text.length>room)continue;
+    chosen.push(item);used+=item.text.length+separator;
   }
-  return chosen.sort((a,b)=>a.index-b.index).map(x=>x.text).join("\n\n");
+  // A single long unsplittable sentence should not prevent every other entry
+  // from being considered. Skip this entry if no complete passage fits.
+  return chosen.sort((a,b)=>a.index-b.index).map(x=>x.text).join("\\n\\n");
 }
 export interface LoreCandidate {entry:LoreEntry;book:Lorebook}
 /** Metadata only. Entry content, keys and chat text are never part of diagnostics. */
@@ -133,7 +148,7 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
     if(!entry.constant && bookUsed+cost>book.charBudget){d.reason="book-budget";continue;}
     if(!entry.constant){used.set(book.id,bookUsed+cost);optionalTotal+=cost;}
     total+=cost;selected.push(effective);
-    d.outcome="injected";d.reason="injected";
+    d.outcome="injected";d.completeness=effective.content===entry.content?"full":"partial";d.reason="injected";
   }
   return {entries:selected,activated:selected.map(e=>e.id),diagnostics,regexErrors:Object.fromEntries(Object.entries(regex).filter(([,r])=>r.error).map(([id,r])=>[id,r.error]))};
 }
