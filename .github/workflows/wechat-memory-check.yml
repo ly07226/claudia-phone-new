@@ -1,0 +1,39 @@
+name: WeChat cloud memory safety
+on:
+  push:
+    branches: [feature/wechat-ilink-integration]
+  pull_request:
+    paths:
+      - 'workers/wechat-*.mjs'
+      - 'tests/wechat-*.test.mjs'
+      - 'src/wechat*.ts'
+      - 'src/WechatIntegrationSettings.tsx'
+      - 'supabase/migrations/*wechat*'
+      - '.github/workflows/wechat-memory-check.yml'
+jobs:
+  memory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Check worker syntax
+        run: |
+          node --check workers/wechat-ai-worker.mjs
+          node --check workers/wechat-listener.mjs
+          node --check workers/wechat-memory-retrieval.mjs
+      - name: Run memory retrieval tests
+        run: node --test tests/wechat-memory-retrieval.test.mjs
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Validate locked dependencies
+        run: npm ci
+      - name: Typecheck and build
+        run: npm run build
