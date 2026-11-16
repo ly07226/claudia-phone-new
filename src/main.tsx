@@ -18,6 +18,7 @@ import { Worlds } from "./Worlds";
 import { SpaceRoot } from "./SpaceSelection";
 import { useSpaces } from "./spaces";
 import { ApiSettings } from "./ApiSettings";
+import { WechatIntegrationSettings } from "./WechatIntegrationSettings";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
@@ -473,6 +474,11 @@ function App() {
                     世界书 / Lorebook
                     <ArrowRight size={17} />
                   </button>
+                  <button className="list-row" onClick={() => openPhoneApp("微信接入")}>
+                    <MessageCircle />
+                    微信接入
+                    <ArrowRight size={17} />
+                  </button>
                   <button
                     className="list-row"
                     onClick={() => openPhoneApp("AI / API 设置")}
@@ -533,6 +539,8 @@ function App() {
                 <PhasePlayApp onBack={phoneNavigation.back}/>
               ) : s.activeApp === "世界书 / Lorebook" ? (
                 <Lorebooks />
+              ) : s.activeApp === "微信接入" ? (
+                <WechatIntegrationSettings />
               ) : s.activeApp === "AI / API 设置" ? (
                 <ApiSettings />
               ) : s.activeApp === "主题编辑器" ? (
