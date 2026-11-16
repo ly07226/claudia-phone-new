@@ -93,20 +93,15 @@ export function retrieveLorePassages(content:string,history:Message[],budget:num
   const terms=[...new Set((query.match(/[\p{Script=Han}]{2,4}|[a-z0-9]{3,}/gu)||[]))].slice(0,80);
   // Keep paragraphs and sentence boundaries whenever possible; never silently
   // truncate a rule in the middle of a sentence just to fill the budget.
+  // Rank complete sentences independently so a short budget can still retain
+  // the first essential rule instead of discarding a whole multi-rule paragraph.
   const chunks:string[]=[];
-  for(const paragraph of content.split(/\n{2,}/)){
-    const sentences=paragraph.match(/[^。！？!?；;\n]+[。！？!?；;]?|\n/g) || [paragraph];
-    let chunk="";
+  for(const paragraph of content.split(/\\n{2,}/)){
+    const sentences=paragraph.match(/[^。！？!?；;\\n]+[。！？!?；;]?/g) || [paragraph];
     for(const sentence of sentences){
-      if(chunk && chunk.length+sentence.length>700){chunks.push(chunk);chunk="";}
-      if(sentence.length>700){
-        if(chunk){chunks.push(chunk);chunk="";}
-        // An oversized sentence is atomic: include it only if it fits the
-        // available budget, rather than inventing a broken partial rule.
-        chunks.push(sentence);
-      } else chunk+=sentence;
+      const trimmed=sentence.trim();
+      if(trimmed)chunks.push(trimmed);
     }
-    if(chunk)chunks.push(chunk);
   }
   const ranked=chunks.map((text,index)=>({text,index,score:terms.reduce((n,t)=>n+(text.toLowerCase().includes(t)?1:0),0)}))
     .sort((a,b)=>b.score-a.score||a.index-b.index);
