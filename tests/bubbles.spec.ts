@@ -148,7 +148,7 @@ test("旧消息分组显示、用户不拆、单版本隐藏，多版本整组�
   expect(state.variants.find((v) => v.id === "bubble-v1")?.content).toBe(
     original,
   );
-  expect(state.version).toBe(7);
+  expect(state.version).toBe(8);
 });
 
 test("长按任意片段复制和编辑完整消息，删除仅作用于所选气泡并保留历史原文", async ({

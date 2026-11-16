@@ -102,7 +102,7 @@ test('中断标记及原文完整 ZIP 往返，不改变数据库版本或用户
   const {createZipBackup,readBackupZip}=await import('/src/backupZip.ts');const {readBackup}=await import('/src/backupService.ts');const blob=await createZipBackup({closedOtherClients:true});const files=await readBackupZip(new File([blob],'fixture.zip'));const result=await readBackup(files,{mode:'verify'});
   return {before,after:await(await import('/src/messagePath.ts')).activeMessages(id),valid:result.report.status==='verified',version:db.verno};
  },daily);
- expect(check.valid).toBe(true);expect(check.version).toBe(7);expect(check.before).toEqual(check.after);expect(check.after.at(-1)?.replyInterruption).toBe('length');
+ expect(check.valid).toBe(true);expect(check.version).toBe(8);expect(check.before).toEqual(check.after);expect(check.after.at(-1)?.replyInterruption).toBe('length');
 });
 test('续接精确去重与无新内容拒绝；不擅自补括号或改写前文',async({page})=>{
  await setup(page);const result=await page.evaluate(async()=>{const {appendContinuation}=await import('/src/chatCompletion.ts');const original='这是原文，必须逐字保留的尾段';let error='';try{appendContinuation(original,original);}catch(e){error=(e as Error).message;}return {value:appendContinuation(original,'必须逐字保留的尾段，接着说完。'),open:appendContinuation('（未闭合','继续'),error};});

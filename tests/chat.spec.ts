@@ -535,7 +535,7 @@ test("并发发送受保护，取消与删除会话不产生孤立回复", async
   expect(result.orphan).toBe(0);
   expect(result.conversation).toBeUndefined();
 });
-test("兼容桥接表声明可打开当前 v7，聊天与旧数据保持不变", async ({
+test("v7桥接不降级原库，v8桥接完整读取且聊天与旧数据不变", async ({
   page,
 }) => {
   const conversations = await seed(page);
@@ -583,11 +583,15 @@ test("兼容桥接表声明可打开当前 v7，聊天与旧数据保持不变",
     compatibility.version(6).stores({timelines:"id,conversationId,parentTimelineId",pathNodes:"id,conversationId,[conversationId+parentNodeId+fingerprint]"});
     compatibility.version(7).stores((await import('/src/storyTypes.ts')).storySchemas);
     await compatibility.open();
+    const oldNativeVersion=compatibility.backendDB().version,oldDeclaredLeases=compatibility.tables.some(t=>t.name==='summaryLeases');
+    compatibility.close();
+    compatibility.version(8).stores({summaryLeases:'name,expiresAt'});
+    await compatibility.open();
     const after: any = {};
     for (const name of names)
       after[name] = await compatibility.table(name).toArray();
     compatibility.close();
-    return { before, after };
+    return { before, after,oldNativeVersion,oldDeclaredLeases };
   }, conversations);
-  expect(result.after).toEqual(result.before);
+  expect(result.oldNativeVersion).toBe(80);expect(result.oldDeclaredLeases).toBe(false);expect(result.after).toEqual(result.before);
 });
