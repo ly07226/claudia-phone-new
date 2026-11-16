@@ -1,3 +1,4 @@
+import {isLeakedTimeMarkerBubble} from './timeMarkerSanitizer';
 import type {Message} from './chatTypes';
 import {splitAssistantBubbles,legacyAssistantBubbles} from './splitAssistantBubbles';
 export type BubblePart={kind:'text';start:number;end:number;text:string}|{kind:'image';assetId:string};
@@ -24,7 +25,7 @@ export function messageBubbles(m:Message,legacy=false):BubblePart[]{
    if(removed.end<=s.start||removed.start>=s.end)return [s];
    return [[s.start,Math.min(s.end,removed.start)],[Math.max(s.start,removed.end),s.end]].flatMap(([start,end])=>end>start?[{kind:'text' as const,start,end,text:m.content.slice(start,end)}]:[]);
   });
-  return spans.filter(s=>s.text.trim());
+  return spans.filter(s=>s.text.trim() && !(m.role==='assistant' && isLeakedTimeMarkerBubble(s.text)));
  });
 }
 export function visibleContent(m:Message){return messageBubbles(m).flatMap(p=>p.kind==='text'?[p.text]:[]).join('');}
