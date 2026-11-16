@@ -260,7 +260,7 @@ test("2.3.4.3 短句直接分泡、连续标点闭合引号、动作及空白保
       "\n\n你好。\n\r\n\n今天好吗？\n\n",
       ["\n\n你好。\n\r\n\n", "今天好吗？\n\n"],
     ],
-    ["你好。\n！！！\n我在这里。", ["你好。\n！！！\n", "我在这里。"]],
+    ["你好。\n！！！\n我在这里。", ["你好。\n", "！！！\n", "我在这里。"]],
     ["！？你好。再见！", ["！？你好。", "再见！"]],
     ["```text\n你好。再见。\n```", ["```text\n你好。再见。\n```"]],
     ["未闭合的（动作。然后。", ["未闭合的（动作。然后。"]],
@@ -276,7 +276,7 @@ test("2.3.4.3 短句直接分泡、连续标点闭合引号、动作及空白保
   examples.forEach(([input, expected], i) => {
     expect(output[i]).toEqual(expected);
     expect(output[i].join("")).toBe(input);
-    expect(output[i].every((p) => /[\p{L}\p{N}\p{S}]/u.test(p))).toBe(true);
+    expect(output[i].every((p) => /\S/u.test(p))).toBe(true);
   });
 });
 

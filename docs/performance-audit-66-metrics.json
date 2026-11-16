@@ -1,0 +1,109 @@
+{
+  "baselineCommit": "bdd8cf8ebb5d908660f5332bfe849eba7bd49b0c",
+  "mainBaseline": "23162be26930e57fb7c2e072e8d28810bf9b1007",
+  "environment": "Node 24.19.0, lockfile-matched dependencies, Chromium iPhone 13 emulation, Vite development server, synthetic isolated databases, single observed runs; no real model or physical device",
+  "baselinePath": [
+    {
+      "count": 100,
+      "readMs": 34.5,
+      "readGets": 100,
+      "readDigests": 100,
+      "appendMs": 108.69999999995343,
+      "appendGets": 301,
+      "appendDigests": 402
+    },
+    {
+      "count": 1000,
+      "readMs": 232.40000000002328,
+      "readGets": 1000,
+      "readDigests": 1000,
+      "appendMs": 1073.8000000000466,
+      "appendGets": 3001,
+      "appendDigests": 4002
+    },
+    {
+      "count": 10000,
+      "readMs": 2082.8000000000466,
+      "readGets": 10000,
+      "readDigests": 10000,
+      "appendMs": 9356,
+      "appendGets": 30001,
+      "appendDigests": 40002
+    }
+  ],
+  "finalPath": [
+    {
+      "count": 100,
+      "readMs": 10.599999999627471,
+      "readGets": 0,
+      "readDigests": 100,
+      "appendMs": 20.300000000745058,
+      "appendGets": 0,
+      "appendDigests": 101
+    },
+    {
+      "count": 1000,
+      "readMs": 63.200000000186265,
+      "readGets": 0,
+      "readDigests": 1000,
+      "appendMs": 132,
+      "appendGets": 0,
+      "appendDigests": 1001
+    },
+    {
+      "count": 10000,
+      "readMs": 485.20000000018626,
+      "readGets": 0,
+      "readDigests": 10000,
+      "appendMs": 883,
+      "appendGets": 0,
+      "appendDigests": 10001
+    }
+  ],
+  "baselineUI": [
+    {
+      "count": 100,
+      "openMs": 214,
+      "typingMs": 124,
+      "initialDOM": 100,
+      "afterScrollDOM": 100
+    },
+    {
+      "count": 1000,
+      "openMs": 869,
+      "typingMs": 65,
+      "initialDOM": 100,
+      "afterScrollDOM": 900
+    },
+    {
+      "count": 10000,
+      "openMs": 4373,
+      "typingMs": 76,
+      "initialDOM": 100,
+      "afterScrollDOM": 900
+    }
+  ],
+  "finalUI": [
+    {
+      "count": 100,
+      "openMs": 161,
+      "typingMs": 102,
+      "initialDOM": 100,
+      "afterScrollDOM": 100
+    },
+    {
+      "count": 1000,
+      "openMs": 249,
+      "typingMs": 129,
+      "initialDOM": 120,
+      "afterScrollDOM": 120
+    },
+    {
+      "count": 10000,
+      "openMs": 909,
+      "typingMs": 84,
+      "initialDOM": 120,
+      "afterScrollDOM": 120
+    }
+  ]
+}

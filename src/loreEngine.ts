@@ -122,7 +122,7 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
     const available=Math.min(remainingBudget-total, loreLimits.promptChars-optionalTotal,book.charBudget-(used.get(book.id)||0));
     const effective=entry.constant?entry:{...entry,content:retrieveLorePassages(entry.content,history,Math.max(0,available-2))};
     const cost=effective.content.length+2,bookUsed=used.get(book.id)||0;
-    if(!effective.content.trim()){d.reason="context-budget";continue;}
+    if(!effective.content.trim()){d.reason=entry.content.trim()&&book.charBudget-(used.get(book.id)||0)<=Math.min(remainingBudget-total,loreLimits.promptChars-optionalTotal)?"book-budget":"context-budget";continue;}
     // Constant rules are mandatory. Never silently drop one and then generate a
     // reply that appears to obey a rule which the model never received.
     if(entry.constant && total+cost>remainingBudget) {

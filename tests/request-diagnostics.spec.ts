@@ -29,12 +29,13 @@ test('世界书触发、重复内容、插入角色/位置、跳过原因及预�
    {...newEntry(global.id),id:'triggered',primaryKeys:['上班'],content:'PRIVATE_TRIGGERED_RULE',insertionPosition:'at-depth',insertionDepth:1},
    {...newEntry(global.id),id:'miss',primaryKeys:['未出现暗号'],content:'PRIVATE_MISSED_RULE'},
    {...newEntry(small.id),id:'overbudget',constant:true,content:'PRIVATE_BUDGET_RULE'},
+   {...newEntry(small.id),id:'optional-overbudget',primaryKeys:['上班'],content:'PRIVATE_OPTIONAL_BUDGET_RULE'},
    {...newEntry(outside.id),id:'outside-rule',constant:true,content:'PRIVATE_OUTSIDE_RULE'},
   ]);
   await db.messages.put({id:'current',conversationId:id,role:'user',content:'我今天去上班',createdAt:1});const messages=await buildContext((await db.conversations.get(id))!);return {record:getRequestDiagnostics().at(-1),messages};
  },id);
- const trace=r.record!;expect(trace.sources.filter(s=>s.source==='lore')).toHaveLength(3);expect(trace.sources.some(s=>s.source==='lore'&&s.duplicateOf!==undefined)).toBe(true);expect(trace.sources.some(s=>s.source==='lore'&&s.position==='after-conversation'&&s.role==='assistant')).toBe(true);expect(trace.sources.some(s=>s.position==='at-depth'&&s.depth===1)).toBe(true);expect(trace.sources.filter(s=>s.source==='lore').every(s=>s.scope==='global')).toBe(true);
- expect(trace.lore.some(d=>d.reason==='primary-miss')).toBe(true);expect(trace.lore.some(d=>d.reason==='book-budget')).toBe(true);expect(trace.skippedBooks).toEqual({disabled:1,outOfScope:1});expect(JSON.stringify(trace)).not.toContain('PRIVATE');expect(trace.budget!.systemUsed).toBeLessThanOrEqual(trace.budget!.systemLimit);expect(JSON.stringify(r.messages).split('PRIVATE_DUPLICATE_RULE')).toHaveLength(3);expect(JSON.stringify(r.messages)).not.toContain('PRIVATE_OUTSIDE_RULE');
+ const trace=r.record!;expect(trace.sources.filter(s=>s.source==='lore')).toHaveLength(4);expect(trace.sources.some(s=>s.source==='lore'&&s.duplicateOf!==undefined)).toBe(true);expect(trace.sources.some(s=>s.source==='lore'&&s.position==='after-conversation'&&s.role==='assistant')).toBe(true);expect(trace.sources.some(s=>s.position==='at-depth'&&s.depth===1)).toBe(true);expect(trace.sources.filter(s=>s.source==='lore').every(s=>s.scope==='global')).toBe(true);
+ expect(trace.lore.some(d=>d.reason==='primary-miss')).toBe(true);expect(trace.lore.some(d=>d.reason==='book-budget')).toBe(true);expect(trace.skippedBooks).toEqual({disabled:1,outOfScope:1});expect(JSON.stringify(trace)).not.toContain('PRIVATE');expect(trace.budget!.systemUsed).toBeLessThanOrEqual(trace.budget!.systemLimit);expect(JSON.stringify(r.messages).split('PRIVATE_DUPLICATE_RULE')).toHaveLength(3);expect(JSON.stringify(r.messages)).not.toContain('PRIVATE_OUTSIDE_RULE');expect(JSON.stringify(r.messages)).toContain('PRIVATE_BUDGET_RULE');expect(JSON.stringify(r.messages)).not.toContain('PRIVATE_OPTIONAL_BUDGET_RULE');
 });
 
 test('最终Provider角色变换及一次旧式role降级可观察；无额外重试、Key/URL/模型/错误正文不进入日志',async({page})=>{
