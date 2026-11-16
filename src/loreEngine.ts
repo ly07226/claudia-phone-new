@@ -120,7 +120,7 @@ export function retrieveLorePassages(content:string,history:Message[],budget:num
   }
   // A single long unsplittable sentence should not prevent every other entry
   // from being considered. Skip this entry if no complete passage fits.
-  return chosen.sort((a,b)=>a.index-b.index).map(x=>x.text).join("\\n\\n");
+  return chosen.sort((a,b)=>a.index-b.index).map(x=>x.text).join("\n\n");
 }
 export interface LoreCandidate {entry:LoreEntry;book:Lorebook}
 /** Metadata only. Entry content, keys and chat text are never part of diagnostics. */
