@@ -2443,3 +2443,19 @@ html[data-ios="true"] { background: var(--page-background, var(--theme-card, #f4
 .chat-immersive .chat-user > .chat-heart-bubble-unit { align-self: flex-end; align-items: flex-end; }
 .chat-immersive .chat-user > .chat-heart-bubble-unit > .chat-bubble-surface { width: fit-content; max-width: 100%; min-width: 0; margin: 0; }
 .chat-heart-card { box-sizing: border-box; }
+
+/* A standalone punctuation bubble must size to its own glyph, not the
+   width of the longest sibling bubble in the same assistant message. */
+.chat-immersive .chat-assistant > .chat-punctuation-bubble-unit {
+  align-self: flex-start;
+  width: max-content;
+  max-width: 100%;
+  flex: 0 0 auto;
+}
+.chat-immersive .chat-assistant > .chat-punctuation-bubble-unit > .chat-bubble-surface {
+  display: inline-block;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+  align-self: flex-start;
+}

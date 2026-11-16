@@ -1,0 +1,21 @@
+name: Lore and Character Regression
+on:
+  push:
+    branches:
+      - fix/grounded-character-generation
+  workflow_dispatch:
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npx playwright test tests/lore-atomic-injection.spec.ts tests/lore-trigger.spec.ts tests/grounded-character-generation.spec.ts tests/chat-context-regression.spec.ts tests/request-diagnostics.spec.ts --workers=1

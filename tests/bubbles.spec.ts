@@ -260,7 +260,7 @@ test("2.3.4.3 短句直接分泡、连续标点闭合引号、动作及空白保
       "\n\n你好。\n\r\n\n今天好吗？\n\n",
       ["\n\n你好。\n\r\n\n", "今天好吗？\n\n"],
     ],
-    ["你好。\n！！！\n我在这里。", ["你好。\n！！！\n", "我在这里。"]],
+    ["你好。\n！！！\n我在这里。", ["你好。\n", "！！！\n", "我在这里。"]],
     ["！？你好。再见！", ["！？你好。", "再见！"]],
     ["```text\n你好。再见。\n```", ["```text\n你好。再见。\n```"]],
     ["未闭合的（动作。然后。", ["未闭合的（动作。然后。"]],
@@ -276,7 +276,7 @@ test("2.3.4.3 短句直接分泡、连续标点闭合引号、动作及空白保
   examples.forEach(([input, expected], i) => {
     expect(output[i]).toEqual(expected);
     expect(output[i].join("")).toBe(input);
-    expect(output[i].every((p) => /[\p{L}\p{N}\p{S}]/u.test(p))).toBe(true);
+    expect(output[i].every((p) => /\S/u.test(p))).toBe(true);
   });
 });
 
@@ -290,4 +290,52 @@ test("2.3.4.3 真机案例在 AI 显示两个气泡，用户仍为单气泡", as
   await expect(page.locator(".chat-user .chat-bubble-surface")).toHaveCount(1);
   await expect(ai.getByRole("button", { name: "AI 消息操作" })).toHaveCount(1);
   await expect(ai.getByLabel("回复版本", { exact: true })).toHaveCount(0);
+});
+
+test("独立标点行必须单独成气泡，后续正文另成气泡",async({page})=>{
+ await page.goto("/");
+ const result=await page.evaluate(async()=>{
+  const {splitAssistantBubbles,legacyAssistantBubbles}=await import("/src/splitAssistantBubbles.ts");
+  return ["?\n装傻这一块还真是没人比得过你^^","。\n我在这里。","你好。\n？\n下一句。","？"].map(input=>({input,modern:splitAssistantBubbles(input),legacy:legacyAssistantBubbles(input)}));
+ });
+ for(const {input,modern,legacy} of result){
+  expect(modern.join("")).toBe(input);
+  expect(legacy.join("")).toBe(input);
+ }
+ expect(result[0].modern).toEqual(["?\n","装傻这一块还真是没人比得过你^^"]);
+ expect(result[0].legacy).toEqual(["?\n","装傻这一块还真是没人比得过你^^"]);
+ expect(result[1].modern).toHaveLength(2);
+ expect(result[2].modern.some((s:string)=>s.trim()==="？")).toBe(true);
+ expect(result[3].modern).toEqual(["？"]);
+});
+
+test("独立问号气泡按字符收缩宽度，不随正文气泡拉伸",async({page})=>{
+ await openLegacy(page,"?\n装傻这一块还真是没人比得过你^^");
+ const bubbles=page.locator(".chat-assistant .chat-bubble-surface");
+ await expect(bubbles).toHaveCount(2);
+ const sizes=await bubbles.evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().width));
+ expect(sizes[0]).toBeLessThan(sizes[1]);
+ expect(sizes[0]).toBeLessThan(90);
+});
+
+
+test("独立省略号及省略号感叹号必须各自成泡，且保留原文",async({page})=>{
+ await page.goto("/");
+ const samples=[
+  ["（他沉默了一会儿。）\\n……！\\n（他终于开口。）","……！"],
+  ["（他抬起头。）\\n……\\n（他转身。）","……"],
+  ["（他看着你。）\\n......!\\n（他笑了。）","......!"],
+  ["（他看着你。）\\n……！","……！"],
+  ["（他看着你。）\\n？\\n（他笑了。）","？"]
+ ] as const;
+ const actual=await page.evaluate(async(inputs)=>{
+  const {splitAssistantBubbles,legacyAssistantBubbles}=await import("/src/splitAssistantBubbles.ts");
+  return inputs.map(s=>({modern:splitAssistantBubbles(s),legacy:legacyAssistantBubbles(s)}));
+ },samples.map(x=>x[0]));
+ actual.forEach(({modern,legacy},i)=>{
+  for(const pieces of [modern,legacy]){
+   expect(pieces.join("")).toBe(samples[i][0]);
+   expect(pieces.some(s=>s.trim()===samples[i][1])).toBe(true);
+  }
+ });
 });

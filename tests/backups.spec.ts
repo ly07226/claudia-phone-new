@@ -605,7 +605,8 @@ test("手机设置入口、分卷下载、Files读回与候选报告；下载不
   page,
 }) => {
   await seed(page);
-  await page.getByRole("button", { name: "Dock 设置", exact: true }).click();
+  await page.getByRole("button", { name: "桌面第2页", exact: true }).click();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
   await page
     .getByRole("button", { name: "数据备份与恢复", exact: true })
     .click();

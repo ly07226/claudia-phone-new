@@ -1,5 +1,5 @@
 /** Display-only, lossless slices. Never write these fragments to Message or context. */
-export function legacyAssistantBubbles(content: string): string[] {
+function legacyAssistantBubblesCore(content: string): string[] {
   if (!content.trim()) return [];
   // Complex Markdown is intentionally left intact; this is not a Markdown/RP parser.
   if (/`|~~~|\*\*|__|^\s*(?:#{1,6}\s|[-+]\s|\d+\.\s|\|)/m.test(content))
@@ -120,7 +120,7 @@ export function legacyAssistantBubbles(content: string): string[] {
 
 /** Recognize complete roleplay wrappers only, never infer a fault from an open bracket.
  * Returned slices retain every character including inter-bubble whitespace. */
-export function splitAssistantBubbles(content: string): string[] {
+function splitAssistantBubblesCore(content: string): string[] {
   if (/`|~~~|\*\*|__|^\s*(?:#{1,6}\s|[-+]\s|\d+\.\s|\|)/m.test(content)) return legacyAssistantBubbles(content);
   const spans: {start:number;end:number}[] = [];
   const stack:string[]=[];
@@ -167,4 +167,27 @@ export function splitAssistantBubbles(content: string): string[] {
   }
   if(pending&&out.length)out[out.length-1]+=pending;
   return out.join('')===content?out:[content];
+}
+
+/** A punctuation-only line is an intentional separate chat bubble.
+ * Keep newline characters attached to the punctuation bubble so slices remain
+ * lossless and existing quote/deletion offsets are unchanged. */
+function splitStandalonePunctuationLines(content:string,split:(value:string)=>string[]):string[]{
+  const boundary=/^[ \t]*[?？.!！。…．]+[ \t]*(?:\r?\n|$)/gm;
+  const parts:string[]=[];
+  let cursor=0;
+  for(const match of content.matchAll(boundary)){
+    const index=match.index;
+    if(index>cursor)parts.push(...split(content.slice(cursor,index)));
+    parts.push(match[0]);
+    cursor=index+match[0].length;
+  }
+  if(cursor<content.length)parts.push(...split(content.slice(cursor)));
+  return parts.length?parts:split(content);
+}
+export function legacyAssistantBubbles(content:string):string[]{
+  return splitStandalonePunctuationLines(content,legacyAssistantBubblesCore);
+}
+export function splitAssistantBubbles(content:string):string[]{
+  return splitStandalonePunctuationLines(content,splitAssistantBubblesCore);
 }

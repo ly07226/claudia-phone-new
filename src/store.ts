@@ -1,3 +1,5 @@
+import {dataEqual} from './dataEqual';
+import {presentationAssets} from './presentationAssets';
 import type {StoryReadingPreferences} from './storyReadingPreferences';
 import type {ThemePalette,ThemeCSS} from './themePalette';
 import {storySchemas,type StorySession,type StoryNode,type StoryPreferences} from './storyTypes';
@@ -280,17 +282,17 @@ export const usePhone = create<State>((set, get) => ({
     }
   },
   reload: async () => {
-    const [worlds, characters, pages, items, theme, assets, worldProfiles] =
+    const [worlds, characters, pages, items, theme, worldProfiles] =
       await Promise.all([
         db.worlds.toArray(),
         db.characters.toArray(),
         db.pages.orderBy("order").toArray(),
         db.items.toArray(),
         db.themes.get("global"),
-        db.assets.toArray(),
         db.worldProfiles.toArray(),
       ]);
-    set({
+    const assets=await presentationAssets([worlds,characters,pages,items,worldProfiles],theme);
+    const next:Pick<State,"worlds"|"characters"|"worldProfiles"|"pages"|"items"|"theme"|"assets">={
       worlds,
       characters,
       worldProfiles,
@@ -298,6 +300,10 @@ export const usePhone = create<State>((set, get) => ({
       items: items.some(i=>i.kind==="app"&&i.app==="记忆")||!pages.length ? items : [...items,{id:"app-memory",kind:"app",app:"记忆",pageId:pages[0].id,position:Math.max(0,...items.filter(i=>i.pageId===pages[0].id).map(i=>i.position))+1,size:1}],
       theme: theme || defaultTheme,
       assets,
+    };
+    set(previous=>{const stable=<T extends {id:string}>(old:T[],rows:T[])=>{const map=new Map(old.map(row=>[row.id,row]));const result=rows.map(row=>{const before=map.get(row.id);return before&&dataEqual(before,row)?before:row;});return result.length===old.length&&result.every((row,i)=>row===old[i])?old:result;};
+      const value={...next,worlds:stable(previous.worlds,next.worlds),characters:stable(previous.characters,next.characters),worldProfiles:stable(previous.worldProfiles,next.worldProfiles),pages:stable(previous.pages,next.pages),items:stable(previous.items,next.items),assets:stable(previous.assets,next.assets),theme:dataEqual(previous.theme,next.theme)?previous.theme:next.theme};
+      return Object.keys(value).every(k=>previous[k as keyof State]===value[k as keyof typeof value])?previous:value;
     });
   },
   saveDesktop: async (items, pages = get().pages) => {

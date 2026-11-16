@@ -1,3 +1,6 @@
+import {useChatHistoryWindow} from './useChatHistoryWindow';
+import {dataEqual} from './dataEqual';
+import {chatDataRevision} from './chatDataRevision';
 import {cloudConfigured,cloudFunctionRequest,hasCloudIdentity} from './cloudIdentity';
 import type {CSSProperties} from 'react';
 import {ChatHub} from './ChatHub';
@@ -46,6 +49,7 @@ import {
   deleteConversation,
   resolveApi,
 } from "./chatService";
+const noVariants:MessageVariant[]=[];
 export function Chat({ worldId }: { worldId?: string }) {
   const s = usePhone();
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -90,12 +94,20 @@ export function Chat({ worldId }: { worldId?: string }) {
   const busy=localBusy||runningTask(generationTask)||remotePending;
   const taskMatches=!!conversation&&generationTask?.timelineId===conversation.activeTimelineId&&generationTask?.epoch===(conversation.timelineEpoch??0);
   const failedTasks=useGenerationFailures(conversation?.id);
-  const visibleFailures=useMemo(()=>failedTasks.filter(f=>f.timelineId===conversation?.activeTimelineId&&f.epoch===(conversation?.timelineEpoch??0)&&(!f.messageId||messages.some(m=>m.id===f.messageId))),[failedTasks,conversation?.activeTimelineId,conversation?.timelineEpoch,messages]);
+  const visibleFailures=useMemo(()=>{
+    const ids=new Set(messages.map(m=>m.id));
+    return failedTasks.filter(f=>f.timelineId===conversation?.activeTimelineId&&f.epoch===(conversation?.timelineEpoch??0)&&(!f.messageId||ids.has(f.messageId)));
+  },[failedTasks,conversation?.activeTimelineId,conversation?.timelineEpoch,messages]);
+  const failuresByMessage=useMemo(()=>{
+    const groups=new Map<string,typeof visibleFailures>();
+    for(const f of visibleFailures)if(f.messageId){const list=groups.get(f.messageId)||[];list.push(f);groups.set(f.messageId,list);}
+    return groups;
+  },[visibleFailures]);
   useEffect(()=>{setLeaseClock(Date.now());const until=conversation?.sendingUntil;if(!until)return;const timer=setTimeout(()=>setLeaseClock(Date.now()),Math.max(0,until-Date.now()+1));return()=>clearTimeout(timer);},[conversation?.id,conversation?.sendingToken,conversation?.sendingUntil]);
   const [savingMessage, setSavingMessage] = useState(false);
   const [attachmentOpen,setAttachmentOpen]=useState(false);
   const imageDraft=useImageDraft(conversation,text,setText,setError);
-  const [replyPresentation,setReplyPresentation]=useState<{sequence:number;conversationId:string;known:Set<string>}|null>(null);
+  const [replyPresentation,setReplyPresentation]=useState<{sequence:number;conversationId:string;known:Map<string,Message>}|null>(null);
   const [configs, setConfigs] = useState<ApiConfig[]>([]);
   const [variants, setVariants] = useState<Record<string, MessageVariant[]>>(
     {},
@@ -122,6 +134,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const followBottom = useRef(true);
   const onBubbleReveal=useCallback(()=>{if(followBottom.current && historyRef.current)historyRef.current.scrollTop=historyRef.current.scrollHeight;},[]);
   const preserveTop = useRef<number | null>(null);
+  const historyWindow=useChatHistoryWindow(messages,historyRef,conversation?.id,followBottom);
   const [feedback, setFeedback] = useState("");
   const taskSequence = useRef(0);
   const scrollRequested = useRef(false);
@@ -140,18 +153,47 @@ export function Chat({ worldId }: { worldId?: string }) {
   useLayoutEffect(()=>{
     if(management || !historyRef.current)return;
     const history=historyRef.current;
-    if(jumpTo.current){const target=Array.from(history.querySelectorAll<HTMLElement>("[data-message-id]")).find(el=>el.dataset.messageId===jumpTo.current);if(target){history.scrollTop+=target.getBoundingClientRect().top-history.getBoundingClientRect().top-history.clientHeight/3;history.querySelectorAll(".chat-message-highlight").forEach(el=>el.classList.remove("chat-message-highlight"));target.classList.add("chat-message-highlight");clearTimeout(highlightTimer.current);highlightTimer.current=setTimeout(()=>target.classList.remove("chat-message-highlight"),2400);followBottom.current=false;}jumpTo.current=null;savedScroll.current=null;}
+    if(jumpTo.current){
+      const targetId=jumpTo.current;
+      const index=messages.findIndex(m=>m.id===targetId);
+      if(index>=0&&(index<historyWindow.start||index>=historyWindow.end)){
+        followBottom.current=false;
+        historyWindow.reveal(index);
+        return;
+      }
+      const target=Array.from(history.querySelectorAll<HTMLElement>("[data-message-id]")).find(el=>el.dataset.messageId===targetId);
+      if(target){history.scrollTop+=target.getBoundingClientRect().top-history.getBoundingClientRect().top-history.clientHeight/3;history.querySelectorAll(".chat-message-highlight").forEach(el=>el.classList.remove("chat-message-highlight"));target.classList.add("chat-message-highlight");clearTimeout(highlightTimer.current);highlightTimer.current=setTimeout(()=>target.classList.remove("chat-message-highlight"),2400);followBottom.current=false;}
+      jumpTo.current=null;savedScroll.current=null;
+    }
     else if(savedScroll.current!==null){history.scrollTop=savedScroll.current;savedScroll.current=null;}
-  },[management]);
+  },[management,historyWindow.start,historyWindow.end,messages]);
+  const pendingQuoteJump=useRef<{id:string;part:BubblePart}|null>(null);
   function locateQuote(id:string,part:BubblePart){
+    const index=messages.findIndex(m=>m.id===id);
+    if(index<0){setFeedback('原消息已删除或不在当前分支。');return;}
+    if(index<historyWindow.start||index>=historyWindow.end){
+      pendingQuoteJump.current={id,part};
+      followBottom.current=false;
+      historyWindow.reveal(index);
+      return;
+    }
+    scrollToQuote(id,part);
+  }
+  function scrollToQuote(id:string,part:BubblePart){
     const history=historyRef.current;if(!history)return;
     const group=Array.from(history.querySelectorAll<HTMLElement>('[data-message-id]')).find(el=>el.dataset.messageId===id);
     const target=group&&Array.from(group.querySelectorAll<HTMLElement>('[data-bubble-key]')).find(el=>el.dataset.bubbleKey===partKey(part));
-    if(!target){setFeedback('原消息已删除或不在当前分支。');return;}
+    if(!target){setFeedback('无法定位引用消息。');return;}
     followBottom.current=false;scrollRequested.current=false;preserveTop.current=null;
     history.scrollTop+=target.getBoundingClientRect().top-history.getBoundingClientRect().top-history.clientHeight/3;
     history.querySelectorAll('.chat-message-highlight').forEach(el=>el.classList.remove('chat-message-highlight'));target.classList.add('chat-message-highlight');clearTimeout(highlightTimer.current);highlightTimer.current=setTimeout(()=>target.classList.remove('chat-message-highlight'),2400);
   }
+  useLayoutEffect(()=>{
+    const target=pendingQuoteJump.current;
+    if(!target)return;
+    pendingQuoteJump.current=null;
+    scrollToQuote(target.id,target.part);
+  },[historyWindow.start,historyWindow.end]);
   const userIdentity = identityFor(s.theme, conversation?.mode === "world" ? `world:${conversation.worldId}` : "daily");
   const userAvatar = s.assets.find(a=>a.id===userIdentity.avatar)?.data;
   const avatarSrc = s.assets.find((a) => a.id === character?.avatar)?.data;
@@ -189,52 +231,22 @@ export function Chat({ worldId }: { worldId?: string }) {
       .subscribe({ next: rows => setPreviews({scope: previewScope, rows}), error: () => setError("无法读取聊天预览，请稍后重试。") });
     return () => subscription.unsubscribe();
   }, [characterIds, worldId, conversation?.id]);
-  const appliedSnapshot = useRef<{conversationId:string;timelineId:string|undefined;epoch:number;messageSignature:string;variantSignature:string}|null>(null);
-  async function loadSnapshot(id: string, scroll = false) {
-    const ticket=++refreshTicket.current;
-    const data=await db.transaction("r",[db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{
-    const current=await db.conversations.get(id);
-    if(!current)return null;
-    const rows = await activeMessages(id);
-    const ids = new Set(rows.map((m) => m.id));
-    const all = await db.messageVariants
-      .where("conversationId")
-      .equals(id)
-      .filter((v) => ids.has(v.messageId))
-      .toArray();
-    return {current,rows,all};
-    });
-    if(ticket!==refreshTicket.current||!data)return;
-    const {current,rows,all}=data;
-    const groups: Record<string, MessageVariant[]> = {};
-    for (const v of all) (groups[v.messageId] ??= []).push(v);
-    for (const list of Object.values(groups))
-      list.sort(
-        (a, b) =>
-          a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-      );
-    if (mounted.current && activeConversation.current === id) {
-      if(visiblePath.current?.conversationId===id && visiblePath.current.timelineId!==current.activeTimelineId && (!pending.current || pending.current.signal.aborted))setReplyPresentation(null);
-      const path={conversationId:id,timelineId:current.activeTimelineId,epoch:current.timelineEpoch??0};
-      // Dexie may emit repeated snapshots while the user is merely viewing or
-      // typing. Do not replace the message array and reset scroll for identical
-      // data; that can visibly jump the history even without keyboard changes.
-      const messageSignature=JSON.stringify(rows);
-      const variantSignature=JSON.stringify(groups);
-      const prev=appliedSnapshot.current;
-      const same=prev?.conversationId===id&&prev.timelineId===path.timelineId&&prev.epoch===path.epoch&&prev.messageSignature===messageSignature&&prev.variantSignature===variantSignature;
-      visiblePath.current=path;
-      // Metadata (lease/settings) must update even when rendered messages do not.
-      setConversation(previous=>JSON.stringify(previous)===JSON.stringify(current)?previous:current);
-      if(same)return;
-      appliedSnapshot.current={...path,messageSignature,variantSignature};
-      if (scroll && followBottom.current) {
-        scrollRequested.current = true;
-        preserveTop.current = null;
-      } else preserveTop.current = historyRef.current?.scrollTop ?? null;
-      setMessages(rows);
-      setVariants(groups);
-    }
+  const appliedSnapshot=useRef<{key:string;revision:number;rows:Message[]}|null>(null);
+  async function loadSnapshot(id:string,scroll=false){
+   const ticket=++refreshTicket.current,revision=chatDataRevision();const previous=appliedSnapshot.current;
+   const data=await db.transaction('r',[db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{const current=await db.conversations.get(id);if(!current)return null;const timeline=current.activeTimelineId?await db.timelines.get(current.activeTimelineId):undefined;
+    const key=JSON.stringify([db.name,id,current.activeTimelineId,current.timelineEpoch,timeline?.headNodeId,timeline?.revision]);
+    if(previous?.key===key&&previous.revision===revision)return {current,key,rows:previous.rows};
+    const incoming=await activeMessages(id),old=new Map(previous?.rows.map(m=>[m.id,m])??[]);const rows=incoming.map(m=>{const before=old.get(m.id);return before&&dataEqual(before,m)?before:m;});
+    return {current,key,rows:previous&&rows.length===previous.rows.length&&rows.every((m,i)=>m===previous.rows[i])?previous.rows:rows};
+   });if(ticket!==refreshTicket.current||!data||!mounted.current||activeConversation.current!==id)return;
+   const {current,key,rows}=data;
+   if(visiblePath.current?.conversationId===id&&visiblePath.current.timelineId!==current.activeTimelineId&&(!pending.current||pending.current.signal.aborted))setReplyPresentation(null);
+   visiblePath.current={conversationId:id,timelineId:current.activeTimelineId,epoch:current.timelineEpoch??0};
+   setConversation(before=>dataEqual(before,current)?before:current);
+   appliedSnapshot.current={key,revision,rows};if(previous?.rows===rows)return;
+   historyWindow.beforeChange();preserveTop.current=null;if(scroll&&followBottom.current)scrollRequested.current=true;
+   setMessages(rows);
   }
   function refresh(id:string,scroll=false):Promise<void> {
     const completion=loadSnapshot(id,scroll).then(async()=>{const next=latestRefresh.current;if(next&&next!==completion)await next;});
@@ -281,6 +293,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     const navigation = ++taskSequence.current;
     setError("");
     appliedSnapshot.current=null;
+    pendingQuoteJump.current=null;
     setMessages([]);
     setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
     setReplyPresentation(null);
@@ -321,7 +334,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     if (!retry && !target) followBottom.current = true;
     const sequence = ++taskSequence.current;
     const ownsView=()=>mounted.current&&activeConversation.current===id&&sequence===taskSequence.current;
-    if(retry || target || !conversation.chatSettings?.continuousSend)setReplyPresentation({sequence,conversationId:id,known:new Set(messages.filter(m=>m.role==='assistant').map(m=>JSON.stringify([m.id,m.activeVariantId,m.content])))});
+    if(retry || target || !conversation.chatSettings?.continuousSend)setReplyPresentation({sequence,conversationId:id,known:new Map(messages.filter(m=>m.role==='assistant').map(m=>[m.id,m]))});
     const previous = pending.current;
     setSavingMessage(!retry && !target && !!conversation.chatSettings?.continuousSend);
     setBusy(true);
@@ -430,6 +443,11 @@ export function Chat({ worldId }: { worldId?: string }) {
     }
   }
   function leaveConversation() {
+    appliedSnapshot.current=null;
+    pendingQuoteJump.current=null;
+    setSelection(undefined);
+    setPreviewVariant(undefined);
+    clearTimeout(highlightTimer.current);
     setReplyPresentation(null);
     taskSequence.current++;
     activeConversation.current = null;
@@ -448,25 +466,31 @@ export function Chat({ worldId }: { worldId?: string }) {
     setMenuId(null);
     setShowSnapshots(false);
   }
-  const timeLabels=useMemo(()=>chatTimeLabels(messages),[messages]);
+  const visibleMessages=useMemo(()=>messages.slice(historyWindow.start,historyWindow.end),[messages,historyWindow.start,historyWindow.end]);
+  const messageIndex=useMemo(()=>new Map(messages.map(m=>[m.id,m])),[messages]);
+  const timeLabels=useMemo(()=>chatTimeLabels(messages.slice(Math.max(0,historyWindow.start-1),historyWindow.end)),[messages,historyWindow.start,historyWindow.end]);
+  useEffect(()=>{if(!conversation){setVariants({});return;}let alive=true;const id=conversation.id,ids=visibleMessages.map(m=>m.id);
+   const sub=liveQuery(()=>db.messageVariants.where('messageId').anyOf(ids).filter(v=>v.conversationId===id).toArray()).subscribe({next:rows=>{if(!alive)return;const groups:Record<string,MessageVariant[]>={};for(const v of rows)(groups[v.messageId]??=[]).push(v);for(const list of Object.values(groups))list.sort((a,b)=>a.createdAt-b.createdAt||(a.id<b.id?-1:1));setVariants(old=>dataEqual(old,groups)?old:groups);},error:()=>{if(alive)setError('无法读取回复版本，原消息保留。');}});return()=>{alive=false;sub.unsubscribe();};
+  },[conversation?.id,visibleMessages]);
   // Keep expensive message bubble JSX stable while the composer text changes.
   // Include state read by message actions so menus, versions and continuations stay current.
   const renderedMessages=useMemo(()=>{
     if(!conversation)return null;
-    return messages.map((m) => (
+    return visibleMessages.map((m) => (
               <Fragment key={m.id}>
               {timeLabels.has(m.id)&&<div className="chat-time-divider" data-chat-time-for={m.id}><time dateTime={new Date(m.createdAt).toISOString()}>{timeLabels.get(m.id)}</time></div>}
               <ChatMessage
                 message={m}
-                playbackKey={replyPresentation?.conversationId===conversation.id && m.role==='assistant' && !replyPresentation.known.has(JSON.stringify([m.id,m.activeVariantId,m.content])) ? `${replyPresentation.sequence}:${m.id}:${m.activeVariantId??''}` : undefined}
+                playbackKey={replyPresentation?.conversationId===conversation.id && m.role==='assistant' && (replyPresentation.known.get(m.id)?.content!==m.content || replyPresentation.known.get(m.id)?.activeVariantId!==m.activeVariantId) ? `${replyPresentation.sequence}:${m.id}:${m.activeVariantId??''}` : undefined}
                 onReveal={onBubbleReveal}
-                variants={variants[m.id] || []}
+                variants={variants[m.id] || noVariants}
                 characterName={displayName}
                 characterAvatar={avatarSrc}
                 userAvatar={userAvatar}
                 userName={userIdentity.name}
                 conversation={conversation}
                 messages={messages}
+                messageIndex={messageIndex}
                 onLocate={locateQuote}
                 onMenu={(selected) => {
                   followBottom.current=false;scrollRequested.current=false;preserveTop.current=historyRef.current?.scrollTop??null;
@@ -478,7 +502,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 }}
                 onVersion={(v) => void chooseVariant(m, v)}
               />
-              {visibleFailures.filter(f=>f.messageId===m.id).map(f=><ReplyFailureNotice key={f.id} details={f.failure}/>)}
+              {(failuresByMessage.get(m.id)||[]).map(f=><ReplyFailureNotice key={f.id} details={f.failure}/>)}
               {m.role==='assistant'&&conversation.mode==='daily' &&validInterruption(m.replyInterruption)&&<p role="status" className="hint">
                 {interruptionLabel(m.replyInterruption)}
                 {m.id===messages.at(-1)?.id&&!m.userEdited&&!m.bubbleDeletion&&<button type="button" className="text-button" title="会额外调用一次 API，原文保留。" disabled={busy} onClick={()=>{
@@ -490,8 +514,8 @@ export function Chat({ worldId }: { worldId?: string }) {
               </Fragment>
             ));
   },[
-    messages,timeLabels,replyPresentation,variants,displayName,avatarSrc,userAvatar,
-    userIdentity.name,conversation,onBubbleReveal,visibleFailures,busy
+    messages,messageIndex,visibleMessages,timeLabels,replyPresentation,variants,displayName,avatarSrc,userAvatar,
+    userIdentity.name,conversation,onBubbleReveal,failuresByMessage,busy
   ]);
   if(requests && !worldId && !conversation)return <div className="chat-hub-new-contacts"><button className="message-action" onClick={()=>s.set({activeApp:'角色管理'})}>添加联系人（角色管理）</button><FriendRequests characters={applications} onClose={()=>setRequests(false)}/></div>;
   const listContent=(<>
@@ -563,12 +587,15 @@ export function Chat({ worldId }: { worldId?: string }) {
               const el = e.currentTarget;
               followBottom.current =
                 el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+              historyWindow.onScroll();
             }}
           >
             {!messages.length && (
               <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
             )}
+            <div data-history-spacer="" aria-hidden="true" style={{height:historyWindow.top,padding:0,margin:0,border:0,flexShrink:0,pointerEvents:'none'}}/>
             {renderedMessages}
+            <div data-history-spacer="" data-history-bottom="" aria-hidden="true" style={{height:historyWindow.bottom,padding:0,margin:0,border:0,flexShrink:0,pointerEvents:'none'}}/>
             {remotePending&&<p role="status">请求状态待确认：可能仍在其他窗口处理中。可等待，或停止后手动重试；不会自动重复请求。</p>}
             {!busy&&conversation.sendingToken&&!runningTask(generationTask)&&<p role="status">上次请求尚未确认完成，可能已中断；不会自动重发。请确认后手动重试。</p>}
             {visibleFailures.filter(f=>!f.messageId).map(f=><ReplyFailureNotice key={f.id} details={f.failure}/>)}

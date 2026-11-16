@@ -3,7 +3,7 @@ import {messageBubbles,partKey,visibleContent,type BubblePart} from './messageBu
 import {quotedMessage,quoteSummary} from './messageReferences';
 import {Reply,RefreshCw,Pencil,Copy,Trash2} from 'lucide-react';
 import { MessageImages } from "./ImageAttachments";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, X, UserRound } from "lucide-react";
 import type {
@@ -77,7 +77,7 @@ function AssistantBubbleText({ content }: { content: string }) {
     </>
   );
 }
-export function ChatMessage({
+function ChatMessageView({
   message: m,
   variants,
   onMenu,
@@ -90,6 +90,7 @@ export function ChatMessage({
   onReveal,
   conversation,
   messages,
+  messageIndex,
   onLocate,
 }: {
   message: Message;
@@ -102,8 +103,9 @@ export function ChatMessage({
   userName?: string;
   playbackKey?: string;
   onReveal?: () => void;
-  conversation: import("./chatTypes").Conversation;
+  conversation: Pick<import("./chatTypes").Conversation,"id"|"mode"|"timelineEpoch">;
   messages: Message[];
+  messageIndex?:ReadonlyMap<string,Message>;
   onLocate: (id:string,part:BubblePart)=>void;
 }) {
   const root=useRef<HTMLDivElement>(null);
@@ -119,7 +121,7 @@ export function ChatMessage({
     if(part&&anchor)onMenu({part,anchor});
   };
   const handlers = useMessagePress(openMenu);
-  const quoteAvailable=m.replyTo&&quotedMessage(m.replyTo,messages,conversation);
+  const quoteAvailable=m.replyTo&&quotedMessage(m.replyTo,messages,conversation,messageIndex);
   const index = Math.max(
     0,
     variants.findIndex((v) => v.id === m.activeVariantId),
@@ -158,7 +160,7 @@ export function ChatMessage({
           {m.replyTo&&<button type="button" className="message-quote" aria-label="定位引用消息" disabled={!quoteAvailable} onClick={()=>onLocate(m.replyTo!.messageId,m.replyTo!.part)}><strong>{m.replyTo.role==='user'?userName:characterName}</strong><span>{quoteAvailable?quoteSummary(m.replyTo):'原消息已删除或不在当前分支'}</span></button>}
           {bubbles.some(p=>p.kind==='image')&&<MessageImages ids={bubbles.flatMap(p=>p.kind==='image'?[p.assetId]:[])}/>}
           {fragments.slice(0,visibleCount).map((fragment,fragmentIndex) => (
-            <div className={m.role==="assistant"?"chat-heart-bubble-unit":"chat-heart-bubble-unit chat-heart-user-unit"} key={partKey(fragment)}>
+            <div className={`${m.role==="assistant"?"chat-heart-bubble-unit":"chat-heart-bubble-unit chat-heart-user-unit"}${/^[?？.!！。]+$/.test(fragment.text.trim())?" chat-punctuation-bubble-unit":""}`} key={partKey(fragment)}>
             <div className="chat-bubble-surface" data-bubble-key={partKey(fragment)} tabIndex={0}>
               <p>
                 {m.role === "assistant" ? (
@@ -197,6 +199,15 @@ export function ChatMessage({
       {m.role === "user" && <MessageAvatar src={userAvatar} name={userName} user />}
     </div>
   );
+}
+const MemoChatMessage=memo(ChatMessageView);
+export function ChatMessage(props:Parameters<typeof ChatMessageView>[0]){
+ const latest=useRef(props);useLayoutEffect(()=>{latest.current=props;});
+ const menu=useCallback((selection:MessageSelection)=>latest.current.onMenu(selection),[]);
+ const version=useCallback((variant:MessageVariant)=>latest.current.onVersion(variant),[]);
+ const locate=useCallback((id:string,part:BubblePart)=>latest.current.onLocate(id,part),[]);
+ const conversation=useMemo(()=>({id:props.conversation.id,mode:props.conversation.mode,timelineEpoch:props.conversation.timelineEpoch}),[props.conversation.id,props.conversation.mode,props.conversation.timelineEpoch]);
+ return <MemoChatMessage {...props} conversation={conversation} onMenu={menu} onVersion={version} onLocate={locate}/>;
 }
 export function MessageSheet({
   title,

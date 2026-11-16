@@ -69,3 +69,50 @@ test("手机编辑器默认即时、旧条目历史可排除AI，诊断可读且
  expect(await page.evaluate(async()=>(await(await import("/src/store.ts")).db.loreEntries.get("old-entry"))?.scanAssistant)).toBe(false);
  await page.reload();expect(await page.evaluate(async()=>{const {db}=await import("/src/store.ts");await db.open();const c=await db.conversations.toArray();return(await import("/src/loreDiagnostics.ts")).lastLoreTrace(c[0].id);})).toBeNull();
 });
+
+
+test("长篇常驻规则优先完整注入，空间不足明确失败而非静默跳过",async({page})=>{
+ await ready(page);
+ const result=await page.evaluate(async()=>{
+  const {newBook,newEntry}=await import("/src/loreTypes.ts");
+  const {planLore}=await import("/src/loreEngine.ts");
+  const book=newBook();
+  const constant={...newEntry(book.id),id:"always",constant:true,useProbability:true,probability:0,content:"常驻规则".repeat(1100),priority:1};
+  const optional={...newEntry(book.id),id:"optional",constant:false,primaryKeys:["命中"],content:"可选资料",priority:999};
+  const history:any=[{id:"u",role:"user",content:"命中"}];
+  const planned=planLore([{book,entry:optional},{book,entry:constant}],history,18000);
+  let overflow="";
+  try {planLore([{book,entry:constant}],history,1000);} catch(e) {overflow=String(e);}
+  return {first:planned.entries[0]?.id,contains:planned.entries.some(e=>e.id==="always"),optional:planned.entries.some(e=>e.id==="optional"),overflow};
+ });
+ expect(result.first).toBe("always");
+ expect(result.contains).toBe(true);
+ expect(result.optional).toBe(true);
+ expect(result.overflow).toContain("当前聊天设定过长");
+});
+
+test("长篇关键词条目按相关片段检索，不暴露检索过程",async({page})=>{
+ await ready(page);
+ const r=await page.evaluate(async()=>{
+  const {newBook,newEntry}=await import("/src/loreTypes.ts");
+  const {planLore}=await import("/src/loreEngine.ts");
+  const b={...newBook(),charBudget:1200};
+  const e={...newEntry(b.id),primaryKeys:["灯塔"],content:"普通背景。".repeat(500)+"\\n\\n"+"灯塔的守夜人名叫阿岚，必须记住这件事。"+"\\n\\n"+"无关档案。".repeat(500)};
+  const h:any=[{id:"u",role:"user",content:"灯塔的守夜人是谁？"}];
+  const result=planLore([{book:b,entry:e}],h,4000);
+  return {length:result.entries[0]?.content.length,content:result.entries[0]?.content,reason:result.diagnostics[0].reason};
+ });
+ expect(r.reason).toBe("injected");
+ expect(r.length).toBeLessThan(1200);
+ expect(r.content).toContain("阿岚");
+ expect(r.content).not.toContain("检索中");
+});
+test("Gemini 单系统指令序列化保留常驻资料和会话内容",async({page})=>{
+ await ready(page);
+ const r=await page.evaluate(async()=>{
+  const {geminiMessages}=await import("/src/chatProvider.ts");
+  return geminiMessages([{role:"system",content:"基础人格"},{role:"system",content:"常驻语言规则"},{role:"user",content:"你好"}]);
+ });
+ expect(JSON.stringify(r)).toContain("常驻语言规则");
+ expect(JSON.stringify(r)).toContain("你好");
+});

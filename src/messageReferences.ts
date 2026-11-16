@@ -9,9 +9,10 @@ export function quoteShape(q:unknown):q is MessageQuote{
  if(!q||typeof q!=='object')return false;const x=q as MessageQuote;
  return x.version===1&&typeof x.conversationId==='string'&&!!x.conversationId&&typeof x.timelineId==='string'&&!!x.timelineId&&Number.isInteger(x.epoch)&&x.epoch>=0&&typeof x.messageId==='string'&&!!x.messageId&&(x.variantId===undefined||typeof x.variantId==='string')&&['user','assistant'].includes(x.role)&&validPart(x.part);
 }
-export function quotedMessage(q:MessageQuote,rows:Message[],c:Pick<Conversation,'id'|'timelineEpoch'>){
+export function quotedMessage(q:MessageQuote,rows:Message[],c:Pick<Conversation,'id'|'timelineEpoch'>,index?:ReadonlyMap<string,Message>){
  if(!quoteShape(q)||q.conversationId!==c.id||q.epoch!==(c.timelineEpoch??0))return undefined;
- const source=rows.find(m=>m.id===q.messageId&&m.role===q.role&&m.activeVariantId===q.variantId);
+ const source=index?index.get(q.messageId):rows.find(m=>m.id===q.messageId);
+ if(source&&(source.role!==q.role||source.activeVariantId!==q.variantId))return undefined;
  return source&&hasVisiblePart(source,q.part)?source:undefined;
 }
 export function quoteSummary(q:MessageQuote){return q.part.kind==='image'?'图片':q.part.text.trim().slice(0,180);}
