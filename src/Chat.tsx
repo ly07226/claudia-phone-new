@@ -501,8 +501,10 @@ export function Chat({ worldId }: { worldId?: string }) {
     setMenuId(null);
     setShowSnapshots(false);
   }
-  const timeLabels=useMemo(()=>chatTimeLabels(messages),[messages]);
   const visibleMessages=useMemo(()=>messages.slice(-visibleMessageLimit),[messages,visibleMessageLimit]);
+  // A time divider only depends on the visible messages and their immediate
+  // predecessor. Avoid recalculating labels for the entire chat history.
+  const timeLabels=useMemo(()=>chatTimeLabels(messages.slice(Math.max(0,messages.length-visibleMessageLimit-1))),[messages,visibleMessageLimit]);
   useLayoutEffect(()=>{
     const previous=historyWindowRef.current;
     const el=historyRef.current;
