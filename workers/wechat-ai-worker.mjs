@@ -52,7 +52,7 @@ async function next(){
   const profile=profiles?.[0];
   if(!profile||profile.user_id!==row.user_id)throw Error('profile_not_authorized');
   const snapshots=await request('claudia_wechat_context_snapshots?binding_id=eq.'+row.binding_id+
-   '&select=context_messages,revision');
+   '&select=context_messages,revision,history_cutoff');
   const snapshot=snapshots?.[0];
   if(!snapshot||!Array.isArray(snapshot.context_messages)||
    !snapshot.context_messages.some(m=>m?.role==='system'))
@@ -62,9 +62,10 @@ async function next(){
    !url.hostname||url.hostname==='localhost'||url.hostname.endsWith('.local')||
    /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.)/.test(url.hostname))
    throw Error('invalid_model_endpoint');
-  // No browser memory is assumed to be present. Explicitly provisioned prompt only.
+  // The approved local snapshot is a fixed context boundary; do not replay older cloud turns.
   const history=await request('claudia_wechat_messages?binding_id=eq.'+row.binding_id+
    '&status=in.(received,processing,generated,sent)&select=id,direction,body,status,in_reply_to,received_at'+
+   '&received_at=gt.'+encodeURIComponent(snapshot.history_cutoff)+
    '&order=received_at.desc&limit=24');
   const messages=(history||[]).reverse().filter(m=>
    (m.direction==='inbound'&&m.id!==row.id)||
