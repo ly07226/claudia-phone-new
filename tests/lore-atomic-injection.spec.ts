@@ -45,7 +45,7 @@ test('世界书优先级与完整性：高优先级先占预算，部分注入�
   const high={...newEntry(book.id),id:'high',priority:200,primaryKeys:['钥匙'],content:'钥匙放在柜子里。钥匙只能由角色本人拿取。'};
   const low={...newEntry(book.id),id:'low',priority:100,primaryKeys:['钥匙'],content:'低优先级的其他说明。'};
   const history=[{id:'m',conversationId:'c',role:'user' as const,content:'钥匙',createdAt:1}];
-  const plan=planLore([{entry:low,book},{entry:high,book}],history,22,()=>0);
+  const plan=planLore([{entry:low,book},{entry:high,book}],history,24,()=>0);
   return {ids:plan.entries.map(e=>e.id),status:plan.diagnostics.map(d=>({id:d.entryId,completeness:d.completeness}))};
  });
  expect(result.ids).toEqual(['high']);
