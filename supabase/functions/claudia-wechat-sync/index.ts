@@ -26,22 +26,25 @@ Deno.serve(async request=>{
   if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))throw Error();
   body=parsed as Record<string,unknown>;
  }catch{return reply(400,{error:"invalid_json"});}
- if(typeof body.bindingId!=="string"||!uuid.test(body.bindingId)||body.afterId!==undefined)
-   return reply(400,{error:"invalid_binding_or_unsupported_cursor"});
+ const afterSeq=body.afterSeq===undefined?0:body.afterSeq;
+ if(typeof body.bindingId!=="string"||!uuid.test(body.bindingId)||
+    !Number.isSafeInteger(afterSeq)||(afterSeq as number)<0)
+   return reply(400,{error:"invalid_binding_or_cursor"});
  const {data:binding,error:bindingError}=await admin.from("claudia_wechat_bindings")
   .select("id,conversation_id,character_id,status")
   .eq("id",body.bindingId).eq("user_id",identity.user.id).maybeSingle();
  if(bindingError)return reply(500,{error:"binding_lookup_failed"});
  if(!binding)return reply(404,{error:"binding_not_found"});
- // A server-generated monotonic sequence is needed for robust cursoring.
- // Until then, use bounded newest-first fetch with stable id dedupe client-side.
- // This endpoint is explicitly a provisional snapshot, NOT lossless sync.
- const {data:messages,error}=await admin.from("claudia_wechat_messages")
-  .select("id,external_message_id,direction,body,status,local_message_id,received_at,in_reply_to")
+ // Transactional sequence is assigned in commit order by migration 00400.
+ // Fetch one extra row to distinguish a full page from a final page.
+ const {data:rows,error}=await admin.from("claudia_wechat_messages")
+  .select("id,sync_seq,external_message_id,direction,body,status,local_message_id,received_at,in_reply_to")
   .eq("user_id",identity.user.id).eq("binding_id",binding.id)
-  .order("received_at",{ascending:false}).order("id",{ascending:false}).limit(100);
+  .gt("sync_seq",afterSeq).order("sync_seq",{ascending:true}).limit(101);
  if(error)return reply(500,{error:"sync_failed"});
- return reply(200,{ok:true,mode:"snapshot",lossless:false,
+ const messages=(rows??[]).slice(0,100);
+ const nextSeq=messages.length?messages[messages.length-1].sync_seq:afterSeq;
+ return reply(200,{ok:true,mode:"incremental",cursorType:"commit_ordered",
   binding:{id:binding.id,conversationId:binding.conversation_id,characterId:binding.character_id,status:binding.status},
-  messages:(messages??[]).reverse()});
+  messages,nextSeq,hasMore:(rows??[]).length>100});
 });
