@@ -48,3 +48,23 @@ test('版本切换仍用原始时间，分支切换/删除后按有效路径重�
  await page.evaluate(async({id,root})=>{await(await import('/src/timelines.ts')).switchTimeline(id,root);},{id,root});await expect(page.locator('.chat-message-row')).toHaveCount(6);await expect(capsules).toHaveCount(3);
  await page.evaluate(async id=>{await(await import('/src/messageOperations.ts')).removeMessage(id,'a2','delete',true);},id);await expect(page.locator('.chat-message-row')).toHaveCount(3);await expect(capsules).toHaveText(['星期三 07:41']);
 });
+
+test('长聊天时间分隔线按窗口边界保持与全量计算一致',async({page})=>{
+ await isolatedApp(page,'chat-time-window-'+crypto.randomUUID());
+ const result=await page.evaluate(async()=>{
+  const {chatTimeLabels}=await import('/src/chatTime.ts');
+  const base=Date.parse('2026-11-04T00:00:00Z');
+  const messages=Array.from({length:240},(_,i)=>({
+   id:'m'+i,conversationId:'window',role:'user' as const,content:'消息'+i,
+   createdAt:base+i*15*60000
+  }));
+  const full=chatTimeLabels(messages,base+240*15*60000);
+  return [100,200,240].map(limit=>{
+   const visible=messages.slice(-limit);
+   const sliced=messages.slice(Math.max(0,messages.length-limit-1));
+   const windowLabels=chatTimeLabels(sliced,base+240*15*60000);
+   return visible.every(m=>full.get(m.id)===windowLabels.get(m.id));
+  });
+ });
+ expect(result).toEqual([true,true,true]);
+});

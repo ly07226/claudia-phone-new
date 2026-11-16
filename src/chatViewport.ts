@@ -25,7 +25,7 @@ export function readChatViewport(scope:HTMLElement){
  // The visual viewport may be panned by iOS while editing. Position the
  // fixed chat shell at its actual top even if the keyboard heuristic has not
  // settled yet; otherwise the footer can sit above a large blank strip.
- const top=editing?Math.max(0,viewport?.offsetTop||0):0;
+ const top=editing||keyboard?Math.max(0,viewport?.offsetTop||0):0;
  const height=editing?visibleHeight:(keyboard?visibleHeight:layoutHeight);
  // In standalone there is no Safari toolbar to reserve. Let CSS own the
  // closed viewport: an early/stale innerHeight must not pin a shorter px shell.
