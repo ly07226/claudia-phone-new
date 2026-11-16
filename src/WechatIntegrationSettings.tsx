@@ -1,4 +1,5 @@
 import React,{useState} from 'react';
+import {listWechatCloudBindings} from './wechatCloudIdentity';
 import {clearWechatCloudConfig,readWechatCloudConfig,saveWechatCloudConfig} from './wechatCloudConfig';
 
 /** WeChat-only opt-in configuration; no cross-user shared project. */
@@ -9,6 +10,15 @@ export function WechatIntegrationSettings(){
  const [key,setKey]=useState(initial?.publishableKey??'');
  const [configured,setConfigured]=useState(!!initial);
  const [notice,setNotice]=useState('');
+ const [bindings,setBindings]=useState<Array<{id:string;character_id:string;conversation_id:string;status:string}>|null>(null);
+ const [loading,setLoading]=useState(false);
+ const load=async()=>{
+  if(loading)return;
+  setLoading(true);setNotice('');
+  try{setBindings(await listWechatCloudBindings());}
+  catch(error){setNotice(error instanceof Error?error.message:'绑定查询失败');}
+  finally{setLoading(false);}
+ };
  const save=()=>{
   try{saveWechatCloudConfig({url,publishableKey:key});setConfigured(true);setNotice('微信专用 Supabase 公共配置已保存在本设备。尚未连接微信或部署云端服务。');}
   catch(error){setNotice(error instanceof Error?error.message:'配置保存失败');}
@@ -38,7 +48,16 @@ export function WechatIntegrationSettings(){
    <span>微信账号绑定</span><span style={{marginLeft:'auto'}}>尚未连接　›</span>
   </button>
   {section==='account'&&<div className="card form">
-   <p>真实微信扫码绑定尚未完成。后续在这里选择日常角色并完成微信账号授权；其他世界不会接入。</p>
+   <p>真实微信扫码绑定尚未完成。这里只查询你自己 Supabase 项目下的绑定记录；其他世界不会接入。</p>
+   <button type="button" disabled={!configured||loading} onClick={()=>void load()}>
+    {loading?'正在查询…':'查询我的微信绑定'}
+   </button>
+   {bindings!==null&&<div aria-live="polite">
+    {bindings.length===0?<p>当前没有微信绑定记录。</p>:
+     bindings.map(b=><div key={b.id} className="list-row">
+      <span>角色 {b.character_id}</span><span style={{marginLeft:'auto'}}>{b.status}</span>
+     </div>)}
+   </div>}
    <p>仅保存 Supabase 配置还不能让微信自动回复。云端 AI 需要额外授权，且必须能在手机关闭后安全运行。</p>
   </div>}
   {notice&&<p role="status">{notice}</p>}
