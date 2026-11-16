@@ -137,12 +137,13 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
     // Keep chat responsive: never fail a request solely because optional lore
     // exceeds its configured budget. Preserve whole entries when possible.
     const available=Math.min(remainingBudget-total,entry.constant?remainingBudget-total:Math.min(loreLimits.promptChars-optionalTotal,book.charBudget-(used.get(book.id)||0)));
-    const effective=entry.constant?entry:{...entry,content:retrieveLorePassages(entry.content,history,Math.max(0,available-2))};
+    const effective={...entry,content:retrieveLorePassages(entry.content,history,Math.max(0,available-2))};
     const cost=effective.content.length+2,bookUsed=used.get(book.id)||0;
     if(!effective.content.trim()){d.reason="context-budget";continue;}
     if(entry.constant && total+cost>remainingBudget) {
-      // Preserve chat availability when always-on lore exceeds the context
-      // budget. Do not inject a misleading partial mandatory instruction.
+      // A constant entry receives first claim on the shared context budget.
+      // If no complete passage fits, keep the request responsive and record
+      // the omission instead of silently pretending it was injected.
       d.reason="context-budget";
       continue;
     }
