@@ -61,7 +61,7 @@ Deno.serve(async req=>{
    return json(400,{error:"invalid_context_snapshot"});
   const {error}=await admin.from("claudia_wechat_context_snapshots").upsert({
    binding_id:binding.id,user_id:auth.user.id,context_messages:messages,
-   revision:crypto.randomUUID(),updated_at:new Date().toISOString()
+   revision:crypto.randomUUID(),history_cutoff:new Date().toISOString(),updated_at:new Date().toISOString()
   },{onConflict:"binding_id"});
   if(error)return json(500,{error:"context_sync_failed"});
   return json(200,{ok:true,synced:true});
