@@ -19,6 +19,7 @@ import { SpaceRoot } from "./SpaceSelection";
 import { useSpaces } from "./spaces";
 import { ApiSettings } from "./ApiSettings";
 import { WechatIntegrationSettings } from "./WechatIntegrationSettings";
+import {reconcileWechatAfterReopen} from './wechatClosedContinuity';
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
@@ -79,6 +80,18 @@ const icons = [
 ];
 function App() {
   const environment = useDisplayEnvironment();
+  useEffect(()=>{
+   let disposed=false;
+   const reconcile=()=>{if(!disposed&&document.visibilityState==='visible')
+    void reconcileWechatAfterReopen().catch(()=>{/* no user-facing alert on offline startup */});};
+   reconcile();
+   window.addEventListener('pageshow',reconcile);
+   window.addEventListener('online',reconcile);
+   document.addEventListener('visibilitychange',reconcile);
+   return ()=>{disposed=true;window.removeEventListener('pageshow',reconcile);
+    window.removeEventListener('online',reconcile);
+    document.removeEventListener('visibilitychange',reconcile);};
+  },[]);
   const s = usePhone();
   // iOS standalone first-paint experiment: emulate the smallest possible scroll
   // transaction on the existing scrollable element. Restore its position before
