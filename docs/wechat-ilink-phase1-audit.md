@@ -37,3 +37,31 @@ Float: `tools/weixin-local-assistant/README.md` 与 `docs/weixin-cloud-assistant
 ## 阶段一通过标准
 
 出具完整代码路径清单、最小数据模型、安全威胁分析、测试矩阵；未通过前不连接真实微信、不开放正式版入口。
+
+## 第二轮审计：已核对的关键阻断点
+
+### 身份和云端接口
+`src/cloudIdentity.ts` 使用可选的 Supabase 匿名身份，浏览器本地存储 session，`cloudFunctionUrl` 和 `cloudFunctionRequest` 目前只允许四个指定云函数名称。微信绑定接口需要单独扩展允许列表和鉴权；不能用匿名账号标识直接推定跨设备同一人，也不能默默为普通聊天创建账号。
+
+### 聊天生成和一致性
+`src/chatService.ts` 的 `sendMessage` 调用 `generate`，读取 Dexie、检查 timeline epoch、发送租约、角色 API 密钥，再通过 `buildContext` 组装提示词。它还处理角色心声、回复版本、消息路径和保存事务。服务端不能简单复用浏览器模块，也不能仅用角色 persona 代替完整上下文。
+
+### 数据作用域
+`src/chatTypes.ts` 的 Conversation 以 `scopeKey`、`characterId`、`mode`、`worldId` 定位会话；记忆 `memoryStore` / `memorySummary` 属于会话。Message 有独立 ID、variant、引用、编辑和归档字段。微信导入必须带来源 ID 和单独的远端映射，避免冲突与跨世界串线。
+
+### 本地数据库
+`src/store.ts` 的数据库是 Dexie v7；新微信绑定元数据最好先存在服务端，前端只持有不敏感的绑定引用。不得在尚未验证备份/恢复兼容性前新增 Dexie store 或修改版本。
+
+### 新发现的高优先级风险
+1. 浏览器本地 API credential 与角色世界书不自动存在于 Supabase：必须设计明确、最小化、加密的运行包同步，并在角色配置改变时失效/更新。
+2. 微信云端回复与前端聊天同时进行时会产生顺序冲突；需要统一服务端消息序列、租约及客户端合并协议。
+3. 匿名身份随设备清理可能丢失；绑定恢复和撤销需有可核验的所有权机制。
+4. Float 的运行包同步方案不能直接复制，因 Claudia Phone 的心声、分支、记忆摘要与提示词预算均不同。
+5. 在微信接入未验证之前，不应将世界书、聊天记录或 API key 自动上传云端。
+
+### 下一步具体实现顺序
+A. 审计 Supabase schema / functions 和已有云端同步协议；
+B. 实现不含真实凭证的协议适配接口与类型验证、模拟 iLink 收发测试；
+C. 安全绑定与扫码接口；
+D. 服务端提示词/记忆等价性与持久消息同步；
+E. 真机联调与可选云端定时运行。
