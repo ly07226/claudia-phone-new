@@ -33,9 +33,11 @@ async function snapshot(scope:MemoryScope,initialize=false){
  const turns:{ref:SummaryTurn;nodeId:string;messages:{role:string;content:string;images:number}[]}[]=[];let users:string[]=[],messages:{role:string;content:string;images:number}[]=[];
  for(const n of nodes){const m=visibleMessage(n.message);if(m.role==='user'){users.push(m.id);messages.push({role:'user',content:m.content,images:m.attachments?.length??0});}else if(m.role==='assistant'&&users.length){messages.push({role:'assistant',content:m.content,images:0});turns.push({ref:{userIds:users,assistantId:m.id},nodeId:n.id,messages});users=[];messages=[];}}
  const done=new Set<string>();let unverified=0,changed=0;const coveredAssistantIds=new Set<string>();const verify=summaryVerifier(nodes.map(n=>n.message));
- for(const receipt of await visibleSummaryReceipts(scope)){
+ const receipts=await visibleSummaryReceipts(scope);const validityById=new Map<string,Awaited<ReturnType<typeof verify>>>();
+ for(let i=0;i<receipts.length;i+=64){const batch=receipts.slice(i,i+64);if(batch.every(r=>r.sourceFingerprint?.startsWith('s3:'))){const values=batch.map(verify);const results=values.every(v=>typeof v==='string')?values:await Promise.all(values);batch.forEach((r,j)=>validityById.set(r.id,results[j] as Awaited<ReturnType<typeof verify>>));}else for(const r of batch){const value=verify(r);validityById.set(r.id,typeof value==='string'?value:await value);}}
+ for(const receipt of receipts){
   for(const turn of receipt.turns)coveredAssistantIds.add(turn.assistantId);
-  const validity=await verify(receipt);
+  const validity=validityById.get(receipt.id)!;
   // Preserve old progress without trusting old facts or billing a silent rebuild.
   if(validity==='unverified'){unverified++;}
   else if(validity==='changed'){changed++;continue;}

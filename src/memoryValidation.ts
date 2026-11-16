@@ -28,6 +28,10 @@ export async function validateMemoryStore(d:Dexie,c:Conversation){
  }
  if(c.mode==='daily')check(!state.forks.length);
  const verifiedForks=new Set<string>();for(const f of state.forks){const seen=new Set<string>();let node:typeof f|undefined=f;while(node&&!verifiedForks.has(node.timelineId)){check(!seen.has(node.timelineId));seen.add(node.timelineId);if(!node.parentTimelineId)break;const parent=forks.get(node.parentTimelineId);check(parent&&parent.epoch===node.epoch);node=parent;}for(const id of seen)verifiedForks.add(id);}
+ const receiptIds=new Set(c.memorySummary?.receipts.map(r=>r.id)??[]);
+ const validIds=(ids:unknown)=>Array.isArray(ids)&&ids.length<=5000&&new Set(ids).size===ids.length&&ids.every(v=>id(v)&&receiptIds.has(v));
+ if(state.shortHides!==undefined){check(Array.isArray(state.shortHides)&&state.shortHides.length<=memoryLimits.forks);const scopes=new Set<string>();for(const h of state.shortHides){check(validMemoryScope(c,h.scope)&&validIds(h.receiptIds));if(h.scope.mode==='world'){check(h.scope.epoch<=currentEpoch);if(h.scope.epoch===currentEpoch){const t=timelines.get(h.scope.timelineId);check(t&&t.epoch===currentEpoch&&t.conversationId===c.id&&t.worldId===c.worldId);}}const key=JSON.stringify([h.scope.mode,h.scope.mode==='world'?h.scope.timelineId:null,h.scope.mode==='world'?h.scope.epoch:null]);check(!scopes.has(key));scopes.add(key);}}
+ for(const f of state.forks)if(f.hiddenSummaryIds!==undefined)check(validIds(f.hiddenSummaryIds));
  const paths=new Map<string,Set<string>>();
  async function path(t:MemoryTimeline){if(paths.has(t.id))return paths.get(t.id)!;const nodes=new Set<string>();let next=t.headNodeId;
   while(next){check(!nodes.has(next));nodes.add(next);const row=await d.table('pathNodes').get(next);check(row&&row.conversationId===c.id);next=row.parentNodeId;}

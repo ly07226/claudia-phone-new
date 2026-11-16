@@ -10,7 +10,8 @@
     "test": "playwright test",
     "typecheck": "tsc -b",
     "test:chat-regression": "playwright test tests/heart-voice.spec.ts tests/chat-snapshot-metadata.spec.ts tests/story-writing-status.spec.ts tests/story-directives.spec.ts tests/story-guidance.spec.ts tests/story-reading-pov.spec.ts tests/story-depth.spec.ts tests/daily-reply-integrity.spec.ts tests/bubbles.spec.ts tests/memory-integrity.spec.ts tests/chat-context-regression.spec.ts tests/request-diagnostics.spec.ts tests/memory-context.spec.ts tests/chat.spec.ts tests/lore-trigger.spec.ts tests/timelines.spec.ts tests/story-response.spec.ts tests/generation-tasks.spec.ts tests/story-output-budget.spec.ts tests/story-direct-play.spec.ts tests/story-turn-recovery.spec.ts tests/story-failure.spec.ts tests/story-operations.spec.ts tests/wizard-document-safety.spec.ts tests/chat-history-window.spec.ts tests/presentation-assets.spec.ts",
-    "test:performance": "playwright test tests/chat-history-window.spec.ts tests/presentation-assets.spec.ts tests/performance-audit.spec.ts tests/performance-render.spec.ts --workers=1"
+    "test:performance": "playwright test tests/chat-history-window.spec.ts tests/presentation-assets.spec.ts tests/performance-audit.spec.ts tests/performance-render.spec.ts --workers=1",
+    "test:memory-regression": "playwright test tests/memory*.spec.ts tests/backup-merge.spec.ts tests/backup-zip.spec.ts tests/backups.spec.ts tests/restore.spec.ts tests/restore-worker.spec.ts tests/restore-prerequisite.spec.ts --workers=1"
   },
   "dependencies": {
     "react": "^19.0.0",

@@ -15,14 +15,15 @@ export interface MemoryFork {
  inheritThroughRevision:number;
  /** Existing fork boundary for successful summary receipts, not a new timeline. */
  summaryRevisionAtFork?:number;
+ hiddenSummaryIds?:string[];
 }
-export interface MemoryStore {version:1;revision:number;entries:MemoryEntry[];forks:MemoryFork[]}
+export interface MemoryStore {version:1;revision:number;entries:MemoryEntry[];forks:MemoryFork[];shortHides?:{scope:MemoryScope;receiptIds:string[]}[]}
 export interface MemoryInput {kind:StoredMemoryKind;content:string;source?:MemorySource;sourceReceiptId?:string}
 export interface EffectiveMemory extends MemoryEntry {inherited:boolean}
 export interface ShortMemoryItem {messageId:string;variantId?:string;nodeId?:string;role:'user'|'assistant';content:string;assetIds:string[];createdAt:number}
 export interface ShortMemory {
- summaries?:{text:string;createdAt:number;throughNodeId:string}[];
- kind:'short';scope:MemoryScope;
+ summaries?:{id:string;text:string;createdAt:number;throughNodeId:string;turns:import('./memorySummaryTypes').SummaryTurn[]}[];
+ kind:'short';scope:MemoryScope;summaryRevision?:number;
  /** Context provenance only; daily stored memories never branch on these fields. */
  context:{timelineId?:string;epoch:number;revision?:number;headNodeId?:string};
  messages:ShortMemoryItem[];

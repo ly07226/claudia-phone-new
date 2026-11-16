@@ -1,3 +1,4 @@
+import {memoryDesktopPresentation} from './memoryDesktopPresentation';
 import {dataEqual} from './dataEqual';
 import {presentationAssets} from './presentationAssets';
 import type {StoryReadingPreferences} from './storyReadingPreferences';
@@ -292,12 +293,13 @@ export const usePhone = create<State>((set, get) => ({
         db.worldProfiles.toArray(),
       ]);
     const assets=await presentationAssets([worlds,characters,pages,items,worldProfiles],theme);
+    const memoryDesktop=memoryDesktopPresentation(items,pages);
     const next:Pick<State,"worlds"|"characters"|"worldProfiles"|"pages"|"items"|"theme"|"assets">={
       worlds,
       characters,
       worldProfiles,
-      pages,
-      items: items.some(i=>i.kind==="app"&&i.app==="记忆")||!pages.length ? items : [...items,{id:"app-memory",kind:"app",app:"记忆",pageId:pages[0].id,position:Math.max(0,...items.filter(i=>i.pageId===pages[0].id).map(i=>i.position))+1,size:1}],
+      pages:memoryDesktop.pages,
+      items: memoryDesktop.items,
       theme: theme || defaultTheme,
       assets,
     };

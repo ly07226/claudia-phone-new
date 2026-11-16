@@ -1,4 +1,4 @@
-import {sourceHash,messageSourceFingerprint} from './summarySourceFingerprint';
+import {sourceHash,messageSourceFingerprint,sourceVisibleMessage} from './summarySourceFingerprint';
 import {memoryScopeKey} from './memoryScopeKey';
 import {withSummaryLock} from './summaryLock';
 import {getSummaryApi} from './dedicatedSummaryApi';
@@ -27,7 +27,7 @@ export async function digestSourceMatches(d:DailyDigest,messages:ReturnType<type
 }
 export async function dailyDigestStatus(scope:MemoryScope){
  const c=await db.conversations.get(scope.conversationId);
- const messages=c?(scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)):(await activeMessages(c.id)).map(visibleMessage)):[];
+ const messages=c?(scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>sourceVisibleMessage(n.message)):(await activeMessages(c.id)).map(sourceVisibleMessage)):[];
  const digests:DailyDigest[]=[];
  for(const d of c?.dailyDigests??[])if(memoryScopeKey(d.scope)===memoryScopeKey(scope)&&await digestSourceMatches(d,messages))digests.push(d);
  return {settings:c?.dailyDigestSettings??{enabled:false,days:1 as const},digests,records:(c?.dailyDigests??[]).filter(d=>memoryScopeKey(d.scope)===memoryScopeKey(scope)).map(d=>({digest:d,status:digests.some(v=>v.id===d.id)?'verified' as const:!d.sourceFingerprint?'unverified' as const:'changed' as const})),attempt:c?.dailyDigestAttempt&&memoryScopeKey(c.dailyDigestAttempt.scope)===memoryScopeKey(scope)?c.dailyDigestAttempt:undefined};
@@ -39,7 +39,7 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
   const c=await db.conversations.get(scope.conversationId);if(!c?.dailyDigestSettings?.enabled)return;
   if(memoryScopeKey(await getMemoryScope(c.id))!==memoryScopeKey(scope))throw Error('记忆作用域已变化');
   const days=c.dailyDigestSettings.days,now=new Date();
-  const messages=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)): (await activeMessages(c.id)).map(visibleMessage);
+  const messages=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>sourceVisibleMessage(n.message)): (await activeMessages(c.id)).map(sourceVisibleMessage);
   const first=messages.filter(m=>m.role==='user'||m.role==='assistant').reduce((min,m)=>Math.min(min,m.createdAt),Infinity);
   if(!Number.isFinite(first))return;
   const endAnchor=new Date(now.getFullYear(),now.getMonth(),now.getDate());
@@ -64,10 +64,10 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
   const attempt=c.dailyDigestAttempt;
   if(!manual&&attempt?.status==='failed'&&memoryScopeKey(attempt.scope)===memoryScopeKey(scope)&&attempt.startDay===start&&attempt.endDay===end)return;
   if((c.dailyDigests?.length??0)>=5000)throw Error('二级总结达到容量保护上限，原记录保留；未调用 API。');
-  const raw=sourceMessages.map(m=>`[${m.role==='user'?'用户':'角色'}] ${m.content}`);
+  const raw=sourceMessages.map(m=>`[${m.role==='user'?'用户':'角色'}] ${visibleMessage(m).content}`);
   if(!raw.length){
    await db.transaction('rw',[...timelineTables(),db.characters,db.worlds,db.worldProfiles],async()=>{const current=await db.conversations.get(c.id);if(!current?.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days)return;if(memoryScopeKey(await getMemoryScope(c.id))!==memoryScopeKey(scope))throw Error('总结作用域已变化');
-    const fresh=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)):(await activeMessages(c.id)).map(visibleMessage);
+    const fresh=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>sourceVisibleMessage(n.message)):(await activeMessages(c.id)).map(sourceVisibleMessage);
     const currentSource=fresh.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));
     if(currentSource.length||scope.mode==='world'&&current.activeTimelineId!==scope.timelineId)return;
     await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text:'',createdAt:Date.now(),sourceMessageIds:[],sourceFingerprint}]});});
@@ -99,7 +99,7 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
   const completed=resume?saved.completed.slice():[];
   if(resume&&saved.sourceSignature!==signature)await db.conversations.update(c.id,{dailyDigestCheckpoint:{...saved,sourceSignature:signature,updatedAt:Date.now()}});
   if(!resume)await db.conversations.update(c.id,{dailyDigestCheckpoint:{scope:structuredClone(scope),startDay:start,endDay:end,sourceSignature:signature,pieces,completed:[],updatedAt:Date.now()}});
-  const assertSource=async()=>{const current=await db.conversations.get(c.id);if(!current||current.dailyDigestAttempt?.token!==token||current.dailyDigestAttempt.status!=='running'||!current.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days||current.characterId!==scope.characterId||current.mode!==scope.mode||current.worldId!==scope.worldId||(scope.mode==='world'&&(current.activeTimelineId!==scope.timelineId||(current.timelineEpoch??0)!==scope.epoch)))throw Error('总结任务或作用域已变化');const rows=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)):(await activeMessages(c.id)).map(visibleMessage);const source=rows.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));if(JSON.stringify(source.map(m=>[m.id,m.role,m.createdAt,m.content,m.activeVariantId??null,(m.attachments??[]).map(a=>a.assetId)]))!==sourceSnapshot)throw Error('总结原文已变化');};
+  const assertSource=async()=>{const current=await db.conversations.get(c.id);if(!current||current.dailyDigestAttempt?.token!==token||current.dailyDigestAttempt.status!=='running'||!current.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days||current.characterId!==scope.characterId||current.mode!==scope.mode||current.worldId!==scope.worldId||(scope.mode==='world'&&(current.activeTimelineId!==scope.timelineId||(current.timelineEpoch??0)!==scope.epoch)))throw Error('总结任务或作用域已变化');const rows=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>sourceVisibleMessage(n.message)):(await activeMessages(c.id)).map(sourceVisibleMessage);const source=rows.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));if(JSON.stringify(source.map(m=>[m.id,m.role,m.createdAt,m.content,m.activeVariantId??null,(m.attachments??[]).map(a=>a.assetId)]))!==sourceSnapshot)throw Error('总结原文已变化');};
   const sourceTables=[...timelineTables(),db.characters,db.worlds,db.worldProfiles];
   const summaries:string[]=[];
   for(let index=0;index<pieces.length;index++){
@@ -141,12 +141,12 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
   const text=layer[0]??'';
   const scopeNow=await getMemoryScope(c.id);if(memoryScopeKey(scopeNow)!==memoryScopeKey(scope))return;
   const latestConversation=await db.conversations.get(c.id);if(!latestConversation)return;
-  const latestMessages=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)):(await activeMessages(c.id)).map(visibleMessage);
+  const latestMessages=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>sourceVisibleMessage(n.message)):(await activeMessages(c.id)).map(sourceVisibleMessage);
   const latestSource=latestMessages.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));
   if(JSON.stringify(latestSource.map(m=>[m.id,m.role,m.createdAt,m.content,m.activeVariantId??null,(m.attachments??[]).map(a=>a.assetId)]))!==sourceSnapshot)throw Error('总结期间历史原文已修改，已保留分片检查点，请重新检查');
   await db.transaction('rw',[...timelineTables(),db.characters,db.worlds,db.worldProfiles],async()=>{const current=await db.conversations.get(c.id);if(!current?.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days)return;if(memoryScopeKey(await getMemoryScope(c.id))!==memoryScopeKey(scope))throw Error('总结作用域已变化');
    if(current.dailyDigestAttempt?.token!==token||current.dailyDigestAttempt.status!=='running')throw Error('总结任务已失效');
-   const fresh=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)):(await activeMessages(c.id)).map(visibleMessage);
+   const fresh=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>sourceVisibleMessage(n.message)):(await activeMessages(c.id)).map(sourceVisibleMessage);
    const currentSource=fresh.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));
    if(JSON.stringify(currentSource.map(m=>[m.id,m.role,m.createdAt,m.content,m.activeVariantId??null,(m.attachments??[]).map(a=>a.assetId)]))!==sourceSnapshot)throw Error('二级总结保存时原文发生变化，未写入旧摘要');
    if(scope.mode==='world'&&current.activeTimelineId!==scope.timelineId)return;

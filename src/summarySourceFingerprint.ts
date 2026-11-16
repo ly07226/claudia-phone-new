@@ -1,9 +1,14 @@
 import Dexie from 'dexie';
 import type {Message} from './chatTypes';
 import type {SummaryReceipt} from './memorySummaryTypes';
-import {visibleMessage} from './messageBubbles';
+import {messageBubbles} from './messageBubbles';
 import {nodesForHead} from './timelines';
 export type SourceVerification='verified'|'legacy-verified'|'unverified'|'changed';
+/** Stable v3 provenance projection, independent of later display-only cleanup. */
+export function sourceVisibleMessage(m:Message):Message{
+ const parts=messageBubbles(m,false,false);
+ return {...m,content:parts.flatMap(p=>p.kind==='text'?[p.text]:[]).join(''),attachments:parts.flatMap(p=>p.kind==='image'?[{assetId:p.assetId}]:[]),bubbleDeletion:undefined};
+}
 /** SHA is external async work. Keep only an already-open Dexie transaction alive. */
 export async function sourceHash(text:string){
  const pending=crypto.subtle.digest('SHA-256',new TextEncoder().encode(text));
@@ -11,7 +16,7 @@ export async function sourceHash(text:string){
  return Array.from(new Uint8Array(bytes),v=>v.toString(16).padStart(2,'0')).join('');
 }
 export async function messageSourceFingerprint(source:readonly Message[],version:1|2|3=3){
- return sourceHash(JSON.stringify(source.map(raw=>{const m=visibleMessage(raw);const base:unknown[]=[m.id,m.role,m.createdAt,m.content];if(version>=2)base.push(m.activeVariantId??null);if(version>=3)base.push((m.attachments??[]).map(a=>a.assetId));return base;})));
+ return sourceHash(JSON.stringify(source.map(raw=>{const m=sourceVisibleMessage(raw);const base:unknown[]=[m.id,m.role,m.createdAt,m.content];if(version>=2)base.push(m.activeVariantId??null);if(version>=3)base.push((m.attachments??[]).map(a=>a.assetId));return base;})));
 }
 function sourceMessages(receipt:Pick<SummaryReceipt,'turns'>,byId:ReadonlyMap<string,Message>,positions=new Map([...byId.keys()].map((id,i)=>[id,i]))){
  const ids=receipt.turns.flatMap(t=>[...t.userIds,t.assistantId]);if(new Set(ids).size!==ids.length)return;
@@ -27,10 +32,12 @@ export async function taggedSummaryFingerprint(receipt:Pick<SummaryReceipt,'turn
  * prefix to prove attachments as well. Originals are never overwritten. */
 export function summaryVerifier(path:Message[]){
  const byId=new Map(path.map(m=>[m.id,m]));const positions=new Map([...byId.keys()].map((id,i)=>[id,i]));
- return async(receipt:SummaryReceipt):Promise<SourceVerification>=>{
-  if(!receipt.sourceFingerprint)return 'unverified';const source=sourceMessages(receipt,byId,positions);if(!source)return 'changed';
-  const hash=await messageSourceFingerprint(source);if(receipt.sourceFingerprint==='s3:'+hash||receipt.sourceFingerprint===hash)return 'verified';
-  if(!/^[0-9a-f]{64}$/.test(receipt.sourceFingerprint)||await messageSourceFingerprint(source,2)!==receipt.sourceFingerprint)return 'changed';
-  try{const nodes=await nodesForHead(receipt.scope.conversationId,receipt.throughNodeId);const original=sourceMessages(receipt,new Map(nodes.map(n=>[n.messageId,n.message])));if(!original)return 'unverified';if(await messageSourceFingerprint(original,2)!==receipt.sourceFingerprint)return 'unverified';return await messageSourceFingerprint(original)===hash?'legacy-verified':'changed';}catch{return 'unverified';}
+ return (receipt:SummaryReceipt):SourceVerification|Promise<SourceVerification>=>{
+  const fingerprint=receipt.sourceFingerprint;if(!fingerprint)return 'unverified';const source=sourceMessages(receipt,byId,positions);if(!source)return 'changed';
+  return (async():Promise<SourceVerification>=>{
+  const hash=await messageSourceFingerprint(source);if(fingerprint==='s3:'+hash||fingerprint===hash)return 'verified';
+  if(!/^[0-9a-f]{64}$/.test(fingerprint)||await messageSourceFingerprint(source,2)!==fingerprint)return 'changed';
+  try{const nodes=await nodesForHead(receipt.scope.conversationId,receipt.throughNodeId);const original=sourceMessages(receipt,new Map(nodes.map(n=>[n.messageId,n.message])));if(!original)return 'unverified';if(await messageSourceFingerprint(original,2)!==fingerprint)return 'unverified';return await messageSourceFingerprint(original)===hash?'legacy-verified':'changed';}catch{return 'unverified';}
+  })();
  };
 }

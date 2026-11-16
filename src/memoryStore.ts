@@ -1,3 +1,4 @@
+import {memoryScopeKey} from './memoryScopeKey';
 import type {SummaryReceipt} from './memorySummaryTypes';
 import {summaryVerifier} from './summarySourceFingerprint';
 import {db} from './store';
@@ -31,11 +32,17 @@ export async function getMemoryScope(conversationId:string):Promise<MemoryScope>
  */
 async function reconciled(c:Conversation){
  const state:MemoryStore=structuredClone(c.memoryStore??emptyMemoryStore());
- if(c.mode==='world')for(const t of await db.timelines.where('conversationId').equals(c.id).toArray()){
-  if(t.epoch!==(c.timelineEpoch??0)||t.status!=='live')continue;
-  const existing=state.forks.find(f=>f.timelineId===t.id);
-  if(existing){existing.summaryRevisionAtFork??=t.parentTimelineId?(c.memorySummary?.revision??0):0;continue;}
-  state.forks.push({timelineId:t.id,epoch:t.epoch,parentTimelineId:t.parentTimelineId,sharedHeadNodeId:t.forkNodeId,inheritThroughRevision:t.parentTimelineId?state.revision:0,summaryRevisionAtFork:t.parentTimelineId?(c.memorySummary?.revision??0):0});
+ if(c.mode==='world'){
+  const timelines=(await db.timelines.where('conversationId').equals(c.id).toArray()).filter(t=>t.epoch===(c.timelineEpoch??0)&&t.status==='live');
+  const byId=new Map(timelines.map(t=>[t.id,t]));const forks=new Map(state.forks.map(f=>[f.timelineId,f]));const visiting=new Set<string>();
+  const ensure=(t:MemoryTimeline):MemoryStore['forks'][number]=>{
+   const old=forks.get(t.id);if(old){old.summaryRevisionAtFork??=t.parentTimelineId?(c.memorySummary?.revision??0):0;return old;}
+   if(visiting.has(t.id))throw Error('记忆分支链存在循环');visiting.add(t.id);
+   const parent=t.parentTimelineId?byId.get(t.parentTimelineId):undefined;const inherited=parent?ensure(parent):undefined;
+   const own=parent?(state.shortHides??[]).filter(h=>h.scope.mode==='world'&&h.scope.timelineId===parent.id&&h.scope.epoch===parent.epoch).flatMap(h=>h.receiptIds):[];
+   const next={timelineId:t.id,epoch:t.epoch,parentTimelineId:t.parentTimelineId,sharedHeadNodeId:t.forkNodeId,inheritThroughRevision:t.parentTimelineId?state.revision:0,summaryRevisionAtFork:t.parentTimelineId?(c.memorySummary?.revision??0):0,hiddenSummaryIds:[...new Set([...(inherited?.hiddenSummaryIds??[]),...own])]};
+   forks.set(t.id,next);state.forks.push(next);visiting.delete(t.id);return next;
+  };for(const t of timelines)ensure(t);
  }
  if(state.forks.length>memoryLimits.forks)throw Error('记忆分支元数据已达安全容量上限，未删除旧记录。');
  return state;
@@ -90,10 +97,12 @@ export async function readShortMemory(scope:MemoryScope,maxMessages=30):Promise<
   const receipts:SummaryReceipt[]=[];const verify=summaryVerifier(rowsForProvenance);
   for(const receipt of await visibleSummaryReceipts(scope)){
    if(!receipt.shortSummary?.trim())continue;
-   if(['verified','legacy-verified'].includes(await verify(receipt)))receipts.push(receipt);
+   const value=verify(receipt);
+   if(['verified','legacy-verified'].includes(typeof value==='string'?value:await value))receipts.push(receipt);
   }
-  const recentReceipts=receipts.slice(-5);
-  return {kind:'short',scope,summaries:recentReceipts.map(r=>({text:r.shortSummary!,createdAt:r.createdAt,throughNodeId:r.throughNodeId})),context:{timelineId:t?.id,epoch:c.timelineEpoch??0,revision:t?.revision,headNodeId:t?.headNodeId},messages:rows.map(m=>({messageId:m.id,variantId:m.activeVariantId,nodeId:byMessage.get(m.id),role:m.role as 'user'|'assistant',content:m.content,assetIds:(m.attachments??[]).map(a=>a.assetId),createdAt:m.createdAt}))};
+  const state=await reconciled(c),hidden=shortSummaryHiddenIds(scope,state);
+  const recentReceipts=receipts.filter(r=>!hidden.has(r.id)).slice(-5);
+  return {kind:'short',scope,summaryRevision:c.memorySummary?.revision??0,summaries:recentReceipts.map(r=>({id:r.id,text:r.shortSummary!,createdAt:r.createdAt,throughNodeId:r.throughNodeId,turns:r.turns})),context:{timelineId:t?.id,epoch:c.timelineEpoch??0,revision:t?.revision,headNodeId:t?.headNodeId},messages:rows.map(m=>({messageId:m.id,variantId:m.activeVariantId,nodeId:byMessage.get(m.id),role:m.role as 'user'|'assistant',content:m.content,assetIds:(m.attachments??[]).map(a=>a.assetId),createdAt:m.createdAt}))};
  });
 }
 
@@ -101,15 +110,49 @@ export async function readShortMemory(scope:MemoryScope,maxMessages=30):Promise<
 export async function sealMemorySummaryForks(scope:MemoryScope){
  return db.transaction('rw',tables(),async()=>{const c=await checked(scope),state=await reconciled(c);await db.conversations.update(c.id,{memoryStore:state});});
 }
-export async function visibleSummaryReceipts(scope:MemoryScope):Promise<SummaryReceipt[]>{
+export async function visibleSummaryReceipts(scope:MemoryScope,forShortContext=false):Promise<SummaryReceipt[]>{
  return db.transaction('r',tables(),async()=>{const c=await checked(scope),receipts=c.memorySummary?.receipts??[];
-  if(scope.mode==='daily')return receipts;
+  if(scope.mode==='daily')return forShortContext?receipts.filter(r=>!shortSummaryHiddenIds(scope,c.memoryStore??emptyMemoryStore()).has(r.id)):receipts;
   const {limits,nodes}=await visibility(c,scope,await reconciled(c),true);
-  return receipts.filter(r=>r.scope.mode==='world'&&r.epoch===scope.epoch&&limits.has(r.scope.timelineId)&&r.revision<=limits.get(r.scope.timelineId)!&&nodes.has(r.throughNodeId));
+  const hidden=forShortContext?shortSummaryHiddenIds(scope,await reconciled(c)):new Set<string>();
+  return receipts.filter(r=>!hidden.has(r.id)&&r.scope.mode==='world'&&r.epoch===scope.epoch&&limits.has(r.scope.timelineId)&&r.revision<=limits.get(r.scope.timelineId)!&&nodes.has(r.throughNodeId));
  });
 }
 
 /** Visible revisions include tombstones; used only for local summary deduplication. */
 export async function listMemoryRevisions(scope:MemoryScope){
  return db.transaction('r',tables(),async()=>{const c=await checked(scope);return eligible(c,scope,await reconciled(c));});
+}
+
+/** Presentation tombstones preserve summary provenance/progress and all raw chat. */
+export function shortSummaryHiddenIds(scope:MemoryScope,state:MemoryStore){
+ return new Set([...(scope.mode==='world'?state.forks.find(f=>f.timelineId===scope.timelineId&&f.epoch===scope.epoch)?.hiddenSummaryIds??[]:[]),...(state.shortHides??[]).filter(h=>memoryScopeKey(h.scope)===memoryScopeKey(scope)).flatMap(h=>h.receiptIds)]);
+}
+export async function clearMemoryCategory(scope:MemoryScope,kind:'core'|'long'|'short',expectedRevision?:number,expectedSummaryRevision?:number){
+ if(!['core','long','short'].includes(kind))throw Error('记忆分类无效');
+ return db.transaction('rw',tables(),async()=>{
+  const c=await checked(scope),state=await reconciled(c);if(expectedRevision!==undefined&&state.revision!==expectedRevision)throw Error('记忆已变化，请重新确认清空范围。');
+  if(kind==='short'){
+   if(expectedSummaryRevision!==undefined&&expectedSummaryRevision!==(c.memorySummary?.revision??0))throw Error('短期摘要已变化，请重新确认清空范围。');
+   const ids=(await visibleSummaryReceipts(scope)).map(r=>r.id);const hidden=shortSummaryHiddenIds(scope,state);
+   state.shortHides=[...(state.shortHides??[]).filter(h=>memoryScopeKey(h.scope)!==memoryScopeKey(scope)),{scope:structuredClone(scope),receiptIds:[...new Set([...hidden,...ids])]}];
+  }else{
+   const entries=[...latest(await eligible(c,scope,state)).values()].filter(e=>!e.deleted&&e.kind===kind);
+   if(state.entries.length+entries.length>memoryLimits.events)throw Error('保留历史修订所需容量不足，未清空任何记忆。');
+   const t=scope.mode==='world'?await db.timelines.get(scope.timelineId):undefined;
+   for(const previous of entries){state.entries.push({...previous,revision:++state.revision,scope:structuredClone(scope),source:'manual',content:'',deleted:true,updatedAt:Math.max(Date.now(),previous.updatedAt),...(t?.headNodeId?{anchorNodeId:t.headNodeId}:{})});}
+  }
+  await validateMemoryStore(db,{...c,memoryStore:state});await db.conversations.update(c.id,{memoryStore:state});
+ });
+}
+/** One consistent, validated read for prompt assembly, never a cross-request cache. */
+export async function memoryContextSnapshot(scope:MemoryScope){
+ return db.transaction('r',tables(),async()=>{
+  const c=await checked(scope),state=await reconciled(c);
+  const entries=[...latest(await eligible(c,scope,state)).values()].filter(e=>!e.deleted).map(e=>({...e,inherited:scope.mode==='world'&&e.scope.mode==='world'&&e.scope.timelineId!==scope.timelineId}));
+  let receipts=c.memorySummary?.receipts??[];
+  if(scope.mode==='world'){const {limits,nodes}=await visibility(c,scope,state,true);receipts=receipts.filter(r=>r.scope.mode==='world'&&r.epoch===scope.epoch&&limits.has(r.scope.timelineId)&&r.revision<=limits.get(r.scope.timelineId)!&&nodes.has(r.throughNodeId));}
+  const hidden=shortSummaryHiddenIds(scope,state);
+  return {owner:c,scope,entries,receipts,shortReceipts:receipts.filter(r=>!hidden.has(r.id))};
+ });
 }

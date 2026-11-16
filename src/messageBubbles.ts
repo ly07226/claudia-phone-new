@@ -16,7 +16,7 @@ export function validateBubbleDeletion(m:Message){
  const bounds=new Set(originals.flatMap(p=>p.kind==='text'?[p.start,p.end]:[]));
  if(d.text.some(p=>!p||p.kind!=='text'||!validPart(p)||!bounds.has(p.start)||!bounds.has(p.end)||m.content.slice(p.start,p.end)!==p.text)||new Set(d.text.map(partKey)).size!==d.text.length||d.images.some(id=>!originals.some(p=>p.kind==='image'&&p.assetId===id)))throw Error('气泡删除标记与原文或图片不匹配。');
 }
-export function messageBubbles(m:Message,legacy=false):BubblePart[]{
+export function messageBubbles(m:Message,legacy=false,sanitizeTimeMarkers=true):BubblePart[]{
  validateBubbleDeletion(m);const d=m.bubbleDeletion;
  return originalBubbles(m,legacy).flatMap<BubblePart>(p=>{
   if(p.kind==='image')return d?.images.includes(p.assetId)?[]:[p];
@@ -27,7 +27,7 @@ export function messageBubbles(m:Message,legacy=false):BubblePart[]{
   });
   return spans.flatMap(s=>{
     if(!s.text.trim())return [];
-    if(m.role!=='assistant')return [s];
+    if(m.role!=='assistant'||!sanitizeTimeMarkers)return [s];
     return visibleWithoutLeakedTimeMarkers(s.text).flatMap(({start,end})=>{
       const text=s.text.slice(start,end);
       return text.trim()?[{kind:'text' as const,start:s.start+start,end:s.start+end,text}]:[];

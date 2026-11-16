@@ -1,9 +1,9 @@
 import {memoryScopeKey} from './memoryScopeKey';
 import {db} from './store';
-import {summaryVerifier,sourceHash} from './summarySourceFingerprint';
+import {summaryVerifier,sourceHash,sourceVisibleMessage} from './summarySourceFingerprint';
 import {visibleMessage} from './messageBubbles';
 import {nextOccurrence,localDay,addDays} from './smartTimeMemory';
-import {getMemoryScope,listMemories,visibleSummaryReceipts} from './memoryStore';
+import {getMemoryScope,memoryContextSnapshot} from './memoryStore';
 import {timelineTables,nodesForHead,messageFingerprint,getTimelineAncestors} from './timelines';
 import type {Conversation,Message} from './chatTypes';
 import type {EffectiveMemory} from './memoryTypes';
@@ -33,7 +33,8 @@ export function selectMemoryContext(entries:EffectiveMemory[],query:string,remai
  const facts:{kind:string;source:string;fact:string}[]=[];
  const render=()=>intro+json(facts)+outro;
  let skippedBudget=0;
- for(const {entry} of ranked){
+ for(const [index,{entry}] of ranked.entries()){
+  if(facts.length>=memoryContextLimits.entries){skippedBudget+=ranked.length-index;break;}
   const row={kind:entry.kind,source:entry.source,fact:entry.content};
   const text=intro+json([...facts,row])+outro;
   // A prefix can invert a fact by losing its trailing negation, condition or date.
@@ -49,14 +50,14 @@ export function selectMemoryContext(entries:EffectiveMemory[],query:string,remai
  * prefix, not just somewhere in the full currently selected timeline.
  */
 export async function memoryContext(c:Conversation,requestPath:Message[],remainingChars:number){
- let status:MemoryContextTrace['status']='read-failed',failureStage='entries';
+ let status:MemoryContextTrace['status']='read-failed',failureStage='entries';let snapshot:Awaited<ReturnType<typeof memoryContextSnapshot>>|undefined;
  try{
   const entries=await db.transaction('rw',[...timelineTables(),db.characters,db.worlds,db.worldProfiles],async()=>{
    const current=await db.conversations.get(c.id);
    if(!current)return []; // Digests and time reminders can still be injected without explicit memory entries.
    const scope=await getMemoryScope(c.id);
    if(scope.characterId!==c.characterId||scope.mode!==c.mode||scope.worldId!==c.worldId||(scope.mode==='world'&&((c.activeTimelineId&&scope.timelineId!==c.activeTimelineId)||scope.epoch!==(c.timelineEpoch??0)))){status='scope-changed';throw Error('memory scope changed');}
-   const {entries}=await listMemories(scope);
+   snapshot=await memoryContextSnapshot(scope);const {entries}=snapshot;
    if(scope.mode==='daily'||!entries.length)return entries; // daily memories deliberately do not branch
    const t=await db.timelines.get(scope.timelineId);if(!t){status='scope-changed';throw Error('memory path changed');}
    const nodes=await nodesForHead(c.id,t.headNodeId),allowed=new Set<string>();
@@ -73,10 +74,12 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   const query=[...recent,...pending.filter(m=>!recent.some(r=>r.id===m.id))].map(m=>m.content).join('\n');
   // A source edit/delete must invalidate every derived automatic fact before
   // selection, not just the visible text of the primary/secondary summary.
-  failureStage='receipt-scope';const receiptScope=await getMemoryScope(c.id);
-  const receiptsForSource=await visibleSummaryReceipts(receiptScope);
+  failureStage='receipt-scope';if(!snapshot)throw Error('missing memory snapshot');
+  const receiptsForSource=snapshot.receipts;
   const validReceiptIds=new Set<string>();const verify=summaryVerifier(requestPath);
+  const requiredReceiptIds=new Set(entries.filter(e=>e.source==='auto'&&e.sourceReceiptId).map(e=>e.sourceReceiptId));
   failureStage='receipt-verification';for(const receipt of receiptsForSource){
+   if(!receipt.shortSummary?.trim()&&!requiredReceiptIds.has(receipt.id))continue;
    if(['verified','legacy-verified'].includes(await verify(receipt)))validReceiptIds.add(receipt.id);
   }
   const reliableEntries=entries.filter(e=>e.source!=='auto'||(!!e.sourceReceiptId&&validReceiptIds.has(e.sourceReceiptId)));
@@ -84,8 +87,8 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   // Include only receipts visible on the active branch AND completed within
   // the exact request prefix. Regeneration must not read future events.
   failureStage='history';if(remainingChars>selected.text.length+300){
-   const scope=await getMemoryScope(c.id);
-   const receipts=await visibleSummaryReceipts(scope);
+   const scope=snapshot.scope;
+   const receipts=snapshot.shortReceipts;
    let safe=receipts.filter(r=>validReceiptIds.has(r.id));
    if(scope.mode==='world'){
     const timeline=await db.timelines.get(scope.timelineId);
@@ -107,9 +110,9 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   // Secondary digests are independently derived from full original messages.
   // Only inject completed calendar windows entirely preceding this request path.
   // Never expose later events while regenerating an earlier branch.
-  failureStage='digest-scope';const scope=await getMemoryScope(c.id);
+  failureStage='digest-scope';const scope=snapshot.scope;
   const prefixLast=Math.max(...requestPath.map(m=>m.createdAt),0);
-  const current=await db.conversations.get(c.id);
+  const current=snapshot.owner;
   const sameScope=(a:unknown)=>memoryScopeKey(a as typeof scope)===memoryScopeKey(scope);
   // Parent-branch digests may be inherited only when every source message is
   // still present and identical in the actual request prefix. Never inherit
@@ -122,7 +125,7 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
    if(scope.mode==='daily')return sameScope(candidate);
    return candidate.mode==='world'&&candidate.worldId===scope.worldId&&candidate.spaceId===scope.spaceId&&candidate.epoch===scope.epoch&&ancestorIds.has(candidate.timelineId);
   };
-  const pathById=new Map(requestPath.map(m=>{const visible=visibleMessage(m);return [visible.id,visible] as const;}));
+  const pathById=new Map(requestPath.map(m=>{const visible=sourceVisibleMessage(m);return [visible.id,visible] as const;}));
   const digests:NonNullable<NonNullable<typeof current>['dailyDigests']> = [];
   for(const d of current?.dailyDigests??[]){
    if(!eligibleDigestScope(d.scope)||dayEnd(d.endDay)>prefixLast||!d.sourceMessageIds||!d.sourceFingerprint)continue;
