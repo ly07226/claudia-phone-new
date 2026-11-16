@@ -9,7 +9,7 @@ const service=env.SUPABASE_SERVICE_ROLE_KEY;
 const raw=Buffer.from(env.WECHAT_ILINK_ENCRYPTION_KEY||'','base64');
 if(!base||!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(base)||!service||raw.length!==32)
  throw Error('Missing personal Supabase service credentials or encryption key');
-const {webcrypto}=await import('node:crypto');
+const {webcrypto,randomUUID}=await import('node:crypto');
 const {setTimeout:sleep}=await import('node:timers/promises');
 const cryptoKey=await webcrypto.subtle.importKey('raw',raw,'AES-GCM',false,['decrypt']);
 async function decrypt(value){
@@ -41,7 +41,7 @@ async function next(){
  const allowed=new Set(profiles.map(p=>p.binding_id));
  const candidate=ready.find(r=>allowed.has(r.binding_id));
  if(!candidate)return false;
- const workerId=crypto.randomUUID();
+ const workerId=randomUUID();
  const rows=await rpc('claudia_wechat_claim_inbound_for_binding',{
   p_binding_id:candidate.binding_id,p_worker_id:workerId,p_lease_seconds:240});
  const row=rows?.[0];
@@ -100,7 +100,7 @@ async function next(){
   const data=await response.json();
   const text=data?.choices?.[0]?.message?.content;
   if(typeof text!=='string'||!text.trim()||text.length>8000||
-   data?.choices?.[0]?.finish_reason==='length')
+   !['stop'].includes(data?.choices?.[0]?.finish_reason))
    throw Error('invalid_model_reply');
   reply=text.trim();
  }catch(error){
