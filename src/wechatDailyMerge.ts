@@ -17,7 +17,7 @@ function eligible(row:WechatSyncedMessage):boolean {
 export async function mergeWechatDailyPage(
  page:WechatSyncPage,
  expected:{conversationId:string;characterId:string;timelineId?:string;epoch:number}
-):Promise<{added:number;skipped:number}>{
+):Promise<{added:number;skipped:number;nextSeq:number;hasMore:boolean}>{
  if(page.binding.conversationId!==expected.conversationId||
     page.binding.characterId!==expected.characterId||
     page.binding.status!=='connected')
@@ -25,9 +25,11 @@ export async function mergeWechatDailyPage(
  const seen=new Set<string>();
  for(const row of page.messages){
   if(!row||!row.id||seen.has(row.id)||typeof row.body!=='string'||
-     !['inbound','outbound'].includes(row.direction))
+     !['inbound','outbound'].includes(row.direction)||
+     !Number.isSafeInteger(row.sync_seq)||row.sync_seq<=lastSeq)
    throw Error('微信同步消息无效。');
   seen.add(row.id);
+  lastSeq=row.sync_seq;
  }
  return db.transaction('rw',timelineTables(),async()=>{
   const c=await db.conversations.get(expected.conversationId);
@@ -38,13 +40,22 @@ export async function mergeWechatDailyPage(
   if(c.sendingToken&&c.sendingUntil&&c.sendingUntil>Date.now())
     throw Error('角色正在回复，暂不合并微信消息。');
   await ensureTimelineInTransaction(c.id);
+  const stored=c.wechatSync;
+  if(stored&&stored.bindingId!==page.binding.id)
+    throw Error('微信绑定已改变，禁止复用旧同步游标。');
+  const cursor=stored?.nextSeq??0;
+  if(page.messages.length&&page.messages[0].sync_seq<=cursor)
+    throw Error('微信同步页面与本地游标不匹配。');
   const existing=await activeMessages(c.id);
   const activeIds=new Set(existing.map(m=>m.id));
   const additions:Message[]=[];
   const variants:MessageVariant[]=[];
   let skipped=0;
+  let nextSeq=cursor;
   for(const row of page.messages){
-   if(!eligible(row)){skipped++;continue;}
+   // An unsent outbound reply can become sent later. Do not advance past it.
+   if(!eligible(row))break;
+   nextSeq=row.sync_seq;
    const id=messageId(row.id);
    if(activeIds.has(id)){skipped++;continue;}
    // If a previous sync inserted this message on a now-inactive branch,
@@ -65,13 +76,16 @@ export async function mergeWechatDailyPage(
    additions.push(m);
    activeIds.add(id);
   }
-  if(!additions.length)return {added:0,skipped};
+  if(!additions.length){
+   await db.conversations.update(c.id,{wechatSync:{bindingId:page.binding.id,nextSeq}});
+   return {added:0,skipped,nextSeq,hasMore:page.hasMore||nextSeq<page.nextSeq};
+  }
   // Do not reorder an existing local timeline based on delayed remote timestamps.
   // New remote messages append in server commit sequence.
   await db.messages.bulkAdd(additions);
   if(variants.length)await db.messageVariants.bulkAdd(variants);
   await commitTimelineProjection(c.id,'append');
-  await db.conversations.update(c.id,{updatedAt:Date.now()});
-  return {added:additions.length,skipped};
+  await db.conversations.update(c.id,{updatedAt:Date.now(),wechatSync:{bindingId:page.binding.id,nextSeq}});
+  return {added:additions.length,skipped,nextSeq,hasMore:page.hasMore||nextSeq<page.nextSeq};
  });
 }
