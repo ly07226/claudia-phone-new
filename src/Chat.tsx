@@ -154,9 +154,20 @@ export function Chat({ worldId }: { worldId?: string }) {
   useLayoutEffect(()=>{
     if(management || !historyRef.current)return;
     const history=historyRef.current;
-    if(jumpTo.current){const target=Array.from(history.querySelectorAll<HTMLElement>("[data-message-id]")).find(el=>el.dataset.messageId===jumpTo.current);if(target){history.scrollTop+=target.getBoundingClientRect().top-history.getBoundingClientRect().top-history.clientHeight/3;history.querySelectorAll(".chat-message-highlight").forEach(el=>el.classList.remove("chat-message-highlight"));target.classList.add("chat-message-highlight");clearTimeout(highlightTimer.current);highlightTimer.current=setTimeout(()=>target.classList.remove("chat-message-highlight"),2400);followBottom.current=false;}jumpTo.current=null;savedScroll.current=null;}
+    if(jumpTo.current){
+      const targetId=jumpTo.current;
+      const index=messages.findIndex(m=>m.id===targetId);
+      if(index>=0&&messages.length-index>visibleMessageLimit){
+        followBottom.current=false;
+        setVisibleMessageLimit(Math.ceil((messages.length-index)/100)*100);
+        return;
+      }
+      const target=Array.from(history.querySelectorAll<HTMLElement>("[data-message-id]")).find(el=>el.dataset.messageId===targetId);
+      if(target){history.scrollTop+=target.getBoundingClientRect().top-history.getBoundingClientRect().top-history.clientHeight/3;history.querySelectorAll(".chat-message-highlight").forEach(el=>el.classList.remove("chat-message-highlight"));target.classList.add("chat-message-highlight");clearTimeout(highlightTimer.current);highlightTimer.current=setTimeout(()=>target.classList.remove("chat-message-highlight"),2400);followBottom.current=false;}
+      jumpTo.current=null;savedScroll.current=null;
+    }
     else if(savedScroll.current!==null){history.scrollTop=savedScroll.current;savedScroll.current=null;}
-  },[management]);
+  },[management,visibleMessageLimit,messages]);
   const pendingQuoteJump=useRef<{id:string;part:BubblePart}|null>(null);
   const quoteJumpApplied=useRef(false);
   function locateQuote(id:string,part:BubblePart){
