@@ -19,22 +19,22 @@ test('日常全局世界书超预算时不中断聊天',async({page})=>{
  expect(result.partialStatus).toBe('omitted');
 });
 
-test('常驻世界书超预算时跳过并继续处理其他条目',async({page})=>{
+test('常驻世界书优先保留完整规则片段，超预算不中断',async({page})=>{
  await isolatedApp(page,'lore-constant-overflow-'+crypto.randomUUID());
  const result=await page.evaluate(async()=>{
   const {newBook,newEntry}=await import('/src/loreTypes.ts');
   const {planLore}=await import('/src/loreEngine.ts');
   const book={...newBook(),global:true,charBudget:200};
-  const large={...newEntry(book.id),id:'large',constant:true,content:'必须遵守的完整规则'.repeat(30),priority:200};
-  const small={...newEntry(book.id),id:'small',constant:true,content:'短常驻规则',priority:100};
-  const planned=planLore([{entry:large,book},{entry:small,book}],[],30,()=>0);
-  return {entries:planned.entries.map(e=>e.id),reasons:planned.diagnostics.map(d=>({id:d.entryId,reason:d.reason,completeness:d.completeness}))};
+  const large={...newEntry(book.id),id:'large',constant:true,content:'必须遵守规则一。必须遵守规则二。必须遵守规则三。',priority:200};
+  const small={...newEntry(book.id),id:'small',constant:true,content:'短常驻规则。',priority:100};
+  const planned=planLore([{entry:large,book},{entry:small,book}],[],22,()=>0);
+  return {entries:planned.entries.map(e=>({id:e.id,content:e.content})),reasons:planned.diagnostics.map(d=>({id:d.entryId,reason:d.reason,completeness:d.completeness}))};
  });
- expect(result.entries).toEqual(['small']);
- expect(result.reasons).toContainEqual({id:'large',reason:'context-budget',completeness:'omitted'});
- expect(result.reasons).toContainEqual({id:'small',reason:'injected',completeness:'full'});
+ expect(result.entries[0]?.id).toBe('large');
+ expect(result.entries[0]?.content).toContain('必须遵守规则一。');
+ expect(result.reasons).toContainEqual({id:'large',reason:'injected',completeness:'partial'});
+ expect(result.reasons).toContainEqual({id:'small',reason:'context-budget',completeness:'omitted'});
 });
-
 
 test('世界书优先级与完整性：高优先级先占预算，部分注入可诊断',async({page})=>{
  await isolatedApp(page,'lore-priority-'+crypto.randomUUID());
