@@ -16,7 +16,7 @@ function eligible(row:WechatSyncedMessage):boolean {
 }
 export async function mergeWechatDailyPage(
  page:WechatSyncPage,
- expected:{conversationId:string;characterId:string;timelineId?:string;epoch:number}
+ expected:{conversationId:string;characterId:string;timelineId?:string;epoch:number;afterSeq?:number}
 ):Promise<{added:number;skipped:number;nextSeq:number;hasMore:boolean}>{
  if(page.binding.conversationId!==expected.conversationId||
     page.binding.characterId!==expected.characterId||
@@ -44,6 +44,8 @@ export async function mergeWechatDailyPage(
   if(stored&&stored.bindingId!==page.binding.id)
     throw Error('微信绑定已改变，禁止复用旧同步游标。');
   const cursor=stored?.nextSeq??0;
+  if(expected.afterSeq!==undefined&&cursor!==expected.afterSeq)
+    throw Error('微信同步游标已被其他窗口更新，请重新拉取。');
   if(page.messages.length&&page.messages[0].sync_seq<=cursor)
     throw Error('微信同步页面与本地游标不匹配。');
   const existing=await activeMessages(c.id);
