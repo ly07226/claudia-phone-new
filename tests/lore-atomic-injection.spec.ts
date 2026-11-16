@@ -52,3 +52,17 @@ test('世界书优先级与完整性：高优先级先占预算，部分注入�
  expect(result.status).toContainEqual({id:'high',completeness:'partial'});
  expect(result.status).toContainEqual({id:'low',completeness:'omitted'});
 });
+
+test('世界书限制条件不能脱离主规则单独注入',async({page})=>{
+ await isolatedApp(page,'lore-dependent-'+crypto.randomUUID());
+ const result=await page.evaluate(async()=>{
+  const {retrieveLorePassages}=await import('/src/loreEngine.ts');
+  const content='角色可以主动提出建议。但是不能替用户决定行动。角色喜欢喝茶。';
+  return {
+   short:retrieveLorePassages(content,[],10),
+   enough:retrieveLorePassages(content,[],30)
+  };
+ });
+ expect(result.short).not.toContain('不能替用户决定行动');
+ expect(result.enough).toContain('角色可以主动提出建议。但是不能替用户决定行动。');
+});
