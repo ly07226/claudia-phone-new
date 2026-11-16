@@ -55,6 +55,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const [visibleMessageLimit,setVisibleMessageLimit]=useState(100);
   const historyWindowRef=useRef<{height:number;top:number}|null>(null);
   const loadingEarlierRef=useRef(false);
+  const previousHistoryScrollTop=useRef<number|null>(null);
   // Only an already opted-in cloud device reports foreground chat presence.
   // No login prompt, no automatic anonymous signup for ordinary local chats.
   useEffect(()=>{
@@ -317,6 +318,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     appliedSnapshot.current=null;
     historyWindowRef.current=null;
     loadingEarlierRef.current=false;
+    previousHistoryScrollTop.current=null;
     pendingQuoteJump.current=null;
     setVisibleMessageLimit(100);
     setMessages([]);
@@ -502,6 +504,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     }
     quoteJumpApplied.current=false;
     loadingEarlierRef.current=false;
+    previousHistoryScrollTop.current=el?.scrollTop??null;
   },[visibleMessageLimit]);
   // Keep expensive message bubble JSX stable while the composer text changes.
   // Include state read by message actions so menus, versions and continuations stay current.
@@ -619,7 +622,11 @@ export function Chat({ worldId }: { worldId?: string }) {
                 el.scrollHeight - el.scrollTop - el.clientHeight < 64;
               // Progressive history: loading is automatic and uses exactly
               // the same ChatMessage/CSS renderer as recent messages.
-              if(el.scrollTop<180 && messages.length>visibleMessageLimit && !loadingEarlierRef.current && !historyWindowRef.current){
+              const previousTop=previousHistoryScrollTop.current;
+              previousHistoryScrollTop.current=el.scrollTop;
+              // Do not interpret initial mount or programmatic scroll-to-bottom
+              // as a user request to expand history.
+              if(previousTop!==null && el.scrollTop<previousTop && el.scrollTop<180 && messages.length>visibleMessageLimit && !loadingEarlierRef.current && !historyWindowRef.current){
                 loadingEarlierRef.current=true;
                 historyWindowRef.current={height:el.scrollHeight,top:el.scrollTop};
                 followBottom.current=false;
