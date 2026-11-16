@@ -41,7 +41,7 @@ export async function validateMemoryStore(d:Dexie,c:Conversation){
    check(e.anchorNodeId===undefined||id(e.anchorNodeId));
    // Clearing a world conversation increments its existing epoch and removes its
    // old paths. Preserve retired provenance, but never resolve it as current memory.
-   if(e.scope.epoch===currentEpoch){const t=timelines.get(e.scope.timelineId);check(t&&t.epoch===e.scope.epoch&&t.characterId===c.characterId&&t.worldId===c.worldId);if(e.anchorNodeId)check((await path(t)).has(e.anchorNodeId));}
+   if(e.scope.epoch===currentEpoch){const t=timelines.get(e.scope.timelineId);check(t&&t.epoch===e.scope.epoch&&t.characterId===c.characterId&&t.worldId===c.worldId);if(e.anchorNodeId)check((paths.get(t.id)??await path(t)).has(e.anchorNodeId));}
   }
  }
 }

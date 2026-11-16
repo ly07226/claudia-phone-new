@@ -13,7 +13,7 @@ import type {EffectiveMemory} from './memoryTypes';
  */
 export const memoryContextLimits={tokens:2000,entryTokens:640,entries:12,queryChars:1200};
 export const memoryTokenCost=(text:string)=>new TextEncoder().encode(text).length;
-export interface MemoryContextTrace {status:'injected'|'empty'|'budget'|'read-failed'|'scope-changed'|'irrelevant';eligible:number;selected:number;truncated:number;estimatedTokens:number;skippedIrrelevant:number;skippedBudget:number;skippedSource?:number}
+export interface MemoryContextTrace {status:'injected'|'empty'|'budget'|'read-failed'|'scope-changed'|'irrelevant';eligible:number;selected:number;truncated:number;estimatedTokens:number;skippedIrrelevant:number;skippedBudget:number;skippedSource?:number;failureStage?:string;errorType?:string}
 const traces=new Map<string,MemoryContextTrace>();
 function trace(id:string,value:MemoryContextTrace){traces.delete(id);traces.set(id,{...value});while(traces.size>10)traces.delete(traces.keys().next().value!);}
 /** Bounded, volatile metadata only: no memory/message text, raw errors or secrets. */
@@ -49,7 +49,7 @@ export function selectMemoryContext(entries:EffectiveMemory[],query:string,remai
  * prefix, not just somewhere in the full currently selected timeline.
  */
 export async function memoryContext(c:Conversation,requestPath:Message[],remainingChars:number){
- let status:MemoryContextTrace['status']='read-failed';
+ let status:MemoryContextTrace['status']='read-failed',failureStage='entries';
  try{
   const entries=await db.transaction('rw',[...timelineTables(),db.characters,db.worlds,db.worldProfiles],async()=>{
    const current=await db.conversations.get(c.id);
@@ -73,17 +73,17 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   const query=[...recent,...pending.filter(m=>!recent.some(r=>r.id===m.id))].map(m=>m.content).join('\n');
   // A source edit/delete must invalidate every derived automatic fact before
   // selection, not just the visible text of the primary/secondary summary.
-  const receiptScope=await getMemoryScope(c.id);
+  failureStage='receipt-scope';const receiptScope=await getMemoryScope(c.id);
   const receiptsForSource=await visibleSummaryReceipts(receiptScope);
   const validReceiptIds=new Set<string>();const verify=summaryVerifier(requestPath);
-  for(const receipt of receiptsForSource){
+  failureStage='receipt-verification';for(const receipt of receiptsForSource){
    if(['verified','legacy-verified'].includes(await verify(receipt)))validReceiptIds.add(receipt.id);
   }
   const reliableEntries=entries.filter(e=>e.source!=='auto'||(!!e.sourceReceiptId&&validReceiptIds.has(e.sourceReceiptId)));
-  const selected=selectMemoryContext(reliableEntries,query,remainingChars);
+  failureStage='selection';const selected=selectMemoryContext(reliableEntries,query,remainingChars);
   // Include only receipts visible on the active branch AND completed within
   // the exact request prefix. Regeneration must not read future events.
-  if(remainingChars>selected.text.length+300){
+  failureStage='history';if(remainingChars>selected.text.length+300){
    const scope=await getMemoryScope(c.id);
    const receipts=await visibleSummaryReceipts(scope);
    let safe=receipts.filter(r=>validReceiptIds.has(r.id));
@@ -107,7 +107,7 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   // Secondary digests are independently derived from full original messages.
   // Only inject completed calendar windows entirely preceding this request path.
   // Never expose later events while regenerating an earlier branch.
-  const scope=await getMemoryScope(c.id);
+  failureStage='digest-scope';const scope=await getMemoryScope(c.id);
   const prefixLast=Math.max(...requestPath.map(m=>m.createdAt),0);
   const current=await db.conversations.get(c.id);
   const sameScope=(a:unknown)=>memoryScopeKey(a as typeof scope)===memoryScopeKey(scope);
@@ -153,7 +153,8 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   if(timeBlock&&memoryTokenCost(timeBlock)<=650&&selected.estimatedTokens+memoryTokenCost(timeBlock)<=memoryContextLimits.tokens&&selected.text.length+timeBlock.length<=remainingChars){selected.text+=timeBlock;selected.estimatedTokens+=memoryTokenCost(timeBlock);}
   trace(c.id,{status:selected.text?'injected':selected.skippedBudget?'budget':selected.skippedIrrelevant?'irrelevant':'empty',eligible:entries.length,skippedSource:entries.length-reliableEntries.length,selected:selected.selected,truncated:selected.truncated,estimatedTokens:selected.estimatedTokens,skippedIrrelevant:selected.skippedIrrelevant,skippedBudget:selected.skippedBudget});
   return selected.text;
- }catch{
-  trace(c.id,{status,eligible:0,selected:0,truncated:0,estimatedTokens:0,skippedIrrelevant:0,skippedBudget:0});return '';
+ }catch(error){
+  const errorType=error instanceof Error&&/^[A-Za-z]{1,50}$/.test(error.name)?error.name:'UnknownError';
+  trace(c.id,{status,failureStage,errorType,eligible:0,selected:0,truncated:0,estimatedTokens:0,skippedIrrelevant:0,skippedBudget:0});return '';
  }
 }

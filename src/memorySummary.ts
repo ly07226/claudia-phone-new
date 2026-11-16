@@ -72,6 +72,7 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   const group=full?[]:data.turns.slice(0,state.interval);
   let inputs:string[]=[];let attemptedTokens=memoryTokenCost(system),oversized=false;
   if(group.length){
+   attemptedTokens=memoryTokenCost(system)+memoryTokenCost(JSON.stringify(group.map(x=>x.messages)));
    try{inputs=buildSummaryInputs(group,system,summaryLimits.inputTokens);}
    catch{oversized=true;}
   }
