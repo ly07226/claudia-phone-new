@@ -30,10 +30,12 @@ Deno.serve(async request=>{
    if(!value||typeof value!=="object"||Array.isArray(value))throw Error();
    payload=value as Record<string,unknown>;
  }catch{return json(400,{error:"invalid_json"});}
- const {bindingId,externalMessageId,text}=payload;
+ const {bindingId,externalMessageId,text,peerId,contextToken}=payload;
  if(typeof bindingId!=="string"||!uuid.test(bindingId)||
     typeof externalMessageId!=="string"||externalMessageId.length<1||externalMessageId.length>256||
-    typeof text!=="string"||!text.trim()||text.length>8000)
+    typeof text!=="string"||!text.trim()||text.length>8000||
+    typeof peerId!=="string"||!peerId||peerId.length>1024||
+    typeof contextToken!=="string"||!contextToken||contextToken.length>2048)
    return json(400,{error:"invalid_event"});
  // The trusted worker MUST first verify the iLink event and resolve the
  // account-specific binding. A caller-provided owner ID is never trusted.
@@ -42,9 +44,22 @@ Deno.serve(async request=>{
    .select("id,user_id,status").eq("id",bindingId).maybeSingle();
  if(bindingError)return json(500,{error:"binding_lookup_failed"});
  if(!binding||binding.status!=="connected")return json(404,{error:"binding_not_connected"});
- const {data:id,error}=await admin.rpc("claudia_wechat_receive_text",{
+ const encryptionKey=Deno.env.get("WECHAT_ILINK_ENCRYPTION_KEY")||"";
+ let rawKey:Uint8Array;
+ try{rawKey=Uint8Array.from(atob(encryptionKey),ch=>ch.charCodeAt(0));}
+ catch{return json(503,{error:"encryption_not_configured"});}
+ if(rawKey.length!==32)return json(503,{error:"encryption_not_configured"});
+ const key=await crypto.subtle.importKey("raw",rawKey,"AES-GCM",false,["encrypt"]);
+ const seal=async(value:string)=>{
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const encrypted=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},key,encoder.encode(value)));
+  const b64=(data:Uint8Array)=>btoa(String.fromCharCode(...data));
+  return b64(iv)+"."+b64(encrypted);
+ };
+ const {data:id,error}=await admin.rpc("claudia_wechat_receive_routed_text",{
    p_user_id:binding.user_id,p_binding_id:binding.id,
-   p_external_message_id:externalMessageId,p_body:text
+   p_external_message_id:externalMessageId,p_body:text,
+   p_peer_ciphertext:await seal(peerId),p_context_ciphertext:await seal(contextToken)
  });
  if(error||typeof id!=="string")return json(500,{error:"message_ingest_failed"});
  return json(202,{ok:true,messageId:id});
