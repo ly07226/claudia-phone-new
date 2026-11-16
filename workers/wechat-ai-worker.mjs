@@ -1,4 +1,4 @@
-import {selectSourceMemories,formatSourceMemories} from './wechat-memory-retrieval.mjs';
+import {tokens,selectSourceMemories,formatSourceMemories} from './wechat-memory-retrieval.mjs';
 // Server-only cloud AI generation worker (Node 20+).
 // Fail closed: only explicitly provisioned, enabled per-binding profiles can run.
 // First iteration supports OpenAI-compatible chat completions only.
@@ -71,12 +71,12 @@ async function next(){
    '&order=received_at.desc&limit=24');
   // Search a bounded older window, not just the most recent 24 messages.
   // Every recalled snippet retains its original message ID and timestamp.
-  const archive=await request('claudia_wechat_messages?binding_id=eq.'+row.binding_id+
-   '&received_at=gt.'+encodeURIComponent(snapshot.history_cutoff)+
-   '&received_at=lt.'+encodeURIComponent(row.received_at)+
-   '&status=in.(received,processing,generated,sent)&select=id,direction,body,status,received_at'+
-   '&order=received_at.desc&limit=500');
   const recentIds=new Set((history||[]).map(m=>m.id));
+  const terms=[...tokens(row.body)].filter(t=>t.length>=2&&t.length<=40).slice(0,16);
+  // Search the durable database, not an arbitrary last-500-message window.
+  // This RPC is service-role only and enforces the binding's consent boundary.
+  const archive=terms.length?await rpc('claudia_wechat_search_history',{
+   p_binding_id:row.binding_id,p_before:row.received_at,p_terms:terms,p_limit:12}):[];
   const memories=selectSourceMemories((archive||[]).filter(m=>!recentIds.has(m.id)),row.body);
   const memoryContext=formatSourceMemories(memories);
   const messages=(history||[]).reverse().filter(m=>
