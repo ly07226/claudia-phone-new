@@ -14,6 +14,7 @@ export interface LoreDiagnostic {
   crossMessageMatch: boolean;
   attribution: "first-match-per-key" | "unavailable";
   outcome: "injected" | "skipped";
+  completeness: "full" | "partial" | "omitted";
   reason: LoreSkipReason;
 }
 const ref = (m: Message): LoreMessageRef => ({id:m.id,role:m.role as LoreMessageRef["role"]});
@@ -39,7 +40,7 @@ function scanBuffer(messages: Message[], foldCase = false) {
 }
 function assess(raw: LoreEntry, b: Lorebook, h: Message[], random: () => number, regex?: RegexHits) {
   const e = normalizeEntry(raw);
-  const d: LoreDiagnostic = {entryId:e.id,lorebookId:b.id,triggerMode:e.constant?"constant":e.triggerMode!,scanAssistant:e.constant || e.triggerMode === "instant" ? null : e.scanAssistant!,scannedMessageCount:0,matchedMessages:[],crossMessageMatch:false,attribution:"first-match-per-key",outcome:"skipped",reason:"primary-miss"};
+  const d: LoreDiagnostic = {entryId:e.id,lorebookId:b.id,triggerMode:e.constant?"constant":e.triggerMode!,scanAssistant:e.constant || e.triggerMode === "instant" ? null : e.scanAssistant!,scannedMessageCount:0,matchedMessages:[],crossMessageMatch:false,attribution:"first-match-per-key",outcome:"skipped",completeness:"omitted",reason:"primary-miss"};
   const fail = (reason:LoreSkipReason) => ({eligible:false,diagnostic:{...d,reason}});
   if (!b.enabled) return fail("book-disabled");
   if (!e.enabled) return fail("entry-disabled");
@@ -61,13 +62,16 @@ function assess(raw: LoreEntry, b: Lorebook, h: Message[], random: () => number,
       const hit=(key:string)=>{
         if(!key) return false;
         const needle=e.caseSensitive?key:key.toLowerCase();
-        const start=buffer.text.indexOf(needle);
-        if(start<0) return false;
-        const end=start+needle.length;
-        const origins=buffer.spans.filter(span=>span.start<end&&span.end>start);
-        d.crossMessageMatch ||= origins.length>1;
-        for(const origin of origins) matches.set(origin.id,{id:origin.id,role:origin.role});
-        return true;
+        // Match within a single message only. Joining messages with newlines
+        // could fabricate a trigger across two unrelated turns.
+        let found=false;
+        for(const span of buffer.spans){
+          if(buffer.text.slice(span.start,span.end).includes(needle)){
+            matches.set(span.id,{id:span.id,role:span.role});
+            found=true;
+          }
+        }
+        return found;
       };
       primary=e.primaryKeys.map(hit);secondary=e.secondaryKeys.map(hit);
       d.matchedMessages=[...matches.values()];
@@ -90,19 +94,33 @@ export function retrieveLorePassages(content:string,history:Message[],budget:num
   if(budget<=0)return "";
   const query=history.filter(m=>m.role==="user").slice(-3).map(m=>m.content).join(" ").toLowerCase();
   const terms=[...new Set((query.match(/[\p{Script=Han}]{2,4}|[a-z0-9]{3,}/gu)||[]))].slice(0,80);
+  // Preserve explicit qualifications with the preceding rule. A sentence like
+  // "但是不能替用户决定" must never be selected without its governing rule.
   const chunks:string[]=[];
   for(const paragraph of content.split(/\n{2,}/)){
-    for(let i=0;i<paragraph.length;i+=700)chunks.push(paragraph.slice(i,i+700));
+    // A fitting paragraph is an atomic unit: preserve implicit qualifications,
+    // negations and character voice that keyword heuristics cannot recognize.
+    if(paragraph.trim().length<=budget){chunks.push(paragraph.trim());continue;}
+    const sentences=(paragraph.match(/[^。！？!?；;\n]+[。！？!?；;]?/g)||[paragraph]).map(x=>x.trim()).filter(Boolean);
+    const paragraphStart=chunks.length;
+    for(const sentence of sentences){
+      const dependent=/^(?:但(?:是)?|不过|然而|否则|除非|只有|仅当|前提是|与此同时|同时|另外|并且|而且|因此|所以|即使|哪怕|不得|不能|禁止|切勿|例外|注意[：:]?)/u.test(sentence);
+      if(dependent&&chunks.length>paragraphStart){chunks[chunks.length-1]+=sentence;}
+      else chunks.push(sentence);
+    }
   }
   const ranked=chunks.map((text,index)=>({text,index,score:terms.reduce((n,t)=>n+(text.toLowerCase().includes(t)?1:0),0)}))
     .sort((a,b)=>b.score-a.score||a.index-b.index);
   const chosen:{text:string;index:number}[]=[];let used=0;
   for(const item of ranked){
-    const room=budget-used-(chosen.length?2:0);
+    const separator=chosen.length?2:0;
+    const room=budget-used-separator;
     if(room<=0)break;
-    if(item.text.length>room){if(!chosen.length)chosen.push({text:item.text.slice(0,room),index:item.index});break;}
-    chosen.push(item);used+=item.text.length+2;
+    if(item.text.length>room)continue;
+    chosen.push(item);used+=item.text.length+separator;
   }
+  // A single long unsplittable sentence should not prevent every other entry
+  // from being considered. Skip this entry if no complete passage fits.
   return chosen.sort((a,b)=>a.index-b.index).map(x=>x.text).join("\n\n");
 }
 export interface LoreCandidate {entry:LoreEntry;book:Lorebook}
@@ -117,22 +135,24 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
     const result=assess(entry,book,history,random,regex[entry.id]);
     const d=result.diagnostic;diagnostics.push(d);
     if(!result.eligible) continue;
-    // Optional long entries are retrieved as relevant passages instead of
-    // being silently discarded because their original content exceeds a budget.
-    const available=Math.min(remainingBudget-total, loreLimits.promptChars-optionalTotal,book.charBudget-(used.get(book.id)||0));
-    const effective=entry.constant?entry:{...entry,content:retrieveLorePassages(entry.content,history,Math.max(0,available-2))};
+    // Keep chat responsive: never fail a request solely because optional lore
+    // exceeds its configured budget. Preserve whole entries when possible.
+    const available=Math.min(remainingBudget-total,entry.constant?remainingBudget-total:Math.min(loreLimits.promptChars-optionalTotal,book.charBudget-(used.get(book.id)||0)));
+    const effective={...entry,content:retrieveLorePassages(entry.content,history,Math.max(0,available-2))};
     const cost=effective.content.length+2,bookUsed=used.get(book.id)||0;
-    if(!effective.content.trim()){d.reason=entry.content.trim()&&book.charBudget-(used.get(book.id)||0)<=Math.min(remainingBudget-total,loreLimits.promptChars-optionalTotal)?"book-budget":"context-budget";continue;}
-    // Constant rules are mandatory. Never silently drop one and then generate a
-    // reply that appears to obey a rule which the model never received.
+    if(!effective.content.trim()){d.reason="context-budget";continue;}
     if(entry.constant && total+cost>remainingBudget) {
+      // A constant entry receives first claim on the shared context budget.
+      // If no complete passage fits, keep the request responsive and record
+      // the omission instead of silently pretending it was injected.
       d.reason="context-budget";
-      throw Error("当前聊天设定过长，暂时无法生成回复。请在设置中调整后重试。");
+      continue;
     }
     if(!entry.constant && (total+cost>remainingBudget || optionalTotal+cost>loreLimits.promptChars)){d.reason="context-budget";continue;}
     if(!entry.constant && bookUsed+cost>book.charBudget){d.reason="book-budget";continue;}
-    if(!entry.constant) {used.set(book.id,bookUsed+cost);optionalTotal+=cost;}total+=cost;selected.push(effective);
-    d.outcome="injected";d.reason="injected";
+    if(!entry.constant){used.set(book.id,bookUsed+cost);optionalTotal+=cost;}
+    total+=cost;selected.push(effective);
+    d.outcome="injected";d.completeness=effective.content===entry.content?"full":"partial";d.reason="injected";
   }
   return {entries:selected,activated:selected.map(e=>e.id),diagnostics,regexErrors:Object.fromEntries(Object.entries(regex).filter(([,r])=>r.error).map(([id,r])=>[id,r.error]))};
 }
