@@ -117,21 +117,17 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
     const result=assess(entry,book,history,random,regex[entry.id]);
     const d=result.diagnostic;diagnostics.push(d);
     if(!result.eligible) continue;
-    // Optional long entries are retrieved as relevant passages instead of
-    // being silently discarded because their original content exceeds a budget.
-    const available=Math.min(remainingBudget-total, loreLimits.promptChars-optionalTotal,book.charBudget-(used.get(book.id)||0));
-    const effective=entry.constant?entry:{...entry,content:retrieveLorePassages(entry.content,history,Math.max(0,available-2))};
-    const cost=effective.content.length+2,bookUsed=used.get(book.id)||0;
-    if(!effective.content.trim()){d.reason=entry.content.trim()&&book.charBudget-(used.get(book.id)||0)<=Math.min(remainingBudget-total,loreLimits.promptChars-optionalTotal)?"book-budget":"context-budget";continue;}
-    // Constant rules are mandatory. Never silently drop one and then generate a
-    // reply that appears to obey a rule which the model never received.
-    if(entry.constant && total+cost>remainingBudget) {
-      d.reason="context-budget";
-      throw Error("当前聊天设定过长，暂时无法生成回复。请在设置中调整后重试。");
+    // An activated entry is atomic: never pass a misleading partial fact or rule.
+    // If all activated entries cannot fit, fail visibly instead of silently
+    // generating with incomplete lore. No extra API request is made.
+    const cost=entry.content.length+2,bookUsed=used.get(book.id)||0;
+    if(!entry.content.trim()){d.reason="context-budget";continue;}
+    if(total+cost>remainingBudget || (!entry.constant && (optionalTotal+cost>loreLimits.promptChars || bookUsed+cost>book.charBudget))){
+      d.reason=!entry.constant && bookUsed+cost>book.charBudget?"book-budget":"context-budget";
+      throw Error("已触发的世界书条目无法完整放入本次对话上下文；本次未请求 AI。请缩短该条目、减少同时触发的条目或调整世界书预算。");
     }
-    if(!entry.constant && (total+cost>remainingBudget || optionalTotal+cost>loreLimits.promptChars)){d.reason="context-budget";continue;}
-    if(!entry.constant && bookUsed+cost>book.charBudget){d.reason="book-budget";continue;}
-    if(!entry.constant) {used.set(book.id,bookUsed+cost);optionalTotal+=cost;}total+=cost;selected.push(effective);
+    if(!entry.constant) {used.set(book.id,bookUsed+cost);optionalTotal+=cost;}
+    total+=cost;selected.push(entry);
     d.outcome="injected";d.reason="injected";
   }
   return {entries:selected,activated:selected.map(e=>e.id),diagnostics,regexErrors:Object.fromEntries(Object.entries(regex).filter(([,r])=>r.error).map(([id,r])=>[id,r.error]))};
