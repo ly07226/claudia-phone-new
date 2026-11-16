@@ -62,13 +62,16 @@ function assess(raw: LoreEntry, b: Lorebook, h: Message[], random: () => number,
       const hit=(key:string)=>{
         if(!key) return false;
         const needle=e.caseSensitive?key:key.toLowerCase();
-        const start=buffer.text.indexOf(needle);
-        if(start<0) return false;
-        const end=start+needle.length;
-        const origins=buffer.spans.filter(span=>span.start<end&&span.end>start);
-        d.crossMessageMatch ||= origins.length>1;
-        for(const origin of origins) matches.set(origin.id,{id:origin.id,role:origin.role});
-        return true;
+        // Match within a single message only. Joining messages with newlines
+        // could fabricate a trigger across two unrelated turns.
+        let found=false;
+        for(const span of buffer.spans){
+          if(buffer.text.slice(span.start,span.end).includes(needle)){
+            matches.set(span.id,{id:span.id,role:span.role});
+            found=true;
+          }
+        }
+        return found;
       };
       primary=e.primaryKeys.map(hit);secondary=e.secondaryKeys.map(hit);
       d.matchedMessages=[...matches.values()];
