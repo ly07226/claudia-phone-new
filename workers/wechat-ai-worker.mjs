@@ -1,3 +1,4 @@
+import {selectSourceMemories,formatSourceMemories} from './wechat-memory-retrieval.mjs';
 // Server-only cloud AI generation worker (Node 20+).
 // Fail closed: only explicitly provisioned, enabled per-binding profiles can run.
 // First iteration supports OpenAI-compatible chat completions only.
@@ -66,7 +67,18 @@ async function next(){
   const history=await request('claudia_wechat_messages?binding_id=eq.'+row.binding_id+
    '&status=in.(received,processing,generated,sent)&select=id,direction,body,status,in_reply_to,received_at'+
    '&received_at=gt.'+encodeURIComponent(snapshot.history_cutoff)+
+   '&received_at=lt.'+encodeURIComponent(row.received_at)+
    '&order=received_at.desc&limit=24');
+  // Search a bounded older window, not just the most recent 24 messages.
+  // Every recalled snippet retains its original message ID and timestamp.
+  const archive=await request('claudia_wechat_messages?binding_id=eq.'+row.binding_id+
+   '&received_at=gt.'+encodeURIComponent(snapshot.history_cutoff)+
+   '&received_at=lt.'+encodeURIComponent(row.received_at)+
+   '&status=in.(received,processing,generated,sent)&select=id,direction,body,status,received_at'+
+   '&order=received_at.desc&limit=500');
+  const recentIds=new Set((history||[]).map(m=>m.id));
+  const memories=selectSourceMemories((archive||[]).filter(m=>!recentIds.has(m.id)),row.body);
+  const memoryContext=formatSourceMemories(memories);
   const messages=(history||[]).reverse().filter(m=>
    (m.direction==='inbound'&&m.id!==row.id)||
    (m.direction==='outbound'&&m.status==='sent'))
@@ -76,6 +88,7 @@ async function next(){
   // with unsynced local messages or changed local memory.
   const effective=snapshot.context_messages.filter(m=>
    m&&['system','user','assistant'].includes(m.role)&&typeof m.content==='string');
+  if(memoryContext)messages.unshift({role:'system',content:memoryContext});
   messages.push({role:'user',content:row.body});
   const apiKey=await decrypt(profile.api_key_ciphertext);
   const response=await fetch(url,{
