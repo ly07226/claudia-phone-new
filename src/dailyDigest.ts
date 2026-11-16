@@ -30,13 +30,14 @@ export async function dailyDigestStatus(scope:MemoryScope){
  const messages=c?(scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)):(await activeMessages(c.id)).map(visibleMessage)):[];
  const digests:DailyDigest[]=[];
  for(const d of c?.dailyDigests??[])if(memoryScopeKey(d.scope)===memoryScopeKey(scope)&&await digestSourceMatches(d,messages))digests.push(d);
- return {settings:c?.dailyDigestSettings??{enabled:false,days:1 as const},digests,records:(c?.dailyDigests??[]).filter(d=>memoryScopeKey(d.scope)===memoryScopeKey(scope)).map(d=>({digest:d,status:digests.some(v=>v.id===d.id)?'verified' as const:!d.sourceFingerprint?'unverified' as const:'changed' as const})),attempt:c?.dailyDigestAttempt};
+ return {settings:c?.dailyDigestSettings??{enabled:false,days:1 as const},digests,records:(c?.dailyDigests??[]).filter(d=>memoryScopeKey(d.scope)===memoryScopeKey(scope)).map(d=>({digest:d,status:digests.some(v=>v.id===d.id)?'verified' as const:!d.sourceFingerprint?'unverified' as const:'changed' as const})),attempt:c?.dailyDigestAttempt&&memoryScopeKey(c.dailyDigestAttempt.scope)===memoryScopeKey(scope)?c.dailyDigestAttempt:undefined};
 }
 const locks=new Set<string>();
 async function runDailyDigestLocked(scope:MemoryScope,manual=false){
  const token=crypto.randomUUID();const lock=scope.conversationId;if(locks.has(lock))return;locks.add(lock);
  try{
   const c=await db.conversations.get(scope.conversationId);if(!c?.dailyDigestSettings?.enabled)return;
+  if(memoryScopeKey(await getMemoryScope(c.id))!==memoryScopeKey(scope))throw Error('记忆作用域已变化');
   const days=c.dailyDigestSettings.days,now=new Date();
   const messages=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)): (await activeMessages(c.id)).map(visibleMessage);
   const first=messages.filter(m=>m.role==='user'||m.role==='assistant').reduce((min,m)=>Math.min(min,m.createdAt),Infinity);
@@ -98,15 +99,18 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
   const completed=resume?saved.completed.slice():[];
   if(resume&&saved.sourceSignature!==signature)await db.conversations.update(c.id,{dailyDigestCheckpoint:{...saved,sourceSignature:signature,updatedAt:Date.now()}});
   if(!resume)await db.conversations.update(c.id,{dailyDigestCheckpoint:{scope:structuredClone(scope),startDay:start,endDay:end,sourceSignature:signature,pieces,completed:[],updatedAt:Date.now()}});
+  const assertSource=async()=>{const current=await db.conversations.get(c.id);if(!current||current.dailyDigestAttempt?.token!==token||current.dailyDigestAttempt.status!=='running'||!current.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days||current.characterId!==scope.characterId||current.mode!==scope.mode||current.worldId!==scope.worldId||(scope.mode==='world'&&(current.activeTimelineId!==scope.timelineId||(current.timelineEpoch??0)!==scope.epoch)))throw Error('总结任务或作用域已变化');const rows=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)):(await activeMessages(c.id)).map(visibleMessage);const source=rows.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));if(JSON.stringify(source.map(m=>[m.id,m.role,m.createdAt,m.content,m.activeVariantId??null,(m.attachments??[]).map(a=>a.assetId)]))!==sourceSnapshot)throw Error('总结原文已变化');};
+  const sourceTables=[...timelineTables(),db.characters,db.worlds,db.worldProfiles];
   const summaries:string[]=[];
   for(let index=0;index<pieces.length;index++){
    if(completed[index]){summaries.push(completed[index]);continue;}
+   await db.transaction('r',sourceTables,assertSource);
    const piece=pieces[index];
    const result=await digestReply({...config,maxTokens:Math.max(1000,Math.min(config.maxTokens,2400))},key,[{role:'system',content:'你是剧情时间线总结器。只总结提供的聊天原文，区分已发生事实、角色猜测、未兑现承诺、关系变化、伏笔及最新状态。不得编造；按时间顺序，尽量精炼。'},{role:'user',content:piece}]);
    if(!result.trim())throw Error('二级总结返回空内容');
    summaries.push(result);completed[index]=result;
-   await db.transaction('rw',db.conversations,async()=>{
-    const current=await db.conversations.get(c.id),checkpoint=current?.dailyDigestCheckpoint;
+   await db.transaction('rw',sourceTables,async()=>{
+    await assertSource();const current=await db.conversations.get(c.id),checkpoint=current?.dailyDigestCheckpoint;
     if(current?.dailyDigestAttempt?.token!==token||current.dailyDigestAttempt.status!=='running'||!checkpoint||checkpoint.sourceSignature!==signature||memoryScopeKey(checkpoint.scope)!==memoryScopeKey(scope))throw Error('总结原文已变化，暂停保存');
     await db.conversations.update(c.id,{dailyDigestCheckpoint:{...checkpoint,completed:completed.slice(),updatedAt:Date.now()}});
    });
@@ -120,6 +124,7 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
    const flush=async()=>{
     if(!group.length)return;
     if(group.length===1){next.push(group[0]);group=[];return;}
+    await db.transaction('r',sourceTables,assertSource);
     const merged=await digestReply({...config,maxTokens:Math.max(1000,Math.min(config.maxTokens,3000))},key,[{role:'system',content:'将按时间顺序的剧情片段摘要合并，保留因果、人物关系变化、伏笔和未完成事项。不能虚构，也不能把猜测写成事实。'},{role:'user',content:group.join('\n\n')}]);
     if(!merged.trim())throw Error('二级总结合并结果为空');
     next.push(merged);group=[];

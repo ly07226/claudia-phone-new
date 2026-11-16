@@ -38,6 +38,7 @@ function MemoryPanel({scope}:{scope:MemoryScope}){
  return <section aria-label="角色记忆" className="memory-panel">
  <p className="memory-scope">{scope.mode==='daily'?'日常记忆 · 持续积累，不按剧情分支拆分':'剧情记忆 · 当前有效时间线（继承共同过去，独立积累未来）'}</p>
  <div className="memory-nav-head">{view!=='home'&&<button type="button" aria-label="返回记忆首页" onClick={goBack}><ChevronLeft size={20}/></button>}<h3>{view==='home'?'记忆卡片':view==='core'?'核心记忆':view==='long'?'长期记忆':view==='summary'?'自动记忆总结':view==='short'?'短期记忆':view==='time'?'智能时间记忆':'记忆详情'}</h3>{(view==='core'||view==='long')&&<button type="button" aria-label="添加记忆" title="添加记忆" onClick={()=>{if(view==='core'){setAddChoice(v=>!v);return;}setEditor({kind:view,text:'',revision});setSelectedId(undefined);setHistory(undefined);setRemove(undefined);}}><Plus size={20}/></button>}</div>
+ {!!entries.filter(e=>e.source==='auto'&&!e.sourceReceiptId).length&&<p role="status">{entries.filter(e=>e.source==='auto'&&!e.sourceReceiptId).length} 条旧版自动记忆缺少来源绑定，仍可查看和编辑；核对后保存为手动记忆即可确认。</p>}
  {loading&&<p role="status">正在读取…</p>}{error&&<p role="alert">{error}<button disabled={busy} onClick={()=>{setLoading(true);setReload(n=>n+1);}}>重新读取</button></p>}
  {view==='home'&&<div className="memory-home-links">
  <button onClick={()=>openList('core')}><Heart size={22}/><span><strong>核心记忆</strong><small>重要事件、深度交流与智能时间记忆 · {entries.filter(e=>e.kind==='core').length}条</small></span><ChevronRight size={18}/></button>

@@ -1,3 +1,4 @@
+import {summaryCapacityKey,summaryCapacityRecovered,summaryCapacityFull} from './summaryCapacity';
 import {memoryScopeKey} from './memoryScopeKey';
 import {withSummaryLock} from './summaryLock';
 import {getSummaryApi} from './dedicatedSummaryApi';
@@ -9,7 +10,7 @@ import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelin
 import {visibleMessage} from './messageBubbles';
 import {selectSummaryCandidates,summaryDuplicateIndex} from './memorySummaryQuality';
 import {requestSummary,requestChunkEvents,requestGroupDigest,SummaryResponseError} from './memorySummaryRequest';
-import {parseSummary,summaryPrompt,SummaryFormatError} from './memorySummaryFormat';
+import {parseSummary,summaryJsonCandidate,summaryPrompt,SummaryFormatError} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
 import {buildSummaryInputs} from './memorySummaryChunks';
@@ -46,11 +47,16 @@ export async function summaryStatus(scope:MemoryScope){
   return {enabled:state.enabled,interval:state.interval,pending:data.turns.length,unverified:data.unverified,requiresManualResume:state.requiresManualResume,deferUntilPending:state.deferUntilPending,receipts:(await visibleSummaryReceipts(scope)).length,busy:state.job?.status==='running'&&Date.now()<state.job.leaseUntil,job};
  });
 }
+async function assertSummarySource(job:MemorySummaryJob,manual:boolean){
+ const c=await db.conversations.get(job.scope.conversationId);if(!c||c.activeTimelineId!==job.timelineId||(c.timelineEpoch??0)!==job.epoch||c.memorySummary?.job?.id!==job.id||c.memorySummary.job.status!=='running'||(!manual&&!c.memorySummary.enabled)||Date.now()>job.leaseUntil)throw Error('stale-path');
+ const t=await db.timelines.get(job.timelineId);const nodes=await nodesForHead(c.id,t?.headNodeId);if(await summarySourceFingerprint({turns:(c.memorySummary.checkpoint?.turns??[])},nodes.map(n=>n.message))!==job.sourceFingerprint)throw Error('stale-path');
+}
 interface Claim {job:MemorySummaryJob;turns:SummaryTurn[];inputs:string[]}
 async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
  return db.transaction('rw',tables(),async()=>{
   await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=structuredClone(c.memorySummary??emptySummaryState());
-  if(!manual&&(!state.enabled||state.requiresManualResume))return;
+  if(!manual&&(!state.enabled||(state.requiresManualResume&&!summaryCapacityRecovered(c))))return;
+  if(summaryCapacityRecovered(c)){state.capacityBlocked=undefined;state.deferUntilPending=undefined;state.autoAttempt=undefined;state.requiresManualResume=undefined;}
   if(manual)state.requiresManualResume=undefined;
   if(state.job?.status==='running'&&Date.now()<state.job.leaseUntil)return;
   // A failed job is terminal for that attempt, never a permanent disable.
@@ -60,7 +66,7 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   if(!manual&&state.deferUntilPending!==undefined&&data.turns.length>=state.deferUntilPending){state.autoAttempt=undefined;state.deferUntilPending=undefined;}
   if(!data.turns.length||(!manual&&(data.turns.length<state.interval||data.turns.length<(state.deferUntilPending??0))))return;
   await sealMemorySummaryForks(scope);
-  const full=state.receipts.length>=summaryLimits.receipts;
+  const full=summaryCapacityFull(c);if(full)state.capacityBlocked=summaryCapacityKey(c);
   // The configured interval is the logical group. Split only the API inputs;
   // do not advance the receipt until every chunk of the group succeeds.
   const group=full?[]:data.turns.slice(0,state.interval);
@@ -93,8 +99,8 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   return fits?{job,turns:group.map(x=>x.ref),inputs}:undefined;
  });
 }
-async function fail(job:MemorySummaryJob,error:SummaryFailure,diagnostic?:SummaryDiagnostic,decision?:ReturnType<typeof classifySummaryError>){
- await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(job.scope.conversationId);if(c?.memorySummary?.job?.id!==job.id)return;const state=structuredClone(c.memorySummary);state.job={...state.job!,status:'failed',error,...(decision?{retryable:decision.retry,failureKind:decision.kind}:{}),...(diagnostic?{diagnostic}:{}),finishedAt:Date.now()};
+async function fail(job:MemorySummaryJob,error:SummaryFailure,diagnostic?:SummaryDiagnostic,decision?:ReturnType<typeof classifySummaryError>,manual=false){
+ await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(job.scope.conversationId);if(c?.memorySummary?.job?.id!==job.id)return;const state=structuredClone(c.memorySummary);if(manual)state.requiresManualResume=true;if(error==='capacity')state.capacityBlocked=summaryCapacityKey(c);state.job={...state.job!,status:'failed',error,...(decision?{retryable:decision.retry,failureKind:decision.kind}:{}),...(diagnostic?{diagnostic}:{}),finishedAt:Date.now()};
   if(state.autoAttempt?.throughNodeId===job.throughNodeId){state.deferUntilPending=Math.max(state.deferUntilPending??0,state.autoAttempt.pendingAtStart+state.interval);state.autoAttempt=undefined;}
   await db.conversations.update(c.id,{memorySummary:state});});
 }
@@ -108,18 +114,19 @@ async function execute(scope:MemoryScope,manual:boolean){
   failure='format';const facts:SummaryFact[]=[],events:string[]=[];
   const stats={candidates:0,accepted:0,rejected:0,reasons:{} as Record<string,number>};
   for(let index=0;index<claimed.inputs.length;index++){
+   failure='stale-path';await db.transaction('r',tables(),()=>assertSummarySource(job,manual));
    const input=claimed.inputs[index];
    const saved=(await db.conversations.get(scope.conversationId))?.memorySummary?.checkpoint;
    if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]&&saved.completed[index].eventSummary!==undefined){const part=saved.completed[index];facts.push(...part.facts);if(part.eventSummary)events.push(part.eventSummary);stats.candidates+=part.candidates;stats.accepted+=part.accepted;stats.rejected+=part.rejected;for(const [reason,count] of Object.entries(part.reasons))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;}
    const before=facts.length;
    const combined=claimed.inputs.length===1;
-   const raw=await requestSummary(config,apiKey,input,controller.signal,combined);
+   failure='provider';const raw=await requestSummary(config,apiKey,input,controller.signal,combined);
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
-   try{
+   failure='format';try{
     let memoryJson=raw,eventSummary='';
     if(combined){
      let result:unknown;
-     try{result=JSON.parse(raw.trim());}catch{throw new SummaryResponseError({version:1,stage:'parse',code:'json-syntax'});}
+     result=summaryJsonCandidate(raw);
      if(!result||typeof result!=='object'||Array.isArray(result)||!['memories','memories,summary'].includes(Object.keys(result).sort().join(','))||('summary' in result&&typeof (result as {summary?:unknown}).summary!=='string'))throw new SummaryResponseError({version:1,stage:'validate',code:'response-shape'});
      const response=result as {memories:unknown;summary:string};
      if((response.summary??'').length>1200)throw new SummaryResponseError({version:1,stage:'validate',code:'output-limit'});
@@ -127,13 +134,13 @@ async function execute(scope:MemoryScope,manual:boolean){
      memoryJson=JSON.stringify({memories:response.memories});
     }
     const parsed=parseSummary(memoryJson),selected=selectSummaryCandidates(parsed,input);
-    if(!combined)eventSummary=await requestChunkEvents(config,apiKey,input,controller.signal);
+    if(!combined){await db.transaction('r',tables(),()=>assertSummarySource(job,manual));eventSummary=await requestChunkEvents(config,apiKey,input,controller.signal);}
     if(eventSummary)events.push(eventSummary);
     facts.push(...selected.accepted);stats.candidates+=parsed.length;stats.accepted+=selected.accepted.length;
     stats.rejected+=selected.rejected.length;
     const reasons:Record<string,number>={};
     for(const r of selected.rejected){stats.reasons[r.reason]=(stats.reasons[r.reason]??0)+1;reasons[r.reason]=(reasons[r.reason]??0)+1;}
-    await db.transaction('rw',db.conversations,async()=>{const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);next.checkpoint!.completed[index]={facts:facts.slice(before),eventSummary,candidates:parsed.length,accepted:selected.accepted.length,rejected:selected.rejected.length,reasons};await db.conversations.update(scope.conversationId,{memorySummary:next});});
+    failure='stale-path';await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,manual);const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);next.checkpoint!.completed[index]={facts:facts.slice(before),eventSummary,candidates:parsed.length,accepted:selected.accepted.length,rejected:selected.rejected.length,reasons};await db.conversations.update(scope.conversationId,{memorySummary:next});});
    }catch(e){if((e as Error).message==='empty')failure='empty';if(e instanceof SummaryFormatError)diagnostic={...e.diagnostic,receivedChars:raw.length,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)};throw e;}
   }
   job.selection=stats;
@@ -149,7 +156,7 @@ async function execute(scope:MemoryScope,manual:boolean){
     const next:string[]=[];
     for(let i=0;i<layer.length;i+=6){
      const batch=layer.slice(i,i+6);
-     next.push(batch.length===1?batch[0]:await requestGroupDigest(config,apiKey,batch,controller.signal,depth===1?previousSummaries:[]));
+     failure='stale-path';await db.transaction('r',tables(),()=>assertSummarySource(job,manual));next.push(batch.length===1?batch[0]:await requestGroupDigest(config,apiKey,batch,controller.signal,depth===1?previousSummaries:[]));
     }
     layer=next;
    }
@@ -186,9 +193,9 @@ async function execute(scope:MemoryScope,manual:boolean){
    if(used+pending.length>memoryLimits.events||chars+requiredChars>memoryLimits.totalChars||pending.some(f=>`【${labels[f.type]}】${f.content}`.length>memoryLimits.entryChars)){failure='capacity';throw Error('capacity');}
    let added=0,duplicates=facts.length-pending.length;
    for(const fact of pending){failure='capacity';await createMemory(scope,{kind:fact.quality?.importance==='high'&&['major-event','relationship','identity','boundary','ongoing-conflict','continuity'].includes(fact.quality.category)?'core':'long',source:'auto',sourceReceiptId:job.id,content:`【${labels[fact.type]}】${fact.content}`});added++;}
-   state.checkpoint=undefined;state.autoAttempt=undefined;state.deferUntilPending=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,sourceFingerprint,shortSummary:groupSummary,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
+   state.capacityBlocked=undefined;state.checkpoint=undefined;state.autoAttempt=undefined;state.deferUntilPending=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,sourceFingerprint,shortSummary:groupSummary,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
   });
- }catch(error){if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;failure=diagnostic.code==='truncated'?'format':'provider';}if(diagnostic)diagnostic={...diagnostic,inputRounds:claimed.turns.length,inputTokenEstimate:memoryTokenCost(system)+Math.max(...claimed.inputs.map(memoryTokenCost))};await fail(job,failure,diagnostic,{...classifySummaryError(error,navigator.onLine),retry:manual&&classifySummaryError(error,navigator.onLine).retry}).catch(()=>{});}finally{clearTimeout(timer);}
+ }catch(error){if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;failure=diagnostic.stage==='response'&&diagnostic.code!=='truncated'?'provider':'format';}if(diagnostic)diagnostic={...diagnostic,inputRounds:claimed.turns.length,inputTokenEstimate:memoryTokenCost(system)+Math.max(...claimed.inputs.map(memoryTokenCost))};await fail(job,failure,diagnostic,{...classifySummaryError(error,navigator.onLine),retry:manual&&classifySummaryError(error,navigator.onLine).retry},manual).catch(()=>{});}finally{clearTimeout(timer);}
 }
 const running=new Map<string,Promise<void>>();
 export function runMemorySummary(scope:MemoryScope,manual=true){
@@ -211,12 +218,12 @@ export async function tryAutoSummary(conversationId:string){
   for(let group=0;group<3;group++){
    if(!navigator.onLine||document.hidden)break;
    const before=await summaryStatus(scope);
-   const state=(await db.conversations.get(conversationId))?.memorySummary;
-   if(!state?.enabled||before.pending<before.interval||before.pending<(state.deferUntilPending??0))break;
+   const owner=await db.conversations.get(conversationId);const state=owner?.memorySummary;const recovered=owner&&summaryCapacityRecovered(owner);
+   if(!state?.enabled||state.requiresManualResume||before.pending<before.interval||(!recovered&&before.pending<(state.deferUntilPending??0)))break;
    // One attempt per due cycle. A failure is terminal for this cycle:
    // do not silently issue another paid API request, even for transient errors.
    const attemptState=(await db.conversations.get(conversationId))?.memorySummary;
-   if((attemptState?.deferUntilPending??0)>before.pending)return;
+   if(!recovered&&(attemptState?.deferUntilPending??0)>before.pending)return;
    if(!navigator.onLine||document.hidden)return;
    await runMemorySummary(scope,false);
    const current=(await db.conversations.get(conversationId))?.memorySummary;

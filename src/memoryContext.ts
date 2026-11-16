@@ -13,7 +13,7 @@ import type {EffectiveMemory} from './memoryTypes';
  */
 export const memoryContextLimits={tokens:2000,entryTokens:640,entries:12,queryChars:1200};
 export const memoryTokenCost=(text:string)=>new TextEncoder().encode(text).length;
-export interface MemoryContextTrace {status:'injected'|'empty'|'budget'|'read-failed'|'scope-changed'|'irrelevant';eligible:number;selected:number;truncated:number;estimatedTokens:number;skippedIrrelevant:number;skippedBudget:number}
+export interface MemoryContextTrace {status:'injected'|'empty'|'budget'|'read-failed'|'scope-changed'|'irrelevant';eligible:number;selected:number;truncated:number;estimatedTokens:number;skippedIrrelevant:number;skippedBudget:number;skippedSource?:number}
 const traces=new Map<string,MemoryContextTrace>();
 function trace(id:string,value:MemoryContextTrace){traces.delete(id);traces.set(id,{...value});while(traces.size>10)traces.delete(traces.keys().next().value!);}
 /** Bounded, volatile metadata only: no memory/message text, raw errors or secrets. */
@@ -151,7 +151,7 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   }).slice(0,2);
   const timeBlock=timeRows.length?'\n[临近日期的角色提醒参考：自然提及一次，不得断言预测已经发生]\n'+json(timeRows)+'\n[提醒参考结束]':'';
   if(timeBlock&&memoryTokenCost(timeBlock)<=650&&selected.estimatedTokens+memoryTokenCost(timeBlock)<=memoryContextLimits.tokens&&selected.text.length+timeBlock.length<=remainingChars){selected.text+=timeBlock;selected.estimatedTokens+=memoryTokenCost(timeBlock);}
-  trace(c.id,{status:selected.text?'injected':selected.skippedBudget?'budget':selected.skippedIrrelevant?'irrelevant':'empty',eligible:entries.length,selected:selected.selected,truncated:selected.truncated,estimatedTokens:selected.estimatedTokens,skippedIrrelevant:selected.skippedIrrelevant,skippedBudget:selected.skippedBudget});
+  trace(c.id,{status:selected.text?'injected':selected.skippedBudget?'budget':selected.skippedIrrelevant?'irrelevant':'empty',eligible:entries.length,skippedSource:entries.length-reliableEntries.length,selected:selected.selected,truncated:selected.truncated,estimatedTokens:selected.estimatedTokens,skippedIrrelevant:selected.skippedIrrelevant,skippedBudget:selected.skippedBudget});
   return selected.text;
  }catch{
   trace(c.id,{status,eligible:0,selected:0,truncated:0,estimatedTokens:0,skippedIrrelevant:0,skippedBudget:0});return '';

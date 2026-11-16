@@ -27,7 +27,7 @@ export async function validateMemoryStore(d:Dexie,c:Conversation){
   forks.set(f.timelineId,f);
  }
  if(c.mode==='daily')check(!state.forks.length);
- for(const f of state.forks){const seen=new Set<string>();let node:typeof f|undefined=f;while(node){check(!seen.has(node.timelineId));seen.add(node.timelineId);if(!node.parentTimelineId)break;const parent=forks.get(node.parentTimelineId);check(parent&&parent.epoch===node.epoch);node=parent;}}
+ const verifiedForks=new Set<string>();for(const f of state.forks){const seen=new Set<string>();let node:typeof f|undefined=f;while(node&&!verifiedForks.has(node.timelineId)){check(!seen.has(node.timelineId));seen.add(node.timelineId);if(!node.parentTimelineId)break;const parent=forks.get(node.parentTimelineId);check(parent&&parent.epoch===node.epoch);node=parent;}for(const id of seen)verifiedForks.add(id);}
  const paths=new Map<string,Set<string>>();
  async function path(t:MemoryTimeline){if(paths.has(t.id))return paths.get(t.id)!;const nodes=new Set<string>();let next=t.headNodeId;
   while(next){check(!nodes.has(next));nodes.add(next);const row=await d.table('pathNodes').get(next);check(row&&row.conversationId===c.id);next=row.parentNodeId;}
