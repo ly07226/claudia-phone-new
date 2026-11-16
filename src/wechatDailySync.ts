@@ -21,7 +21,7 @@ export async function syncWechatDailyConversation(
   const cursor=c.wechatSync?.nextSeq??0;
   const page=await fetchWechatSyncPage(bindingId,cursor);
   const result=await mergeWechatDailyPage(page,{
-   conversationId,characterId,timelineId:c.activeTimelineId,epoch:c.timelineEpoch??0
+   conversationId,characterId,timelineId:c.activeTimelineId,epoch:c.timelineEpoch??0,afterSeq:cursor
   });
   total+=result.added;
   if(!result.hasMore)return {added:total,nextSeq:result.nextSeq,hasMore:false};
