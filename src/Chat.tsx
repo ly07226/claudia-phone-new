@@ -637,7 +637,6 @@ export function Chat({ worldId }: { worldId?: string }) {
             {!messages.length && (
               <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
             )}
-            {messages.length>visibleMessageLimit&&<div className="hint" aria-label="更早的聊天消息可向上滚动加载">向上滑动查看更早消息</div>}
             {renderedMessages}
             {remotePending&&<p role="status">请求状态待确认：可能仍在其他窗口处理中。可等待，或停止后手动重试；不会自动重复请求。</p>}
             {!busy&&conversation.sendingToken&&!runningTask(generationTask)&&<p role="status">上次请求尚未确认完成，可能已中断；不会自动重发。请确认后手动重试。</p>}
