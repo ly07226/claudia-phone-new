@@ -1,4 +1,5 @@
 -- Server-only, atomic WeChat inbound intake and worker leasing.
+alter table public.claudia_wechat_messages add column if not exists worker_id uuid;
 -- Requires 20261116000100_wechat_daily_bridge.sql.
 -- All functions are SECURITY INVOKER; only service_role receives EXECUTE.
 -- Never expose service_role credentials to a browser.
@@ -54,7 +55,7 @@ begin
  ), claimed as (
    update public.claudia_wechat_messages m
    set status='processing', attempts=m.attempts+1,
-       lease_until=now()+make_interval(secs=>p_lease_seconds),
+       worker_id=p_worker_id, lease_until=now()+make_interval(secs=>p_lease_seconds),
        updated_at=now()
    from candidate c where m.id=c.id
    returning m.id,m.user_id,m.binding_id,m.external_message_id,m.body,m.attempts,m.lease_until
@@ -66,19 +67,19 @@ end; $$;
 -- This marks the inbound event generated; the outbound message and actual
 -- WeChat send receipt require a separate transactional outbox implementation.
 create or replace function public.claudia_wechat_complete_inbound(
- p_message_id uuid, p_expected_lease_until timestamptz, p_success boolean,
+ p_message_id uuid, p_worker_id uuid, p_expected_lease_until timestamptz, p_success boolean,
  p_error_code text default null
 ) returns boolean language plpgsql security invoker set search_path = '' as $$
 declare v_updated integer;
 begin
- if p_message_id is null or p_expected_lease_until is null or p_success is null
+ if p_message_id is null or p_worker_id is null or p_expected_lease_until is null or p_success is null
     or (p_error_code is not null and length(p_error_code)>100)
  then raise exception 'invalid completion' using errcode='22023'; end if;
  update public.claudia_wechat_messages m
  set status=case when p_success then 'generated' else 'failed' end,
      error_code=case when p_success then null else coalesce(p_error_code,'generation_failed') end,
-     lease_until=null, updated_at=now()
- where m.id=p_message_id and m.direction='inbound' and m.status='processing'
+     lease_until=null, worker_id=null, updated_at=now()
+ where m.id=p_message_id and m.worker_id=p_worker_id and m.direction='inbound' and m.status='processing'
    and m.lease_until=p_expected_lease_until and m.lease_until>now();
  get diagnostics v_updated=row_count;
  return v_updated=1;
@@ -90,7 +91,7 @@ declare v_updated integer;
 begin
  update public.claudia_wechat_messages m
  set status='unknown', error_code='lease_expired_requires_reconciliation',
-     lease_until=null,updated_at=now()
+     lease_until=null,worker_id=null,updated_at=now()
  where m.direction='inbound' and m.status='processing' and m.lease_until<now();
  get diagnostics v_updated=row_count;
  return v_updated;
@@ -98,9 +99,9 @@ end; $$;
 
 revoke all on function public.claudia_wechat_receive_text(uuid,uuid,text,text,timestamptz) from public,anon,authenticated;
 revoke all on function public.claudia_wechat_claim_inbound(uuid,integer) from public,anon,authenticated;
-revoke all on function public.claudia_wechat_complete_inbound(uuid,timestamptz,boolean,text) from public,anon,authenticated;
+revoke all on function public.claudia_wechat_complete_inbound(uuid,uuid,timestamptz,boolean,text) from public,anon,authenticated;
 revoke all on function public.claudia_wechat_quarantine_expired() from public,anon,authenticated;
 grant execute on function public.claudia_wechat_receive_text(uuid,uuid,text,text,timestamptz) to service_role;
 grant execute on function public.claudia_wechat_claim_inbound(uuid,integer) to service_role;
-grant execute on function public.claudia_wechat_complete_inbound(uuid,timestamptz,boolean,text) to service_role;
+grant execute on function public.claudia_wechat_complete_inbound(uuid,uuid,timestamptz,boolean,text) to service_role;
 grant execute on function public.claudia_wechat_quarantine_expired() to service_role;
