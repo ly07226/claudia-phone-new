@@ -47,6 +47,6 @@ export function validPart(p:unknown):p is BubblePart{
 export function hasVisiblePart(m:Message,p:BubblePart){
  const visible=messageBubbles(m);
  if(visible.some(v=>samePart(v,p)))return true;
- return p.kind==='text'&&originalBubbles(m,true).some(v=>samePart(v,p))
+ return p.kind==='text' && (m.role!=='assistant' || visibleWithoutLeakedTimeMarkers(p.text).some(({start,end})=>p.text.slice(start,end).trim())) && originalBubbles(m,true).some(v=>samePart(v,p))
    && !m.bubbleDeletion?.text.some(d=>d.start<p.end&&d.end>p.start);
 }
