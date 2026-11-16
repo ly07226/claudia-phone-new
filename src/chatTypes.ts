@@ -22,6 +22,8 @@ export interface Conversation {
   /** Independent memory journal. Not persona, lore, messages, or prompt injection. */
   memoryStore?: MemoryStore;
   memorySummary?: MemorySummaryState;
+  /** Opt-in WeChat bridge cursor, stored atomically with the daily timeline. */
+  wechatSync?: {bindingId:string;nextSeq:number};
   activeTimelineId?: string;
   timelineEpoch?: number;
   chatSettings?: ChatSettings;
