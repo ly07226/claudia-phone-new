@@ -96,8 +96,8 @@ export function retrieveLorePassages(content:string,history:Message[],budget:num
   // Rank complete sentences independently so a short budget can still retain
   // the first essential rule instead of discarding a whole multi-rule paragraph.
   const chunks:string[]=[];
-  for(const paragraph of content.split(/\\n{2,}/)){
-    const sentences=paragraph.match(/[^。！？!?；;\\n]+[。！？!?；;]?/g) || [paragraph];
+  for(const paragraph of content.split(/\n{2,}/)){
+    const sentences=paragraph.match(/[^。！？!?；;\n]+[。！？!?；;]?/g) || [paragraph];
     for(const sentence of sentences){
       const trimmed=sentence.trim();
       if(trimmed)chunks.push(trimmed);
