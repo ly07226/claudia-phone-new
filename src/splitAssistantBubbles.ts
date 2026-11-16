@@ -173,7 +173,7 @@ function splitAssistantBubblesCore(content: string): string[] {
  * Keep newline characters attached to the punctuation bubble so slices remain
  * lossless and existing quote/deletion offsets are unchanged. */
 function splitStandalonePunctuationLines(content:string,split:(value:string)=>string[]):string[]{
-  const boundary=/^[ \t]*[?？.!！。]+[ \t]*(?:\r?\n|$)/gm;
+  const boundary=/^[ \t]*[?？.!！。…．]+[ \t]*(?:\r?\n|$)/gm;
   const parts:string[]=[];
   let cursor=0;
   for(const match of content.matchAll(boundary)){
