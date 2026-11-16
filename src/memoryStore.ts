@@ -1,5 +1,5 @@
 import type {SummaryReceipt} from './memorySummaryTypes';
-import {summarySourceFingerprint} from './summarySourceFingerprint';
+import {summaryVerifier} from './summarySourceFingerprint';
 import {db} from './store';
 import {activeMessages} from './messagePath';
 import {visibleMessage} from './messageBubbles';
@@ -87,10 +87,10 @@ export async function readShortMemory(scope:MemoryScope,maxMessages=30):Promise<
   const nodes=t?await nodesForHead(c.id,t.headNodeId):[],byMessage=new Map(nodes.map(n=>[n.messageId,n.id]));
   const rowsForProvenance=(t?nodes.map(n=>n.message):await activeMessages(c.id)).filter(m=>m.role==='user'||m.role==='assistant');
   const rows=rowsForProvenance.map(visibleMessage).slice(-maxMessages);
-  const receipts:SummaryReceipt[]=[];
+  const receipts:SummaryReceipt[]=[];const verify=summaryVerifier(rowsForProvenance);
   for(const receipt of await visibleSummaryReceipts(scope)){
-   if(!receipt.shortSummary?.trim()||!receipt.sourceFingerprint)continue;
-   if(await summarySourceFingerprint(receipt,rowsForProvenance)===receipt.sourceFingerprint)receipts.push(receipt);
+   if(!receipt.shortSummary?.trim())continue;
+   if(['verified','legacy-verified'].includes(await verify(receipt)))receipts.push(receipt);
   }
   const recentReceipts=receipts.slice(-5);
   return {kind:'short',scope,summaries:recentReceipts.map(r=>({text:r.shortSummary!,createdAt:r.createdAt,throughNodeId:r.throughNodeId})),context:{timelineId:t?.id,epoch:c.timelineEpoch??0,revision:t?.revision,headNodeId:t?.headNodeId},messages:rows.map(m=>({messageId:m.id,variantId:m.activeVariantId,nodeId:byMessage.get(m.id),role:m.role as 'user'|'assistant',content:m.content,assetIds:(m.attachments??[]).map(a=>a.assetId),createdAt:m.createdAt}))};

@@ -1,5 +1,5 @@
 import {db} from './store';
-import {summarySourceFingerprint} from './summarySourceFingerprint';
+import {summaryVerifier,sourceHash} from './summarySourceFingerprint';
 import {visibleMessage} from './messageBubbles';
 import {nextOccurrence,localDay,addDays} from './smartTimeMemory';
 import {getMemoryScope,listMemories,visibleSummaryReceipts} from './memoryStore';
@@ -74,10 +74,9 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   // selection, not just the visible text of the primary/secondary summary.
   const receiptScope=await getMemoryScope(c.id);
   const receiptsForSource=await visibleSummaryReceipts(receiptScope);
-  const validReceiptIds=new Set<string>();
+  const validReceiptIds=new Set<string>();const verify=summaryVerifier(requestPath);
   for(const receipt of receiptsForSource){
-   if(!receipt.sourceFingerprint)continue; // legacy receipts lack verifiable provenance
-   if(await summarySourceFingerprint(receipt,requestPath)===receipt.sourceFingerprint)validReceiptIds.add(receipt.id);
+   if(['verified','legacy-verified'].includes(await verify(receipt)))validReceiptIds.add(receipt.id);
   }
   const reliableEntries=entries.filter(e=>e.source!=='auto'||(!!e.sourceReceiptId&&validReceiptIds.has(e.sourceReceiptId)));
   const selected=selectMemoryContext(reliableEntries,query,remainingChars);
@@ -133,9 +132,8 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
    const windowMessages=[...pathById.values()].filter(m=>m.createdAt>=dayEnd(d.startDay)&&m.createdAt<dayEnd(d.endDay)&&(m.role==='user'||m.role==='assistant'));
    if(windowMessages.length!==source.length||windowMessages.some((m,i)=>m.id!==source[i]?.id))continue;
    const payload=JSON.stringify(source.map(m=>[m!.id,m!.role,m!.createdAt,m!.content,m!.activeVariantId??null,(m!.attachments??[]).map(a=>a.assetId)]));
-   const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(payload));
-   const fingerprint=Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');
-   if(fingerprint===d.sourceFingerprint)digests.push(d);
+   const fingerprint=await sourceHash(payload);
+   if(fingerprint===d.sourceFingerprint||'s3:'+fingerprint===d.sourceFingerprint)digests.push(d);
   }
   const terms=words(query);
   const rankedDigests=digests.map(d=>({d,score:[...terms].filter(w=>words(d.text.slice(0,5000)).has(w)).length})).sort((a,b)=>b.score-a.score||b.d.endDay.localeCompare(a.d.endDay));

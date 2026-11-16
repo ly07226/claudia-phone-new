@@ -12,7 +12,7 @@ import {parseSummary,summaryPrompt,SummaryFormatError} from './memorySummaryForm
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
 import {buildSummaryInputs} from './memorySummaryChunks';
-import {summarySourceFingerprint} from './summarySourceFingerprint';
+import {taggedSummaryFingerprint as summarySourceFingerprint,summaryVerifier} from './summarySourceFingerprint';
 import {memoryLimits,type MemoryScope} from './memoryTypes';
 import {emptySummaryState,summaryLimits,type SummaryFact,type SummaryTurn,type SummaryFailure,type MemorySummaryJob,type SummaryDiagnostic} from './memorySummaryTypes';
 const tables=()=>[...timelineTables(),db.characters,db.worlds,db.worldProfiles];
@@ -30,19 +30,19 @@ async function snapshot(scope:MemoryScope,initialize=false){
  const nodes=t?await nodesForHead(c.id,t.headNodeId):(await activeMessages(c.id)).map(message=>({id:'',message}));
  const turns:{ref:SummaryTurn;nodeId:string;messages:{role:string;content:string;images:number}[]}[]=[];let users:string[]=[],messages:{role:string;content:string;images:number}[]=[];
  for(const n of nodes){const m=visibleMessage(n.message);if(m.role==='user'){users.push(m.id);messages.push({role:'user',content:m.content,images:m.attachments?.length??0});}else if(m.role==='assistant'&&users.length){messages.push({role:'assistant',content:m.content,images:0});turns.push({ref:{userIds:users,assistantId:m.id},nodeId:n.id,messages});users=[];messages=[];}}
- const done=new Set<string>();
+ const done=new Set<string>();let unverified=0;const verify=summaryVerifier(nodes.map(n=>n.message));
  for(const receipt of await visibleSummaryReceipts(scope)){
-  // Legacy receipts have no content fingerprint; do not mark their source
-  // as permanently processed when its current text cannot be verified.
-  if(!receipt.sourceFingerprint)continue;
-  if(await summarySourceFingerprint(receipt,nodes.map(n=>n.message))!==receipt.sourceFingerprint)continue;
+  const validity=await verify(receipt);
+  // Preserve old progress without trusting old facts or billing a silent rebuild.
+  if(validity==='unverified'){unverified++;}
+  else if(validity==='changed')continue;
   for(const turn of receipt.turns)done.add(key(turn));
  }
- return {t,nodes,turns:turns.filter(turn=>!done.has(key(turn.ref)))};
+ return {t,nodes,unverified,turns:turns.filter(turn=>!done.has(key(turn.ref)))};
 }
 export async function summaryStatus(scope:MemoryScope){
  return db.transaction('r',tables(),async()=>{await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=c.memorySummary??emptySummaryState();const data=await snapshot(scope);const job=state.job&&scopeKey(state.job.scope)===scopeKey(scope)?state.job:undefined;
-  return {enabled:state.enabled,interval:state.interval,pending:data.turns.length,deferUntilPending:state.deferUntilPending,receipts:(await visibleSummaryReceipts(scope)).length,busy:state.job?.status==='running'&&Date.now()<state.job.leaseUntil,job};
+  return {enabled:state.enabled,interval:state.interval,pending:data.turns.length,unverified:data.unverified,deferUntilPending:state.deferUntilPending,receipts:(await visibleSummaryReceipts(scope)).length,busy:state.job?.status==='running'&&Date.now()<state.job.leaseUntil,job};
  });
 }
 interface Claim {job:MemorySummaryJob;turns:SummaryTurn[];inputs:string[]}
