@@ -41,3 +41,16 @@ test('mixed bubble, legacy splitting and user text retain exact original offsets
  expect(result.user.filter(p=>p.kind==='text').map(p=>p.text).join('')).toContain('[消息发送时间：');
  expect(result.spans.map(p=>result.mixed.slice(p.start,p.end)).join('')).toBe('前一句。\n后一句。');
 });
+
+
+test('hidden legacy metadata bubble cannot be quoted as visible content',async({page})=>{
+ await isolatedApp(page,'time-quote-'+crypto.randomUUID());
+ const result=await page.evaluate(async()=>{
+  const {originalBubbles,hasVisiblePart}=await import('/src/messageBubbles.ts');
+  const content='[消息发送时间：2026-11-16, 11:15]\n终于舍得回我了？';
+  const m={id:'m',conversationId:'c',role:'assistant' as const,createdAt:Date.now(),content};
+  const hidden=originalBubbles(m,true).find(p=>p.kind==='text'&&p.text.trim()==='[消息发送时间：2026-11-16, 11:15]');
+  return {hasHidden:!!hidden,visible:hidden?hasVisiblePart(m,hidden):null};
+ });
+ if(result.hasHidden)expect(result.visible).toBe(false);
+});
