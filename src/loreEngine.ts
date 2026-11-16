@@ -91,16 +91,15 @@ export function retrieveLorePassages(content:string,history:Message[],budget:num
   if(budget<=0)return "";
   const query=history.filter(m=>m.role==="user").slice(-3).map(m=>m.content).join(" ").toLowerCase();
   const terms=[...new Set((query.match(/[\p{Script=Han}]{2,4}|[a-z0-9]{3,}/gu)||[]))].slice(0,80);
-  // Keep paragraphs and sentence boundaries whenever possible; never silently
-  // truncate a rule in the middle of a sentence just to fill the budget.
-  // Rank complete sentences independently so a short budget can still retain
-  // the first essential rule instead of discarding a whole multi-rule paragraph.
+  // Preserve explicit qualifications with the preceding rule. A sentence like
+  // "但是不能替用户决定" must never be selected without its governing rule.
   const chunks:string[]=[];
   for(const paragraph of content.split(/\n{2,}/)){
-    const sentences=paragraph.match(/[^。！？!?；;\n]+[。！？!?；;]?/g) || [paragraph];
+    const sentences=(paragraph.match(/[^。！？!?；;\n]+[。！？!?；;]?/g)||[paragraph]).map(x=>x.trim()).filter(Boolean);
     for(const sentence of sentences){
-      const trimmed=sentence.trim();
-      if(trimmed)chunks.push(trimmed);
+      const dependent=/^(?:但(?:是)?|不过|然而|否则|除非|只有|仅当|前提是|与此同时|同时|另外|并且|而且|因此|所以|即使|哪怕|不得|不能|禁止|切勿|例外|注意[：:]?)/u.test(sentence);
+      if(dependent&&chunks.length){chunks[chunks.length-1]+=sentence;}
+      else chunks.push(sentence);
     }
   }
   const ranked=chunks.map((text,index)=>({text,index,score:terms.reduce((n,t)=>n+(text.toLowerCase().includes(t)?1:0),0)}))
