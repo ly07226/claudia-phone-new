@@ -51,6 +51,12 @@ async function next(){
    '&enabled=eq.true&select=user_id,system_prompt,model,endpoint,api_key_ciphertext');
   const profile=profiles?.[0];
   if(!profile||profile.user_id!==row.user_id)throw Error('profile_not_authorized');
+  const snapshots=await request('claudia_wechat_context_snapshots?binding_id=eq.'+row.binding_id+
+   '&select=context_messages,revision');
+  const snapshot=snapshots?.[0];
+  if(!snapshot||!Array.isArray(snapshot.context_messages)||
+   !snapshot.context_messages.some(m=>m?.role==='system'))
+   throw Error('context_not_authorized');
   const url=new URL(profile.endpoint);
   if(url.protocol!=='https:'||url.username||url.password||url.hash||
    !url.hostname||url.hostname==='localhost'||url.hostname.endsWith('.local')||
@@ -64,12 +70,17 @@ async function next(){
    (m.direction==='inbound'&&m.id!==row.id)||
    (m.direction==='outbound'&&m.status==='sent'))
    .map(m=>({role:m.direction==='inbound'?'user':'assistant',content:m.body.slice(0,8000)}));
+  // Local effective context is authoritative for character/lore/memory.
+  // Cloud WeChat messages follow it as new turns; never silently claim parity
+  // with unsynced local messages or changed local memory.
+  const effective=snapshot.context_messages.filter(m=>
+   m&&['system','user','assistant'].includes(m.role)&&typeof m.content==='string');
   messages.push({role:'user',content:row.body});
   const apiKey=await decrypt(profile.api_key_ciphertext);
   const response=await fetch(url,{
    method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+apiKey},
    body:JSON.stringify({model:profile.model,messages:[
-    {role:'system',content:profile.system_prompt},...messages],stream:false}),
+    ...effective,...messages],stream:false}),
    signal:AbortSignal.timeout(120000)});
   if(!response.ok)throw Error('model_http_'+response.status);
   const data=await response.json();
