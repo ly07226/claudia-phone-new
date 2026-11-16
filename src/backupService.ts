@@ -1,3 +1,4 @@
+import {supportedDataSchema} from './backupFormat';
 import {verifyDocumentSnapshot} from './wizardDocumentSnapshot';
 import {validateChatHub,hubAssetIds} from './chatHubTypes';
 import {validInterruption} from './chatCompletion';
@@ -176,11 +177,8 @@ export async function createBackup(options: {
     const coordination = await checkBackupClients();
     checkAbort(controller.signal);
     ensure(
-      db.verno === 7 &&
-        db.backendDB().version === 70 &&
-        [...db.backendDB().objectStoreNames].sort().join() ===
-          [...backupTables].sort().join(),
-      "正式库不是受支持的完整v7结构；不会自动升级或继续导出。",
+      supportedDataSchema(db),
+      '数据库不是受支持的完整 v7/v8 结构；不会自动迁移、忽略未知表或继续导出。',
     );
     const m: BackupManifest = {
       format: "claudia-phone-backup",
@@ -299,10 +297,11 @@ export async function createBackup(options: {
                   !(original.sendingUntil > Date.now()),
                   "检测到仍在生成的会话，请关闭其他客户端并等待请求结束或超时后重试；不会清除生成锁。",
                 );
-              const row =
+              let row =
                 table === "apiConfigs" && !key
                   ? sanitizeConfig(original, m.redactions)
                   : original;
+              if(!options.includeCredentials&&(table==='themes'||table==='conversations')&&row.dedicatedSummaryApi){row={...row,dedicatedSummaryApi:{...sanitizeConfig({...row.dedicatedSummaryApi,id:row.id},m.redactions),apiKey:''}};delete row.dedicatedSummaryApi.id;}
               phase='export-encode';
               if(table==='worlds'&&row.storyDocument)await verifyDocumentSnapshot(row.storyDocument);
               const encoded = await rowBytes(table, row);

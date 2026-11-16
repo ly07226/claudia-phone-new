@@ -43,14 +43,15 @@ async function snapshot(scope:MemoryScope,initialize=false){
 }
 export async function summaryStatus(scope:MemoryScope){
  return db.transaction('r',tables(),async()=>{await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=c.memorySummary??emptySummaryState();const data=await snapshot(scope);const job=state.job&&scopeKey(state.job.scope)===scopeKey(scope)?state.job:undefined;
-  return {enabled:state.enabled,interval:state.interval,pending:data.turns.length,unverified:data.unverified,deferUntilPending:state.deferUntilPending,receipts:(await visibleSummaryReceipts(scope)).length,busy:state.job?.status==='running'&&Date.now()<state.job.leaseUntil,job};
+  return {enabled:state.enabled,interval:state.interval,pending:data.turns.length,unverified:data.unverified,requiresManualResume:state.requiresManualResume,deferUntilPending:state.deferUntilPending,receipts:(await visibleSummaryReceipts(scope)).length,busy:state.job?.status==='running'&&Date.now()<state.job.leaseUntil,job};
  });
 }
 interface Claim {job:MemorySummaryJob;turns:SummaryTurn[];inputs:string[]}
 async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
  return db.transaction('rw',tables(),async()=>{
   await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=structuredClone(c.memorySummary??emptySummaryState());
-  if(!manual&&!state.enabled)return;
+  if(!manual&&(!state.enabled||state.requiresManualResume))return;
+  if(manual)state.requiresManualResume=undefined;
   if(state.job?.status==='running'&&Date.now()<state.job.leaseUntil)return;
   // A failed job is terminal for that attempt, never a permanent disable.
   // The next successful chat turn may claim a fresh job; completed chunks resume.

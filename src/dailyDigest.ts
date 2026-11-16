@@ -34,7 +34,7 @@ export async function dailyDigestStatus(scope:MemoryScope){
 }
 const locks=new Set<string>();
 async function runDailyDigestLocked(scope:MemoryScope,manual=false){
- const lock=scope.conversationId;if(locks.has(lock))return;locks.add(lock);
+ const token=crypto.randomUUID();const lock=scope.conversationId;if(locks.has(lock))return;locks.add(lock);
  try{
   const c=await db.conversations.get(scope.conversationId);if(!c?.dailyDigestSettings?.enabled)return;
   const days=c.dailyDigestSettings.days,now=new Date();
@@ -92,7 +92,7 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
   if(pieces.length>500)throw Error('该自然日超过500个片段的单次处理保护上限；已保留原文，请分日期处理');
   const bytes=new TextEncoder().encode(JSON.stringify([scope,start,end,sourceSnapshot,pieces]));
   const signature=await sourceHash(new TextDecoder().decode(bytes));
-  await db.conversations.update(c.id,{dailyDigestAttempt:{scope:structuredClone(scope),startDay:start,endDay:end,status:'running',startedAt:Date.now()}});
+  await db.conversations.update(c.id,{dailyDigestAttempt:{token,scope:structuredClone(scope),startDay:start,endDay:end,status:'running',startedAt:Date.now()}});
   const saved=(await db.conversations.get(c.id))?.dailyDigestCheckpoint;
   const resume=saved&&saved.startDay===start&&saved.endDay===end&&memoryScopeKey(saved.scope)===memoryScopeKey(scope)&&saved.sourceSignature===signature&&JSON.stringify(saved.pieces)===JSON.stringify(pieces);
   const completed=resume?saved.completed.slice():[];
@@ -107,7 +107,7 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
    summaries.push(result);completed[index]=result;
    await db.transaction('rw',db.conversations,async()=>{
     const current=await db.conversations.get(c.id),checkpoint=current?.dailyDigestCheckpoint;
-    if(!checkpoint||checkpoint.sourceSignature!==signature||memoryScopeKey(checkpoint.scope)!==memoryScopeKey(scope))throw Error('总结原文已变化，暂停保存');
+    if(current?.dailyDigestAttempt?.token!==token||current.dailyDigestAttempt.status!=='running'||!checkpoint||checkpoint.sourceSignature!==signature||memoryScopeKey(checkpoint.scope)!==memoryScopeKey(scope))throw Error('总结原文已变化，暂停保存');
     await db.conversations.update(c.id,{dailyDigestCheckpoint:{...checkpoint,completed:completed.slice(),updatedAt:Date.now()}});
    });
   }
@@ -140,12 +140,13 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
   const latestSource=latestMessages.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));
   if(JSON.stringify(latestSource.map(m=>[m.id,m.role,m.createdAt,m.content,m.activeVariantId??null,(m.attachments??[]).map(a=>a.assetId)]))!==sourceSnapshot)throw Error('总结期间历史原文已修改，已保留分片检查点，请重新检查');
   await db.transaction('rw',[...timelineTables(),db.characters,db.worlds,db.worldProfiles],async()=>{const current=await db.conversations.get(c.id);if(!current?.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days)return;if(memoryScopeKey(await getMemoryScope(c.id))!==memoryScopeKey(scope))throw Error('总结作用域已变化');
+   if(current.dailyDigestAttempt?.token!==token||current.dailyDigestAttempt.status!=='running')throw Error('总结任务已失效');
    const fresh=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>visibleMessage(n.message)):(await activeMessages(c.id)).map(visibleMessage);
    const currentSource=fresh.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));
    if(JSON.stringify(currentSource.map(m=>[m.id,m.role,m.createdAt,m.content,m.activeVariantId??null,(m.attachments??[]).map(a=>a.assetId)]))!==sourceSnapshot)throw Error('二级总结保存时原文发生变化，未写入旧摘要');
    if(scope.mode==='world'&&current.activeTimelineId!==scope.timelineId)return;
    await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text,createdAt:Date.now(),sourceMessageIds:sourceMessages.map(m=>m.id),sourceFingerprint}],dailyDigestCheckpoint:undefined,dailyDigestAttempt:undefined});});
- }catch(error){const current=await db.conversations.get(scope.conversationId);const attempt=current?.dailyDigestAttempt;if(attempt?.status==='running'&&memoryScopeKey(attempt.scope)===memoryScopeKey(scope))await db.conversations.update(scope.conversationId,{dailyDigestAttempt:{...attempt,status:'failed'}});throw error;}finally{locks.delete(lock);}
+ }catch(error){const current=await db.conversations.get(scope.conversationId);const attempt=current?.dailyDigestAttempt;if(attempt?.token===token&&attempt.status==='running'&&memoryScopeKey(attempt.scope)===memoryScopeKey(scope))await db.conversations.update(scope.conversationId,{dailyDigestAttempt:{...attempt,status:'failed'}});throw error;}finally{locks.delete(lock);}
 }
 
 /** Cross-tab exclusive lock. If another tab owns the job, skip rather than duplicate a paid call. */
