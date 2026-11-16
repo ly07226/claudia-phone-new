@@ -1,6 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {QRCodeSVG} from 'qrcode.react';
 import {syncWechatEffectiveContext,deleteWechatEffectiveContext} from './wechatContextSync';
+import {getWechatClosedContinuity,setWechatClosedContinuity,reconcileWechatAfterReopen} from './wechatClosedContinuity';
 import {authorizeWechatAi,disableWechatAi,deleteWechatAi,getWechatAiStatus} from './wechatAiAuthorization';
 import {db} from './store';
 import {startWechatLogin,pollWechatLogin} from './wechatQrLogin';
@@ -32,9 +33,11 @@ export function WechatIntegrationSettings(){
  const [aiBusy,setAiBusy]=useState(false);
  const [memoryStatus,setMemoryStatus]=useState('');
  const [autoMemory,setAutoMemory]=useState(false);
+ const [closedContinuity,setClosedContinuity]=useState(false);
  const [autoMemoryBusy,setAutoMemoryBusy]=useState(false);
  useEffect(()=>{
-  if(!aiBinding){setAutoMemory(false);return;}
+  if(!aiBinding){setAutoMemory(false);setClosedContinuity(false);return;}
+  setClosedContinuity(getWechatClosedContinuity(aiBinding));
   setAutoMemory(localStorage.getItem('claudia-wechat-auto-context:'+aiBinding)==='yes');
  },[aiBinding]);
  useEffect(()=>{
@@ -218,6 +221,15 @@ export function WechatIntegrationSettings(){
     <label>角色提示词<textarea rows={5} value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)} placeholder="请自行核对并填写要授权到云端的角色设定"/></label>
     <label>API Key（仅提交到自己的 Supabase）<input type="password" autoComplete="off" value={aiKey} onChange={e=>setAiKey(e.target.value)}/></label>
     <p>角色记忆：仅在你确认后，将当前日常聊天实际构建出的角色、世界书、记忆与有效历史同步到自己的云端。</p>
+    <label><input type="checkbox" checked={closedContinuity} disabled={!aiBinding}
+      onChange={e=>{
+       const enabled=e.target.checked;
+       if(enabled&&!window.confirm('开启离线微信连续对话：关闭小手机后，已部署的云端执行器可继续保存微信对话；重新打开小手机时自动回填消息并更新记忆快照。不会读取关闭期间未上传的本地数据。确定开启？'))return;
+       setWechatClosedContinuity(aiBinding,enabled);setClosedContinuity(enabled);
+       if(enabled)void reconcileWechatAfterReopen().catch(()=>setMemoryStatus('离线同步将在下次联网时重试。'));
+      }}/>
+      关闭小手机后继续保存微信对话，重新打开时自动回填
+    </label>
     <label><input type="checkbox" checked={autoMemory} disabled={!aiBinding}
      onChange={e=>toggleAutoMemory(e.target.checked)}/>
      开启前台定期同步（设置页面打开时，每分钟及重新进入前台时同步）{autoMemoryBusy?' · 同步中':''}
