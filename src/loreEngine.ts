@@ -96,9 +96,10 @@ export function retrieveLorePassages(content:string,history:Message[],budget:num
   const chunks:string[]=[];
   for(const paragraph of content.split(/\n{2,}/)){
     const sentences=(paragraph.match(/[^。！？!?；;\n]+[。！？!?；;]?/g)||[paragraph]).map(x=>x.trim()).filter(Boolean);
+    const paragraphStart=chunks.length;
     for(const sentence of sentences){
       const dependent=/^(?:但(?:是)?|不过|然而|否则|除非|只有|仅当|前提是|与此同时|同时|另外|并且|而且|因此|所以|即使|哪怕|不得|不能|禁止|切勿|例外|注意[：:]?)/u.test(sentence);
-      if(dependent&&chunks.length){chunks[chunks.length-1]+=sentence;}
+      if(dependent&&chunks.length>paragraphStart){chunks[chunks.length-1]+=sentence;}
       else chunks.push(sentence);
     }
   }
