@@ -62,6 +62,14 @@ Deno.serve(async request=>{
  try{
   if(!source?.ilink_peer_ciphertext||!source?.ilink_context_ciphertext||!bot?.bot_token_ciphertext)
    throw Error("missing_verified_ilink_route");
+  // Recheck consent after claiming and immediately before network delivery.
+  // Disabling or deleting a profile must prevent any new send attempt.
+  const {data:permission,error:permissionError}=await db.from("claudia_wechat_ai_profiles")
+   .select("enabled").eq("binding_id",row.binding_id).maybeSingle();
+  const {data:bound,error:boundError}=await db.from("claudia_wechat_bindings")
+   .select("status").eq("id",row.binding_id).maybeSingle();
+  if(permissionError||boundError||permission?.enabled!==true||bound?.status!=="connected")
+   throw Error("cloud_ai_authorization_revoked");
   const [peer,context,token]=await Promise.all([
    decrypt(source.ilink_peer_ciphertext,encryptionKey),
    decrypt(source.ilink_context_ciphertext,encryptionKey),
@@ -82,8 +90,8 @@ Deno.serve(async request=>{
   sent=response.ok&&(payload.ret===0||payload.ret===undefined);
   if(!sent)errorCode="ilink_not_confirmed";
  }catch(error){
-  errorCode=error instanceof Error&&error.message==="missing_verified_ilink_route"?
-   "missing_verified_ilink_route":"send_result_unknown";
+  errorCode=error instanceof Error&&["missing_verified_ilink_route","cloud_ai_authorization_revoked"].includes(error.message)?
+   error.message:"send_result_unknown";
  }
  const {data:ack,error:ackError}=await db.rpc("claudia_wechat_ack_outbound",{
   p_outbound_id:row.id,p_worker_id:workerId,p_expected_lease_until:row.lease_until,
