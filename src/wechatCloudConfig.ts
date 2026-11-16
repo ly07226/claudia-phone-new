@@ -12,6 +12,19 @@ export function validateWechatCloudConfig(value:WechatCloudConfig):WechatCloudCo
  if(!publishableKey||publishableKey.length>2048||/\s/.test(publishableKey)||
   publishableKey.startsWith('sb_secret_'))
   throw Error('只能填写 Supabase publishable / anon 公钥，不能填写 secret 或 service_role 密钥。');
+ // Legacy Supabase keys are JWTs; refuse privileged service_role tokens.
+ if(publishableKey.split('.').length===3){
+  try{
+   const payload=JSON.parse(atob(publishableKey.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))) as {role?:string};
+   if(payload.role!=='anon')throw Error('微信接入只接受 anon 公钥，禁止 service_role。');
+  }catch(error){
+   if(error instanceof Error&&error.message.includes('service_role'))throw error;
+   if(error instanceof Error&&error.message.includes('只接受 anon'))throw error;
+   throw Error('Supabase anon 公钥格式无效。');
+  }
+ }else if(!publishableKey.startsWith('sb_publishable_')){
+  throw Error('请输入 Supabase publishable 或 anon 公钥。');
+ }
  return {url,publishableKey};
 }
 export function readWechatCloudConfig():WechatCloudConfig|null{
