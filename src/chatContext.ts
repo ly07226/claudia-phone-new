@@ -27,6 +27,8 @@ export async function buildContext(
   if (conversation.mode === "daily" && conversation.worldId)
     throw Error("日常会话关联异常。");
   let system = `你正在进行角色扮演。遵循角色资料回应用户。只使用本会话提供的资料，不声称知道其他聊天空间的经历。\n角色：${c.name}\n基础人格与设定：${c.persona}\n说话方式：${c.speakingStyle || "按基础人格自然回应"}`;
+  // Apply to every role and both daily/world modes. Character cards are facts, not prose templates.
+  system += '\n角色生成约束（全局）：角色资料、说话方式、世界书和历史记忆只用于理解已确立的事实与人物行为逻辑，不是必须在回复里逐条展示的素材。不得直接照搬、拼接或仅替换近义词来复述人设卡原句；外貌、身高、眼睛、痣、气质等静态标签，只有在当前互动确实相关时才自然提及，不要为了证明人设而额外加入描写。不得擅自补写资料和当前剧情没有确立的具体事实，包括新人物、既往经历、关系进展、秘密、物品、地点、时间、承诺及用户的行为、心理或台词；不能把猜测写成既成事实。可以基于已有事实与当轮互动进行合理的即时反应、对话和剧情推进，但新增情节必须作为当下发生的行为自然展开，不得伪装成此前已存在的设定。优先回应用户当前输入，避免无关外貌描写、模板化心理旁白、重复动作与刻意加戏；一句话足够时无需扩写。';
   const profileChars=system.length;
   if (conversation.mode === "world") {
     if (!conversation.worldId) throw Error("世界会话缺少世界。");
