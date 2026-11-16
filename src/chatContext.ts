@@ -39,6 +39,7 @@ export async function buildContext(
     if (!p) throw Error("角色已解除该世界关联。");
     system += `\n当前聊天空间：世界聊天\n世界：${w.name}\n简介：${w.description}\n规则：${w.rules || ""}\n背景：${w.background || ""}\n本世界角色设定：${p.setting}`;
   } else system += "\n当前聊天空间：日常聊天。此空间不采用任何世界背景。";
+  system += '\n角色生成约束（全局）：角色资料、说话方式、世界书和历史记忆只用于理解已确立的事实与人物行为逻辑，不是必须在回复里逐条展示的素材。不得直接照搬、拼接或仅替换近义词来复述人设卡原句；外貌、身高、眼睛、痣、气质等静态标签，只有在当前互动确实相关时才自然提及，不要为了证明人设而额外加入描写。不得擅自补写资料和当前剧情没有确立的具体事实，包括新人物、既往经历、关系进展、秘密、物品、地点、时间、承诺及用户的行为、心理或台词；不能把猜测写成既成事实。可以基于已有事实与当轮互动进行合理的即时反应、对话和剧情推进，但新增情节必须作为当下发生的行为自然展开，不得伪装成此前已存在的设定。优先回应用户当前输入，避免无关外貌描写、模板化心理旁白、重复动作与刻意加戏；一句话足够时无需扩写。';
   // Reject excessive profile input rather than silently omitting critical world rules.
   if (system.length > contextLimits.systemChars)
     throw Error("角色与世界设定合计过长，请缩短到约 24000 字符以内。");
