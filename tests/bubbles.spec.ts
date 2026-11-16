@@ -322,11 +322,11 @@ test("独立问号气泡按字符收缩宽度，不随正文气泡拉伸",async(
 test("独立省略号及省略号感叹号必须各自成泡，且保留原文",async({page})=>{
  await page.goto("/");
  const samples=[
-  ["（他沉默了一会儿。）\\n……！\\n（他终于开口。）","……！"],
-  ["（他抬起头。）\\n……\\n（他转身。）","……"],
-  ["（他看着你。）\\n......!\\n（他笑了。）","......!"],
-  ["（他看着你。）\\n……！","……！"],
-  ["（他看着你。）\\n？\\n（他笑了。）","？"]
+  ["（他沉默了一会儿。）\n……！\n（他终于开口。）","……！"],
+  ["（他抬起头。）\n……\n（他转身。）","……"],
+  ["（他看着你。）\n......!\n（他笑了。）","......!"],
+  ["（他看着你。）\n……！","……！"],
+  ["（他看着你。）\n？\n（他笑了。）","？"]
  ] as const;
  const actual=await page.evaluate(async(inputs)=>{
   const {splitAssistantBubbles,legacyAssistantBubbles}=await import("/src/splitAssistantBubbles.ts");
@@ -339,3 +339,5 @@ test("独立省略号及省略号感叹号必须各自成泡，且保留原文",
   }
  });
 });
+
+test('字面反斜杠n不是换行，原文仍逐字保留',async({page})=>{await page.goto('/');const input='（动作）\\n……！\\n（结束）';const result=await page.evaluate(async input=>{const s=await import('/src/splitAssistantBubbles.ts');return [s.splitAssistantBubbles(input).join(''),s.legacyAssistantBubbles(input).join('')];},input);expect(result).toEqual([input,input]);});
