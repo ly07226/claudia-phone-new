@@ -1,3 +1,4 @@
+import {memoryScopeKey} from './memoryScopeKey';
 import {db} from './store';
 import {summaryVerifier,sourceHash} from './summarySourceFingerprint';
 import {visibleMessage} from './messageBubbles';
@@ -109,7 +110,7 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   const scope=await getMemoryScope(c.id);
   const prefixLast=Math.max(...requestPath.map(m=>m.createdAt),0);
   const current=await db.conversations.get(c.id);
-  const sameScope=(a:unknown)=>JSON.stringify(a)===JSON.stringify(scope);
+  const sameScope=(a:unknown)=>memoryScopeKey(a as typeof scope)===memoryScopeKey(scope);
   // Parent-branch digests may be inherited only when every source message is
   // still present and identical in the actual request prefix. Never inherit
   // sibling or future-branch digests.

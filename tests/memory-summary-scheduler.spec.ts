@@ -43,7 +43,7 @@ test('automatic summary: provider 503 ends immediately, then waits another inter
   await db.messages.bulkPut(messages);
   await db.apiConfigs.put({id:'retry-api',name:'mock',provider:'openai-compatible',baseUrl:'https://summary-retry.test/v1',model:'fixture',temperature:0,maxTokens:4000,enabled:true,isDefault:true,createdAt:1,updatedAt:1});
   await db.apiCredentials.put({configId:'retry-api',apiKey:'synthetic'});
-  await saveSummarySettings(await getMemoryScope(c.id),true,20);
+  const transport=(await db.apiConfigs.toArray())[0];await(await import('/src/dedicatedSummaryApi.ts')).saveSummaryApi({...transport,apiKey:'synthetic'});await saveSummarySettings(await getMemoryScope(c.id),true,20);
   return c.id;
  });
  let calls=0;
@@ -72,7 +72,7 @@ test('automatic summary: authentication error stops after one attempt and defers
   await db.messages.bulkPut(messages);
   await db.apiConfigs.put({id:'auth-api',name:'mock',provider:'openai-compatible',baseUrl:'https://summary-auth.test/v1',model:'fixture',temperature:0,maxTokens:4000,enabled:true,isDefault:true,createdAt:1,updatedAt:1});
   await db.apiCredentials.put({configId:'auth-api',apiKey:'synthetic'});
-  await saveSummarySettings(await getMemoryScope(c.id),true,20);
+  const transport=(await db.apiConfigs.toArray())[0];await(await import('/src/dedicatedSummaryApi.ts')).saveSummaryApi({...transport,apiKey:'synthetic'});await saveSummarySettings(await getMemoryScope(c.id),true,20);
   return c.id;
  });
  let calls=0;

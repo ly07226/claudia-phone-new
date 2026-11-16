@@ -1,3 +1,4 @@
+import {memoryScopeKey} from './memoryScopeKey';
 import {withSummaryLock} from './summaryLock';
 import {getSummaryApi} from './dedicatedSummaryApi';
 import {classifySummaryError} from './memorySummaryErrors';
@@ -17,7 +18,7 @@ import {memoryLimits,type MemoryScope} from './memoryTypes';
 import {emptySummaryState,summaryLimits,type SummaryFact,type SummaryTurn,type SummaryFailure,type MemorySummaryJob,type SummaryDiagnostic} from './memorySummaryTypes';
 const tables=()=>[...timelineTables(),db.characters,db.worlds,db.worldProfiles];
 const key=(turn:SummaryTurn)=>JSON.stringify([turn.userIds,turn.assistantId]);
-const scopeKey=(scope:MemoryScope)=>JSON.stringify(scope);
+const scopeKey=memoryScopeKey;
 const labels={fact:'已发生事实',belief:'人物主观判断',speculation:'猜测（未证实）',pending:'未完成事项'};
 const system=summaryPrompt;
 export async function saveSummarySettings(scope:MemoryScope,enabled:boolean,interval:number){
@@ -118,10 +119,10 @@ async function execute(scope:MemoryScope,manual:boolean){
     if(combined){
      let result:unknown;
      try{result=JSON.parse(raw.trim());}catch{throw new SummaryResponseError({version:1,stage:'parse',code:'json-syntax'});}
-     if(!result||typeof result!=='object'||Array.isArray(result)||Object.keys(result).sort().join(',')!=='memories,summary'||typeof (result as {summary?:unknown}).summary!=='string')throw new SummaryResponseError({version:1,stage:'validate',code:'response-shape'});
+     if(!result||typeof result!=='object'||Array.isArray(result)||!['memories','memories,summary'].includes(Object.keys(result).sort().join(','))||('summary' in result&&typeof (result as {summary?:unknown}).summary!=='string'))throw new SummaryResponseError({version:1,stage:'validate',code:'response-shape'});
      const response=result as {memories:unknown;summary:string};
-     if(response.summary.length>1200)throw new SummaryResponseError({version:1,stage:'validate',code:'output-limit'});
-     eventSummary=response.summary.trim();
+     if((response.summary??'').length>1200)throw new SummaryResponseError({version:1,stage:'validate',code:'output-limit'});
+     eventSummary=(response.summary??'').trim();
      memoryJson=JSON.stringify({memories:response.memories});
     }
     const parsed=parseSummary(memoryJson),selected=selectSummaryCandidates(parsed,input);
