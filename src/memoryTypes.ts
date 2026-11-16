@@ -7,7 +7,7 @@ export type MemoryScope=(Owner&{mode:'daily';spaceId:'daily';worldId?:never;time
 /** Immutable revision. id identifies the same logical memory across local overrides. */
 export interface MemoryEntry {
  id:string;revision:number;scope:MemoryScope;kind:StoredMemoryKind;source:MemorySource;
- content:string;deleted:boolean;anchorNodeId?:string;createdAt:number;updatedAt:number;
+ content:string;deleted:boolean;anchorNodeId?:string;sourceReceiptId?:string;createdAt:number;updatedAt:number;
 }
 export interface MemoryFork {
  timelineId:string;epoch:number;parentTimelineId?:string;sharedHeadNodeId?:string;
@@ -15,16 +15,18 @@ export interface MemoryFork {
  inheritThroughRevision:number;
  /** Existing fork boundary for successful summary receipts, not a new timeline. */
  summaryRevisionAtFork?:number;
+ hiddenSummaryIds?:string[];
 }
-export interface MemoryStore {version:1;revision:number;entries:MemoryEntry[];forks:MemoryFork[]}
-export interface MemoryInput {kind:StoredMemoryKind;content:string;source?:MemorySource}
+export interface MemoryStore {version:1;revision:number;entries:MemoryEntry[];forks:MemoryFork[];shortHides?:{scope:MemoryScope;receiptIds:string[]}[]}
+export interface MemoryInput {kind:StoredMemoryKind;content:string;source?:MemorySource;sourceReceiptId?:string}
 export interface EffectiveMemory extends MemoryEntry {inherited:boolean}
 export interface ShortMemoryItem {messageId:string;variantId?:string;nodeId?:string;role:'user'|'assistant';content:string;assetIds:string[];createdAt:number}
 export interface ShortMemory {
- kind:'short';scope:MemoryScope;
+ summaries?:{id:string;text:string;createdAt:number;throughNodeId:string;turns:import('./memorySummaryTypes').SummaryTurn[]}[];
+ kind:'short';scope:MemoryScope;summaryRevision?:number;
  /** Context provenance only; daily stored memories never branch on these fields. */
  context:{timelineId?:string;epoch:number;revision?:number;headNodeId?:string};
  messages:ShortMemoryItem[];
 }
-export const memoryLimits={events:2000,entryChars:12000,totalChars:1000000,forks:4096,shortMessages:200};
+export const memoryLimits={events:20000,entryChars:12000,totalChars:10000000,forks:16384,shortMessages:200};
 export const emptyMemoryStore=():MemoryStore=>({version:1,revision:0,entries:[],forks:[]});

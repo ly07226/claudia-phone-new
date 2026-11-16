@@ -1,10 +1,11 @@
+import {supportedDataSchema} from './backupFormat';
 import Dexie,{type Transaction} from 'dexie';
 import {backupSchemas,backupTables,ensure,checkAbort,tableSeed,nextDigest,rowBytes,type BackupManifest} from './backupFormat';
 import {eachBackupRow,validateReferences} from './backupService';
 import {validateTimelineDatabase} from './timelineValidation';
 export type DatabaseDigest=Record<string,{count:number;digest:string}>;
 export function exactSchema(d:Dexie) {
-  ensure(d.verno===7&&d.backendDB().version===70&&[...d.backendDB().objectStoreNames].sort().join()===[...backupTables].sort().join(),'数据库版本或表结构未受支持，停止恢复；不会忽略未知表。');
+  ensure(supportedDataSchema(d),'数据库版本或表结构未受支持，停止恢复；不会忽略未知表。');
 }
 const transactions=new WeakMap<Dexie,Transaction>();
 export function bound(d:Dexie,tx:Transaction):Dexie {const view=Object.create(d);view.table=(name:string)=>tx.table(name);transactions.set(view,tx);return view;}
@@ -26,4 +27,4 @@ export async function validate(d:Dexie,signal:AbortSignal){
   await validateReferences(d,{credentials:'encrypted',redactions:[]} as unknown as BackupManifest,signal);
   await validateTimelineDatabase(d);
 }
-export async function openRestoreDatabase(name:string){const d=new Dexie(name);d.version(7).stores(backupSchemas);await d.open();exactSchema(d);return d;}
+export async function openRestoreDatabase(name:string){const d=new Dexie(name);if(!await Dexie.exists(name))d.version(7).stores(backupSchemas);await d.open();exactSchema(d);return d;}

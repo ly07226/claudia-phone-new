@@ -10,7 +10,8 @@ function reject(code:SummaryDiagnostic['code'],meta:Partial<SummaryDiagnostic>={
 /** Only extract a single complete JSON value. Never repair JSON, discard invalid
  * rows, infer a missing category, or execute prose surrounding the data.
  */
-function candidate(raw:string){
+export function summaryJsonCandidate(raw:string){
+ if(raw.length>summaryLimits.outputChars)reject('output-limit');
  const text=raw.replace(/^\uFEFF/,'').trim();
  try{return JSON.parse(text);}catch{/* A complete value may have a prose/fence wrapper. */}
  const values:{start:number;end:number}[]=[];let start=-1,quoted=false,escape=false;const stack:string[]=[];
@@ -33,7 +34,7 @@ function candidate(raw:string){
 }
 export function parseSummary(raw:string):SummaryFact[]{
  if(raw.length>summaryLimits.outputChars)reject('output-limit');
- const value=candidate(raw);
+ const value=summaryJsonCandidate(raw);
  if(!value||typeof value!=='object'||Array.isArray(value))reject('root-shape',{stage:'validate'});
  if(!Object.hasOwn(value,'memories'))reject('missing-field',{stage:'validate',missingFields:['memories']});
  if(Object.keys(value).some(k=>k!=='memories'))reject('unexpected-field',{stage:'validate'});

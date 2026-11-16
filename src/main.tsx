@@ -1,6 +1,8 @@
+import {installMemorySummaryScheduler} from './memorySummaryScheduler';
 import {PhasePlayApp} from './phasePlay/PhasePlayApp';
 import {ChatHubScheduler} from './ChatHubScheduler';
 import {ProactiveScheduler} from './ProactiveScheduler';
+import {MemoryCalendarScheduler} from './MemoryCalendarScheduler';
 import {BackgroundReplyReconciler} from './BackgroundReplyReconciler';
 import {AudioKeepAliveSettings,initializeAudioKeepAlive} from './AudioKeepAliveSettings';
 import {PushNotificationSettings} from './PushNotificationSettings';
@@ -368,7 +370,7 @@ function App() {
   return (
     <div className="stage" data-ios={environment.ios || undefined} data-standalone={environment.standalone || undefined}>
       <ChatHubScheduler/>
-      <ProactiveScheduler/>
+      <MemoryCalendarScheduler/><ProactiveScheduler/>
       <BackgroundReplyReconciler/>
       <aside className="brand">
         <span className="brand-mark">c.</span>
@@ -986,6 +988,7 @@ function App() {
   );
 }
 initializeAudioKeepAlive();
+installMemorySummaryScheduler();
 createRoot(document.getElementById("root")!).render(
   <SpaceRoot phone={<App />} />,
 );

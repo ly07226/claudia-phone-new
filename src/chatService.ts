@@ -174,6 +174,7 @@ async function generate(
   const timeout = setTimeout(abort, 60000);
   let target:Message|undefined;
   let interruption:import("./chatCompletion").ReplyInterruption|undefined;
+  let reply = "";
   let acquired = false;
   let release = () => {};
   try {
@@ -250,7 +251,7 @@ async function generate(
     interruption=result.interruption;
     const parsed=options.continuation?{text:stripLeakedTimeMarkers(result.text),heartVoice:target?.heartVoice}:parseHeartVoice(result.text);
     parsed.text=stripLeakedTimeMarkers(parsed.text);
-    const reply=options.continuation&&target?appendContinuation(target.content,parsed.text):parsed.text;
+    reply=options.continuation&&target?appendContinuation(target.content,parsed.text):parsed.text;
     const heartVoice=parsed.heartVoice;
     if(!reply.trim())throw Error('AI 本次未返回有效角色回复，已忽略不完整心声；可重试生成。');
     const preserveTimeout=interruption==='timeout'&&!signal?.aborted;
@@ -317,6 +318,16 @@ async function generate(
           });
       });
   }
+  // A due reminder is acknowledged only when the successful reply actually mentions it.
+  // Never consume a reminder after a failed or interrupted generation.
+  if(!interruption&&!options.messageId)void (async()=>{
+   const {getMemoryScope}=await import('./memoryStore');
+   const {dueTimeMemories,acknowledgeTimeMemory,nextOccurrence}=await import('./smartTimeMemory');
+   const scope=await getMemoryScope(id);
+   for(const item of await dueTimeMemories(scope)){
+    if((item.method==='role'||item.method==='both')&&reply.includes(item.title))await acknowledgeTimeMemory(scope,item.id,nextOccurrence(item));
+   }
+  })().catch(()=>{});
   // Detached from views and from normal reply completion. No auto retry on failure.
   if(!options.messageId&&!interruption)void import('./memorySummary').then(m=>m.tryAutoSummary(id)).catch(()=>{});
   return {interruption};

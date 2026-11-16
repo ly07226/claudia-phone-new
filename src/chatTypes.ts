@@ -22,6 +22,13 @@ export interface Conversation {
   /** Independent memory journal. Not persona, lore, messages, or prompt injection. */
   memoryStore?: MemoryStore;
   memorySummary?: MemorySummaryState;
+  smartTimeMemories?: import('./smartTimeMemory').SmartTimeMemory[];
+  dailyDigestAttempt?: {token?:string;scope:import('./memoryTypes').MemoryScope;startDay:string;endDay:string;status:'running'|'failed';startedAt:number};
+  dailyDigestSettings?: {enabled:boolean;days:1|2|3|7|14};
+  dailyDigests?: import('./dailyDigest').DailyDigest[];
+  dailyDigestCheckpoint?: import('./dailyDigest').DailyDigestCheckpoint;
+  summaryApiConfigId?: string;
+  dedicatedSummaryApi?: import('./dedicatedSummaryApi').DedicatedSummaryApi;
   activeTimelineId?: string;
   timelineEpoch?: number;
   chatSettings?: ChatSettings;

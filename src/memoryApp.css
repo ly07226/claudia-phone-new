@@ -11,3 +11,16 @@
 .memory-delete-buttons button:disabled{opacity:.5;cursor:default}
 .memory-delete-buttons button:focus-visible{outline:2px solid var(--theme-focus, #647b60);outline-offset:2px}
 .memory-delete-dialog [role=alert]{font-size:13px;line-height:1.5;color:var(--theme-danger, #8c4540);margin:0 0 14px;overflow-wrap:anywhere}
+
+
+/* Memory navigation: keep large collections out of the landing page. */
+.memory-nav-head{display:flex;align-items:center;gap:10px;margin:12px 0 16px}
+.memory-nav-head h3{flex:1;margin:0;font-size:17px}
+.memory-nav-head>button{display:flex;align-items:center;justify-content:center;min-width:38px;min-height:38px;border-radius:12px}
+.memory-home-links{display:flex;flex-direction:column;gap:12px}
+.memory-home-links>button,.memory-list-entry{display:flex;align-items:center;text-align:left;gap:12px;width:100%;padding:15px 13px;border:1px solid var(--border-color,rgba(130,130,130,.24));border-radius:14px;background:var(--surface-color,rgba(128,128,128,.06));color:inherit;min-height:68px}
+.memory-home-links>button>span,.memory-list-entry>span{display:flex;flex:1;min-width:0;flex-direction:column;gap:5px}
+.memory-home-links strong,.memory-list-entry strong{font-size:15px;overflow-wrap:anywhere}
+.memory-home-links small,.memory-list-entry small{font-size:12px;opacity:.65;line-height:1.45}
+.memory-list-entry{margin-bottom:10px;min-height:64px}
+.memory-list-caption{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;opacity:.72}

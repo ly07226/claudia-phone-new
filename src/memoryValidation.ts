@@ -1,3 +1,4 @@
+import {validateMemoryV2Fields} from './memoryV2Validation';
 import {validateSummaryState} from './memorySummaryValidation';
 import type Dexie from 'dexie';
 import type {Conversation,MemoryTimeline} from './chatTypes';
@@ -11,6 +12,7 @@ export function validMemoryScope(c:Conversation,scope:MemoryScope){
  scope.mode==='world'&&!!c.worldId&&scope.worldId===c.worldId&&scope.spaceId===`world:${c.worldId}`&&id(scope.timelineId)&&integer(scope.epoch);
 }
 export async function validateMemoryStore(d:Dexie,c:Conversation){
+ await validateMemoryV2Fields(d,c,validMemoryScope);
  await validateSummaryState(d,c,validMemoryScope);
  const state=c.memoryStore;if(state===undefined)return;
  check(state&&state.version===1&&integer(state.revision)&&Array.isArray(state.entries)&&Array.isArray(state.forks));
@@ -25,7 +27,11 @@ export async function validateMemoryStore(d:Dexie,c:Conversation){
   forks.set(f.timelineId,f);
  }
  if(c.mode==='daily')check(!state.forks.length);
- for(const f of state.forks){const seen=new Set<string>();let node:typeof f|undefined=f;while(node){check(!seen.has(node.timelineId));seen.add(node.timelineId);if(!node.parentTimelineId)break;const parent=forks.get(node.parentTimelineId);check(parent&&parent.epoch===node.epoch);node=parent;}}
+ const verifiedForks=new Set<string>();for(const f of state.forks){const seen=new Set<string>();let node:typeof f|undefined=f;while(node&&!verifiedForks.has(node.timelineId)){check(!seen.has(node.timelineId));seen.add(node.timelineId);if(!node.parentTimelineId)break;const parent=forks.get(node.parentTimelineId);check(parent&&parent.epoch===node.epoch);node=parent;}for(const id of seen)verifiedForks.add(id);}
+ const receiptIds=new Set(c.memorySummary?.receipts.map(r=>r.id)??[]);
+ const validIds=(ids:unknown)=>Array.isArray(ids)&&ids.length<=5000&&new Set(ids).size===ids.length&&ids.every(v=>id(v)&&receiptIds.has(v));
+ if(state.shortHides!==undefined){check(Array.isArray(state.shortHides)&&state.shortHides.length<=memoryLimits.forks);const scopes=new Set<string>();for(const h of state.shortHides){check(validMemoryScope(c,h.scope)&&validIds(h.receiptIds));if(h.scope.mode==='world'){check(h.scope.epoch<=currentEpoch);if(h.scope.epoch===currentEpoch){const t=timelines.get(h.scope.timelineId);check(t&&t.epoch===currentEpoch&&t.conversationId===c.id&&t.worldId===c.worldId);}}const key=JSON.stringify([h.scope.mode,h.scope.mode==='world'?h.scope.timelineId:null,h.scope.mode==='world'?h.scope.epoch:null]);check(!scopes.has(key));scopes.add(key);}}
+ for(const f of state.forks)if(f.hiddenSummaryIds!==undefined)check(validIds(f.hiddenSummaryIds));
  const paths=new Map<string,Set<string>>();
  async function path(t:MemoryTimeline){if(paths.has(t.id))return paths.get(t.id)!;const nodes=new Set<string>();let next=t.headNodeId;
   while(next){check(!nodes.has(next));nodes.add(next);const row=await d.table('pathNodes').get(next);check(row&&row.conversationId===c.id);next=row.parentNodeId;}
@@ -39,7 +45,7 @@ export async function validateMemoryStore(d:Dexie,c:Conversation){
    check(e.anchorNodeId===undefined||id(e.anchorNodeId));
    // Clearing a world conversation increments its existing epoch and removes its
    // old paths. Preserve retired provenance, but never resolve it as current memory.
-   if(e.scope.epoch===currentEpoch){const t=timelines.get(e.scope.timelineId);check(t&&t.epoch===e.scope.epoch&&t.characterId===c.characterId&&t.worldId===c.worldId);if(e.anchorNodeId)check((await path(t)).has(e.anchorNodeId));}
+   if(e.scope.epoch===currentEpoch){const t=timelines.get(e.scope.timelineId);check(t&&t.epoch===e.scope.epoch&&t.characterId===c.characterId&&t.worldId===c.worldId);if(e.anchorNodeId)check((paths.get(t.id)??await path(t)).has(e.anchorNodeId));}
   }
  }
 }

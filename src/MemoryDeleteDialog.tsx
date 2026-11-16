@@ -3,7 +3,7 @@ import {createPortal} from 'react-dom';
 /** Top-layer portal avoids fixed-position containing blocks created by the phone's
  * backdrop-filter/animation. Native modality blocks background clicks and focus.
  */
-export function MemoryDeleteDialog({busy,error,onCancel,onConfirm}:{busy:boolean;error:string;onCancel:()=>void;onConfirm:()=>void}){
+export function MemoryDeleteDialog({busy,error,onCancel,onConfirm,titleText='删除这条记忆？',confirmText='确认删除'}:{busy:boolean;error:string;titleText?:string;confirmText?:string;onCancel:()=>void;onConfirm:()=>void}){
  const dialog=useRef<HTMLDialogElement>(null),cancel=useRef<HTMLButtonElement>(null),title=useId();
  useLayoutEffect(()=>{
   const element=dialog.current!,viewport=window.visualViewport;
@@ -19,8 +19,8 @@ export function MemoryDeleteDialog({busy,error,onCancel,onConfirm}:{busy:boolean
   return()=>{viewport?.removeEventListener('resize',position);viewport?.removeEventListener('scroll',position);window.removeEventListener('resize',position);element.close();};
  },[]);
  return createPortal(<dialog ref={dialog} className="memory-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby={title} aria-busy={busy} onCancel={event=>{event.preventDefault();if(!busy)onCancel();}}>
-  <h3 id={title}>删除这条记忆？</h3>
+  <h3 id={title}>{titleText}</h3>
   {error&&<p role="alert">{error}</p>}
-  <div className="memory-delete-buttons"><button type="button" ref={cancel} disabled={busy} onClick={onCancel}>取消</button><button type="button" className="memory-delete-confirm" disabled={busy} onClick={onConfirm}>确认删除</button></div>
+  <div className="memory-delete-buttons"><button type="button" ref={cancel} disabled={busy} onClick={onCancel}>取消</button><button type="button" className="memory-delete-confirm" disabled={busy} onClick={onConfirm}>{confirmText}</button></div>
  </dialog>,document.body);
 }

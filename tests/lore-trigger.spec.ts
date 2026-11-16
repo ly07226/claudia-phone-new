@@ -20,10 +20,11 @@ test("常驻独立、禁用/概率/辅助条件/预算诊断及元数据保真",
   const {newBook,newEntry}=await import("/src/loreTypes.ts");const {planLore}=await import("/src/loreEngine.ts");const b=newBook(),base={...newEntry(b.id),primaryKeys:["key"],content:"PRIVATE_RULE"};
   const h:any=[{id:"user",role:"user",content:"PRIVATE_CHAT key"}];
   const go=(patch:any,book:any=b,budget=8000,random=()=>0)=>planLore([{book,entry:{...base,...patch}}],h,budget,random).diagnostics[0];
-  return {constant:planLore([{book:b,entry:{...base,constant:true,triggerMode:"instant",scanAssistant:false}}],[]).diagnostics[0],book:go({}, {...b,enabled:false}),disabled:go({enabled:false}),paused:go({compatibilityIssues:["unknown"]}),zero:go({useProbability:true,probability:0}),hundred:go({useProbability:true,probability:100},b,8000,()=>0.999),secondary:go({selective:true,secondaryKeys:["missing"]}),notSecondary:go({selective:true,selectiveLogic:2,secondaryKeys:["missing"]}),globalBudget:go({},b,1),bookBudget:go({}, {...b,charBudget:1}),serialized:JSON.stringify(go({}))};
+  return {constant:planLore([{book:b,entry:{...base,constant:true,triggerMode:"instant",scanAssistant:false}}],[]).diagnostics[0],book:go({}, {...b,enabled:false}),disabled:go({enabled:false}),paused:go({compatibilityIssues:["unknown"]}),zero:go({useProbability:true,probability:0}),hundred:go({useProbability:true,probability:100},b,8000,()=>0.999),secondary:go({selective:true,secondaryKeys:["missing"]}),notSecondary:go({selective:true,selectiveLogic:2,secondaryKeys:["missing"]}),globalBudget:go({},b,1),bookBudget:go({}, {...b,charBudget:1}),bookBudgetEntries:planLore([{book:{...b,charBudget:1},entry:base}],h,8000).entries,serialized:JSON.stringify(go({}))};
  });
  expect(r.constant).toMatchObject({triggerMode:"constant",reason:"injected",scannedMessageCount:0});
- for(const [k,reason] of Object.entries({book:"book-disabled",disabled:"entry-disabled",paused:"compatibility-paused",zero:"probability",hundred:"injected",secondary:"secondary-miss",notSecondary:"injected",globalBudget:"context-budget",bookBudget:"book-budget"})) expect((r as any)[k].reason).toBe(reason);
+ for(const [k,reason] of Object.entries({book:"book-disabled",disabled:"entry-disabled",paused:"compatibility-paused",zero:"probability",hundred:"injected",secondary:"secondary-miss",notSecondary:"injected",globalBudget:"context-budget",bookBudget:"context-budget"})) expect((r as any)[k].reason).toBe(reason);
+ expect(r.bookBudgetEntries).toEqual([]);expect(r.bookBudget.completeness).toBe("omitted");
  expect(r.serialized).not.toContain("PRIVATE_CHAT");expect(r.serialized).not.toContain("PRIVATE_RULE");expect(r.serialized).not.toContain('"content"');
 });
 
@@ -57,7 +58,7 @@ test("真实上下文、正则来源、停用及角色/世界隔离，历史记�
   return {systems:contexts.map(c=>c[0].content),regen:regen[0].content,initial,role2,aiTrace,filtered:filtered[0].content,off,unchanged:JSON.stringify(before)===JSON.stringify(await db.messages.toArray()),version:db.verno,traceText:JSON.stringify([initial,role2,aiTrace,off])};
  });
  expect(r.systems[0]).not.toContain("TEMP_RULE");expect(r.systems[1]).toContain("TEMP_RULE");expect(r.systems[2]).toContain("ONLY_A");expect(r.systems[2]).not.toContain("ONLY_B");expect(r.systems[3]).toContain("ONLY_B");expect(r.systems[3]).not.toContain("ONLY_A");expect(r.systems[0]).not.toContain("ONLY_A");
- expect(r.initial.diagnostics[0].reason).toBe("primary-miss");expect(r.role2.diagnostics[0].matchedMessages).toEqual([{id:"last-1",role:"user"}]);expect(r.aiTrace.diagnostics[0].matchedMessages).toEqual([{id:"ai-0",role:"assistant"}]);expect(r.regen).not.toContain("TEMP_RULE");expect(r.filtered).not.toContain("TEMP_RULE");expect(r.off.skippedBooks).toContainEqual({lorebookId:"global",reason:"book-disabled"});expect(r.unchanged).toBe(true);expect(r.version).toBe(7);expect(r.traceText).not.toMatch(/PRIVATE_|TEMP_RULE|旧的暗号|ONLY_A|ONLY_B/);
+ expect(r.initial.diagnostics[0].reason).toBe("primary-miss");expect(r.role2.diagnostics[0].matchedMessages).toEqual([{id:"last-1",role:"user"}]);expect(r.aiTrace.diagnostics[0].matchedMessages).toEqual([{id:"ai-0",role:"assistant"}]);expect(r.regen).not.toContain("TEMP_RULE");expect(r.filtered).not.toContain("TEMP_RULE");expect(r.off.skippedBooks).toContainEqual({lorebookId:"global",reason:"book-disabled"});expect(r.unchanged).toBe(true);expect(r.version).toBe(8);expect(r.traceText).not.toMatch(/PRIVATE_|TEMP_RULE|旧的暗号|ONLY_A|ONLY_B/);
 });
 
 test("手机编辑器默认即时、旧条目历史可排除AI，诊断可读且不持久化",async({page})=>{
@@ -71,7 +72,7 @@ test("手机编辑器默认即时、旧条目历史可排除AI，诊断可读且
 });
 
 
-test("长篇常驻规则优先完整注入，空间不足明确失败而非静默跳过",async({page})=>{
+test("长篇常驻规则优先完整注入，空间不足省略并明确诊断而不中断聊天",async({page})=>{
  await ready(page);
  const result=await page.evaluate(async()=>{
   const {newBook,newEntry}=await import("/src/loreTypes.ts");
@@ -81,14 +82,13 @@ test("长篇常驻规则优先完整注入，空间不足明确失败而非静�
   const optional={...newEntry(book.id),id:"optional",constant:false,primaryKeys:["命中"],content:"可选资料",priority:999};
   const history:any=[{id:"u",role:"user",content:"命中"}];
   const planned=planLore([{book,entry:optional},{book,entry:constant}],history,18000);
-  let overflow="";
-  try {planLore([{book,entry:constant}],history,1000);} catch(e) {overflow=String(e);}
+  const overflow=planLore([{book,entry:constant}],history,1000);
   return {first:planned.entries[0]?.id,contains:planned.entries.some(e=>e.id==="always"),optional:planned.entries.some(e=>e.id==="optional"),overflow};
  });
  expect(result.first).toBe("always");
  expect(result.contains).toBe(true);
  expect(result.optional).toBe(true);
- expect(result.overflow).toContain("当前聊天设定过长");
+ expect(result.overflow.entries).toEqual([]);expect(result.overflow.diagnostics).toContainEqual(expect.objectContaining({entryId:"always",reason:"context-budget",completeness:"omitted"}));
 });
 
 test("长篇关键词条目按相关片段检索，不暴露检索过程",async({page})=>{

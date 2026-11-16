@@ -22,6 +22,8 @@ export const backupSchemas = {...v6BackupSchemas,...storySchemas} as const;
 export const schemasForVersion=(version:5|6|7)=>version===5?legacyBackupSchemas:version===6?v6BackupSchemas:backupSchemas;
 export type BackupTable = keyof typeof backupSchemas;
 export const backupTables = Object.keys(backupSchemas) as BackupTable[];
+/** V8 adds only ephemeral summary leases. Archive payload stays persistent v7. */
+export function supportedDataSchema(d:{verno:number;backendDB:()=>IDBDatabase}){const native=d.backendDB();const names=[...native.objectStoreNames].sort().join();return d.verno===7&&native.version===70&&names===[...backupTables].sort().join()||d.verno===8&&native.version===80&&names===[...backupTables,'summaryLeases'].sort().join();}
 export const backupLimits = {
   partBytes: 4 * 1024 * 1024,
   recordBytes: 16 * 1024 * 1024,

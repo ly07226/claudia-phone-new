@@ -102,7 +102,7 @@ test('中断标记及原文完整 ZIP 往返，不改变数据库版本或用户
   const {createZipBackup,readBackupZip}=await import('/src/backupZip.ts');const {readBackup}=await import('/src/backupService.ts');const blob=await createZipBackup({closedOtherClients:true});const files=await readBackupZip(new File([blob],'fixture.zip'));const result=await readBackup(files,{mode:'verify'});
   return {before,after:await(await import('/src/messagePath.ts')).activeMessages(id),valid:result.report.status==='verified',version:db.verno};
  },daily);
- expect(check.valid).toBe(true);expect(check.version).toBe(7);expect(check.before).toEqual(check.after);expect(check.after.at(-1)?.replyInterruption).toBe('length');
+ expect(check.valid).toBe(true);expect(check.version).toBe(8);expect(check.before).toEqual(check.after);expect(check.after.at(-1)?.replyInterruption).toBe('length');
 });
 test('续接精确去重与无新内容拒绝；不擅自补括号或改写前文',async({page})=>{
  await setup(page);const result=await page.evaluate(async()=>{const {appendContinuation}=await import('/src/chatCompletion.ts');const original='这是原文，必须逐字保留的尾段';let error='';try{appendContinuation(original,original);}catch(e){error=(e as Error).message;}return {value:appendContinuation(original,'必须逐字保留的尾段，接着说完。'),open:appendContinuation('（未闭合','继续'),error};});
@@ -141,7 +141,7 @@ test('动作之间的纯标点、环境和心理片段逐字保留；说明括�
  for(const r of result){expect(r.pieces.join('')).toBe(r.text);expect(r.pieces.every(t=>t.trim())).toBe(true);}expect(result[0].pieces).toEqual(['（他笑了）——','（我点头）']);expect(result[1].pieces).toHaveLength(3);expect(result[2].pieces).toEqual([result[2].text]);expect(result[3].pieces).toEqual([result[3].text]);
 });
 test('恢复原有篇幅行为仍保留预算安全：接近上限的人设与当前消息完整保留',async({page})=>{
- const {daily}=await setup(page);const result=await page.evaluate(async id=>{const {db}=await import('/src/store.ts');const persona='必要设定'.repeat(5950);await db.characters.update('actor',{persona});await db.messages.add({id:'budget-user',conversationId:id,role:'user',content:'当前消息不能丢失',createdAt:1});const context=await(await import('/src/chatContext.ts')).buildContext((await db.conversations.get(id))!);return {persona,context};},daily);
+ const {daily}=await setup(page);const result=await page.evaluate(async id=>{const {db}=await import('/src/store.ts');const {buildContext,contextLimits}=await import('/src/chatContext.ts');const base=await buildContext((await db.conversations.get(id))!);const used=base.filter(m=>m.role==='system').reduce((n,m)=>n+m.content.length,0),old=(await db.characters.get('actor'))!.persona;const persona=old+'必要设定'+'设'.repeat(Math.max(0,contextLimits.systemChars-used-36));await db.characters.update('actor',{persona});await db.messages.add({id:'budget-user',conversationId:id,role:'user',content:'当前消息不能丢失',createdAt:1});const context=await(await import('/src/chatContext.ts')).buildContext((await db.conversations.get(id))!);return {persona,context};},daily);
  expect(result.context[0].content).toContain(result.persona);expect(result.context[0].content.length).toBeLessThanOrEqual(24000);expect(result.context[0].content).not.toContain('日常交流默认采用即时通讯');expect(result.context.at(-1)?.content).toBe('当前消息不能丢失');
 });
 test('手动续接保留未发送的图片与文字，图片不误入续接请求',async({page})=>{

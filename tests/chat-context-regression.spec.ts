@@ -1,3 +1,4 @@
+import {expectedGlobalCharacterConstraints} from './globalCharacterConstraintsFixture';
 import {test,expect,type Page} from '@playwright/test';
 import {isolatedApp} from './backupBrowser';
 import {reply} from './storyFixture';
@@ -50,7 +51,7 @@ test('确定性旧请求契约：基础提示/角色顺序不变；Story配置�
   return {before,after:[await build(ids[0]),await build(ids[1])]};
  },ids);
  expect(r.after).toEqual(r.before);expect(r.before[0]).toEqual([
-  {role:'system',content:'你正在进行角色扮演。遵循角色资料回应用户。只使用本会话提供的资料，不声称知道其他聊天空间的经历。\n角色：离线角色\n基础人格与设定：人设开始。仅当用户连名带姓称呼我才说「看来不会发生什么好事了」。人设结束。\n说话方式：角色原有的说话方式。\n当前聊天空间：日常聊天。此空间不采用任何世界背景。'},
+  {role:'system',content:'你正在进行角色扮演。遵循角色资料回应用户。只使用本会话提供的资料，不声称知道其他聊天空间的经历。\n角色：离线角色\n基础人格与设定：人设开始。仅当用户连名带姓称呼我才说「看来不会发生什么好事了」。人设结束。\n说话方式：角色原有的说话方式。\n当前聊天空间：日常聊天。此空间不采用任何世界背景。'+expectedGlobalCharacterConstraints},
   {role:'user',content:'昨晚我们在餐厅'},{role:'assistant',content:'昨晚在看菜单'}
  ]);
 });

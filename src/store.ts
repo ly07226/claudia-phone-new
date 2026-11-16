@@ -1,3 +1,4 @@
+import {memoryDesktopPresentation} from './memoryDesktopPresentation';
 import {dataEqual} from './dataEqual';
 import {presentationAssets} from './presentationAssets';
 import type {StoryReadingPreferences} from './storyReadingPreferences';
@@ -61,6 +62,8 @@ export interface DesktopItem {
   icon?: string;
 }
 export interface Theme {
+  /** One summary-only provider for every character and conversation. */
+  dedicatedSummaryApi?: import('./dedicatedSummaryApi').DedicatedSummaryApi;
   chatHub?: import("./chatHubTypes").ChatHubData;
   storyReading?: StoryReadingPreferences;
   palette?: ThemePalette;
@@ -85,6 +88,7 @@ export interface Asset {
   createdAt: number;
 }
 class PhoneDB extends Dexie {
+  summaryLeases!: Table<import('./summaryLock').SummaryLease>;
   storySessions!: Table<StorySession>;
   storyNodes!: Table<StoryNode>;
   timelines!: Table<MemoryTimeline>;
@@ -171,6 +175,8 @@ class PhoneDB extends Dexie {
     this.version(6).stores({timelines:"id,conversationId,parentTimelineId",pathNodes:"id,conversationId,[conversationId+parentNodeId+fingerprint]"});
     // Additive v7: existing records and IDs are retained.
     this.version(7).stores(storySchemas);
+    // Additive v8: cross-window summary leases, existing records unchanged.
+    this.version(8).stores({summaryLeases:'name,expiresAt'});
 
   }
 }
@@ -287,12 +293,13 @@ export const usePhone = create<State>((set, get) => ({
         db.worldProfiles.toArray(),
       ]);
     const assets=await presentationAssets([worlds,characters,pages,items,worldProfiles],theme);
+    const memoryDesktop=memoryDesktopPresentation(items,pages);
     const next:Pick<State,"worlds"|"characters"|"worldProfiles"|"pages"|"items"|"theme"|"assets">={
       worlds,
       characters,
       worldProfiles,
-      pages,
-      items: items.some(i=>i.kind==="app"&&i.app==="记忆")||!pages.length ? items : [...items,{id:"app-memory",kind:"app",app:"记忆",pageId:pages[0].id,position:Math.max(0,...items.filter(i=>i.pageId===pages[0].id).map(i=>i.position))+1,size:1}],
+      pages:memoryDesktop.pages,
+      items: memoryDesktop.items,
       theme: theme || defaultTheme,
       assets,
     };
