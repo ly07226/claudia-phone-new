@@ -11,10 +11,10 @@ test('日常全局世界书超预算时不中断聊天',async({page})=>{
   const history=[{id:'m',conversationId:'c',role:'user' as const,content:'钥匙在哪里',createdAt:1}];
   const selected=planLore([{entry,book}],history,500,()=>0);
   const overflow=planLore([{entry,book}],history,12,()=>0);
-  return {text:selected.entries[0]?.content,overflowCount:overflow.entries.length,overflowText:overflow.entries[0]?.content,overflowReason:overflow.diagnostics[0]?.reason};
+  return {text:selected.entries[0]?.content,overflowCount:overflow.entries.length,overflowText:overflow.entries[0]?.content,overflowReason:overflow.diagnostics[0]?.reason,fullStatus:selected.diagnostics[0]?.completeness,partialStatus:overflow.diagnostics[0]?.completeness};
  });
  expect(result.text).toContain('后半段：不得替用户决定行动');
- expect(result.overflowCount).toBe(1);
+ expect(result.overflowCount).toBe(0);\n expect(result.fullStatus).toBe('full');\n expect(result.partialStatus).toBe('omitted');
  expect(result.overflowText?.length).toBeLessThan(result.text.length);
  expect(result.overflowText).toContain('前半段');
 });
@@ -28,9 +28,27 @@ test('常驻世界书超预算时跳过并继续处理其他条目',async({page}
   const large={...newEntry(book.id),id:'large',constant:true,content:'必须遵守的完整规则'.repeat(30),priority:200};
   const small={...newEntry(book.id),id:'small',constant:true,content:'短常驻规则',priority:100};
   const planned=planLore([{entry:large,book},{entry:small,book}],[],30,()=>0);
-  return {entries:planned.entries.map(e=>e.id),reasons:planned.diagnostics.map(d=>({id:d.entryId,reason:d.reason}))};
+  return {entries:planned.entries.map(e=>e.id),reasons:planned.diagnostics.map(d=>({id:d.entryId,reason:d.reason,completeness:d.completeness}))};
  });
  expect(result.entries).toEqual(['small']);
- expect(result.reasons).toContainEqual({id:'large',reason:'context-budget'});
- expect(result.reasons).toContainEqual({id:'small',reason:'injected'});
+ expect(result.reasons).toContainEqual({id:'large',reason:'context-budget',completeness:'omitted'});
+ expect(result.reasons).toContainEqual({id:'small',reason:'injected',completeness:'full'});
+});
+
+
+test('世界书优先级与完整性：高优先级先占预算，部分注入可诊断',async({page})=>{
+ await isolatedApp(page,'lore-priority-'+crypto.randomUUID());
+ const result=await page.evaluate(async()=>{
+  const {newBook,newEntry}=await import('/src/loreTypes.ts');
+  const {planLore}=await import('/src/loreEngine.ts');
+  const book={...newBook(),global:true,charBudget:100};
+  const high={...newEntry(book.id),id:'high',priority:200,primaryKeys:['钥匙'],content:'钥匙放在柜子里。钥匙只能由角色本人拿取。'};
+  const low={...newEntry(book.id),id:'low',priority:100,primaryKeys:['钥匙'],content:'低优先级的其他说明。'};
+  const history=[{id:'m',conversationId:'c',role:'user' as const,content:'钥匙',createdAt:1}];
+  const plan=planLore([{entry:low,book},{entry:high,book}],history,22,()=>0);
+  return {ids:plan.entries.map(e=>e.id),status:plan.diagnostics.map(d=>({id:d.entryId,completeness:d.completeness}))};
+ });
+ expect(result.ids).toEqual(['high']);
+ expect(result.status).toContainEqual({id:'high',completeness:'partial'});
+ expect(result.status).toContainEqual({id:'low',completeness:'omitted'});
 });
