@@ -54,6 +54,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   // only the newest bubbles. Older turns remain accessible on demand.
   const [visibleMessageLimit,setVisibleMessageLimit]=useState(100);
   const historyWindowRef=useRef<{height:number;top:number}|null>(null);
+  const loadingEarlierRef=useRef(false);
   // Only an already opted-in cloud device reports foreground chat presence.
   // No login prompt, no automatic anonymous signup for ordinary local chats.
   useEffect(()=>{
@@ -315,6 +316,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     setError("");
     appliedSnapshot.current=null;
     historyWindowRef.current=null;
+    loadingEarlierRef.current=false;
     pendingQuoteJump.current=null;
     setVisibleMessageLimit(100);
     setMessages([]);
@@ -499,6 +501,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       preserveTop.current=null;
     }
     quoteJumpApplied.current=false;
+    loadingEarlierRef.current=false;
   },[visibleMessageLimit]);
   // Keep expensive message bubble JSX stable while the composer text changes.
   // Include state read by message actions so menus, versions and continuations stay current.
@@ -614,12 +617,20 @@ export function Chat({ worldId }: { worldId?: string }) {
               const el = e.currentTarget;
               followBottom.current =
                 el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+              // Progressive history: loading is automatic and uses exactly
+              // the same ChatMessage/CSS renderer as recent messages.
+              if(el.scrollTop<180 && messages.length>visibleMessageLimit && !loadingEarlierRef.current && !historyWindowRef.current){
+                loadingEarlierRef.current=true;
+                historyWindowRef.current={height:el.scrollHeight,top:el.scrollTop};
+                followBottom.current=false;
+                setVisibleMessageLimit(n=>n+100);
+              }
             }}
           >
             {!messages.length && (
               <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
             )}
-            {messages.length>visibleMessageLimit&&<button type="button" className="text-button" aria-label="加载更早的聊天消息" onClick={()=>{const el=historyRef.current;if(el)historyWindowRef.current={height:el.scrollHeight,top:el.scrollTop};setVisibleMessageLimit(n=>n+100);}}>加载更早的消息（还有 {messages.length-visibleMessageLimit} 条）</button>}
+            {messages.length>visibleMessageLimit&&<div className="hint" aria-label="更早的聊天消息可向上滚动加载">向上滑动查看更早消息</div>}
             {renderedMessages}
             {remotePending&&<p role="status">请求状态待确认：可能仍在其他窗口处理中。可等待，或停止后手动重试；不会自动重复请求。</p>}
             {!busy&&conversation.sendingToken&&!runningTask(generationTask)&&<p role="status">上次请求尚未确认完成，可能已中断；不会自动重发。请确认后手动重试。</p>}
