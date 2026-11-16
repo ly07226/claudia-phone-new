@@ -1,5 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {QRCodeSVG} from 'qrcode.react';
+import {syncWechatEffectiveContext,deleteWechatEffectiveContext} from './wechatContextSync';
 import {authorizeWechatAi,disableWechatAi,deleteWechatAi,getWechatAiStatus} from './wechatAiAuthorization';
 import {db} from './store';
 import {startWechatLogin,pollWechatLogin} from './wechatQrLogin';
@@ -29,6 +30,24 @@ export function WechatIntegrationSettings(){
  const [aiPrompt,setAiPrompt]=useState('');
  const [aiKey,setAiKey]=useState('');
  const [aiBusy,setAiBusy]=useState(false);
+ const [memoryStatus,setMemoryStatus]=useState('');
+ const memoryAction=async(action:'sync'|'delete')=>{
+  const binding=bindings?.find(b=>b.id===aiBinding&&b.status==='connected');
+  if(!binding||aiBusy)return;
+  if(action==='sync'&&!window.confirm('将当前日常聊天有效上下文（含角色设定、世界书、记忆和近期消息）上传到你自己的 Supabase 供微信 AI 使用。确定继续？'))return;
+  if(action==='delete'&&!window.confirm('确定删除这个角色在云端保存的上下文快照吗？'))return;
+  setAiBusy(true);setNotice('');
+  try{
+   if(action==='sync'){
+    const result=await syncWechatEffectiveContext(binding.id,binding.conversation_id);
+    setMemoryStatus('已同步 '+result.messageCount+' 段有效上下文；后续本地变化需要重新同步。');
+   }else{
+    await deleteWechatEffectiveContext(binding.id);
+    setMemoryStatus('云端上下文已删除。');
+   }
+  }catch(error){setNotice(error instanceof Error?error.message:'上下文同步失败');}
+  finally{setAiBusy(false);}
+ };
  const aiAction=async(action:'status'|'authorize'|'disable'|'delete')=>{
   if(!aiBinding||aiBusy)return;
   setAiBusy(true);setNotice('');
@@ -164,6 +183,10 @@ export function WechatIntegrationSettings(){
     <label>API 端点<input value={aiEndpoint} onChange={e=>setAiEndpoint(e.target.value)}/></label>
     <label>角色提示词<textarea rows={5} value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)} placeholder="请自行核对并填写要授权到云端的角色设定"/></label>
     <label>API Key（仅提交到自己的 Supabase）<input type="password" autoComplete="off" value={aiKey} onChange={e=>setAiKey(e.target.value)}/></label>
+    <p>角色记忆：仅在你确认后，将当前日常聊天实际构建出的角色、世界书、记忆与有效历史同步到自己的云端。</p>
+    <button type="button" disabled={!aiBinding||aiBusy} onClick={()=>void memoryAction('sync')}>同步当前角色完整有效上下文</button>
+    <button type="button" disabled={!aiBinding||aiBusy} onClick={()=>void memoryAction('delete')}>删除云端角色上下文</button>
+    {memoryStatus&&<p role="status">{memoryStatus}</p>}
     <button type="button" disabled={!aiBinding||aiBusy} onClick={()=>void aiAction('status')}>查询授权状态</button>
     <button type="button" disabled={!aiBinding||!aiModel||!aiPrompt||!aiKey||aiBusy} onClick={()=>void aiAction('authorize')}>确认授权云端 AI</button>
     <button type="button" disabled={!aiBinding||aiBusy} onClick={()=>void aiAction('disable')}>停用云端 AI</button>
