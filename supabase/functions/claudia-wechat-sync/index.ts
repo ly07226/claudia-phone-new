@@ -26,9 +26,8 @@ Deno.serve(async request=>{
   if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))throw Error();
   body=parsed as Record<string,unknown>;
  }catch{return reply(400,{error:"invalid_json"});}
- if(typeof body.bindingId!=="string"||!uuid.test(body.bindingId)||
-    (body.afterId!==undefined&&(typeof body.afterId!=="string"||!uuid.test(body.afterId))))
-   return reply(400,{error:"invalid_cursor"});
+ if(typeof body.bindingId!=="string"||!uuid.test(body.bindingId)||body.afterId!==undefined)
+   return reply(400,{error:"invalid_binding_or_unsupported_cursor"});
  const {data:binding,error:bindingError}=await admin.from("claudia_wechat_bindings")
   .select("id,conversation_id,character_id,status")
   .eq("id",body.bindingId).eq("user_id",identity.user.id).maybeSingle();
