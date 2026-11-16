@@ -32,19 +32,20 @@ async function snapshot(scope:MemoryScope,initialize=false){
  const nodes=t?await nodesForHead(c.id,t.headNodeId):(await activeMessages(c.id)).map(message=>({id:'',message}));
  const turns:{ref:SummaryTurn;nodeId:string;messages:{role:string;content:string;images:number}[]}[]=[];let users:string[]=[],messages:{role:string;content:string;images:number}[]=[];
  for(const n of nodes){const m=visibleMessage(n.message);if(m.role==='user'){users.push(m.id);messages.push({role:'user',content:m.content,images:m.attachments?.length??0});}else if(m.role==='assistant'&&users.length){messages.push({role:'assistant',content:m.content,images:0});turns.push({ref:{userIds:users,assistantId:m.id},nodeId:n.id,messages});users=[];messages=[];}}
- const done=new Set<string>();let unverified=0;const verify=summaryVerifier(nodes.map(n=>n.message));
+ const done=new Set<string>();let unverified=0,changed=0;const coveredAssistantIds=new Set<string>();const verify=summaryVerifier(nodes.map(n=>n.message));
  for(const receipt of await visibleSummaryReceipts(scope)){
+  for(const turn of receipt.turns)coveredAssistantIds.add(turn.assistantId);
   const validity=await verify(receipt);
   // Preserve old progress without trusting old facts or billing a silent rebuild.
   if(validity==='unverified'){unverified++;}
-  else if(validity==='changed')continue;
+  else if(validity==='changed'){changed++;continue;}
   for(const turn of receipt.turns)done.add(key(turn));
  }
- return {t,nodes,unverified,turns:turns.filter(turn=>!done.has(key(turn.ref)))};
+ return {t,nodes,unverified,changed,coveredAssistantIds,turns:turns.filter(turn=>!done.has(key(turn.ref)))};
 }
 export async function summaryStatus(scope:MemoryScope){
  return db.transaction('r',tables(),async()=>{await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=c.memorySummary??emptySummaryState();const data=await snapshot(scope);const job=state.job&&scopeKey(state.job.scope)===scopeKey(scope)?state.job:undefined;
-  return {enabled:state.enabled,interval:state.interval,pending:data.turns.length,unverified:data.unverified,requiresManualResume:state.requiresManualResume,deferUntilPending:state.deferUntilPending,receipts:(await visibleSummaryReceipts(scope)).length,busy:state.job?.status==='running'&&Date.now()<state.job.leaseUntil,job};
+  return {enabled:state.enabled,interval:state.interval,pending:data.turns.length,unverified:data.unverified,changed:data.changed,requiresManualResume:state.requiresManualResume,deferUntilPending:state.deferUntilPending,receipts:(await visibleSummaryReceipts(scope)).length,busy:state.job?.status==='running'&&Date.now()<state.job.leaseUntil,job};
  });
 }
 async function assertSummarySource(job:MemorySummaryJob,manual:boolean){
@@ -63,6 +64,9 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   // The next successful chat turn may claim a fresh job; completed chunks resume.
 
   const data=await snapshot(scope,true);if(!data.t?.headNodeId)throw Error('state');
+  // An edited/regenerated old round is not a new completed round. Only an
+  // explicit manual request may rebuild its invalidated, preserved receipt.
+  if(!manual)data.turns=data.turns.filter(t=>!data.coveredAssistantIds.has(t.ref.assistantId));
   if(!manual&&state.deferUntilPending!==undefined&&data.turns.length>=state.deferUntilPending){state.autoAttempt=undefined;state.deferUntilPending=undefined;}
   if(!data.turns.length||(!manual&&(data.turns.length<state.interval||data.turns.length<(state.deferUntilPending??0))))return;
   await sealMemorySummaryForks(scope);
@@ -228,6 +232,7 @@ export async function tryAutoSummary(conversationId:string){
    if(!navigator.onLine||document.hidden)return;
    await runMemorySummary(scope,false);
    const current=(await db.conversations.get(conversationId))?.memorySummary;
+   if(current?.job?.id===before.job?.id)return;
    const succeeded=current?.job?.status==='succeeded';
    if(!succeeded&&current?.job?.status!=='failed')return;
    if(!succeeded){
