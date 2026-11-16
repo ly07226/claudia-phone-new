@@ -38,6 +38,6 @@ test('mixed bubble, legacy splitting and user text retain exact original offsets
    expect(texts.map(p=>p.text).join('')).toContain('后一句。');
    for(const p of texts)expect(result.mixed.slice(p.start,p.end)).toBe(p.text);
  }
- expect(result.user.map(p=>p.text).join('')).toContain('[消息发送时间：');
+ expect(result.user.filter(p=>p.kind==='text').map(p=>p.text).join('')).toContain('[消息发送时间：');
  expect(result.spans.map(p=>result.mixed.slice(p.start,p.end)).join('')).toBe('前一句。\n后一句。');
 });
