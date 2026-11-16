@@ -87,3 +87,22 @@ test('预算容得下完整段落时不拆散隐含的性格限制',async({page}
  });
  expect(result).toBe('角色说话常带玩笑。真正生气时会沉默，不会突然变得刻薄。');
 });
+
+test('关键词不能跨两条消息拼接触发世界书',async({page})=>{
+ await isolatedApp(page,'lore-cross-message-'+crypto.randomUUID());
+ const result=await page.evaluate(async()=>{
+  const {newBook,newEntry}=await import('/src/loreTypes.ts');
+  const {planLore}=await import('/src/loreEngine.ts');
+  const book={...newBook(),global:true,scanDepth:10};
+  const entry={...newEntry(book.id),triggerMode:'history' as const,primaryKeys:['眼睛\\n颜色'],content:'不应该被触发的设定。'};
+  const messages=[
+   {id:'a',conversationId:'c',role:'user' as const,content:'眼睛',createdAt:1},
+   {id:'b',conversationId:'c',role:'user' as const,content:'颜色',createdAt:2}
+  ];
+  const falseHit=planLore([{entry,book}],messages,100,()=>0);
+  const trueHit=planLore([{entry:{...entry,primaryKeys:['眼睛']},book}],messages,100,()=>0);
+  return {falseHit:falseHit.entries.length,trueHit:trueHit.entries.length};
+ });
+ expect(result.falseHit).toBe(0);
+ expect(result.trueHit).toBe(1);
+});
