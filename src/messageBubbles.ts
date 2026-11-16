@@ -1,3 +1,4 @@
+import {visibleWithoutLeakedTimeMarkers} from './timeMarkerSanitizer';
 import type {Message} from './chatTypes';
 import {splitAssistantBubbles,legacyAssistantBubbles} from './splitAssistantBubbles';
 export type BubblePart={kind:'text';start:number;end:number;text:string}|{kind:'image';assetId:string};
@@ -24,7 +25,14 @@ export function messageBubbles(m:Message,legacy=false):BubblePart[]{
    if(removed.end<=s.start||removed.start>=s.end)return [s];
    return [[s.start,Math.min(s.end,removed.start)],[Math.max(s.start,removed.end),s.end]].flatMap(([start,end])=>end>start?[{kind:'text' as const,start,end,text:m.content.slice(start,end)}]:[]);
   });
-  return spans.filter(s=>s.text.trim());
+  return spans.flatMap(s=>{
+    if(!s.text.trim())return [];
+    if(m.role!=='assistant')return [s];
+    return visibleWithoutLeakedTimeMarkers(s.text).flatMap(({start,end})=>{
+      const text=s.text.slice(start,end);
+      return text.trim()?[{kind:'text' as const,start:s.start+start,end:s.start+end,text}]:[];
+    });
+  });
  });
 }
 export function visibleContent(m:Message){return messageBubbles(m).flatMap(p=>p.kind==='text'?[p.text]:[]).join('');}
@@ -39,6 +47,6 @@ export function validPart(p:unknown):p is BubblePart{
 export function hasVisiblePart(m:Message,p:BubblePart){
  const visible=messageBubbles(m);
  if(visible.some(v=>samePart(v,p)))return true;
- return p.kind==='text'&&originalBubbles(m,true).some(v=>samePart(v,p))
+ return p.kind==='text' && (m.role!=='assistant' || visibleWithoutLeakedTimeMarkers(p.text).some(({start,end})=>p.text.slice(start,end).trim())) && originalBubbles(m,true).some(v=>samePart(v,p))
    && !m.bubbleDeletion?.text.some(d=>d.start<p.end&&d.end>p.start);
 }
