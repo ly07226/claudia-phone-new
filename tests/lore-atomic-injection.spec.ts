@@ -66,3 +66,13 @@ test('世界书限制条件不能脱离主规则单独注入',async({page})=>{
  expect(result.short).not.toContain('不能替用户决定行动');
  expect(result.enough).toContain('角色可以主动提出建议。但是不能替用户决定行动。');
 });
+
+test('独立段落的禁止规则不被错误合并到上一段',async({page})=>{
+ await isolatedApp(page,'lore-paragraph-'+crypto.randomUUID());
+ const result=await page.evaluate(async()=>{
+  const {retrieveLorePassages}=await import('/src/loreEngine.ts');
+  return retrieveLorePassages('角色喜欢喝茶。\\n\\n不得改变人物核心性格。',[],15);
+ });
+ expect(result).toContain('不得改变人物核心性格。');
+ expect(result).not.toContain('角色喜欢喝茶。');
+});
