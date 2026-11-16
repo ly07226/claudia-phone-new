@@ -23,6 +23,7 @@ export async function mergeWechatDailyPage(
     page.binding.status!=='connected')
    throw Error('微信绑定已变化，请重新确认日常角色。');
  const seen=new Set<string>();
+ let lastSeq=0;
  for(const row of page.messages){
   if(!row||!row.id||seen.has(row.id)||typeof row.body!=='string'||
      !['inbound','outbound'].includes(row.direction)||
@@ -46,7 +47,7 @@ export async function mergeWechatDailyPage(
   const cursor=stored?.nextSeq??0;
   if(expected.afterSeq!==undefined&&cursor!==expected.afterSeq)
     throw Error('微信同步游标已被其他窗口更新，请重新拉取。');
-  if(page.messages.length&&page.messages[0].sync_seq<=cursor)
+  if(page.nextSeq<cursor||(page.messages.length&&page.messages[0].sync_seq<=cursor))
     throw Error('微信同步页面与本地游标不匹配。');
   const existing=await activeMessages(c.id);
   const activeIds=new Set(existing.map(m=>m.id));
