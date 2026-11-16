@@ -40,7 +40,7 @@ Deno.serve(async req=>{
  if(authError||!auth.user)return json(401,{error:"unauthorized"});
  let body:Record<string,unknown>;
  try{
-  const raw=await req.text();if(raw.length>35000)throw Error();
+  const raw=await req.text();if(raw.length>95000)throw Error();
   body=JSON.parse(raw);if(!body||typeof body!=="object"||Array.isArray(body))throw Error();
  }catch{return json(400,{error:"invalid_request"});}
  if(typeof body.bindingId!=="string"||!uuid.test(body.bindingId))
@@ -48,6 +48,30 @@ Deno.serve(async req=>{
  const {data:binding,error:bindingError}=await admin.from("claudia_wechat_bindings")
   .select("id,status").eq("id",body.bindingId).eq("user_id",auth.user.id).maybeSingle();
  if(bindingError||!binding)return json(404,{error:"binding_not_found"});
+ if(body.action==="sync-context"){
+  if(binding.status!=="connected")return json(409,{error:"wechat_not_connected"});
+  const messages=body.contextMessages;
+  if(!Array.isArray(messages)||messages.length<1||messages.length>64||
+   !messages.every(m=>m&&typeof m==="object"&&!Array.isArray(m)&&
+    ["system","user","assistant"].includes(m.role)&&
+    typeof m.content==="string"&&m.content.length<=24000&&
+    Object.keys(m).every(k=>k==="role"||k==="content"))||
+   !messages.some(m=>m.role==="system")||
+   JSON.stringify(messages).length>80000)
+   return json(400,{error:"invalid_context_snapshot"});
+  const {error}=await admin.from("claudia_wechat_context_snapshots").upsert({
+   binding_id:binding.id,user_id:auth.user.id,context_messages:messages,
+   revision:crypto.randomUUID(),updated_at:new Date().toISOString()
+  },{onConflict:"binding_id"});
+  if(error)return json(500,{error:"context_sync_failed"});
+  return json(200,{ok:true,synced:true});
+ }
+ if(body.action==="delete-context"){
+  const {error}=await admin.from("claudia_wechat_context_snapshots").delete()
+   .eq("binding_id",binding.id).eq("user_id",auth.user.id);
+  if(error)return json(500,{error:"context_delete_failed"});
+  return json(200,{ok:true,deleted:true});
+ }
  if(body.action==="status"){
   const {data:profile,error}=await admin.from("claudia_wechat_ai_profiles")
    .select("enabled,model,endpoint,updated_at").eq("binding_id",binding.id).maybeSingle();
@@ -62,6 +86,9 @@ Deno.serve(async req=>{
   return json(200,{ok:true,enabled:false});
  }
  if(body.action==="delete"){
+  const {error:contextError}=await admin.from("claudia_wechat_context_snapshots").delete()
+   .eq("binding_id",binding.id).eq("user_id",auth.user.id);
+  if(contextError)return json(500,{error:"context_delete_failed"});
   const {error}=await admin.from("claudia_wechat_ai_profiles").delete()
    .eq("binding_id",binding.id).eq("user_id",auth.user.id);
   if(error)return json(500,{error:"delete_failed"});
