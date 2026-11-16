@@ -156,6 +156,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     else if(savedScroll.current!==null){history.scrollTop=savedScroll.current;savedScroll.current=null;}
   },[management]);
   const pendingQuoteJump=useRef<{id:string;part:BubblePart}|null>(null);
+  const quoteJumpApplied=useRef(false);
   function locateQuote(id:string,part:BubblePart){
     const index=messages.findIndex(m=>m.id===id);
     if(index<0){setFeedback('原消息已删除或不在当前分支。');return;}
@@ -181,6 +182,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     const target=pendingQuoteJump.current;
     if(!target)return;
     pendingQuoteJump.current=null;
+    quoteJumpApplied.current=true;
     scrollToQuote(target.id,target.part);
   },[visibleMessageLimit]);
   const userIdentity = identityFor(s.theme, conversation?.mode === "world" ? `world:${conversation.worldId}` : "daily");
@@ -489,7 +491,14 @@ export function Chat({ worldId }: { worldId?: string }) {
   useLayoutEffect(()=>{
     const previous=historyWindowRef.current;
     const el=historyRef.current;
-    if(previous&&el){el.scrollTop=previous.top+el.scrollHeight-previous.height;historyWindowRef.current=null;preserveTop.current=null;}
+    if(previous&&el){
+      // Quote navigation has already positioned the target in an earlier layout
+      // effect. Do not overwrite it with an unrelated history-window snapshot.
+      if(!quoteJumpApplied.current)el.scrollTop=previous.top+el.scrollHeight-previous.height;
+      historyWindowRef.current=null;
+      preserveTop.current=null;
+    }
+    quoteJumpApplied.current=false;
   },[visibleMessageLimit]);
   // Keep expensive message bubble JSX stable while the composer text changes.
   // Include state read by message actions so menus, versions and continuations stay current.
