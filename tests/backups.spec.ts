@@ -212,8 +212,8 @@ async function unchanged(page: Page) {
           JSON.stringify((window as any).__sourceBefore, (_k, v) =>
             typeof v === "bigint" ? String(v) : v,
           ) &&
-        db.verno === 7 &&
-        db.backendDB().version === 70
+        db.verno === 8 &&
+        db.backendDB().version === 80
       );
     }),
   ).toBe(true);
@@ -476,7 +476,7 @@ test("引用缺失与取消不会成功，原库和密钥保留；后台中断�
     failed: true,
     background: true,
     unlocked: true,
-    version: 7,
+    version: 8,
   });
   await unchanged(page);
   await page.evaluate(async () => {
@@ -605,7 +605,7 @@ test("手机设置入口、分卷下载、Files读回与候选报告；下载不
   page,
 }) => {
   await seed(page);
-  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: "Dock 设置", exact: true }).click();
   await page
     .getByRole("button", { name: "数据备份与恢复", exact: true })
     .click();
