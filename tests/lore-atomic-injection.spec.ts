@@ -18,3 +18,19 @@ test('日常全局世界书超预算时不中断聊天',async({page})=>{
  expect(result.overflowText?.length).toBeLessThan(result.text.length);
  expect(result.overflowText).toContain('前半段');
 });
+
+test('常驻世界书超预算时跳过并继续处理其他条目',async({page})=>{
+ await isolatedApp(page,'lore-constant-overflow-'+crypto.randomUUID());
+ const result=await page.evaluate(async()=>{
+  const {newBook,newEntry}=await import('/src/loreTypes.ts');
+  const {planLore}=await import('/src/loreEngine.ts');
+  const book={...newBook(),global:true,charBudget:200};
+  const large={...newEntry(book.id),id:'large',constant:true,content:'必须遵守的完整规则'.repeat(30),priority:200};
+  const small={...newEntry(book.id),id:'small',constant:true,content:'短常驻规则',priority:100};
+  const planned=planLore([{entry:large,book},{entry:small,book}],[],30,()=>0);
+  return {entries:planned.entries.map(e=>e.id),reasons:planned.diagnostics.map(d=>({id:d.entryId,reason:d.reason}))};
+ });
+ expect(result.entries).toEqual(['small']);
+ expect(result.reasons).toContainEqual({id:'large',reason:'context-budget'});
+ expect(result.reasons).toContainEqual({id:'small',reason:'injected'});
+});
