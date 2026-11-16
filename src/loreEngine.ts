@@ -95,6 +95,9 @@ export function retrieveLorePassages(content:string,history:Message[],budget:num
   // "但是不能替用户决定" must never be selected without its governing rule.
   const chunks:string[]=[];
   for(const paragraph of content.split(/\n{2,}/)){
+    // A fitting paragraph is an atomic unit: preserve implicit qualifications,
+    // negations and character voice that keyword heuristics cannot recognize.
+    if(paragraph.trim().length<=budget){chunks.push(paragraph.trim());continue;}
     const sentences=(paragraph.match(/[^。！？!?；;\n]+[。！？!?；;]?/g)||[paragraph]).map(x=>x.trim()).filter(Boolean);
     const paragraphStart=chunks.length;
     for(const sentence of sentences){
