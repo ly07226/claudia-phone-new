@@ -88,7 +88,7 @@ async function next(){
   // with unsynced local messages or changed local memory.
   const effective=snapshot.context_messages.filter(m=>
    m&&['system','user','assistant'].includes(m.role)&&typeof m.content==='string');
-  if(memoryContext)messages.unshift({role:'system',content:memoryContext});
+  if(memoryContext)messages.unshift({role:'user',content:memoryContext});
   messages.push({role:'user',content:row.body});
   const apiKey=await decrypt(profile.api_key_ciphertext);
   const response=await fetch(url,{
