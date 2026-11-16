@@ -124,8 +124,10 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
     const cost=effective.content.length+2,bookUsed=used.get(book.id)||0;
     if(!effective.content.trim()){d.reason="context-budget";continue;}
     if(entry.constant && total+cost>remainingBudget) {
+      // Preserve chat availability when always-on lore exceeds the context
+      // budget. Do not inject a misleading partial mandatory instruction.
       d.reason="context-budget";
-      throw Error("当前聊天设定过长，暂时无法生成回复。请在设置中调整后重试。");
+      continue;
     }
     if(!entry.constant && (total+cost>remainingBudget || optionalTotal+cost>loreLimits.promptChars)){d.reason="context-budget";continue;}
     if(!entry.constant && bookUsed+cost>book.charBudget){d.reason="book-budget";continue;}
