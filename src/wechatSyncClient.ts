@@ -69,7 +69,7 @@ export async function fetchWechatStatusPage(bindingId:string,afterSeq=0):Promise
   throw Error('微信状态数据不完整。');
  let previous=afterSeq;
  for(const row of page.messages){
-  if(!row||!Number.isSafeInteger(row.change_seq)||row.change_seq!<=previous)
+  if(!row||!Number.isSafeInteger(row.change_seq)||(row.change_seq as number)<=previous)
    throw Error('微信状态变化顺序错误。');
   previous=row.change_seq!;
  }
