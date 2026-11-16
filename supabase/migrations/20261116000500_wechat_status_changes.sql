@@ -14,10 +14,12 @@ create or replace function public.claudia_wechat_assign_change_seq()
 returns trigger language plpgsql security definer set search_path='' as $$
 declare v_seq bigint;
 begin
+ if tg_op='UPDATE' and new.change_seq is distinct from old.change_seq then
+  -- Allow one-time backfill only for rows predating this migration.
+  if old.change_seq is null and new.change_seq is not null then return new; end if;
+  raise exception 'change sequence is immutable' using errcode='23514';
+ end if;
  if tg_op='UPDATE' and new.status is not distinct from old.status then
-  if new.change_seq is distinct from old.change_seq then
-   raise exception 'change sequence is immutable' using errcode='23514';
-  end if;
   return new;
  end if;
  update public.claudia_wechat_change_counter set last_value=last_value+1
