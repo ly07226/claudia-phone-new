@@ -20,6 +20,7 @@ export function WechatIntegrationSettings(){
  const [qr,setQr]=useState<{attemptId:string;qrContent:string;expiresAt:string}|null>(null);
  const [qrStatus,setQrStatus]=useState('未开始');
  const [polling,setPolling]=useState(false);
+ const [pollTick,setPollTick]=useState(0);
  useEffect(()=>{
   if(section!=='account')return;
   let active=true;
@@ -53,11 +54,12 @@ export function WechatIntegrationSettings(){
       binded_redirect:'该微信账号已有绑定'};
     setQrStatus(names[result.status]??result.status);
     if(result.status==='confirmed')void load();
+    if(result.status==='wait'||result.status==='scaned')setPollTick(v=>v+1);
    }catch(error){if(!cancelled)setNotice(error instanceof Error?error.message:'扫码状态查询失败');}
    finally{if(!cancelled)setPolling(false);}
   },2000);
   return ()=>{cancelled=true;window.clearTimeout(timer);};
- },[qr,section,qrStatus]);
+ },[qr,section,qrStatus,pollTick]);
  const load=async()=>{
   if(loading)return;
   setLoading(true);setNotice('');
