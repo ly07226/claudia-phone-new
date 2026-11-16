@@ -47,6 +47,18 @@ export async function wechatCloudAccessToken():Promise<string>{
  inflight.set(id,task);
  try{return await task;}finally{inflight.delete(id);}
 }
+export async function listWechatCloudBindings():Promise<Array<{id:string;character_id:string;conversation_id:string;status:string}>>{
+ const response=await wechatCloudFunctionRequest('claudia-wechat-sync',{action:'list-bindings'});
+ const payload:unknown=await response.json();
+ if(!payload||typeof payload!=='object'||Array.isArray(payload))throw Error('微信绑定数据格式无效。');
+ const data=payload as {ok?:boolean;bindings?:unknown};
+ if(data.ok!==true||!Array.isArray(data.bindings)||data.bindings.length>100||
+  !data.bindings.every(row=>row&&typeof row==='object'&&
+   typeof row.id==='string'&&typeof row.character_id==='string'&&
+   typeof row.conversation_id==='string'&&typeof row.status==='string'))
+  throw Error('微信绑定数据不完整。');
+ return data.bindings as Array<{id:string;character_id:string;conversation_id:string;status:string}>;
+}
 export async function wechatCloudFunctionRequest(name:'claudia-wechat-sync',body:unknown){
  const c=project();
  const token=await wechatCloudAccessToken();
