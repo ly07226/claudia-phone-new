@@ -11,6 +11,10 @@ import {validateTagging,type TagProvider,type TagTaxonomy} from './memoryMagnetT
  * Manual batch only until cross-window leases and scheduler are verified.
  */
 const key=(id:string,fingerprint:string)=>id+':'+fingerprint;
+/** Fencing check: only the current pending claim may commit a result or failure. */
+export function ownsMagneticClaim(attempt:{messageId:string;fingerprint:string;status:'pending'|'failed';claimId?:string}|undefined,messageId:string,fingerprint:string,claimId:string){
+ return !!attempt&&attempt.messageId===messageId&&attempt.fingerprint===fingerprint&&attempt.status==='pending'&&attempt.claimId===claimId;
+}
 /** A pending claim may still be running in another tab. Never retry it immediately. */
 export const MAGNET_PENDING_RECOVERY_MS=30*60*1000;
 export function canRecoverMagneticAttempt(attempt:{status:'pending'|'failed';startedAt:number}|undefined,now:number){
@@ -121,7 +125,7 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
     const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('magnet-conversation-missing');
     if(c.characterId!==scope.characterId||c.mode!==scope.mode||(scope.mode==='world'&&(c.worldId!==scope.worldId||c.activeTimelineId!==scope.timelineId||(c.timelineEpoch??0)!==scope.epoch)))throw Error('magnet-scope-changed');
     const store=c.memoryStore??emptyMemoryStore();
-    if(!(store.magneticAttempts??[]).some(x=>x.messageId===row.id&&x.fingerprint===row.fingerprint&&x.status==='pending'&&x.claimId===claimId))return false;
+    if(!(store.magneticAttempts??[]).some(x=>ownsMagneticClaim(x,row.id,row.fingerprint,claimId)))return false;
     const record:MagneticMessageMemory={messageId:row.id,variantId:row.variantId,nodeId:row.nodeId,fingerprint:row.fingerprint,scope,summary:result.summary,detail:'',tags,createdAt:row.createdAt,taggedAt:Date.now(),active:true};
     await db.conversations.update(c.id,{memoryStore:{...store,magneticMessages:[...(store.magneticMessages??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint),record],magneticAttempts:(store.magneticAttempts??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint)}});
     return true;
