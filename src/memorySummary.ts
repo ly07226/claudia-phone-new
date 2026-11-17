@@ -8,10 +8,10 @@ import {db} from './store';
 import {getMemoryScope,listMemories,listMemoryRevisions,createMemory,sealMemorySummaryForks,visibleSummaryReceipts} from './memoryStore';
 import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelines';
 import {visibleMessage} from './messageBubbles';
-import {summaryDuplicateIndex,selectSummaryCandidates} from './memorySummaryQuality';
+import {summaryDuplicateIndex} from './memorySummaryQuality';
 import {requestSummary,SummaryResponseError} from './memorySummaryRequest';
 import {maybeBuildCoreMemory} from './memoryCoreBuilder';
-import {SummaryFormatError,recoverSummaryBatch,summaryPrompt} from './memorySummaryFormat';
+import {SummaryFormatError,parseSimpleSummary,summaryPrompt} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
 import {buildSummaryInputs} from './memorySummaryChunks';
@@ -133,28 +133,26 @@ async function execute(scope:MemoryScope,manual:boolean){
    const input=claimed.inputs[index];
    const saved=(await db.conversations.get(scope.conversationId))?.memorySummary?.checkpoint;
    if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]){
-    try{const part=saved.completed[index],recovered=recoverSummaryBatch(JSON.stringify({memories:part.facts}),input),reviewed=selectSummaryCandidates(recovered.facts,input,claimed.reviewTurns),extra=[...recovered.rejected,...reviewed.rejected];
-    if(!reviewed.accepted.length&&extra.some(r=>!safeEmptyReasons.has(r.reason)))throw new SummaryFormatError({version:1,stage:'validate',code:'invalid-quality'});
-    for(const f of reviewed.accepted)inputForFact.set(f,index);facts.push(...reviewed.accepted);const event=reviewed.accepted.map(f=>`【${labels[f.type]}】${f.content}`).join('\n');if(event)events.push(event);
+    try{const part=saved.completed[index],reviewed=parseSimpleSummary(JSON.stringify({memories:part.facts}));
+    for(const f of reviewed.facts)inputForFact.set(f,index);facts.push(...reviewed.facts);const event=reviewed.facts.map(f=>`【${labels[f.type]}】${f.content}`).join('\n');if(event)events.push(event);
     const countsValid=[part.candidates,part.accepted,part.rejected].every(n=>Number.isSafeInteger(n)&&n>=0)&&part.accepted===part.facts.length&&part.candidates===part.accepted+part.rejected&&part.reasons&&Object.entries(part.reasons).every(([k,n])=>Object.hasOwn(summaryRejectionText,k)&&Number.isSafeInteger(n)&&n>=0)&&Object.values(part.reasons).reduce((a,b)=>a+b,0)===part.rejected;
-    stats.candidates+=countsValid?part.candidates:part.facts.length;stats.accepted+=reviewed.accepted.length;stats.rejected+=(countsValid?part.rejected:0)+extra.length;for(const [reason,count] of Object.entries(countsValid?part.reasons:{}))stats.reasons[reason]=(stats.reasons[reason]??0)+count;for(const r of extra)stats.reasons[r.reason]=(stats.reasons[r.reason]??0)+1;continue;
+    stats.candidates+=countsValid?part.candidates:part.facts.length;stats.accepted+=reviewed.facts.length;stats.rejected+=(countsValid?part.rejected:0)+extra.length;for(const [reason,count] of Object.entries(countsValid?part.reasons:{}))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;
     }catch(e){if(!manual||!(e instanceof SummaryFormatError))throw e;/* Explicit recovery may regenerate an invalid old fragment, never a verified one. */}
    }
    const before=facts.length;
    failure='provider';const raw=await requestSummary(config,apiKey,input,controller.signal);
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
    failure='format';try{
-    // Reject unsupported or misclassified claims before durable storage.
-    const batch=recoverSummaryBatch(raw,input),parsed=batch.facts;
-    const checked=selectSummaryCandidates(parsed,input,claimed.reviewTurns);const selected={accepted:checked.accepted,rejected:[...batch.rejected,...checked.rejected]};
-    if(!selected.accepted.length&&selected.rejected.some(r=>!safeEmptyReasons.has(r.reason)))throw new SummaryFormatError({version:1,stage:'validate',code:'invalid-quality'});
+    // Semantic extraction is model-owned; no citation or keyword gate.
+    const batch=parseSimpleSummary(raw);
+    const selected={accepted:batch.facts,rejected:[] as {index:number;reason:string}[]};
     const eventSummary=selected.accepted.map(f=>`【${labels[f.type]}】${f.content}`).join('\n').slice(0,2500);
     if(eventSummary)events.push(eventSummary);
     for(const f of selected.accepted)inputForFact.set(f,index);facts.push(...selected.accepted);stats.candidates+=batch.candidates;stats.accepted+=selected.accepted.length;
-    stats.rejected+=selected.rejected.length;
+    stats.rejected+=batch.rejected;
     const reasons:Record<string,number>={};
-    for(const r of selected.rejected){stats.reasons[r.reason]=(stats.reasons[r.reason]??0)+1;reasons[r.reason]=(reasons[r.reason]??0)+1;}
-    failure='stale-path';await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,manual);const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);if(next.job)next.job.completedChunks=index+1;next.checkpoint!.completed[index]={facts:facts.slice(before),eventSummary,candidates:batch.candidates,accepted:selected.accepted.length,rejected:selected.rejected.length,reasons};await db.conversations.update(scope.conversationId,{memorySummary:next});});
+
+    failure='stale-path';await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,manual);const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);if(next.job)next.job.completedChunks=index+1;next.checkpoint!.completed[index]={facts:facts.slice(before),eventSummary,candidates:batch.candidates,accepted:selected.accepted.length,rejected:batch.rejected,reasons};await db.conversations.update(scope.conversationId,{memorySummary:next});});
    }catch(e){if((e as Error).message==='empty')failure='empty';if(e instanceof SummaryFormatError)diagnostic={...e.diagnostic,receivedChars:raw.length,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)};throw e;}
   }
   job.completedChunks=claimed.inputs.length;job.selection=stats;
