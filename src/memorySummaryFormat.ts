@@ -84,6 +84,27 @@ export function parseSummaryWithSourceRecovery(raw:string,input:string):SummaryF
  if(value.memories.length&&!out.length)reject('invalid-quality',{stage:'validate'});
  return out;
 }
+/** Repair model-omitted classification metadata only when the original evidence is intact.
+ * Never synthesize quotations, turns, or speakers. Source verification still runs downstream. */
+function normalizeEvidenceQuality(m:any):any{
+ const q=m?.quality;
+ const evidence=Array.isArray(q?.evidence)?q.evidence:Array.isArray(m?.evidence)?m.evidence:undefined;
+ if(!evidence?.length||evidence.length>4||evidence.some((e:any)=>!e||!Number.isInteger(e.turn)||e.turn<1||!['user','assistant'].includes(e.role)||typeof e.quote!=='string'||e.quote.length<4))return q;
+ const content=String(m.content??'');
+ const category=summaryQualityCategories.includes(q?.category)?q.category:
+  /拒绝|不接受|禁止|不能|必须|边界/.test(content)?'boundary':
+  /喜欢|偏好|讨厌|希望|更愿意/.test(content)?'preference':
+  /关系|伴侣|恋人|夫妻|结婚|分手/.test(content)?'relationship':
+  /承诺|保证|约定/.test(content)?'commitment':
+  /每天|每周|每次|习惯|经常/.test(content)?'habit':
+  /身份|名字|职业|年龄/.test(content)?'identity':
+  /冲突|矛盾|争吵|决裂/.test(content)?'ongoing-conflict':
+  /已经|完成|发生|离开|去世|入职/.test(content)?'major-event':'continuity';
+ const importance=['high','medium','low'].includes(q?.importance)?q.importance:'medium';
+ const durability=['lasting','temporary'].includes(q?.durability)?q.durability:'lasting';
+ const impact=typeof q?.impact==='string'&&q.impact.trim()?q.impact:'后续对话应保留这一有来源的事实及其状态';
+ return {category,importance,durability,impact,evidence};
+}
 /** Source-backed candidates for the primary durable memory pipeline. */
 export function parseSummaryWithEvidence(raw:string):SummaryFact[]{
  const value=summaryJsonCandidate(raw);
@@ -96,7 +117,7 @@ export function parseSummaryWithEvidence(raw:string):SummaryFact[]{
   if(!m||typeof m!=='object'||Array.isArray(m))reject('invalid-item',{stage:'validate',itemIndex:i});
   if(!['fact','belief','speculation','pending'].includes(m.type)||!['core','long'].includes(m.kind))reject('invalid-enum',{stage:'validate',itemIndex:i});
   if(typeof m.content!=='string'||!m.content.trim()||m.content.length>summaryLimits.factChars)reject('invalid-content',{stage:'validate',itemIndex:i});
-  const q=m.quality;
+  const q=normalizeEvidenceQuality(m);
   // Missing or malformed evidence is never invented. Reject only the offending
   // candidate so one imperfect model row cannot discard other grounded memories.
   if(!q||!summaryQualityCategories.includes(q.category)||!['high','medium','low'].includes(q.importance)||!['lasting','temporary'].includes(q.durability)||typeof q.impact!=='string'||!q.impact.trim()||!Array.isArray(q.evidence)||!q.evidence.length||q.evidence.length>4||q.evidence.some((e:unknown)=>!e||typeof e!=='object'||!Number.isInteger((e as any).turn)||(e as any).turn<1||!['user','assistant'].includes((e as any).role)||typeof (e as any).quote!=='string'||(e as any).quote.length<4)){invalidQualityCount++;continue;}
