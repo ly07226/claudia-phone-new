@@ -98,6 +98,9 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
    failed++;
    await db.transaction('rw',db.conversations,async()=>{
     const c=await db.conversations.get(scope.conversationId);if(!c)return;
+    // A cleared or switched world must not receive a failed-job write from
+    // the previous timeline. Its old pending claim remains for explicit audit.
+    if(c.characterId!==scope.characterId||c.mode!==scope.mode||(scope.mode==='world'&&(c.worldId!==scope.worldId||c.activeTimelineId!==scope.timelineId||(c.timelineEpoch??0)!==scope.epoch)))return;
     const store=c.memoryStore??emptyMemoryStore();
     const attempts=(store.magneticAttempts??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint);
     attempts.push({messageId:row.id,fingerprint:row.fingerprint,status:'failed',startedAt:Date.now(),reason:error instanceof Error?error.name.slice(0,100):'UnknownError'});
