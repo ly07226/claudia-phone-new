@@ -28,7 +28,7 @@ export async function tagPendingMemories(scope:MemoryScope,provider:TagProvider,
  const completed=new Set(tags.records.map(t=>t.entryId+':'+t.revision));
  const failures=new Set(tags.failures.map(t=>t.entryId+':'+t.revision));
  // Automatic jobs do not repeatedly bill failed entries. Explicit retry is opt-in.
- const pending=all.entries.filter(e=>!completed.has(e.id+':'+e.revision)&&(manualRetry||!failures.has(e.id+':'+e.revision))).slice(0,batchSize);
+ const pending=all.entries.filter(e=>!completed.has(e.id+':'+e.revision)&&(manualRetry?failures.has(e.id+':'+e.revision):!failures.has(e.id+':'+e.revision))).slice(0,batchSize);
  let tagged=0,failed=0;
  for(const entry of pending){
   try{
