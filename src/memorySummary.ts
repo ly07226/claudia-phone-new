@@ -217,17 +217,17 @@ async function execute(scope:MemoryScope,manual:boolean){
    const decision=classifySummaryError(error,navigator.onLine);
    // An aborted request is a timeout/interruption, not an unspecified provider error.
    if(controller.signal.aborted||error instanceof Error&&/abort|timeout|timed out|超时/i.test(error.message)){
-    failure='interrupted';
+    failure='timeout';
    }
    // Preserve the actual failure category. A stale timeline/checkpoint or local
    // state error must not be reported as a provider failure after switching APIs.
-   if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;if(failure!=='interrupted')failure=diagnostic.stage==='response'&&diagnostic.code!=='truncated'?'provider':'format';}
-   else if(failure==='interrupted'){/* Preserve explicit timeout classification. */}
+   if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;if(failure!=='timeout')failure=diagnostic.stage==='response'&&diagnostic.code!=='truncated'?'provider':'format';}
+   else if(failure==='timeout'){/* Preserve explicit timeout classification. */}
    else if(decision.kind==='state'){
     // Do not overwrite the stage recorded immediately before the failing operation.
     // The previous catch collapsed capacity, interruption, checkpoint and source
     // validation failures into a misleading generic stale-path status.
-    if(!['capacity','stale-path','interrupted','input-too-large','format','empty','state'].includes(failure))failure='stale-path';
+    if(!['capacity','stale-path','interrupted','input-too-large','format','empty','timeout','state'].includes(failure))failure='stale-path';
    }
    else if(decision.kind==='format')failure='format';
    else if(!['capacity','stale-path','interrupted','input-too-large','format','empty','state'].includes(failure))failure='provider';
