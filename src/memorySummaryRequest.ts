@@ -40,7 +40,7 @@ export async function requestSummary(config:ApiConfig,key:string,input:string,si
   if(reason)throw new SummaryResponseError({version:1,stage:'response',code:reason==='length'?'truncated':reason==='blocked'?'blocked':'response-shape',...(reason==='length'?{suspectedTruncated:true}:{}),outputTokenLimit:summaryLimits.outputTokens});
   const content=result.trim();
   if(!content)throw new SummaryResponseError({version:1,stage:'response',code:'response-shape',outputTokenLimit:summaryLimits.outputTokens});
-  if(content.length>summaryLimits.factChars)throw new SummaryResponseError({version:1,stage:'validate',code:'output-limit',receivedChars:content.length});
+  if(content.length>summaryLimits.outputChars)throw new SummaryResponseError({version:1,stage:'validate',code:'output-limit',receivedChars:content.length});
   return content;
  }catch(error){
   if(diagnostic&&!(error instanceof SummaryResponseError))throw new SummaryResponseError({...diagnostic,outputTokenLimit:summaryLimits.outputTokens});
