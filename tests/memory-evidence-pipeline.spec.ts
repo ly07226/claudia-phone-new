@@ -16,6 +16,10 @@ test('real parser and quality filter accept a grounded boundary',()=>{
  expect(selected.accepted).toHaveLength(1);
  expect(selected.rejected).toHaveLength(0);
 });
+test('real parser and quality filter reject reversed negation',()=>{
+ const parsed=parseSummaryWithEvidence(JSON.stringify({memories:[candidate('用户接受别人随便碰自己的东西。')]}));
+ expect(selectSummaryCandidates(parsed,input).accepted).toHaveLength(0);
+});
 test('real parser and quality filter reject a fabricated source quote',()=>{
  const parsed=parseSummaryWithEvidence(JSON.stringify({memories:[candidate('用户不接受别人随便碰自己的东西。','我允许别人随便碰我的东西')]}));
  expect(selectSummaryCandidates(parsed,input).accepted).toHaveLength(0);
