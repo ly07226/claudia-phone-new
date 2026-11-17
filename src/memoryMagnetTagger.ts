@@ -8,6 +8,7 @@ export interface TaggingOutput {summary:string;keyword:string[];emotion:string[]
 export type TagProvider=(fullText:string,taxonomy:TagTaxonomy)=>Promise<TaggingOutput>;
 export function validateTagging(out:TaggingOutput,taxonomy:TagTaxonomy):MemoryTag[]{
  if(!out||typeof out.summary!=='string'||out.summary.length>40||!Array.isArray(out.keyword)||out.keyword.length>6||!Array.isArray(out.emotion)||!Array.isArray(out.topic)||!Array.isArray(out.person??[]))throw Error('invalid-tagging-output');
+ if(!taxonomy||!Array.isArray(taxonomy.emotion)||!Array.isArray(taxonomy.topic))throw Error('invalid-tag-taxonomy');
  const allowedEmotion=new Set(taxonomy.emotion),allowedTopic=new Set(taxonomy.topic);
  if(out.emotion.some(t=>!allowedEmotion.has(t))||out.topic.some(t=>!allowedTopic.has(t)))throw Error('unknown-tag-axis');
  const tags:MemoryTag[]=[];
@@ -24,6 +25,7 @@ export function validateTagging(out:TaggingOutput,taxonomy:TagTaxonomy):MemoryTa
  */
 export async function tagPendingMemories(scope:MemoryScope,provider:TagProvider,taxonomy:TagTaxonomy,batchSize=20,manualRetry=false){
  if(!Number.isInteger(batchSize)||batchSize<1||batchSize>100)throw Error('invalid-batch-size');
+ if(!taxonomy||!Array.isArray(taxonomy.emotion)||!Array.isArray(taxonomy.topic)||!taxonomy.emotion.length||!taxonomy.topic.length)throw Error('missing-tag-taxonomy');
  const [all,tags]=await Promise.all([listMemories(scope),memoryTagSnapshot(scope)]);
  const completed=new Set(tags.records.map(t=>t.entryId+':'+t.revision));
  const failures=new Set(tags.failures.map(t=>t.entryId+':'+t.revision));
