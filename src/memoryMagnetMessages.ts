@@ -31,6 +31,23 @@ async function source(scope:MemoryScope){
  }
  return rows;
 }
+/** Counts are based on the selected message path, never local-calendar days.
+ * Threshold is advisory; calling this function cannot spend API tokens.
+ */
+export async function magneticBatchReadiness(scope:MemoryScope,threshold=20){
+ const rows=await source(scope),c=await db.conversations.get(scope.conversationId);
+ const store=c?.memoryStore;
+ const completed=new Set((store?.magneticMessages??[]).filter(r=>r.active).map(r=>key(r.messageId,r.fingerprint)));
+ const attempted=new Set((store?.magneticAttempts??[]).map(r=>key(r.messageId,r.fingerprint)));
+ const fresh=rows.filter(r=>!completed.has(key(r.id,r.fingerprint))&&!attempted.has(key(r.id,r.fingerprint)));
+ const blocked=rows.filter(r=>attempted.has(key(r.id,r.fingerprint))&&!completed.has(key(r.id,r.fingerprint)));
+ return {ready:fresh.length>=threshold,pending:fresh.length,blocked:blocked.length,threshold,deadlight:(store?.magneticZeroRuns??0)>=2};
+}
+export async function recentMagneticMessages(scope:MemoryScope,limit=20){
+ const rows=await source(scope),c=await db.conversations.get(scope.conversationId);
+ const active=new Set(rows.map(r=>key(r.id,r.fingerprint)));
+ return (c?.memoryStore?.magneticMessages??[]).filter(r=>r.active&&active.has(key(r.messageId,r.fingerprint))&&r.scope.conversationId===scope.conversationId&&r.scope.characterId===scope.characterId&&r.scope.mode===scope.mode&&(scope.mode==='daily'||r.scope.mode==='world'&&r.scope.worldId===scope.worldId&&r.scope.epoch===scope.epoch)).slice(-Math.min(20,Math.max(1,limit))).reverse();
+}
 export async function magneticMessageStatus(scope:MemoryScope){
  const [rows,c]=await Promise.all([source(scope),db.conversations.get(scope.conversationId)]);
  const state=c?.memoryStore;
