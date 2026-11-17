@@ -7,7 +7,7 @@ export interface TagTaxonomy {emotion:string[];topic:string[]}
 export interface TaggingOutput {summary:string;keyword:string[];emotion:string[];topic:string[];person?:string[]}
 export type TagProvider=(fullText:string,taxonomy:TagTaxonomy)=>Promise<TaggingOutput>;
 export function validateTagging(out:TaggingOutput,taxonomy:TagTaxonomy):MemoryTag[]{
- if(!out||typeof out.summary!=='string'||out.summary.length>40||!Array.isArray(out.keyword)||out.keyword.length>6||!Array.isArray(out.emotion)||!Array.isArray(out.topic)||!Array.isArray(out.person??[]))throw Error('invalid-tagging-output');
+ if(!out||typeof out.summary!=='string'||!out.summary.trim()||out.summary.length>40||/[\r\n]/.test(out.summary)||!Array.isArray(out.keyword)||out.keyword.length>6||!Array.isArray(out.emotion)||!Array.isArray(out.topic)||!Array.isArray(out.person??[]))throw Error('invalid-tagging-output');
  if(!taxonomy||!Array.isArray(taxonomy.emotion)||!Array.isArray(taxonomy.topic))throw Error('invalid-tag-taxonomy');
  const allowedEmotion=new Set(taxonomy.emotion),allowedTopic=new Set(taxonomy.topic);
  if(out.emotion.some(t=>!allowedEmotion.has(t))||out.topic.some(t=>!allowedTopic.has(t)))throw Error('unknown-tag-axis');
