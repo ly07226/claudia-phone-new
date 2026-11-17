@@ -96,7 +96,8 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
  for(const row of pending){
   // Atomic per-message claim: a second tab must not call a paid provider for
   // the same message revision. Interrupted claims require explicit recovery.
-  const claimed=await db.transaction('rw',db.conversations,async()=>{
+  const claimId=crypto.randomUUID();
+  const claimed=const saved=await db.transaction('rw',db.conversations,async()=>{
     const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('magnet-conversation-missing');
     if(c.characterId!==scope.characterId||c.mode!==scope.mode||(scope.mode==='world'&&(c.worldId!==scope.worldId||c.activeTimelineId!==scope.timelineId||(c.timelineEpoch??0)!==scope.epoch)))throw Error('magnet-scope-changed');
     const store=c.memoryStore??emptyMemoryStore();
@@ -105,7 +106,7 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
     if(retry?!canRecoverMagneticAttempt(existing,Date.now()):!!existing)return false;
     const startedAt=Date.now();
     const attempts=(store.magneticAttempts??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint);
-    attempts.push({messageId:row.id,fingerprint:row.fingerprint,status:'pending',startedAt});
+    attempts.push({messageId:row.id,fingerprint:row.fingerprint,status:'pending',startedAt,claimId});
     await db.conversations.update(c.id,{memoryStore:{...store,magneticAttempts:attempts}});
     return true;
    });
@@ -120,10 +121,12 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
     const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('magnet-conversation-missing');
     if(c.characterId!==scope.characterId||c.mode!==scope.mode||(scope.mode==='world'&&(c.worldId!==scope.worldId||c.activeTimelineId!==scope.timelineId||(c.timelineEpoch??0)!==scope.epoch)))throw Error('magnet-scope-changed');
     const store=c.memoryStore??emptyMemoryStore();
+    if(!(store.magneticAttempts??[]).some(x=>x.messageId===row.id&&x.fingerprint===row.fingerprint&&x.status==='pending'&&x.claimId===claimId))return false;
     const record:MagneticMessageMemory={messageId:row.id,variantId:row.variantId,nodeId:row.nodeId,fingerprint:row.fingerprint,scope,summary:result.summary,detail:'',tags,createdAt:row.createdAt,taggedAt:Date.now(),active:true};
     await db.conversations.update(c.id,{memoryStore:{...store,magneticMessages:[...(store.magneticMessages??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint),record],magneticAttempts:(store.magneticAttempts??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint)}});
+    return true;
    });
-   tagged++;
+   if(saved)tagged++;
   }catch(error){
    failed++;
    await db.transaction('rw',db.conversations,async()=>{
@@ -132,8 +135,9 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
     // the previous timeline. Its old pending claim remains for explicit audit.
     if(c.characterId!==scope.characterId||c.mode!==scope.mode||(scope.mode==='world'&&(c.worldId!==scope.worldId||c.activeTimelineId!==scope.timelineId||(c.timelineEpoch??0)!==scope.epoch)))return;
     const store=c.memoryStore??emptyMemoryStore();
+    if(!(store.magneticAttempts??[]).some(x=>x.messageId===row.id&&x.fingerprint===row.fingerprint&&x.status==='pending'&&x.claimId===claimId))return;
     const attempts=(store.magneticAttempts??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint);
-    attempts.push({messageId:row.id,fingerprint:row.fingerprint,status:'failed',startedAt:Date.now(),reason:error instanceof Error?error.name.slice(0,100):'UnknownError'});
+    attempts.push({messageId:row.id,fingerprint:row.fingerprint,status:'failed',startedAt:Date.now(),claimId,reason:error instanceof Error?error.name.slice(0,100):'UnknownError'});
     await db.conversations.update(c.id,{memoryStore:{...store,magneticAttempts:attempts}});
    });
   }
