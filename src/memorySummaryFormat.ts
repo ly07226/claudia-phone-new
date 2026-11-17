@@ -69,7 +69,9 @@ export function parseSummaryWithEvidence(raw:string):SummaryFact[]{
   if(!['fact','belief','speculation','pending'].includes(m.type)||!['core','long'].includes(m.kind))reject('invalid-enum',{stage:'validate',itemIndex:i});
   if(typeof m.content!=='string'||!m.content.trim()||m.content.length>summaryLimits.factChars)reject('invalid-content',{stage:'validate',itemIndex:i});
   const q=m.quality;
-  if(!q||!summaryQualityCategories.includes(q.category)||!['high','medium','low'].includes(q.importance)||!['lasting','temporary'].includes(q.durability)||typeof q.impact!=='string'||!q.impact.trim()||!Array.isArray(q.evidence)||!q.evidence.length||q.evidence.length>4||q.evidence.some((e:unknown)=>!e||typeof e!=='object'||!Number.isInteger((e as any).turn)||(e as any).turn<1||!['user','assistant'].includes((e as any).role)||typeof (e as any).quote!=='string'||(e as any).quote.length<4))reject('invalid-quality',{stage:'validate',itemIndex:i});
+  // Missing or malformed evidence is never invented. Reject only the offending
+  // candidate so one imperfect model row cannot discard other grounded memories.
+  if(!q||!summaryQualityCategories.includes(q.category)||!['high','medium','low'].includes(q.importance)||!['lasting','temporary'].includes(q.durability)||typeof q.impact!=='string'||!q.impact.trim()||!Array.isArray(q.evidence)||!q.evidence.length||q.evidence.length>4||q.evidence.some((e:unknown)=>!e||typeof e!=='object'||!Number.isInteger((e as any).turn)||(e as any).turn<1||!['user','assistant'].includes((e as any).role)||typeof (e as any).quote!=='string'||(e as any).quote.length<4))continue;
   result.push({type:m.type,kind:m.kind,content:m.content.trim(),quality:{category:q.category,importance:q.importance,durability:q.durability,impact:q.impact,evidence:q.evidence}});
  }
  return result;
