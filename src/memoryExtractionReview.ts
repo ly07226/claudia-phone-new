@@ -16,7 +16,7 @@ export function reviewExtractedEvents(source:string,events:string,maxEvents=5):E
  // Quoted evidence is checkable without another model call. Do not pretend
  // that an unquoted paraphrase can be semantically verified by a regex.
  // Check only explicit quotation marks; do not demand quotations in every event.
- const normalize=(value:string)=>value.normalize('NFKC').replace(/\\s+/g,'').replace(/[，。！？、,.!?]/g,'');
+ const normalize=(value:string)=>value.normalize('NFKC').replace(/\s+/g,'').replace(/[，。！？、,.!?]/g,'');
  const normalizedSource=normalize(source);
  const quoted=[...events.matchAll(/[“「『]([^”」』]{2,120})[”」』]/g)].map(m=>m[1]);
  if(quoted.some(quote=>!normalizedSource.includes(normalize(quote))))reasons.push('unsupported-quotation');
