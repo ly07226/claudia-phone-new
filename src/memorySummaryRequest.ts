@@ -21,7 +21,9 @@ export async function requestSummary(config:ApiConfig,key:string,input:string,si
   else if(['SAFETY','RECITATION','PROHIBITED_CONTENT','BLOCKLIST','content_filter'].includes(String(finish))||data?.promptFeedback?.blockReason)diagnostic={version:1,stage:'response',code:'blocked'};
   if(!gemini){
    const typed=Array.isArray(message?.content)?message.content.filter((p:any)=>p&&typeof p.text==='string').map((p:any)=>p.text).join(''):undefined;
-   const alt=typeof message?.content==='string'&&message.content.trim()?message.content:typed?.trim()?typed:typeof message?.output_text==='string'?message.output_text:typeof data?.output_text==='string'?data.output_text:typeof data?.output?.text==='string'?data.output.text:typeof data?.response==='string'?data.response:typeof data?.choices?.[0]?.text==='string'?data.choices[0].text:undefined;
+   const outputParts=Array.isArray(data?.output)?data.output.flatMap((item:any)=>Array.isArray(item?.content)?item.content.filter((part:any)=>part?.type==='output_text'&&typeof part.text==='string').map((part:any)=>part.text):[]).join(''):undefined;
+   const nestedOutput=Array.isArray(message?.content)?message.content.filter((p:any)=>p&&typeof p.text==='string').map((p:any)=>p.text).join(''):undefined;
+   const alt=typeof message?.content==='string'&&message.content.trim()?message.content:typed?.trim()?typed:nestedOutput?.trim()?nestedOutput:typeof message?.output_text==='string'?message.output_text:typeof data?.output_text==='string'?data.output_text:outputParts?.trim()?outputParts:typeof data?.output?.text==='string'?data.output.text:typeof data?.response==='string'?data.response:typeof data?.choices?.[0]?.text==='string'?data.choices[0].text:undefined;
    if(typeof alt==='string'&&alt.trim()){
     data.choices=data.choices?.length?data.choices:[{message:{content:alt}}];
     data.choices[0].message={...(data.choices[0].message??{}),content:alt};
