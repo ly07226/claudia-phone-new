@@ -1,10 +1,7 @@
-import {browserTransport,type ApiConfig,type ApiTransport} from './api';
+import {browserTransport,type ApiConfig} from './api';
 import {requestReply} from './chatProvider';
 import type {ReplyInterruption} from './chatCompletion';
 import {summaryLimits,type SummaryDiagnostic} from './memorySummaryTypes';
-import {summaryPrompt,summaryResponseSchema} from './memorySummaryFormat';
-const combinedPrompt=summaryPrompt+'\n同时输出一个summary字符串字段，记录本片段对后续剧情真正重要的事件与未完成事项，通常0～5条，每条尽量30～80字。不要复述日常对话；保留人物主体、否定、因果、状态。无关键事件时为空字符串。根对象必须恰好包含memories与summary。';
-const combinedSchema={...summaryResponseSchema,properties:{...summaryResponseSchema.properties,summary:{type:'STRING'}},required:['memories','summary']};
 export class SummaryResponseError extends Error {constructor(public diagnostic:SummaryDiagnostic){super('summary-response');}}
 /** Summary-only protocol options/metadata. Normal chat requests are unchanged.
  * No fallback request is issued if an endpoint rejects structured output.
