@@ -4,6 +4,7 @@ import {browserTransport} from './api';
 import type {MemoryScope} from './memoryTypes';
 import type {TagProvider,TagTaxonomy,TaggingOutput} from './memoryMagnetTagger';
 import {tagPendingMemories} from './memoryMagnetTagger';
+import {tagMagneticMessages} from './memoryMagnetMessages';
 
 /** Dedicated API is called only from an explicit batch action, never per chat turn.
  * Keep tagging JSON separate from Float's plain-text summary contract.
@@ -23,4 +24,10 @@ export async function makeDedicatedTagProvider(scope:MemoryScope):Promise<TagPro
 export async function runDedicatedTagBatch(scope:MemoryScope,taxonomy:TagTaxonomy,batchSize=20,manualRetry=false){
  const provider=await makeDedicatedTagProvider(scope);
  return tagPendingMemories(scope,provider,taxonomy,batchSize,manualRetry);
+}
+
+/** Preferred SPEC path: raw visible messages, not pre-filtered Float summaries. */
+export async function runMessageTagBatch(scope:MemoryScope,taxonomy:TagTaxonomy,batchSize=20,manualRetry=false){
+ const provider=await makeDedicatedTagProvider(scope);
+ return tagMagneticMessages(scope,provider,taxonomy,batchSize,manualRetry);
 }
