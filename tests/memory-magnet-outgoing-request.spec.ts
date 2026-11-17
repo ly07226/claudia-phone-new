@@ -48,4 +48,20 @@ for(const provider of ['openai-compatible','gemini'])test('message-level recall 
  expect(system(bodies[1])).not.toContain('[磁铁记忆');
  const after=await page.evaluate(async id=>{const {lastMemoryContextTrace}=await import('/src/memoryContext.ts');return lastMemoryContextTrace(id);},id);
  expect(after?.injectedMagnetic).toBe(0);
+ // Re-enable the label, then edit its source message without updating its
+ // fingerprint. A stale record must never leak into the next provider request.
+ await page.evaluate(async id=>{
+  const {db}=await import('/src/store.ts');
+  const c=(await db.conversations.get(id))!;
+  const store=structuredClone(c.memoryStore!);
+  store.magneticMessages![0].tags=[{axis:'keyword',tag:'码头',weight:2}];
+  await db.conversations.update(id,{memoryStore:store});
+  await db.messages.update('magnet-history',{content:'那天我们并没有去码头。'});
+  const {sendMessage}=await import('/src/chatService.ts');
+  await sendMessage(id,'码头的约定还在吗？');
+ },id);
+ expect(bodies).toHaveLength(3);
+ expect(system(bodies[2])).not.toContain('[磁铁记忆');
+ const editedTrace=await page.evaluate(async id=>{const {lastMemoryContextTrace}=await import('/src/memoryContext.ts');return lastMemoryContextTrace(id);},id);
+ expect(editedTrace?.injectedMagnetic).toBe(0);
 });
