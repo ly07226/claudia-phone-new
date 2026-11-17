@@ -128,7 +128,7 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
 }
 async function fail(job:MemorySummaryJob,error:SummaryFailure,diagnostic?:SummaryDiagnostic,decision?:ReturnType<typeof classifySummaryError>,manual=false){
  await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(job.scope.conversationId);if(c?.memorySummary?.job?.id!==job.id)return;const state=structuredClone(c.memorySummary);// Failed automatic jobs pause for explicit recovery, not additional chat turns.
-  state.requiresManualResume=true;state.deferUntilPending=undefined;if(error==='capacity')state.capacityBlocked=summaryCapacityKey(c);state.job={...state.job!,status:'failed',error,...(decision?{retryable:decision.retry,failureKind:decision.kind}:{}),...(job.failureHttpStatus?{failureHttpStatus:job.failureHttpStatus}:{}),...(job.failureReason?{failureReason:job.failureReason}:{}),...(diagnostic?{diagnostic}:{}),finishedAt:Date.now()};
+  state.requiresManualResume=true;state.deferUntilPending=undefined;if(error==='capacity')state.capacityBlocked=summaryCapacityKey(c);state.job={...state.job!,status:'failed',error,...(decision?{retryable:decision.retry,failureKind:decision.kind}:{}),...(job.failureHttpStatus?{failureHttpStatus:job.failureHttpStatus}:{}),...(job.failureReason?{failureReason:job.failureReason}:{}),...(job.failureServiceCode?{failureServiceCode:job.failureServiceCode}:{}),...(diagnostic?{diagnostic}:{}),finishedAt:Date.now()};
   if(state.autoAttempt?.throughNodeId===job.throughNodeId)state.autoAttempt=undefined;
   await db.conversations.update(c.id,{memorySummary:state});});
 }
@@ -219,6 +219,7 @@ async function execute(scope:MemoryScope,manual:boolean){
    const providerDetail=describeReplyFailure(error);
    // Persist only a fixed diagnostic category and numeric HTTP status, never provider body or credentials.
    if(providerDetail.httpStatus)job.failureHttpStatus=providerDetail.httpStatus;
+    if(providerDetail.serviceCode)job.failureServiceCode=providerDetail.serviceCode;
    job.failureReason=controller.signal.aborted?'timeout':decision.reason==='unknown'?'unknown':decision.reason;
    // An aborted request is a timeout/interruption, not an unspecified provider error.
    if(controller.signal.aborted||error instanceof Error&&/abort|timeout|timed out|超时/i.test(error.message)){
