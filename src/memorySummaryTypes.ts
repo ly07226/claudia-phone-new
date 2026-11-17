@@ -5,7 +5,7 @@ export type SummaryCategory='fact'|'belief'|'speculation'|'pending';
 /** Request-only quality/evidence metadata; never added to stored MemoryEntry. */
 export const summaryQualityCategories=['identity','relationship','major-event','preference','boundary','habit','commitment','ongoing-conflict','continuity','routine','short-plan','resolved'] as const;
 export interface SummaryQuality {category:typeof summaryQualityCategories[number];importance:'high'|'medium'|'low';durability:'lasting'|'temporary';impact:string;evidence:{turn:number;role:'user'|'assistant';quote:string}[]}
-export interface SummaryFact {type:SummaryCategory;content:string;quality?:SummaryQuality}
+export interface SummaryFact {type:SummaryCategory;content:string;kind?:'core'|'long';quality?:SummaryQuality}
 export interface SummaryTurn {userIds:string[];assistantId:string}
 export interface SummarySelectionStats {candidates:number;accepted:number;rejected:number;reasons:Partial<Record<SummaryQualityRejection,number>>}
 export interface SummaryReceipt {shortSummary?:string;sourceFingerprint?:string;selection?:SummarySelectionStats;id:string;revision:number;scope:MemoryScope;epoch:number;timelineId:string;throughNodeId:string;turns:SummaryTurn[];createdAt:number;added:number;duplicates:number}
