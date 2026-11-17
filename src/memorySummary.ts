@@ -24,7 +24,7 @@ const key=(turn:SummaryTurn)=>JSON.stringify([turn.userIds,turn.assistantId]);
 const scopeKey=memoryScopeKey;
 const labels={fact:'已发生事实',belief:'人物主观判断',speculation:'猜测（未证实）',pending:'未完成事项'};
 const system=summaryPrompt;
-const safeEmptyReasons=new Set(['temporary','low-importance','weak-impact']);
+
 export async function saveSummarySettings(scope:MemoryScope,enabled:boolean,interval:number){
  if(typeof enabled!=='boolean'||!Number.isInteger(interval)||interval<20||interval>100||interval%10)throw Error('总结间隔须为20～100轮，每10轮一级。');
  await db.transaction('rw',tables(),async()=>{await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=structuredClone(c.memorySummary??emptySummaryState());state.enabled=enabled;state.interval=interval;await db.conversations.update(c.id,{memorySummary:state});});
@@ -136,7 +136,7 @@ async function execute(scope:MemoryScope,manual:boolean){
     try{const part=saved.completed[index],reviewed=parseSimpleSummary(JSON.stringify({memories:part.facts}));
     for(const f of reviewed.facts)inputForFact.set(f,index);facts.push(...reviewed.facts);const event=reviewed.facts.map(f=>`【${labels[f.type]}】${f.content}`).join('\n');if(event)events.push(event);
     const countsValid=[part.candidates,part.accepted,part.rejected].every(n=>Number.isSafeInteger(n)&&n>=0)&&part.accepted===part.facts.length&&part.candidates===part.accepted+part.rejected&&part.reasons&&Object.entries(part.reasons).every(([k,n])=>Object.hasOwn(summaryRejectionText,k)&&Number.isSafeInteger(n)&&n>=0)&&Object.values(part.reasons).reduce((a,b)=>a+b,0)===part.rejected;
-    stats.candidates+=countsValid?part.candidates:part.facts.length;stats.accepted+=reviewed.facts.length;stats.rejected+=(countsValid?part.rejected:0)+extra.length;for(const [reason,count] of Object.entries(countsValid?part.reasons:{}))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;
+    stats.candidates+=countsValid?part.candidates:part.facts.length;stats.accepted+=reviewed.facts.length;stats.rejected+=(countsValid?part.rejected:0);for(const [reason,count] of Object.entries(countsValid?part.reasons:{}))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;
     }catch(e){if(!manual||!(e instanceof SummaryFormatError))throw e;/* Explicit recovery may regenerate an invalid old fragment, never a verified one. */}
    }
    const before=facts.length;
