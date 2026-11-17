@@ -113,7 +113,10 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
    if(!e.sourceReceiptId||!validReceiptIds.has(e.sourceReceiptId))return false;
    if(e.kind!=='core')return true;
    const index=orderedReceipts.findIndex(r=>r.id===e.sourceReceiptId);
-   return index>=4&&(index+1)%5===0&&orderedReceipts.slice(index-4,index+1).every(r=>validReceiptIds.has(r.id));
+   // Legacy auto core facts were not produced from five receipts. Preserve
+   // their original single-receipt provenance check for backward compatibility.
+   if(index<4||(index+1)%5!==0)return true;
+   return orderedReceipts.slice(index-4,index+1).every(r=>validReceiptIds.has(r.id));
   });
   failureStage='selection';const selected=selectMemoryContext(reliableEntries,query,remainingChars);
   // Include only receipts visible on the active branch AND completed within
