@@ -52,7 +52,11 @@ export function parseSummary(raw:string):SummaryFact[]{
   const content=x.content.trim();
   if(!content||!/[\p{L}\p{N}]/u.test(content))reject('empty-content',meta);
   if(x.content.length>summaryLimits.factChars)reject('fact-too-long',meta);
-  return {type:x.type.trim().toLowerCase(),content,...(x.quality!==undefined?{quality:parseQuality(x.quality,index)}:{})};
+  // Quality metadata is advisory. Invalid evidence/importance metadata must never
+  // turn an otherwise valid memory into a failed summary job.
+  let quality:SummaryQuality|undefined;
+  if(x.quality!==undefined){try{quality=parseQuality(x.quality,index);}catch{/* discard optional metadata, keep the fact */}}
+  return {type:x.type.trim().toLowerCase(),content,...(quality?{quality}:{})};
  });
 }
 
