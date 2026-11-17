@@ -8,10 +8,10 @@ import {db} from './store';
 import {getMemoryScope,listMemories,listMemoryRevisions,createMemory,sealMemorySummaryForks,visibleSummaryReceipts} from './memoryStore';
 import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelines';
 import {visibleMessage} from './messageBubbles';
-import {summaryDuplicateIndex} from './memorySummaryQuality';
+import {summaryDuplicateIndex,selectSummaryCandidates} from './memorySummaryQuality';
 import {requestSummary,SummaryResponseError} from './memorySummaryRequest';
 import {maybeBuildCoreMemory} from './memoryCoreBuilder';
-import {SummaryFormatError} from './memorySummaryFormat';
+import {SummaryFormatError,parseSummaryWithEvidence} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
 import {buildSummaryInputs} from './memorySummaryChunks';
@@ -130,15 +130,13 @@ async function execute(scope:MemoryScope,manual:boolean){
    const saved=(await db.conversations.get(scope.conversationId))?.memorySummary?.checkpoint;
    if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]&&saved.completed[index].eventSummary!==undefined){const part=saved.completed[index];facts.push(...part.facts);if(part.eventSummary)events.push(part.eventSummary);stats.candidates+=part.candidates;stats.accepted+=part.accepted;stats.rejected+=part.rejected;for(const [reason,count] of Object.entries(part.reasons))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;}
    const before=facts.length;
-   const combined=claimed.inputs.length===1;
-   failure='provider';const raw=await requestSummary(config,apiKey,input,controller.signal,combined);
+   failure='provider';const raw=await requestSummary(config,apiKey,input,controller.signal);
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
    failure='format';try{
-    // The first pass is plain text. Preserve it as one long-term memory and
-    // one event digest; no JSON parsing, importance gate or auxiliary paid call.
-    const eventSummary=raw.trim();
-    const parsed:SummaryFact[]=[{type:'fact',kind:'long',content:eventSummary}];
-    const selected={accepted:parsed,rejected:[] as {index:number;reason:never}[]};
+    // Reject unsupported or misclassified claims before durable storage.
+    const parsed=parseSummaryWithEvidence(raw);
+    const selected=selectSummaryCandidates(parsed,input);
+    const eventSummary=selected.accepted.map(f=>`【${labels[f.type]}】${f.content}`).join('\n').slice(0,2500);
     if(eventSummary)events.push(eventSummary);
     facts.push(...selected.accepted);stats.candidates+=parsed.length;stats.accepted+=selected.accepted.length;
     stats.rejected+=selected.rejected.length;
