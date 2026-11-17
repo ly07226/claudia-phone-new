@@ -13,11 +13,12 @@ test('StarHub prefix verification excludes edited, deleted and future source mes
   const record={messageId:'m1',fingerprint,scope,summary:'在码头相遇',detail:message.content,tags:[{axis:'keyword',tag:'码头',weight:1}],createdAt:1,taggedAt:1,active:true};
   return {
    valid:(await magneticFromRequestPrefix(scope as any,[record] as any,[message] as any,'码头')).length,
+   compact:(await magneticFromRequestPrefix(scope as any,[{...record,detail:''}] as any,[message] as any,'码头')).length,
    edited:(await magneticFromRequestPrefix(scope as any,[record] as any,[{...message,content:'没去过码头'}] as any,'码头')).length,
    deleted:(await magneticFromRequestPrefix(scope as any,[record] as any,[],'码头')).length,
    untagged:(await magneticFromRequestPrefix(scope as any,[{...record,tags:[]}] as any,[message] as any,'码头')).length,
    unrelated:(await magneticFromRequestPrefix(scope as any,[record] as any,[message] as any,'天气')).length,
   };
  });
- expect(result).toEqual({valid:1,edited:0,deleted:0,untagged:0,unrelated:0});
+ expect(result).toEqual({valid:1,compact:1,edited:0,deleted:0,untagged:0,unrelated:0});
 });
