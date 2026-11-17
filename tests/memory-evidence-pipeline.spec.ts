@@ -33,3 +33,14 @@ test('empty candidate list is valid, not a fabricated memory',()=>{
  expect(parsed).toHaveLength(0);
  expect(selectSummaryCandidates(parsed,input).accepted).toHaveLength(0);
 });
+
+test('one malformed quality row does not discard another grounded memory',()=>{
+ const valid=candidate('用户不接受别人随便碰自己的东西。');
+ const malformed={...valid,quality:{category:'boundary'}};
+ const parsed=parseSummaryWithEvidence(JSON.stringify({memories:[malformed,valid]}));
+ expect(parsed).toHaveLength(1);
+ expect(selectSummaryCandidates(parsed,input).accepted).toHaveLength(1);
+});
+test('all malformed quality rows must still fail visibly',()=>{
+ expect(()=>parseSummaryWithEvidence(JSON.stringify({memories:[{type:'fact',kind:'long',content:'用户不接受别人随便碰自己的东西。',quality:{}}]}))).toThrow();
+});
