@@ -1,5 +1,5 @@
 import {memoryScopeKey} from './memoryScopeKey';
-import {visibleMagneticMemories} from './memoryMagnetMessages';
+import {magneticFromRequestPrefix} from './memoryMagnetMessages';
 import {selectMagneticMessages} from './memoryMagnetRecall';
 import {db} from './store';
 import {summaryVerifier,sourceHash,sourceVisibleMessage} from './summarySourceFingerprint';
@@ -113,9 +113,8 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   // One existing prompt assembly path. Magnetic records are restricted to the
   // exact request prefix; historical regeneration cannot read future turns.
   failureStage='magnetic-recall';
-  const magneticRecords=await visibleMagneticMemories(snapshot.scope);
-  const prefixIds=new Set(requestPath.map(m=>m.id));
-  const magnet=selectMagneticMessages(magneticRecords.filter(r=>prefixIds.has(r.messageId)),query,Math.max(0,Math.min(1200,remainingChars-selected.text.length)));
+  const magneticRecords=await magneticFromRequestPrefix(snapshot.scope,snapshot.owner.memoryStore?.magneticMessages??[],requestPath,query);
+  const magnet=selectMagneticMessages(magneticRecords,query,Math.max(0,Math.min(1200,remainingChars-selected.text.length)));
   if(magnet.text&&selected.text.length+magnet.text.length<=remainingChars&&selected.estimatedTokens+memoryTokenCost(magnet.text)<=memoryContextLimits.tokens){
    selected.text+=magnet.text;
    selected.estimatedTokens+=memoryTokenCost(magnet.text);
