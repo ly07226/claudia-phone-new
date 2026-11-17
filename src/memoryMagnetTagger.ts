@@ -1,5 +1,5 @@
 import {listMemories,memoryTagSnapshot,recordMemoryTagFailure,saveMemoryTags} from './memoryStore';
-import type {MemoryScope,MemoryTag,EffectiveMemory} from './memoryTypes';
+import type {MemoryScope,MemoryTag} from './memoryTypes';
 /** StarHub SPEC §2: full-text input, strict taxonomy, one failure per entry.
  * Provider is injected: never calls a paid API on ordinary chat turns.
  */
@@ -22,11 +22,13 @@ export function validateTagging(out:TaggingOutput,taxonomy:TagTaxonomy):MemoryTa
 /** Process at most batchSize untagged visible revisions; failures remain pending.
  * No global last-id watermark: a failed entry cannot be lost behind later ones.
  */
-export async function tagPendingMemories(scope:MemoryScope,provider:TagProvider,taxonomy:TagTaxonomy,batchSize=20){
+export async function tagPendingMemories(scope:MemoryScope,provider:TagProvider,taxonomy:TagTaxonomy,batchSize=20,manualRetry=false){
  if(!Number.isInteger(batchSize)||batchSize<1||batchSize>100)throw Error('invalid-batch-size');
  const [all,tags]=await Promise.all([listMemories(scope),memoryTagSnapshot(scope)]);
  const completed=new Set(tags.records.map(t=>t.entryId+':'+t.revision));
- const pending=all.entries.filter(e=>!completed.has(e.id+':'+e.revision)).slice(0,batchSize);
+ const failures=new Set(tags.failures.map(t=>t.entryId+':'+t.revision));
+ // Automatic jobs do not repeatedly bill failed entries. Explicit retry is opt-in.
+ const pending=all.entries.filter(e=>!completed.has(e.id+':'+e.revision)&&(manualRetry||!failures.has(e.id+':'+e.revision))).slice(0,batchSize);
  let tagged=0,failed=0;
  for(const entry of pending){
   try{
@@ -38,5 +40,5 @@ export async function tagPendingMemories(scope:MemoryScope,provider:TagProvider,
    await recordMemoryTagFailure(scope,entry.id,entry.revision,error instanceof Error?error.name:'UnknownError');
   }
  }
- return {seen:pending.length,tagged,failed,pending:all.entries.length-tags.records.length-tagged};
+ return {seen:pending.length,tagged,failed,pending:Math.max(0,all.entries.length-tags.records.length-tagged),awaitingManualRetry:tags.failures.length+failed};
 }
