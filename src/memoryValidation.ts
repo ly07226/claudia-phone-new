@@ -57,6 +57,32 @@ export async function validateMemoryStore(d:Dexie,c:Conversation){
    const key=failure.entryId+':'+failure.revision;check(!keys.has(key));keys.add(key);
   }
  }
+ // Message-level StarHub metadata is optional for old backups. Validate before
+ // restoration or prompt injection; never silently accept malformed tag records.
+ if(state.magneticZeroRuns!==undefined)check(integer(state.magneticZeroRuns)&&state.magneticZeroRuns<=1000000);
+ if(state.magneticMessages!==undefined){
+  check(Array.isArray(state.magneticMessages)&&state.magneticMessages.length<=memoryLimits.events);
+  const keys=new Set<string>();
+  for(const record of state.magneticMessages){
+   check(record&&id(record.messageId)&&typeof record.fingerprint==='string'&&/^[a-f0-9]{64}$/.test(record.fingerprint)&&validMemoryScope(c,record.scope)&&typeof record.summary==='string'&&record.summary.trim().length>0&&record.summary.length<=80&&typeof record.detail==='string'&&record.detail.length<=memoryLimits.entryChars&&integer(record.createdAt)&&integer(record.taggedAt)&&typeof record.active==='boolean'&&Array.isArray(record.tags)&&record.tags.length<=32);
+   check(record.variantId===undefined||id(record.variantId));check(record.nodeId===undefined||id(record.nodeId));
+   if(record.scope.mode==='world')check(record.scope.epoch<=currentEpoch);
+   const key=record.messageId+':'+record.fingerprint;check(!keys.has(key));keys.add(key);
+   const labels=new Set<string>();
+   for(const tag of record.tags){
+    check(tag&&['keyword','emotion','topic','person'].includes(tag.axis)&&typeof tag.tag==='string'&&tag.tag.trim().length>0&&tag.tag.length<=80&&typeof tag.weight==='number'&&Number.isFinite(tag.weight)&&tag.weight>0&&tag.weight<=10);
+    const label=tag.axis+':'+tag.tag;check(!labels.has(label));labels.add(label);
+   }
+  }
+ }
+ if(state.magneticAttempts!==undefined){
+  check(Array.isArray(state.magneticAttempts)&&state.magneticAttempts.length<=memoryLimits.events);
+  const keys=new Set<string>();
+  for(const attempt of state.magneticAttempts){
+   check(attempt&&id(attempt.messageId)&&typeof attempt.fingerprint==='string'&&/^[a-f0-9]{64}$/.test(attempt.fingerprint)&&['pending','failed'].includes(attempt.status)&&integer(attempt.startedAt)&& (attempt.reason===undefined||typeof attempt.reason==='string'&&attempt.reason.length<=120));
+   const key=attempt.messageId+':'+attempt.fingerprint;check(!keys.has(key));keys.add(key);
+  }
+ }
  const paths=new Map<string,Set<string>>();
  async function path(t:MemoryTimeline){if(paths.has(t.id))return paths.get(t.id)!;const nodes=new Set<string>();let next=t.headNodeId;
   while(next){check(!nodes.has(next));nodes.add(next);const row=await d.table('pathNodes').get(next);check(row&&row.conversationId===c.id);next=row.parentNodeId;}
