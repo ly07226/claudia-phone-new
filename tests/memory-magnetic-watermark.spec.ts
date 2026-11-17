@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {magneticWatermark,magneticBatchHealth,canRecoverMagneticAttempt,MAGNET_PENDING_RECOVERY_MS} from '../src/memoryMagnetMessages';
+import {magneticWatermark,magneticBatchHealth,canRecoverMagneticAttempt,MAGNET_PENDING_RECOVERY_MS,ownsMagneticClaim} from '../src/memoryMagnetMessages';
 
 test('contiguous checkpoint stops at failed revision despite later success',()=>{
  const rows=[{id:'m1',fingerprint:'a'},{id:'m2',fingerprint:'b'},{id:'m3',fingerprint:'c'}];
@@ -28,4 +28,14 @@ test('pending claims cannot be retried while a request may still be running',()=
  expect(canRecoverMagneticAttempt({status:'pending',startedAt:now-1000},now)).toBe(false);
  expect(canRecoverMagneticAttempt({status:'pending',startedAt:now-MAGNET_PENDING_RECOVERY_MS},now)).toBe(true);
  expect(canRecoverMagneticAttempt({status:'failed',startedAt:now-1000},now)).toBe(true);
+});
+
+test('stale provider success or failure cannot overwrite a replacement claim',()=>{
+ const old={messageId:'m1',fingerprint:'rev1',status:'pending' as const,claimId:'old'};
+ const replacement={...old,claimId:'new'};
+ expect(ownsMagneticClaim(old,'m1','rev1','old')).toBe(true);
+ expect(ownsMagneticClaim(replacement,'m1','rev1','old')).toBe(false);
+ expect(ownsMagneticClaim(replacement,'m1','rev1','new')).toBe(true);
+ expect(ownsMagneticClaim({...replacement,status:'failed'},'m1','rev1','new')).toBe(false);
+ expect(ownsMagneticClaim(replacement,'m1','rev2','new')).toBe(false);
 });
