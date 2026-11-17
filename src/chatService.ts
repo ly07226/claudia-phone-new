@@ -1,3 +1,4 @@
+import {publishSavedChatMessage} from './chatMessageEvents';
 import {stripLeakedTimeMarkers} from './timeMarkerSanitizer';
 import {appendContinuation,validInterruption} from './chatCompletion';
 import type {Message} from './chatTypes';
@@ -267,7 +268,9 @@ async function generate(
       )
         return;
       const rows = await activeMessages(id);
+      let savedMessageId:string;
       if (options.messageId) {
+        savedMessageId=options.messageId;
         const index = rows.findIndex(
           (m) => m.id === options.messageId && m.role === "assistant",
         );
@@ -292,6 +295,7 @@ async function generate(
           content: reply,
           createdAt: Math.max(Date.now(), (last?.createdAt || 0) + 1),
         };
+        savedMessageId=m.id;
         await db.messages.add(m);
         await addGeneratedVariant(m, reply,interruption,heartVoice);
       }
@@ -301,8 +305,10 @@ async function generate(
       const draft=current.imageDrafts?.[current.activeTimelineId||''];
       if(options.continuation&&draft&&nextPath.id!==current.activeTimelineId)await db.conversations.update(id,{imageDrafts:{...current.imageDrafts,[nextPath.id]:draft}});
       await db.conversations.update(id, { updatedAt: Date.now() });
-      return true;
+      const savedMessage=await db.messages.get(savedMessageId);
+      return savedMessage?{conversation:current,message:savedMessage}:undefined;
     });
+    if(committed&&!interruption)publishSavedChatMessage(committed.conversation,committed.message);
     if(!committed)throw Error("当前剧情已变化，回复未写入其他会话或分支。原消息和版本保留。");
   } finally {
     clearTimeout(timeout);

@@ -4,7 +4,7 @@ import {chatDataRevision} from './chatDataRevision';
 import {cloudConfigured,cloudFunctionRequest,hasCloudIdentity} from './cloudIdentity';
 import type {CSSProperties} from 'react';
 import {ChatHub} from './ChatHub';
-import {takeProactiveOpen} from './ProactiveScheduler';
+import {takeChatOpen,openChatEvent,markVisibleChat} from './chatNotificationNavigation';
 import {interruptionLabel,validInterruption} from './chatCompletion';
 import {ReplyPending,ReplyFailureNotice} from './ReplyStatus';
 import {prepareQuote,quoteSummary} from './messageReferences';
@@ -210,7 +210,8 @@ export function Chat({ worldId }: { worldId?: string }) {
     : s.characters.filter(isDailyFriend);
   const applications = !worldId ? s.characters.filter(c=>c.dailyFriendship?.status==='pending'&&c.dailyFriendship.application) : [];
   useEffect(()=>{setRequests(false);},[worldId]);
-  useEffect(()=>{if(worldId)return;const handle=()=>{const id=takeProactiveOpen();if(id)void open(id);};handle();window.addEventListener('claudia:open-proactive-chat',handle);return()=>window.removeEventListener('claudia:open-proactive-chat',handle);},[worldId]);
+  useEffect(()=>{const handle=()=>{const target=takeChatOpen(worldId);if(target)void open(target.characterId);};handle();window.addEventListener(openChatEvent,handle);return()=>window.removeEventListener(openChatEvent,handle);},[worldId]);
+  useEffect(()=>conversation?markVisibleChat(conversation.id):undefined,[conversation?.id]);
   useEffect(()=>{
     if(worldId || conversation)return;
     let active=true;

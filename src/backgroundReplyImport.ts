@@ -1,3 +1,4 @@
+import {publishSavedChatMessage} from './chatMessageEvents';
 import {db} from './store';
 import {activeMessages} from './messagePath';
 import {commitTimelineProjection,ensureTimelineInTransaction,timelineTables} from './timelines';
@@ -5,8 +6,8 @@ import {fetchBackgroundSnapshot} from './backgroundReplySync';
 
 /** Only imports a completed reply whose originating user message is still the
  * active path's unanswered tail. The transaction makes repeated polling safe. */
-export async function importBackgroundReplies(conversationId:string):Promise<{imported:number;skipped:number}>{
- const snapshot=await fetchBackgroundSnapshot(conversationId);
+export async function importBackgroundReplies(conversationId:string,loadSnapshot=fetchBackgroundSnapshot):Promise<{imported:number;skipped:number}>{
+ const snapshot=await loadSnapshot(conversationId);
  if(!snapshot)return {imported:0,skipped:0};
  const jobs=new Map(snapshot.jobs.map(job=>[job.id,job]));
  let imported=0,skipped=0;
@@ -49,7 +50,7 @@ export async function importBackgroundReplies(conversationId:string):Promise<{im
    await db.conversations.update(conversationId,{updatedAt:Date.now()});
    return true;
   });
-  if(inserted)imported++;else skipped++;
+  if(inserted){imported++;const [c,m]=await Promise.all([db.conversations.get(conversationId),db.messages.get(reply.message_id)]);if(c&&m)publishSavedChatMessage(c,m);}else skipped++;
  }
  return {imported,skipped};
 }

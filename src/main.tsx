@@ -1,3 +1,5 @@
+import {ChatBannerSettings} from './ChatBannerSettings';
+import {GlobalChatNotifications} from './GlobalChatNotifications';
 import {installMemorySummaryScheduler} from './memorySummaryScheduler';
 import {PhasePlayApp} from './phasePlay/PhasePlayApp';
 import {ChatHubScheduler} from './ChatHubScheduler';
@@ -371,7 +373,6 @@ function App() {
     <div className="stage" data-ios={environment.ios || undefined} data-standalone={environment.standalone || undefined}>
       <ChatHubScheduler/>
       <MemoryCalendarScheduler/><ProactiveScheduler/>
-      <BackgroundReplyReconciler/>
       <aside className="brand">
         <span className="brand-mark">c.</span>
         <h1>
@@ -458,7 +459,7 @@ function App() {
                   </div>
                   <IdentityCard spaceId={space?.spaceId || "daily"}/>
                   <AudioKeepAliveSettings/>
-                  <PushNotificationSettings/>
+                  <PushNotificationSettings/><ChatBannerSettings/>
                   <button
                     className="list-row"
                     onClick={() => openPhoneApp("数据备份与恢复")}
@@ -990,7 +991,7 @@ function App() {
 initializeAudioKeepAlive();
 installMemorySummaryScheduler();
 createRoot(document.getElementById("root")!).render(
-  <SpaceRoot phone={<App />} />,
+  <><SpaceRoot phone={<App />} /><BackgroundReplyReconciler/><GlobalChatNotifications/></>,
 );
 if ("serviceWorker" in navigator && import.meta.env.PROD)
   window.addEventListener("load", () => {

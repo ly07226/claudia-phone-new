@@ -18,12 +18,11 @@ test('主动消息只在等待时间到达后尝试一次，关闭时永不触�
  expect(result).toEqual({eligible:true,early:false,repeated:false,off:false,recentlyMessaged:false,world:false});
 });
 
-test('主动消息通知为独立悬浮层，五秒后消失，不改动底层布局',async({page})=>{
+test('主动消息通知为共享悬浮层，三秒后消失，不改动底层布局',async({page})=>{
  await isolatedApp(page,'proactive-toast-'+crypto.randomUUID());
  const before=await page.locator('body').boundingBox();
  await page.evaluate(async()=>{
-  const {proactiveEvent}=await import('/src/proactiveMessages.ts');
-  window.dispatchEvent(new CustomEvent(proactiveEvent,{detail:{conversationId:'test',characterId:'actor',name:'测试角色',text:'刚刚在忙什么？'}}));
+  const {db}=await import('/src/store.ts');await db.characters.put({id:'actor',name:'测试角色',persona:''});const c=await(await import('/src/chatService.ts')).getConversation('actor');const message={id:'notice-fixture',conversationId:c.id,role:'assistant' as const,content:'刚刚在忙什么？',createdAt:Date.now()};await db.messages.put(message);(await import('/src/chatMessageEvents.ts')).publishSavedChatMessage(c,message);
  });
  const toast=page.getByRole('button',{name:'测试角色发来新消息，点击打开聊天'});
  await expect(toast).toBeVisible();

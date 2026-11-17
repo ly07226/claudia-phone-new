@@ -1,7 +1,4 @@
 import {activeMessages} from './messagePath';
-import {messageBubbles} from './messageBubbles';
-import {audioKeepAliveEnabled} from './AudioKeepAliveSettings';
-import {localReplyNotificationsEnabled} from './PushNotificationSettings';
 import {resolveTimelinePath} from './timelines';
 import {describeReplyFailure,type ReplyFailureDetails} from './replyFailure';
 import {useSyncExternalStore} from 'react';
@@ -9,39 +6,6 @@ import {db} from './store';
 import {sendMessage,regenerateMessage,continueMessage,type ExpectedPath} from './chatService';
 import {cancelGeneration,invalidateGeneration} from './messageOperations';
 import type {Conversation,MessageQuote} from './chatTypes';
-
-/** Send the exact saved chat bubbles as separate iOS notifications, in order.
- * Never generate, mutate or split a second copy of the reply.
- */
-function shouldNotifyInBackground(){return audioKeepAliveEnabled()&&localReplyNotificationsEnabled()&&document.visibilityState==='hidden';}
-async function notifyHiddenReply(characterId:string,conversationId:string,messageId?:string){
- if(typeof document==='undefined'||!shouldNotifyInBackground()||typeof Notification==='undefined'||Notification.permission!=='granted'||!('serviceWorker'in navigator))return;
- try{
-  const registration=await navigator.serviceWorker.getRegistration();
-  if(!registration)return;
-  const rows=await activeMessages(conversationId);
-  const reply=messageId?rows.find(row=>row.id===messageId):rows.at(-1);
-  if(!reply||reply.role!=='assistant')return;
-  const character=await db.characters.get(characterId);
-  const conversation=await db.conversations.get(conversationId);
-  const bubbles=messageBubbles(reply,conversation?.mode!=='daily').filter(part=>part.kind==='text'&&part.text.trim());
-  for(let index=0;index<bubbles.length;index++){
-   // Returning to the app stops the remaining banners; the saved bubbles stay intact.
-   if(!shouldNotifyInBackground())break;
-   const visible=await activeMessages(conversationId);
-   if(!visible.some(row=>row.id===reply.id&&row.activeVariantId===reply.activeVariantId&&row.content===reply.content))break;
-   const part=bubbles[index];
-   if(part.kind!=='text')continue;
-   await registration.showNotification(character?.name??'Claudia Phone',{
-    body:part.text.trim().slice(0,300),
-    tag:'claudia-reply-'+reply.id+'-'+index,
-    data:{conversationId,messageId:reply.id,bubbleIndex:index},
-    icon:'/apple-icon.png?v=2'
-   });
-   if(index<bubbles.length-1)await new Promise<void>(resolve=>setTimeout(resolve,1200));
-  }
- }catch{/* Notifications must never affect the stored conversation. */}
-}
 
 type Status='saving'|'generating'|'completed'|'failed'|'stopped'|'interrupted';
 export interface GenerationTask {
@@ -91,7 +55,6 @@ export function startGenerationTask(request:Request,onSaved?:()=>void){
   try{
    const result=request.continuationId?await continueMessage(c.id,request.continuationId,controller.signal,expectedPath,saved):request.messageId?await regenerateMessage(c.id,request.messageId,controller.signal,request.allowArchive,expectedPath,saved):await sendMessage(c.id,request.text,controller.signal,request.retry,saved,expectedPath,request.images,request.replyTo);
    update({status:result?.interruption?'interrupted':'completed',saved:true});
-   if(!result?.interruption)void notifyHiddenReply(c.characterId,c.id,request.messageId??request.continuationId);
    if(request.retry||request.messageId||request.continuationId){try{const target=request.messageId??request.continuationId??(await activeMessages(c.id)).filter(m=>m.role==='user').at(-1)?.id;if(target){failures.set(c.id,(failures.get(c.id)??[]).filter(f=>f.messageId!==target||f.timelineId!==entry.state.timelineId||f.epoch!==entry.state.epoch));emit();}}catch{/* Failure-display cleanup cannot turn a saved reply into a failed generation. */}}
   }catch(error){
    update({status:controller.signal.aborted?'stopped':'failed',failure:controller.signal.aborted?undefined:describeReplyFailure(error),error:controller.signal.aborted?'回复已停止或当前路径已变化，已保存的消息和版本保留。':error instanceof Error?error.message:'回复未完成，已保存的消息保留。'});
