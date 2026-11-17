@@ -12,7 +12,7 @@ export interface MemoryTagRecord {entryId:string;revision:number;tags:MemoryTag[
 /** One derived memory per visible source-message revision. */
 export interface MagneticMessageMemory {messageId:string;variantId?:string;nodeId?:string;fingerprint:string;scope:MemoryScope;summary:string;detail:string;tags:MemoryTag[];createdAt:number;taggedAt:number;active:boolean}
 /** Pending is a durable paid-request barrier, not proof of failure. */
-export interface MagneticTagAttempt {messageId:string;fingerprint:string;status:'pending'|'failed';startedAt:number;reason?:string}
+export interface MagneticTagAttempt {messageId:string;fingerprint:string;status:'pending'|'failed';startedAt:number;claimId?:string;reason?:string}
 export interface MemoryTagFailure {entryId:string;revision:number;attempts:number;lastFailedAt:number;reason:string}
 export interface MemoryEntry {
  id:string;revision:number;scope:MemoryScope;kind:StoredMemoryKind;source:MemorySource;
