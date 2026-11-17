@@ -28,6 +28,7 @@ export async function maybeBuildCoreMemory(scope:MemoryScope,manual=false):Promi
   const anchor=group[4].id,sourceReceiptIds=group.map(r=>r.id);
   const conversation=await db.conversations.get(scope.conversationId);
   if(!conversation)return;
+  if(memoryScopeKey(await getMemoryScope(scope.conversationId))!==memoryScopeKey(scope))return;
   const previous=conversation.memoryCoreAttempt;
   if(previous?.anchorReceiptId===anchor&&!manual)return;
   if(previous?.anchorReceiptId===anchor&&previous.status==='running'&&manual){
@@ -48,6 +49,7 @@ export async function maybeBuildCoreMemory(scope:MemoryScope,manual=false):Promi
   await db.conversations.update(scope.conversationId,{memoryCoreAttempt:{anchorReceiptId:anchor,sourceReceiptIds,status:'running',startedAt}});
   try{
    const result=await requestSummary(config,key,input,new AbortController().signal,false,'core');
+   if(memoryScopeKey(await getMemoryScope(scope.conversationId))!==memoryScopeKey(scope))throw Error('core-scope-changed');
    const current=(await visibleSummaryReceipts(scope)).filter(r=>r.shortSummary?.trim());
    const currentIds=new Set(current.map(r=>r.id));
    if(sourceReceiptIds.some(id=>!currentIds.has(id)))throw Error('core-source-changed');
