@@ -42,6 +42,9 @@ export async function maybeBuildCoreMemory(scope:MemoryScope,manual=false):Promi
    if(result!=='verified'&&result!=='legacy-verified')return;
   }
   const long=(await listMemories(scope,'long')).entries.filter(e=>e.source==='auto'&&sourceReceiptIds.includes(e.sourceReceiptId??''));
+  // Never distill a partial five-receipt group: a deleted, edited or capacity-
+  // suppressed long-term entry cannot silently masquerade as complete evidence.
+  if(sourceReceiptIds.some(id=>!long.some(e=>e.sourceReceiptId===id)))return;
   if(!long.length)return;
   const character=await db.characters.get(scope.characterId);
   const input=JSON.stringify({character:character?.name??'',longTermMemories:long.map(e=>e.content)});
