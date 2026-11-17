@@ -167,7 +167,7 @@ async function execute(scope:MemoryScope,manual:boolean){
     const next:string[]=[];
     for(let i=0;i<layer.length;i+=6){
      const batch=layer.slice(i,i+6);
-     failure='stale-path';await db.transaction('r',tables(),()=>assertSummarySource(job,manual));next.push(batch.length===1?batch[0]:await requestGroupDigest(config,apiKey,batch,controller.signal,depth===1?previousSummaries:[]));
+     failure='stale-path';await db.transaction('r',tables(),()=>assertSummarySource(job,manual));failure='provider';next.push(batch.length===1?batch[0]:await requestGroupDigest(config,apiKey,batch,controller.signal,depth===1?previousSummaries:[]));
     }
     layer=next;
    }
