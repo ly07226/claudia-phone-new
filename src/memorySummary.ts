@@ -137,7 +137,7 @@ async function execute(scope:MemoryScope,manual:boolean){
     if(combined){
      let result:unknown;
      result=summaryJsonCandidate(raw);
-     if(!result||typeof result!=='object'||Array.isArray(result)||!['memories','memories,summary'].includes(Object.keys(result).sort().join(','))||('summary' in result&&typeof (result as {summary?:unknown}).summary!=='string'))throw new SummaryResponseError({version:1,stage:'validate',code:'response-shape'});
+     if(!result||typeof result!=='object'||Array.isArray(result)||!Array.isArray((result as {memories?:unknown}).memories))throw new SummaryResponseError({version:1,stage:'validate',code:'response-shape'});
      const response=result as {memories:unknown;summary:string};
      if((response.summary??'').length>1200)throw new SummaryResponseError({version:1,stage:'validate',code:'output-limit'});
      eventSummary=(response.summary??'').trim();
