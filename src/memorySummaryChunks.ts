@@ -7,25 +7,29 @@ const OMITTED='【...后文省略】';
  * Only replace explicitly sexual passages; keep surrounding relationship context.
  * This is a heuristic, not a guarantee that every euphemism will be recognized.
  */
-const explicitActs=/(?:性交|做爱|口交|肛交|自慰|手淫|插入|抽插|射精|高潮|性器官|阴茎|阴道|龟头|乳头|下体|私处|床笫|性行为|性描写|性爱过程)/u;
-const explicitEnglish=/\\b(?:penetrat(?:e|ion|ing)|masturbat(?:e|ion|ing)|orgasm|ejaculat(?:e|ion|ing)|genitals?|intercourse|fellatio|cunnilingus)\\b/i;
+const explicitActs=/(?:性交|做爱|口交|肛交|自慰|手淫|插入|抽插|射精|高潮|性器官|阴茎|阴道|龟头|乳头|下体|私处|床笫|性行为|性描写|性爱过程|肉棒|阳具|阴蒂|精液|体液|湿透|顶弄|挺入|贯穿|进入她|进入他|舔舐|吮吸|揉捏|抚弄|喘息|呻吟|律动|撞击|高潮迭起|交合|交媾|欲火|欲望宣泄|床上运动|衣衫尽褪|褪去衣物|赤裸相对)/u;
+const explicitEnglish=/\\b(?:penetrat(?:e|ion|ing)|masturbat(?:e|ion|ing)|orgasm|ejaculat(?:e|ion|ing)|genitals?|intercourse|fellatio|cunnilingus|thrust(?:ing)?|climax(?:ed|ing)?|naked|moan(?:ing)?)\\b/i;
 const OMITTED_ADULT='【亲密情节具体过程已省略】';
-/** Operates on an ephemeral API projection, never on stored messages. */
+const isExplicit=(text:string)=>explicitActs.test(text)||explicitEnglish.test(text);
+/** Redact entire adjacent explicit paragraphs, not merely the triggering sentence.
+ * Preserve ordinary story paragraphs and negation/relationship statements outside
+ * the removed block. This is a local best-effort filter, not a safety guarantee.
+ */
 export function redactSummaryAdultContent(content:string):string{
- const segments=content.split(/(\\n+)/);
- return segments.map(segment=>{
-  if(!segment||/^\\n+$/.test(segment))return segment;
-  // A long paragraph can contain ordinary story alongside an explicit passage.
-  const pieces=segment.split(/(?<=[。！？!?；;])/u);
-  let previousRedacted=false;
-  return pieces.map(piece=>{
-   const sensitive=explicitActs.test(piece)||explicitEnglish.test(piece);
-   if(!sensitive){previousRedacted=false;return piece;}
-   if(previousRedacted)return '';
-   previousRedacted=true;
-   return OMITTED_ADULT;
-  }).join('');
- }).join('');
+ const paragraphs=content.split(/(\\n+)/u);
+ let redacting=false;
+ return paragraphs.map(part=>{
+  if(/^\\n+$/u.test(part))return part;
+  if(!part)return part;
+  const clauses=part.split(/(?<=[。！？!?；;])/u);
+  const sensitive=clauses.map(isExplicit);
+  if(!sensitive.some(Boolean)){redacting=false;return part;}
+  // Treat a paragraph containing explicit description as one unit so that
+  // adjacent euphemistic sentences cannot leak into the summary request.
+  if(redacting)return '';
+  redacting=true;
+  return OMITTED_ADULT;
+ }).join('').replace(/(?:【亲密情节具体过程已省略】\\s*){2,}/gu,OMITTED_ADULT);
 }
 /** Truncate only the summary API projection; never mutate original chat messages.
  * Count Unicode code points and apply the limit to the entire completed turn,
