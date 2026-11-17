@@ -30,7 +30,14 @@ export function selectMemoryContext(entries:EffectiveMemory[],query:string,remai
  const candidates=entries.filter(e=>!e.deleted&&(e.kind==='core'||e.kind==='long')&&e.content.trim());
  const scored=candidates.map(entry=>{
   const record=records.get(entry.id+':'+entry.revision);
-  const hits=(record?.tags??[]).filter(t=>[...words(t.tag)].some(w=>triggers.has(w)));
+  const normalizedQuery=query.slice(-memoryContextLimits.queryChars).normalize('NFKC').toLowerCase();
+  const hits=(record?.tags??[]).filter(t=>{
+   const label=t.tag.normalize('NFKC').toLowerCase().trim();
+   if(!label)return false;
+   // A label must be present in the trigger, not merely share one common
+   // Chinese bigram with a longer unrelated name.
+   return normalizedQuery.includes(label)||(label.length>3&&[...words(label)].filter(w=>triggers.has(w)).length>=2);
+  });
   const score=hits.reduce((sum,t)=>sum+t.weight,0)/(1+Math.max(0,(Date.now()-entry.createdAt)/86400000)/365);
   return {entry,score,hits:hits.length};
  });
