@@ -3,7 +3,7 @@ import {requestReply} from './chatProvider';
 import type {ReplyInterruption} from './chatCompletion';
 import {summaryLimits,type SummaryDiagnostic} from './memorySummaryTypes';
 import {summaryPrompt,summaryResponseSchema} from './memorySummaryFormat';
-const combinedPrompt=summaryPrompt.replace('根对象只有memories','根对象包含memories与summary')+'\n同时输出一个summary字符串字段，记录本片段对后续剧情真正重要的事件与未完成事项，通常0～5条，每条尽量30～80字。不要复述日常对话；保留人物主体、否定、因果、状态。无关键事件时为空字符串。根对象必须恰好包含memories与summary。';
+const combinedPrompt=summaryPrompt+'\n同时输出一个summary字符串字段，记录本片段对后续剧情真正重要的事件与未完成事项，通常0～5条，每条尽量30～80字。不要复述日常对话；保留人物主体、否定、因果、状态。无关键事件时为空字符串。根对象必须恰好包含memories与summary。';
 const combinedSchema={...summaryResponseSchema,properties:{...summaryResponseSchema.properties,summary:{type:'STRING'}},required:['memories','summary']};
 export class SummaryResponseError extends Error {constructor(public diagnostic:SummaryDiagnostic){super('summary-response');}}
 /** Summary-only protocol options/metadata. Normal chat requests are unchanged.
@@ -48,17 +48,17 @@ export async function requestSummary(config:ApiConfig,key:string,input:string,si
   return response;
  }};
  try{
-  const text=await requestReply({...config,maxTokens:Math.min(config.maxTokens,summaryLimits.outputTokens)},key,[{role:'system',content:combined?combinedPrompt:summaryPrompt},{role:'user',content:input}],signal,transport,false);
-  if(diagnostic)throw new SummaryResponseError({...diagnostic,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)});
+  const text=await requestReply({...config,maxTokens:summaryLimits.outputTokens},key,[{role:'system',content:combined?combinedPrompt:summaryPrompt},{role:'user',content:input}],signal,transport,false);
+  if(diagnostic)throw new SummaryResponseError({...diagnostic,outputTokenLimit:summaryLimits.outputTokens});
   return text;
- }catch(error){if(diagnostic)throw new SummaryResponseError({...diagnostic,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)});throw error;}
+ }catch(error){if(diagnostic)throw new SummaryResponseError({...diagnostic,outputTokenLimit:summaryLimits.outputTokens});throw error;}
 }
 
 /** Auxiliary summaries must not commit parseable but unfinished model output. */
 async function completeSummaryReply(config:ApiConfig,key:string,messages:Parameters<typeof requestReply>[2],signal:AbortSignal){
  let reason:ReplyInterruption|undefined;
- const text=await requestReply({...config,maxTokens:Math.min(config.maxTokens,summaryLimits.outputTokens)},key,messages,signal,browserTransport,false,value=>{reason=value;});
- if(reason)throw new SummaryResponseError({version:1,stage:'response',code:reason==='length'?'truncated':'response-shape',...(reason==='length'?{suspectedTruncated:true}:{}),outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)});
+ const text=await requestReply({...config,maxTokens:summaryLimits.outputTokens},key,messages,signal,browserTransport,false,value=>{reason=value;});
+ if(reason)throw new SummaryResponseError({version:1,stage:'response',code:reason==='length'?'truncated':'response-shape',...(reason==='length'?{suspectedTruncated:true}:{}),outputTokenLimit:summaryLimits.outputTokens});
  return text;
 }
 
