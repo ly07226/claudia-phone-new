@@ -1,3 +1,4 @@
+import {reviewExtractedEvents} from './memoryExtractionReview';
 import {browserTransport,type ApiConfig,type ApiTransport} from './api';
 import {requestReply} from './chatProvider';
 import type {ReplyInterruption} from './chatCompletion';
@@ -63,7 +64,8 @@ export async function requestChunkEvents(config:ApiConfig,key:string,input:strin
  let value:unknown;try{value=JSON.parse(raw.trim().replace(/^\`\`\`(?:json)?\s*/i,'').replace(/\s*\`\`\`$/,''));}catch{throw new SummaryResponseError({version:1,stage:'parse',code:'json-syntax'});}
  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==1||typeof (value as {summary?:unknown}).summary!=='string')throw new SummaryResponseError({version:1,stage:'validate',code:'response-shape'});
  const result=(value as {summary:string}).summary.trim();
- if(result.length>4000)throw new SummaryResponseError({version:1,stage:'validate',code:'output-limit'});
+ const review=reviewExtractedEvents(input,result);
+ if(!review.accepted)throw new SummaryResponseError({version:1,stage:'validate',code:review.reasons.includes('oversized-events')?'output-limit':'response-shape',receivedChars:result.length});
  return result;
 }
 /** Second-pass synthesis of verified events from all chunks in one configured group. */
