@@ -32,6 +32,31 @@ export async function validateMemoryStore(d:Dexie,c:Conversation){
  const validIds=(ids:unknown)=>Array.isArray(ids)&&ids.length<=5000&&new Set(ids).size===ids.length&&ids.every(v=>id(v)&&receiptIds.has(v));
  if(state.shortHides!==undefined){check(Array.isArray(state.shortHides)&&state.shortHides.length<=memoryLimits.forks);const scopes=new Set<string>();for(const h of state.shortHides){check(validMemoryScope(c,h.scope)&&validIds(h.receiptIds));if(h.scope.mode==='world'){check(h.scope.epoch<=currentEpoch);if(h.scope.epoch===currentEpoch){const t=timelines.get(h.scope.timelineId);check(t&&t.epoch===currentEpoch&&t.conversationId===c.id&&t.worldId===c.worldId);}}const key=JSON.stringify([h.scope.mode,h.scope.mode==='world'?h.scope.timelineId:null,h.scope.mode==='world'?h.scope.epoch:null]);check(!scopes.has(key));scopes.add(key);}}
  for(const f of state.forks)if(f.hiddenSummaryIds!==undefined)check(validIds(f.hiddenSummaryIds));
+ // Optional v1 magnetic metadata: legacy stores without tags remain valid.
+ // Reject dangling revisions, malformed weights and unbounded metadata.
+ if(state.tagRecords!==undefined){
+  check(Array.isArray(state.tagRecords)&&state.tagRecords.length<=memoryLimits.events);
+  const keys=new Set<string>();
+  for(const record of state.tagRecords){
+   check(record&&id(record.entryId)&&integer(record.revision)&&integer(record.taggedAt)&&Array.isArray(record.tags)&&record.tags.length<=32);
+   check(state.entries.some(e=>e.id===record.entryId&&e.revision===record.revision));
+   const key=record.entryId+':'+record.revision;check(!keys.has(key));keys.add(key);
+   const unique=new Set<string>();
+   for(const tag of record.tags){
+    check(tag&&['keyword','emotion','topic','person'].includes(tag.axis)&&typeof tag.tag==='string'&&tag.tag.trim().length>0&&tag.tag.length<=80&&typeof tag.weight==='number'&&Number.isFinite(tag.weight)&&tag.weight>0&&tag.weight<=10);
+    const label=tag.axis+':'+tag.tag;check(!unique.has(label));unique.add(label);
+   }
+  }
+ }
+ if(state.tagFailures!==undefined){
+  check(Array.isArray(state.tagFailures)&&state.tagFailures.length<=memoryLimits.events);
+  const keys=new Set<string>();
+  for(const failure of state.tagFailures){
+   check(failure&&id(failure.entryId)&&integer(failure.revision)&&integer(failure.attempts)&&failure.attempts>0&&integer(failure.lastFailedAt)&&typeof failure.reason==='string'&&failure.reason.length<=120);
+   check(state.entries.some(e=>e.id===failure.entryId&&e.revision===failure.revision));
+   const key=failure.entryId+':'+failure.revision;check(!keys.has(key));keys.add(key);
+  }
+ }
  const paths=new Map<string,Set<string>>();
  async function path(t:MemoryTimeline){if(paths.has(t.id))return paths.get(t.id)!;const nodes=new Set<string>();let next=t.headNodeId;
   while(next){check(!nodes.has(next));nodes.add(next);const row=await d.table('pathNodes').get(next);check(row&&row.conversationId===c.id);next=row.parentNodeId;}
