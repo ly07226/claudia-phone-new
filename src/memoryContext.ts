@@ -1,4 +1,6 @@
 import {memoryScopeKey} from './memoryScopeKey';
+import {visibleMagneticMemories} from './memoryMagnetMessages';
+import {selectMagneticMessages} from './memoryMagnetRecall';
 import {db} from './store';
 import {summaryVerifier,sourceHash,sourceVisibleMessage} from './summarySourceFingerprint';
 import {visibleMessage} from './messageBubbles';
@@ -108,6 +110,17 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
    return orderedReceipts.slice(index-4,index+1).every(r=>validReceiptIds.has(r.id));
   });
   failureStage='selection';const tagData=await memoryTagSnapshot(snapshot.scope);const selected=selectMemoryContext(reliableEntries,query,remainingChars,tagData.records);
+  // One existing prompt assembly path. Magnetic records are restricted to the
+  // exact request prefix; historical regeneration cannot read future turns.
+  failureStage='magnetic-recall';
+  const magneticRecords=await visibleMagneticMemories(snapshot.scope);
+  const prefixIds=new Set(requestPath.map(m=>m.id));
+  const magnet=selectMagneticMessages(magneticRecords.filter(r=>prefixIds.has(r.messageId)),query,Math.max(0,Math.min(1200,remainingChars-selected.text.length)));
+  if(magnet.text&&selected.text.length+magnet.text.length<=remainingChars&&selected.estimatedTokens+memoryTokenCost(magnet.text)<=memoryContextLimits.tokens){
+   selected.text+=magnet.text;
+   selected.estimatedTokens+=memoryTokenCost(magnet.text);
+   selected.selected+=magnet.selected;
+  }
   // Include only receipts visible on the active branch AND completed within
   // the exact request prefix. Regeneration must not read future events.
   failureStage='history';if(remainingChars>selected.text.length+300){
