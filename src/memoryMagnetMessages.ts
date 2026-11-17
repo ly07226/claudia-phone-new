@@ -52,7 +52,7 @@ export async function magneticMessageStatus(scope:MemoryScope){
  const [rows,c]=await Promise.all([source(scope),db.conversations.get(scope.conversationId)]);
  const state=c?.memoryStore;
  const completed=new Set((state?.magneticMessages??[]).filter(r=>r.active).map(r=>key(r.messageId,r.fingerprint)));
- const failures=new Set((state?.magneticAttempts??[]).map(r=>key(r.messageId,r.fingerprint)));
+ const failures=new Set((state?.magneticAttempts??[]).filter(r=>r.status==='failed').map(r=>key(r.messageId,r.fingerprint)));
  return {total:rows.length,tagged:rows.filter(r=>completed.has(key(r.id,r.fingerprint))).length,failed:rows.filter(r=>failures.has(key(r.id,r.fingerprint))).length,zeroRuns:state?.magneticZeroRuns??0};
 }
 export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider,taxonomy:TagTaxonomy,batchSize=20,retry=false){
@@ -61,8 +61,9 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
  if(!initial)throw Error('magnet-conversation-missing');
  const state=initial.memoryStore??emptyMemoryStore();
  const done=new Set((state.magneticMessages??[]).filter(r=>r.active).map(r=>key(r.messageId,r.fingerprint)));
- const failures=new Set((state.magneticAttempts??[]).map(r=>key(r.messageId,r.fingerprint)));
- const pending=rows.filter(r=>!done.has(key(r.id,r.fingerprint))&&(retry?failures.has(key(r.id,r.fingerprint)):!failures.has(key(r.id,r.fingerprint)))).slice(0,batchSize);
+ const failures=new Set((state.magneticAttempts??[]).filter(r=>r.status==='failed').map(r=>key(r.messageId,r.fingerprint)));
+ const attempts=new Set((state.magneticAttempts??[]).map(r=>key(r.messageId,r.fingerprint)));
+ const pending=rows.filter(r=>!done.has(key(r.id,r.fingerprint))&&(retry?failures.has(key(r.id,r.fingerprint)):!attempts.has(key(r.id,r.fingerprint)))).slice(0,batchSize);
  let tagged=0,failed=0,claimedCount=0;
  for(const row of pending){
   // Atomic per-message claim: a second tab must not call a paid provider for
