@@ -63,6 +63,7 @@ export function parseSummaryWithEvidence(raw:string):SummaryFact[]{
  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>k!=='memories')||!Array.isArray(value.memories))reject('root-shape',{stage:'validate'});
  if(value.memories.length>summaryLimits.facts)reject('too-many-facts',{stage:'validate'});
  const result:SummaryFact[]=[];
+ let invalidQualityCount=0;
  for(let i=0;i<value.memories.length;i++){
   const m=value.memories[i];
   if(!m||typeof m!=='object'||Array.isArray(m))reject('invalid-item',{stage:'validate',itemIndex:i});
@@ -71,8 +72,10 @@ export function parseSummaryWithEvidence(raw:string):SummaryFact[]{
   const q=m.quality;
   // Missing or malformed evidence is never invented. Reject only the offending
   // candidate so one imperfect model row cannot discard other grounded memories.
-  if(!q||!summaryQualityCategories.includes(q.category)||!['high','medium','low'].includes(q.importance)||!['lasting','temporary'].includes(q.durability)||typeof q.impact!=='string'||!q.impact.trim()||!Array.isArray(q.evidence)||!q.evidence.length||q.evidence.length>4||q.evidence.some((e:unknown)=>!e||typeof e!=='object'||!Number.isInteger((e as any).turn)||(e as any).turn<1||!['user','assistant'].includes((e as any).role)||typeof (e as any).quote!=='string'||(e as any).quote.length<4))continue;
+  if(!q||!summaryQualityCategories.includes(q.category)||!['high','medium','low'].includes(q.importance)||!['lasting','temporary'].includes(q.durability)||typeof q.impact!=='string'||!q.impact.trim()||!Array.isArray(q.evidence)||!q.evidence.length||q.evidence.length>4||q.evidence.some((e:unknown)=>!e||typeof e!=='object'||!Number.isInteger((e as any).turn)||(e as any).turn<1||!['user','assistant'].includes((e as any).role)||typeof (e as any).quote!=='string'||(e as any).quote.length<4)){invalidQualityCount++;continue;}
   result.push({type:m.type,kind:m.kind,content:m.content.trim(),quality:{category:q.category,importance:q.importance,durability:q.durability,impact:q.impact,evidence:q.evidence}});
  }
+ // Never mark an entirely invalid model response as a successful empty memory batch.
+ if(invalidQualityCount>0&&result.length===0)reject('invalid-quality',{stage:'validate'});
  return result;
 }
