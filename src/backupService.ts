@@ -1,3 +1,4 @@
+import {validPhaseChatSettings,validChatEventReceipts} from './phasePlay/chatLinkTypes';
 import {supportedDataSchema} from './backupFormat';
 import {verifyDocumentSnapshot} from './wizardDocumentSnapshot';
 import {validateChatHub,hubAssetIds} from './chatHubTypes';
@@ -889,6 +890,8 @@ export async function validateReferences(
     "themes",
     async (x) => {
       await optional("assets", x.wallpaper, "themes.wallpaper");
+      if(x.chatMessageBanners!==undefined&&typeof x.chatMessageBanners!=='boolean')bad('themes.chatMessageBanners');
+      if(x.phaseChatLink!==undefined&&!validPhaseChatSettings(x.phaseChatLink))bad('themes.phaseChatLink');
       if(x.chatHub!==undefined){try{validateChatHub(x.chatHub);for(const id of hubAssetIds(x.chatHub))await optional("assets",id,"themes.chatHub.images");}catch{bad("themes.chatHub");}}
       try{validateThemeAppearance(x);}catch{bad("themes.appearance");}
       if (x.userIdentities !== undefined) {
@@ -960,6 +963,7 @@ export async function validateReferences(
     signal,
   );
   await eachBackupRow(d,'conversations',async x=>{
+    if(x.chatEventReceipts!==undefined&&!validChatEventReceipts(x.chatEventReceipts))bad('conversations.chatEventReceipts');
     try{await validateMemoryStore(d,x);}catch{bad('conversations.memoryStore');}
     if(x.imageDrafts!==undefined){
       if(!x.imageDrafts||typeof x.imageDrafts!=='object'||Array.isArray(x.imageDrafts)){bad('imageDrafts.shape');return;}

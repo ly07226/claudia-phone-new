@@ -1,3 +1,5 @@
+> 本集成分支新增默认关闭的「角色聊天联动」：通过既有聊天 Provider、目标角色/世界上下文生成真实主动消息，成功保存后进入全局消息横幅。它与下文的独立词库／AI临场参数事件是不同的用户可选能力，未开启时不读取聊天上下文或请求联动模型。联动偏好纳入 ZIP，词库及计时存档仍按原本机机制保存。详情、测试与费用边界见 [集成审计报告](../../docs/CHAT_GAME_EVENTS_AUDIT.md)。
+
 # 忍一下嘛 · 整合分支
 
 工作分支为 `integration/story-phase-play-preview`；只从 Daily ChatHub 的聊天标签进入，通过既有 phonePageNavigation 返回。没有修改聊天生成、世界书、记忆、主题数据库或 Story 业务。

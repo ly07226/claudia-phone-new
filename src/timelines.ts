@@ -76,7 +76,7 @@ export async function ensureTimelineInTransaction(id:string) {
   const t:MemoryTimeline={id:crypto.randomUUID(),conversationId:id,characterId:c.characterId,spaceId:timelineSpace(c),worldId:c.worldId,epoch:c.timelineEpoch??0,headNodeId:(await buildNodes(c,await legacyActiveMessages(id))).headNodeId,revision:0,createdAt:Date.now(),status:"live",reason:"legacy-root"};
   await db.timelines.add(t);await db.conversations.update(id,{activeTimelineId:t.id,timelineEpoch:t.epoch});return t;
 }
-export async function getCurrentTimeline(id:string) {return db.transaction("rw",timelineTables(),()=>ensureTimelineInTransaction(id));}
+export async function getCurrentTimeline(id:string) {return db.transaction("rw",timelineTables(),async()=>await ensureTimelineInTransaction(id));}
 export async function commitTimelineProjection(id:string,reason:MemoryTimeline["reason"],detached=false) {
   const current=await ensureTimelineInTransaction(id),c=(await db.conversations.get(id))!;
   const old=await nodesForHead(id,current.headNodeId),messages=await legacyActiveMessages(id),built=await buildNodes(c,messages,old),headNodeId=built.headNodeId;

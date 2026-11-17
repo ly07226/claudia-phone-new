@@ -62,6 +62,8 @@ export interface DesktopItem {
   icon?: string;
 }
 export interface Theme {
+  chatMessageBanners?: boolean;
+  phaseChatLink?: import('./phasePlay/chatLink').PhaseChatSettings;
   /** One summary-only provider for every character and conversation. */
   dedicatedSummaryApi?: import('./dedicatedSummaryApi').DedicatedSummaryApi;
   chatHub?: import("./chatHubTypes").ChatHubData;

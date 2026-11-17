@@ -1,3 +1,5 @@
+import {ChatLinkSettings} from './ChatLinkSettings';
+import {preparePhaseChatRun,dispatchPhaseChatEvent,phaseChatEvent} from './chatLink';
 import {InterventionToast} from './InterventionToast';
 import {PhaseMp3Upload,startPhaseMp3,stopPhaseMp3} from './PhaseMp3Upload';
 import {generateInterventions,InterventionError} from './interventionGeneration';
@@ -35,12 +37,15 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
  const [screen,setScreen]=useState<'settings'|'running'>('settings'),[tab,setTab]=useState<'玩法'|'节奏'|'指令'|'其他'>('节奏');
  const [loaded]=useState(()=>loadPhaseData(db.name)),[data,setData]=useState(loaded.data),[error,setError]=useState(loaded.error),[blocked,setBlocked]=useState(!!loaded.error),[notice,setNotice]=useState(''),[editId,setEditId]=useState<string|null>(null),[text,setText]=useState(''),[scope,setScope]=useState<Phase|'all'>('all'),[pulse,setPulse]=useState(0),[pulsePhase,setPulsePhase]=useState<Phase|null>(null);
  useEffect(()=>{const id=data?.settings?.instructionCharacterId;if(data.settings.instructionMode!=='character'){setVersions(data.libraryVersions?.default??[]);return;}if(!id){setVersions([]);return;}try{const rows=JSON.parse(localStorage.getItem('claudia.phasePlay.versions.v2:'+db.name+':'+encodeURIComponent(id)+':'+encodeURIComponent(data.settings.instructionWorldId??''))||'[]');setVersions(mergeLibraryVersions(data.libraryVersions?.[selectedScope(data.settings)]??[],Array.isArray(rows)?rows.filter(v=>v&&Number.isFinite(v.savedAt)&&Array.isArray(v.prompts)&&v.prompts.every((p:unknown)=>!!p&&typeof p==='object'&&'id' in p&&typeof p.id==='string'&&p.id.startsWith(selectedScope(data.settings))&&'text' in p&&typeof p.text==='string')):[]));}catch{setVersions([]);}},[data?.settings?.instructionMode,data?.settings?.instructionCharacterId,data?.settings?.instructionWorldId,data?.settings?.prompts,data.libraryVersions]);
+ const starting=useRef(false),alive=useRef(true);
+ const linkEvent=(run:NonNullable<PhaseData['session']['chatLink']>,type:'start'|'finish')=>{void dispatchPhaseChatEvent(phaseChatEvent(run,type)).catch(()=>{if(alive.current)setNotice('角色联动未完成，游戏继续；可在对应聊天查看失败原因，未自动重试。');});};
  const current=useRef(data),feedback=useRef<PhaseFeedback|null>(null),last=useRef(performance.now()),saved=useRef(0);
  if(!feedback.current)feedback.current=new PhaseFeedback();
  function persist(value:PhaseData){try{savePhaseData(db.name,value);return true;}catch(e){setError((e as Error).message);return false;}}
  function change(value:PhaseData,save=true){if(blocked)return false;if(!validData(value)){setError('请输入有效设置：时长 1～600 秒，随机最短不超过最长。');return false;}if(save){setError('');if(!persist(value))return false;}current.current=value;setData(value);return true;}
  function pause(message=''){setInterventionNotice(null);setPulse(0);const d=current.current;if(d.session.status==='running'){const value={...d,session:{...d.session,status:'paused' as const}};current.current=value;setData(value);persist(value);}feedback.current?.stop();stopPhaseMp3();if(message)setNotice(message);}
  useEffect(()=>{
+  alive.current=true;
   const interval=window.setInterval(()=>{
    const now=performance.now(),elapsed=now-last.current;last.current=now;const d=current.current;
    if(d.session.status!=='running')return;
@@ -49,15 +54,29 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
    const intervention=triggerIntervention(d.settings,value.session,bpmAt(d.settings,value.session.elapsedMs??0,value.session.bpmOffset??0));
    if(intervention){const updated={...value,session:intervention.session};try{savePhaseData(db.name,updated);}catch{pause('临场变化未能保存，已暂停；未应用该事件。');return;}value=updated;setInterventionNotice(intervention.notice);}
    current.current=value;setData(value);
-   if(value.session.status==='finished'){setInterventionNotice(null);feedback.current?.stop();stopPhaseMp3();setNotice('本局时间已到，游戏结束。');persist(value);return;}
+   if(value.session.status==='finished'){if(persist(value)&&value.session.chatLink)linkEvent(value.session.chatLink,'finish');setInterventionNotice(null);feedback.current?.stop();stopPhaseMp3();setNotice('本局时间已到，游戏结束。');persist(value);return;}
    if(value.session.phase==='red'){feedback.current?.silence();}else if(d.settings.beat&&beatCount(d.settings,value.session)>beatCount(d.settings,d.session)){setPulsePhase(value.session.phase);setPulse(x=>x+1);feedback.current?.pulse(audioSourceRef.current==='metronome'&&d.settings.sound,d.settings.volume,d.settings.vibration);}
    if(now-saved.current>=1000){saved.current=now;try{savePhaseSession(db.name,value);}catch{pause("进度保存失败，已暂停；原词库保留。");}}
   },50);
   const visibility=()=>{if(document.hidden){generationController.current?.abort();interventionController.current?.abort();pause('离开前台后已暂停，返回时请主动继续。');}};
   const leave=()=>{generationController.current?.abort();interventionController.current?.abort();pause();};document.addEventListener('visibilitychange',visibility);window.addEventListener('pagehide',leave);window.addEventListener('beforeunload',leave);
-  return()=>{generationController.current?.abort();interventionController.current?.abort();clearInterval(interval);document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',leave);window.removeEventListener('beforeunload',leave);const d=current.current;if(d.session.status==='running'){const value={...d,session:{...d.session,status:'paused' as const}};try{savePhaseData(db.name,value);}catch{/* Do not touch any other storage on exit. */}}feedback.current?.dispose();stopPhaseMp3();};
+  return()=>{alive.current=false;generationController.current?.abort();interventionController.current?.abort();clearInterval(interval);document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',leave);window.removeEventListener('beforeunload',leave);const d=current.current;if(d.session.status==='running'){const value={...d,session:{...d.session,status:'paused' as const}};try{savePhaseData(db.name,value);}catch{/* Do not touch any other storage on exit. */}}feedback.current?.dispose();stopPhaseMp3();};
  },[]);
- async function run(){if(blocked)return;setPulse(0);const d=current.current;const resumed=talkMode(d.settings)&&d.session.draws?.[d.session.phase]?.scope!=='default:'+talkMode(d.settings)?reroll(d.settings,d.session):d.session;const value={...d,session:d.session.status==='idle'||d.session.status==='finished'?start(d.settings,Math.random,d.interventionPool):{...resumed,status:'running' as const}};last.current=performance.now();if(!change(value))return;setNotice('');if(audioSourceRef.current==='mp3'){if(!await startPhaseMp3())setNotice('MP3 未能播放，请先上传文件并允许浏览器播放音频。');}else if(d.settings.sound&&!await feedback.current!.unlock())setNotice('此浏览器暂未启用音频，计时正常。可关闭音效后重新开启。');}
+ async function run(){
+  if(blocked||starting.current)return;starting.current=true;
+  try{
+   setPulse(0);const d=current.current;const audioReady=audioSourceRef.current==='metronome'&&d.settings.sound?feedback.current!.unlock():undefined;const isNew=d.session.status==='idle'||d.session.status==='finished';
+   let binding:Awaited<ReturnType<typeof preparePhaseChatRun>>;
+   if(isNew){try{binding=await preparePhaseChatRun(d.settings);}catch{setNotice('角色绑定暂不可用，将无联动继续游戏。');}}
+   if(!alive.current||current.current!==d)return;
+   const resumed=talkMode(d.settings)&&d.session.draws?.[d.session.phase]?.scope!=='default:'+talkMode(d.settings)?reroll(d.settings,d.session):d.session;
+   const value={...d,session:isNew?{...start(d.settings,Math.random,d.interventionPool),...(binding?{chatLink:binding}:{})}:{...resumed,status:'running' as const}};
+   last.current=performance.now();if(!change(value))return;setNotice('');
+   if(isNew&&binding)linkEvent(binding,'start');
+   if(audioSourceRef.current==='mp3'){if(!await startPhaseMp3())setNotice('MP3 未能播放，请先上传文件并允许浏览器播放音频。');}else if(audioReady&&!await audioReady)setNotice('此浏览器暂未启用音频，计时正常。可关闭音效后重新开启。');
+  }finally{starting.current=false;}
+ }
+
  function setting(patch:Partial<PhaseSettings>){generationController.current?.abort();if(['instructionCharacterId','instructionWorldId','sweetMode','commandMode','intensity','aiIntervention'].some(k=>k in patch))interventionController.current?.abort();const d=current.current,settings={...d.settings,...patch},reset=['duration','mode','randomDuration','gameMinutes','instructionMode','instructionCharacterId','instructionWorldId','sweetMode','commandMode'].some(key=>key in patch);if(change({...d,settings,session:reset&&d.session.status==='paused'?initial(settings):{...d.session,...('bpm' in patch||'autoAccelerate' in patch?{bpmOffset:0}:{}),...(patch.aiIntervention===false&&d.session.intervention?{intervention:{...d.session.intervention,nextPhase:undefined}}:{})}})&&reset&&d.session.status==='paused')setNotice('玩法或词库已改变，下次开始新一局。');}
  const s=data.settings,r=data.session,scopePrefix='character:'+encodeURIComponent(s.instructionCharacterId??'')+':'+encodeURIComponent(s.instructionWorldId??'')+':',seconds=Math.ceil(r.remainingMs/1000),gameSeconds=Math.ceil((r.gameRemainingMs??(s.gameMinutes??10)*60000)/1000),running=r.status==='running';
  const exit=()=>{generationController.current?.abort();interventionController.current?.abort();pause();onBack();};
@@ -131,6 +150,7 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
   <nav className="phase-play-tabs" aria-label="设置分类">{(['玩法','节奏','指令','其他'] as const).map(name=><button key={name} aria-current={tab===name?'page':undefined} onClick={()=>setTab(name)}>{name}</button>)}</nav>
   <fieldset disabled={running||blocked} className="phase-play-settings">
   {tab==='玩法'&&<div className="phase-play-card"><h3>游戏方式</h3><label>整局时长<select aria-label="整局时长" value={s.gameMinutes??10} onChange={e=>{const gameMinutes=Number(e.target.value);const d=current.current,settings={...d.settings,gameMinutes};change({...d,settings,session:initial(settings)});}}>{[5,10,15,20,50].map(n=><option key={n} value={n}>{n} 分钟</option>)}</select></label><p className="phase-play-note">整局倒计时结束后自动停止。词库不够时允许重复，不阻止开始游戏。</p><p className="phase-play-note">红灯停止、黄灯放慢、绿灯继续。切换顺序可自行选择。</p><label>切换方式<select aria-label="切换方式" value={s.mode} onChange={e=>setting({mode:e.target.value as PhaseSettings['mode']})}><option value="sequence">顺序切换</option><option value="random">随机切换</option></select></label><label className="phase-play-toggle">随机阶段时长<input type="checkbox" aria-label="随机阶段时长" checked={s.randomDuration} onChange={e=>setting({randomDuration:e.target.checked})}/></label></div>}
+  {tab==='其他'&&<ChatLinkSettings/>}
   {tab==='玩法'&&<div className="phase-play-tone-settings">
  <label className="phase-play-tone-card"><span><strong>Sweet Talk</strong><small>温柔鼓励、亲昵称呼，语气更柔和</small></span><input type="checkbox" aria-label="Sweet Talk" checked={!!s.sweetMode} onChange={e=>setting({sweetMode:e.target.checked,commandMode:e.target.checked?false:s.commandMode})}/></label>
  <label className="phase-play-tone-card"><span><strong>Dirty Talk</strong><small>简短直接、有主导感，但随时可以暂停</small></span><input type="checkbox" aria-label="Dirty Talk" checked={!!s.commandMode} onChange={e=>setting({commandMode:e.target.checked,sweetMode:e.target.checked?false:s.sweetMode})}/></label>
@@ -150,7 +170,7 @@ export function PhasePlayApp({onBack}:{onBack:()=>void}){
   </fieldset>
   <button className="phase-play-primary phase-play-start" disabled={blocked||running||generating} onClick={()=>void enter()}>我准备好了 · 开始</button>
   {r.status==='paused'&&<button className="phase-play-resume" onClick={()=>setScreen('running')}>查看上次暂停的游戏</button>}
-  <p className="phase-play-note">设置保存在当前浏览器。切换后台或锁屏后会暂停；本应用数据尚未纳入 ZIP 备份。</p>
+  <p className="phase-play-note">设置保存在当前浏览器。切换后台或锁屏后会暂停；角色聊天联动设置纳入 ZIP 备份；游戏词库与计时存档仍为本机保存。</p>
  </>:<>
   <div className="phase-play-stage" data-phase={r.phase}>
     <span className="phase-play-orb" aria-hidden="true"><span key={pulse} className="phase-play-orb-pulse" data-active={pulse>0&&pulsePhase===r.phase&&running&&s.beat&&r.phase!=='red'}/></span>

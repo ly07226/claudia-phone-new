@@ -1,3 +1,4 @@
+import {validPhaseChatRun,type PhaseChatRun} from './chatLinkTypes';
 import {prepareIntervention,validInterventionPool,validInterventionState,type InterventionPool,type InterventionState} from './interventions';
 import {talkInstructions,talkMode} from './phaseTalkLibraries';
 import {baseInstructions} from './instructions';
@@ -8,7 +9,7 @@ export const phaseNames:Record<Phase,string>={red:'红灯',yellow:'黄灯',green
 export interface Prompt {id:string;phase:Phase|'all';text:string}
 export interface PhaseSettings {mode:'sequence'|'random';aiIntervention?:boolean;randomDuration:boolean;duration:Record<Phase,{seconds:number;min:number;max:number}>;bpm:number;beat:boolean;sound:boolean;volume:number;vibration:boolean;prompts:Prompt[];defaultTalkOverrides?:Partial<Record<'sweet'|'dirty',Prompt[]>>;sweetMode?:boolean;commandMode?:boolean;address?:string;intensity?:'soft'|'medium'|'strong'|'dramatic';contentLevel?:'light'|'medium'|'high';instructionMode?:'default'|'character';instructionCharacterId?:string;instructionWorldId?:string;autoAccelerate?:boolean;maxBpm?:number;accelerationSeconds?:number;gameMinutes?:number}
 export interface DrawBag {scope:string;used:string[];lastId?:string}
-export interface PhaseSession {status:'idle'|'running'|'paused'|'finished';phase:Phase;remainingMs:number;step:number;prompt:string;promptMarker?:string;intervention?:InterventionState;bpmOffset?:number;beatProgress?:number;phaseRun?:number;gameRemainingMs?:number;gameDurationMs?:number;elapsedMs?:number;draws?:Partial<Record<Phase,DrawBag>>}
+export interface PhaseSession {chatLink?:PhaseChatRun;status:'idle'|'running'|'paused'|'finished';phase:Phase;remainingMs:number;step:number;prompt:string;promptMarker?:string;intervention?:InterventionState;bpmOffset?:number;beatProgress?:number;phaseRun?:number;gameRemainingMs?:number;gameDurationMs?:number;elapsedMs?:number;draws?:Partial<Record<Phase,DrawBag>>}
 export interface PhaseData {version:1;revision?:string;settings:PhaseSettings;session:PhaseSession;libraryVersions?:Record<string,LibraryVersion[]>;interventionPool?:InterventionPool}
 export function defaults():PhaseSettings{return {mode:'sequence',aiIntervention:false,randomDuration:false,duration:{red:{seconds:5,min:3,max:8},yellow:{seconds:15,min:10,max:20},green:{seconds:20,min:10,max:30}},bpm:60,beat:true,sound:false,volume:.65,vibration:false,prompts:[],sweetMode:false,commandMode:false,address:'',intensity:'medium',contentLevel:'medium',instructionMode:'default',instructionCharacterId:'',instructionWorldId:'',autoAccelerate:false,maxBpm:120,accelerationSeconds:120,gameMinutes:10};}
 const unit=(random:()=>number)=>{const n=random();return Number.isFinite(n)?Math.min(.999999999,Math.max(0,n)):0;};
@@ -61,6 +62,7 @@ const validPrompt=(p:unknown):p is Prompt=>object(p)&&typeof p.id==='string'&&p.
 export function validData(x:unknown):x is PhaseData{
  if(!object(x)||x.version!==1||!object(x.settings)||!object(x.session)||x.revision!==undefined&&(typeof x.revision!=='string'||x.revision.length>100))return false;
  const s=x.settings,r=x.session;
+ if(r.chatLink!==undefined&&!validPhaseChatRun(r.chatLink))return false;
  if(s.aiIntervention!==undefined&&typeof s.aiIntervention!=='boolean'||x.interventionPool!==undefined&&!validInterventionPool(x.interventionPool)||r.intervention!==undefined&&!validInterventionState(r.intervention)||r.bpmOffset!==undefined&&!number(r.bpmOffset,-300,300)||r.beatProgress!==undefined&&!number(r.beatProgress,0,40000))return false;
  if(!['sequence','random'].includes(String(s.mode))||!object(s.duration)||!number(s.bpm,30,180)||!number(s.volume,0,1)||!['randomDuration','beat','sound','vibration'].every(k=>typeof s[k]==='boolean'))return false;
  for(const p of phases){const d=s.duration[p];if(!object(d)||!number(d.seconds,1,600)||!number(d.min,1,600)||!number(d.max,1,600)||Number(d.min)>Number(d.max))return false;}

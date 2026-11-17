@@ -19,6 +19,7 @@ export interface ChatSettings {
   background?: ChatBackground;
 }
 export interface Conversation {
+  chatEventReceipts?: import('./phasePlay/chatLink').ChatEventReceipt[];
   /** Independent memory journal. Not persona, lore, messages, or prompt injection. */
   memoryStore?: MemoryStore;
   memorySummary?: MemorySummaryState;
