@@ -15,11 +15,17 @@ export async function maybeBuildCoreMemory(scope:MemoryScope,manual=false):Promi
  await withSummaryLock('claudia-core-summary:'+scope.conversationId,async()=>{
   const receipts=(await visibleSummaryReceipts(scope)).filter(r=>r.shortSummary?.trim());
   if(receipts.length<5)return;
-  const group=receipts.slice(Math.floor(receipts.length/5)*5-5,Math.floor(receipts.length/5)*5);
+  const existing=(await listMemories(scope,'core')).entries;
+  // Find the earliest complete unprocessed batch, including historical backlog.
+  // Never skip batches 1..N when multiple receipts arrived before this worker ran.
+  let group=receipts.slice(0,5);
+  for(let i=0;i+5<=receipts.length;i+=5){
+   const candidate=receipts.slice(i,i+5);
+   if(!existing.some(e=>e.sourceReceiptId===candidate[4].id)){group=candidate;break;}
+   group=[];
+  }
   if(group.length!==5)return;
   const anchor=group[4].id,sourceReceiptIds=group.map(r=>r.id);
-  const existing=(await listMemories(scope,'core')).entries;
-  if(existing.some(e=>e.sourceReceiptId===anchor))return;
   const conversation=await db.conversations.get(scope.conversationId);
   if(!conversation)return;
   const previous=conversation.memoryCoreAttempt;
