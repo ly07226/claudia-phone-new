@@ -8,7 +8,7 @@ import {db} from './store';
 import {getMemoryScope,listMemories,listMemoryRevisions,createMemory,sealMemorySummaryForks,visibleSummaryReceipts} from './memoryStore';
 import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelines';
 import {visibleMessage} from './messageBubbles';
-import {selectSummaryCandidates,summaryDuplicateIndex} from './memorySummaryQuality';
+import {summaryDuplicateIndex} from './memorySummaryQuality';
 import {requestSummary,requestChunkEvents,requestGroupDigest,SummaryResponseError} from './memorySummaryRequest';
 import {parseSummary,summaryJsonCandidate,summaryPrompt,SummaryFormatError} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
@@ -143,7 +143,8 @@ async function execute(scope:MemoryScope,manual:boolean){
      eventSummary=(response.summary??'').trim();
      memoryJson=JSON.stringify({memories:response.memories});
     }
-    const parsed=parseSummary(memoryJson),selected=selectSummaryCandidates(parsed,input);
+    // Keep all structurally valid facts; evidence/importance heuristics must not discard model output.
+    const parsed=parseSummary(memoryJson),selected={accepted:parsed,rejected:[] as {index:number;reason:never}[]};
     if(!combined){await db.transaction('r',tables(),()=>assertSummarySource(job,manual));eventSummary=await requestChunkEvents(config,apiKey,input,controller.signal);}
     if(eventSummary)events.push(eventSummary);
     facts.push(...selected.accepted);stats.candidates+=parsed.length;stats.accepted+=selected.accepted.length;
