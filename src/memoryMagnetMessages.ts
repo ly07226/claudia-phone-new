@@ -129,6 +129,7 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
  if(claimedCount){
   await db.transaction('rw',db.conversations,async()=>{
    const c=await db.conversations.get(scope.conversationId);if(!c)return;
+   if(c.characterId!==scope.characterId||c.mode!==scope.mode||(scope.mode==='world'&&(c.worldId!==scope.worldId||c.activeTimelineId!==scope.timelineId||(c.timelineEpoch??0)!==scope.epoch)))return;
    const store=c.memoryStore??emptyMemoryStore();
    const count=tagged?0:(store.magneticZeroRuns??0)+1;
    await db.conversations.update(c.id,{memoryStore:{...store,magneticZeroRuns:count}});
