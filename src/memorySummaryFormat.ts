@@ -57,6 +57,33 @@ export function parseSummary(raw:string):SummaryFact[]{
  return facts;
 }
 
+/** Recover incomplete model metadata from the *actual* input, never from invented citations.
+ * A model may omit quality fields; source quotes remain mandatory unless the
+ * proposed memory itself appears verbatim in a source message.
+ */
+export function parseSummaryWithSourceRecovery(raw:string,input:string):SummaryFact[]{
+ const value=summaryJsonCandidate(raw);
+ if(!value||typeof value!=='object'||Array.isArray(value)||!Array.isArray(value.memories))reject('root-shape',{stage:'validate'});
+ const turns=JSON.parse(input) as {role:string;content:string}[][];
+ const out:SummaryFact[]=[];
+ for(const item of value.memories.slice(0,summaryLimits.facts)){
+  if(!item||typeof item!=='object'||typeof item.content!=='string'||!item.content.trim()||item.content.length>summaryLimits.factChars)continue;
+  const q=item.quality??{};
+  const validEvidence=(Array.isArray(q.evidence)?q.evidence:[]).filter((e:any)=>Number.isInteger(e?.turn)&&e.turn>0&&['user','assistant'].includes(e.role)&&typeof e.quote==='string'&&e.quote.length>=4&&turns[e.turn-1]?.some(m=>m.role===e.role&&m.content.includes(e.quote))).slice(0,4);
+  // The only automatic evidence recovery allowed is a verbatim content match.
+  if(!validEvidence.length)for(let i=0;i<turns.length;i++){const source=turns[i].find(m=>m.content.includes(item.content.trim())&&item.content.trim().length>=4);if(source){validEvidence.push({turn:i+1,role:source.role,quote:item.content.trim()});break;}}
+  if(!validEvidence.length)continue;
+  const category=summaryQualityCategories.includes(q.category)?q.category:'continuity';
+  const importance=['high','medium','low'].includes(q.importance)?q.importance:'medium';
+  const durability=['lasting','temporary'].includes(q.durability)?q.durability:'lasting';
+  const impact=typeof q.impact==='string'&&q.impact.trim()?q.impact:'后续互动需要保留此来源明确的事实或状态';
+  const type=['fact','belief','speculation','pending'].includes(item.type)?item.type:'fact';
+  const kind=['core','long'].includes(item.kind)?item.kind:'long';
+  out.push({type,kind,content:item.content.trim(),quality:{category,importance,durability,impact,evidence:validEvidence}});
+ }
+ if(value.memories.length&&!out.length)reject('invalid-quality',{stage:'validate'});
+ return out;
+}
 /** Source-backed candidates for the primary durable memory pipeline. */
 export function parseSummaryWithEvidence(raw:string):SummaryFact[]{
  const value=summaryJsonCandidate(raw);
