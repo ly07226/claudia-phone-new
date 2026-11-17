@@ -6,6 +6,7 @@ import {magneticMessageStatus,magneticBatchReadiness,recentMagneticMessages} fro
 import type {MagneticMessageMemory} from './memoryTypes';
 import {runMessageTagBatch} from './memoryMagnetProvider';
 import type {TagTaxonomy} from './memoryMagnetTagger';
+import {planMemoryBatch} from './memoryBatchPlanner';
 const defaults:TagTaxonomy={emotion:[],topic:[]};
 const lines=(value:string)=>[...new Set(value.split(/[\n,，、]+/).map(x=>x.trim()).filter(Boolean))].slice(0,40);
 export function MagnetMemorySettings({scope}:{scope:MemoryScope}){
@@ -15,6 +16,7 @@ export function MagnetMemorySettings({scope}:{scope:MemoryScope}){
  const [readiness,setReadiness]=useState({ready:false,pending:0,blocked:0,threshold:20,deadlight:false});
  const [recent,setRecent]=useState<MagneticMessageMemory[]>([]);
  const [busy,setBusy]=useState(false),[notice,setNotice]=useState('');
+ const batchPlan=planMemoryBatch({freshMessages:readiness.pending,blockedMessages:readiness.blocked,consecutiveZeroBatches:readiness.deadlight?2:0,taxonomyReady:taxonomy.emotion.length>0&&taxonomy.topic.length>0,providerReady:true,userApproved:true});
  useEffect(()=>{let alive=true;const sub=liveQuery(async()=>{
   const [global,stats,readiness,recent]=await Promise.all([db.themes.get('global'),magneticMessageStatus(scope),magneticBatchReadiness(scope),recentMagneticMessages(scope)]);
   return {taxonomy:global?.magnetTaxonomy as TagTaxonomy|undefined,total:stats.total,tagged:stats.tagged,failed:stats.failed,readiness,recent};
@@ -44,6 +46,7 @@ export function MagnetMemorySettings({scope}:{scope:MemoryScope}){
   <p>长期记忆先打标签，再按聊天触发词召回。标签与记忆版本绑定；原文、角色与世界隔离不变。</p>
   <p role="status">可见聊天消息 {stats.total} 条 · 已打标 {stats.tagged} 条 · 失败待恢复 {stats.failed} 条</p>
   <p role="status">未处理 {readiness.pending} 条 / 满 {readiness.threshold} 条可批量处理；暂停待确认 {readiness.blocked} 条。{readiness.ready?'已达到批量阈值，等待手动确认。':'尚未达到批量阈值。'}</p>
+  <p role="status">批量计划：{batchPlan.reason==='ready'?'已满足处理条件，仍需点击确认':batchPlan.reason==='missing-taxonomy'?'请先配置标签类目':batchPlan.reason==='paused-after-failures'?'连续失败，暂停批量建议':batchPlan.reason==='below-threshold'?'等待更多未处理消息':'尚未准备好'}。此状态不会自动发起请求。</p>
   {readiness.deadlight&&<p role="alert">打标连续两批零成功，请检查专用 API 或标签类目。已暂停自动重试。</p>}
   <label>情感类目（用逗号或换行分隔）<textarea value={emotion} onChange={e=>setEmotion(e.target.value)} rows={3}/></label>
   <label>主题类目（用逗号或换行分隔）<textarea value={topic} onChange={e=>setTopic(e.target.value)} rows={3}/></label>
