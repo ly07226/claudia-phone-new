@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {magneticWatermark,magneticBatchHealth} from '../src/memoryMagnetMessages';
+import {magneticWatermark,magneticBatchHealth,canRecoverMagneticAttempt,MAGNET_PENDING_RECOVERY_MS} from '../src/memoryMagnetMessages';
 
 test('contiguous checkpoint stops at failed revision despite later success',()=>{
  const rows=[{id:'m1',fingerprint:'a'},{id:'m2',fingerprint:'b'},{id:'m3',fingerprint:'c'}];
@@ -21,4 +21,11 @@ test('zero-success alarm is based on persisted consecutive runs',()=>{
  expect(b.deadlight).toBe(true);
  expect(magneticBatchHealth(b.zeroRuns,0,0).deadlight).toBe(true);
  expect(magneticBatchHealth(b.zeroRuns,1,1)).toEqual({zeroRuns:0,deadlight:false});
+});
+
+test('pending claims cannot be retried while a request may still be running',()=>{
+ const now=10000000;
+ expect(canRecoverMagneticAttempt({status:'pending',startedAt:now-1000},now)).toBe(false);
+ expect(canRecoverMagneticAttempt({status:'pending',startedAt:now-MAGNET_PENDING_RECOVERY_MS},now)).toBe(true);
+ expect(canRecoverMagneticAttempt({status:'failed',startedAt:now-1000},now)).toBe(true);
 });
