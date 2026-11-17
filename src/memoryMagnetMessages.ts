@@ -2,7 +2,7 @@ import {db} from './store';
 import {activeMessages} from './messagePath';
 import {visibleMessage} from './messageBubbles';
 import {nodesForHead} from './timelines';
-import type {MemoryScope,MagneticMessageMemory} from './memoryTypes';
+import {emptyMemoryStore,type MemoryScope,type MagneticMessageMemory} from './memoryTypes';
 import type {Message} from './chatTypes';
 import {validateTagging,type TagProvider,type TagTaxonomy} from './memoryMagnetTagger';
 
@@ -58,7 +58,8 @@ export async function magneticMessageStatus(scope:MemoryScope){
 export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider,taxonomy:TagTaxonomy,batchSize=20,retry=false){
  if(!Number.isInteger(batchSize)||batchSize<1||batchSize>100||!taxonomy.emotion.length||!taxonomy.topic.length)throw Error('invalid-magnet-batch');
  const rows=await source(scope),initial=await db.conversations.get(scope.conversationId);
- const state=initial?.memoryStore;if(!state)throw Error('memory-store-unavailable');
+ if(!initial)throw Error('magnet-conversation-missing');
+ const state=initial.memoryStore??emptyMemoryStore();
  const done=new Set((state.magneticMessages??[]).filter(r=>r.active).map(r=>key(r.messageId,r.fingerprint)));
  const failures=new Set((state.magneticAttempts??[]).map(r=>key(r.messageId,r.fingerprint)));
  const pending=rows.filter(r=>!done.has(key(r.id,r.fingerprint))&&(retry?failures.has(key(r.id,r.fingerprint)):!failures.has(key(r.id,r.fingerprint)))).slice(0,batchSize);
@@ -66,8 +67,8 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
  for(const row of pending){
   try{
    await db.transaction('rw',db.conversations,async()=>{
-    const c=await db.conversations.get(scope.conversationId);if(!c?.memoryStore)throw Error('memory-store-unavailable');
-    const store=c.memoryStore;
+    const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('magnet-conversation-missing');
+    const store=c.memoryStore??emptyMemoryStore();
     const attempts=(store.magneticAttempts??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint);
     attempts.push({messageId:row.id,fingerprint:row.fingerprint,status:'pending',startedAt:Date.now()});
     await db.conversations.update(c.id,{memoryStore:{...store,magneticAttempts:attempts}});
@@ -77,17 +78,17 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
    const current=(await source(scope)).find(x=>x.id===row.id);
    if(!current||current.fingerprint!==row.fingerprint)throw Error('source-changed');
    await db.transaction('rw',db.conversations,async()=>{
-    const c=await db.conversations.get(scope.conversationId);if(!c?.memoryStore)throw Error('memory-store-unavailable');
-    const store=c.memoryStore;
-    const record:MagneticMessageMemory={messageId:row.id,variantId:row.variantId,nodeId:row.nodeId,fingerprint:row.fingerprint,scope,summary:result.summary,detail:row.content,tags,createdAt:row.createdAt,taggedAt:Date.now(),active:true};
+    const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('magnet-conversation-missing');
+    const store=c.memoryStore??emptyMemoryStore();
+    const record:MagneticMessageMemory={messageId:row.id,variantId:row.variantId,nodeId:row.nodeId,fingerprint:row.fingerprint,scope,summary:result.summary,detail:'',tags,createdAt:row.createdAt,taggedAt:Date.now(),active:true};
     await db.conversations.update(c.id,{memoryStore:{...store,magneticMessages:[...(store.magneticMessages??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint),record],magneticAttempts:(store.magneticAttempts??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint)}});
    });
    tagged++;
   }catch(error){
    failed++;
    await db.transaction('rw',db.conversations,async()=>{
-    const c=await db.conversations.get(scope.conversationId);if(!c?.memoryStore)return;
-    const store=c.memoryStore;
+    const c=await db.conversations.get(scope.conversationId);if(!c)return;
+    const store=c.memoryStore??emptyMemoryStore();
     const attempts=(store.magneticAttempts??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint);
     attempts.push({messageId:row.id,fingerprint:row.fingerprint,status:'failed',startedAt:Date.now(),reason:error instanceof Error?error.name.slice(0,100):'UnknownError'});
     await db.conversations.update(c.id,{memoryStore:{...store,magneticAttempts:attempts}});
@@ -96,9 +97,10 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
  }
  if(pending.length){
   await db.transaction('rw',db.conversations,async()=>{
-   const c=await db.conversations.get(scope.conversationId);if(!c?.memoryStore)return;
-   const count=tagged?0:(c.memoryStore.magneticZeroRuns??0)+1;
-   await db.conversations.update(c.id,{memoryStore:{...c.memoryStore,magneticZeroRuns:count}});
+   const c=await db.conversations.get(scope.conversationId);if(!c)return;
+   const store=c.memoryStore??emptyMemoryStore();
+   const count=tagged?0:(store.magneticZeroRuns??0)+1;
+   await db.conversations.update(c.id,{memoryStore:{...store,magneticZeroRuns:count}});
   });
  }
  return {seen:pending.length,tagged,failed,deadlight:pending.length>0&&tagged===0&&(state.magneticZeroRuns??0)>=1};
@@ -129,7 +131,7 @@ export async function magneticFromRequestPrefix(scope:MemoryScope,records:Magnet
   if(scope.mode==='world'&&(record.scope.mode!=='world'||record.scope.worldId!==scope.worldId||record.scope.epoch!==scope.epoch))continue;
   if(!record.tags.some(t=>t.tag.trim()&&q.includes(t.tag.normalize('NFKC').toLowerCase())))continue;
   const m=byId.get(record.messageId);
-  if(!m||m.activeVariantId!==record.variantId||m.content!==record.detail)continue;
+  if(!m||m.activeVariantId!==record.variantId)continue;
   const fingerprint=await digest(JSON.stringify([m.id,m.activeVariantId??'',m.content]));
   if(fingerprint===record.fingerprint)result.push(record);
  }
