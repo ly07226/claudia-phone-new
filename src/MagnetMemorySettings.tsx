@@ -2,7 +2,8 @@ import {useEffect,useState} from 'react';
 import {liveQuery} from 'dexie';
 import {db} from './store';
 import type {MemoryScope} from './memoryTypes';
-import {magneticMessageStatus} from './memoryMagnetMessages';
+import {magneticMessageStatus,magneticBatchReadiness,recentMagneticMessages} from './memoryMagnetMessages';
+import type {MagneticMessageMemory} from './memoryTypes';
 import {runMessageTagBatch} from './memoryMagnetProvider';
 import type {TagTaxonomy} from './memoryMagnetTagger';
 const defaults:TagTaxonomy={emotion:[],topic:[]};
@@ -11,11 +12,13 @@ export function MagnetMemorySettings({scope}:{scope:MemoryScope}){
  const [taxonomy,setTaxonomy]=useState<TagTaxonomy>(defaults);
  const [emotion,setEmotion]=useState(''),[topic,setTopic]=useState('');
  const [stats,setStats]=useState({total:0,tagged:0,failed:0});
+ const [readiness,setReadiness]=useState({ready:false,pending:0,blocked:0,threshold:20,deadlight:false});
+ const [recent,setRecent]=useState<MagneticMessageMemory[]>([]);
  const [busy,setBusy]=useState(false),[notice,setNotice]=useState('');
  useEffect(()=>{let alive=true;const sub=liveQuery(async()=>{
-  const [global,stats]=await Promise.all([db.themes.get('global'),magneticMessageStatus(scope)]);
-  return {taxonomy:global?.magnetTaxonomy as TagTaxonomy|undefined,total:stats.total,tagged:stats.tagged,failed:stats.failed};
- }).subscribe({next:data=>{if(!alive)return;const tax=data.taxonomy??defaults;setTaxonomy(tax);setEmotion(tax.emotion.join('、'));setTopic(tax.topic.join('、'));setStats({total:data.total,tagged:data.tagged,failed:data.failed});},error:()=>{if(alive)setNotice('标签状态读取失败，请稍后重试。');}});
+  const [global,stats,readiness,recent]=await Promise.all([db.themes.get('global'),magneticMessageStatus(scope),magneticBatchReadiness(scope),recentMagneticMessages(scope)]);
+  return {taxonomy:global?.magnetTaxonomy as TagTaxonomy|undefined,total:stats.total,tagged:stats.tagged,failed:stats.failed,readiness,recent};
+ }).subscribe({next:data=>{if(!alive)return;const tax=data.taxonomy??defaults;setTaxonomy(tax);setEmotion(tax.emotion.join('、'));setTopic(tax.topic.join('、'));setStats({total:data.total,tagged:data.tagged,failed:data.failed});setReadiness(data.readiness);setRecent(data.recent);},error:()=>{if(alive)setNotice('标签状态读取失败，请稍后重试。');}});
  return()=>{alive=false;sub.unsubscribe();};},[scope]);
  async function save(){
   const next={emotion:lines(emotion),topic:lines(topic)};
@@ -40,10 +43,13 @@ export function MagnetMemorySettings({scope}:{scope:MemoryScope}){
   <h3>磁铁召回 · StarHub</h3>
   <p>长期记忆先打标签，再按聊天触发词召回。标签与记忆版本绑定；原文、角色与世界隔离不变。</p>
   <p role="status">可见聊天消息 {stats.total} 条 · 已打标 {stats.tagged} 条 · 失败待恢复 {stats.failed} 条</p>
+  <p role="status">未处理 {readiness.pending} 条 / 满 {readiness.threshold} 条可批量处理；暂停待确认 {readiness.blocked} 条。{readiness.ready?'已达到批量阈值，等待手动确认。':'尚未达到批量阈值。'}</p>
+  {readiness.deadlight&&<p role="alert">打标连续两批零成功，请检查专用 API 或标签类目。已暂停自动重试。</p>}
   <label>情感类目（用逗号或换行分隔）<textarea value={emotion} onChange={e=>setEmotion(e.target.value)} rows={3}/></label>
   <label>主题类目（用逗号或换行分隔）<textarea value={topic} onChange={e=>setTopic(e.target.value)} rows={3}/></label>
   <div className="memory-actions"><button disabled={busy} onClick={()=>void save()}>保存类目</button><button disabled={busy} onClick={()=>void run(false)}>手动批量打标</button><button disabled={busy||!stats.failed} onClick={()=>void run(true)}>恢复失败任务</button></div>
   {notice&&<p role="status">{notice}</p>}
+  <details><summary>查看最近 {recent.length} 条磁铁记忆与标签</summary>{recent.length===0?<p>暂无已打标的可见消息。</p>:recent.map(r=><article key={r.messageId+':'+r.fingerprint} className="memory-card"><small>{new Date(r.createdAt).toLocaleString()}</small><p>{r.summary}</p><small>{r.tags.map(t=>t.axis+':'+t.tag).join(' · ')||'无标签'}</small></article>)}</details>
   <p>打标不在每轮聊天时调用 API。原始聊天消息保留原文，等待补打标；失败条目不会自动重复计费。</p>
  </div>;
 }
