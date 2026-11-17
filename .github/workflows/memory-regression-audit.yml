@@ -1,6 +1,9 @@
 name: Memory regression audit
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fix/float-style-memory-summary
 jobs:
   verify:
     runs-on: ubuntu-latest
