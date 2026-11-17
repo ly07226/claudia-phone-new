@@ -5,6 +5,15 @@ export type MemorySource='manual'|'auto';
 interface Owner {conversationId:string;characterId:string}
 export type MemoryScope=(Owner&{mode:'daily';spaceId:'daily';worldId?:never;timelineId?:never;epoch?:never})|(Owner&{mode:'world';spaceId:`world:${string}`;worldId:string;timelineId:string;epoch:number});
 /** Immutable revision. id identifies the same logical memory across local overrides. */
+export type MemoryTagAxis='keyword'|'emotion'|'topic'|'person';
+export interface MemoryTag {axis:MemoryTagAxis;tag:string;weight:number}
+/** Persisted per revision. Undefined means not tagged, [] means successfully tagged with no labels. */
+export interface MemoryTagRecord {entryId:string;revision:number;tags:MemoryTag[];taggedAt:number}
+/** One derived memory per visible source-message revision. */
+export interface MagneticMessageMemory {messageId:string;variantId?:string;nodeId?:string;fingerprint:string;scope:MemoryScope;summary:string;detail:string;tags:MemoryTag[];createdAt:number;taggedAt:number;active:boolean}
+/** Pending is a durable paid-request barrier, not proof of failure. */
+export interface MagneticTagAttempt {messageId:string;fingerprint:string;status:'pending'|'failed';startedAt:number;claimId?:string;reason?:string}
+export interface MemoryTagFailure {entryId:string;revision:number;attempts:number;lastFailedAt:number;reason:string}
 export interface MemoryEntry {
  id:string;revision:number;scope:MemoryScope;kind:StoredMemoryKind;source:MemorySource;
  content:string;deleted:boolean;anchorNodeId?:string;sourceReceiptId?:string;createdAt:number;updatedAt:number;
@@ -17,7 +26,7 @@ export interface MemoryFork {
  summaryRevisionAtFork?:number;
  hiddenSummaryIds?:string[];
 }
-export interface MemoryStore {version:1;revision:number;entries:MemoryEntry[];forks:MemoryFork[];shortHides?:{scope:MemoryScope;receiptIds:string[]}[]}
+export interface MemoryStore {version:1;revision:number;entries:MemoryEntry[];forks:MemoryFork[];shortHides?:{scope:MemoryScope;receiptIds:string[]}[];tagRecords?:MemoryTagRecord[];tagFailures?:MemoryTagFailure[];magneticMessages?:MagneticMessageMemory[];magneticAttempts?:MagneticTagAttempt[];magneticZeroRuns?:number}
 export interface MemoryInput {kind:StoredMemoryKind;content:string;source?:MemorySource;sourceReceiptId?:string}
 export interface EffectiveMemory extends MemoryEntry {inherited:boolean}
 export interface ShortMemoryItem {messageId:string;variantId?:string;nodeId?:string;role:'user'|'assistant';content:string;assetIds:string[];createdAt:number}

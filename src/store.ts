@@ -62,6 +62,7 @@ export interface DesktopItem {
   icon?: string;
 }
 export interface Theme {
+  magnetTaxonomy?: import('./memoryMagnetTagger').TagTaxonomy;
   chatMessageBanners?: boolean;
   phaseChatLink?: import('./phasePlay/chatLink').PhaseChatSettings;
   /** One summary-only provider for every character and conversation. */

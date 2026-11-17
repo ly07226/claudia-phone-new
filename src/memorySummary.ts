@@ -8,9 +8,10 @@ import {db} from './store';
 import {getMemoryScope,listMemories,listMemoryRevisions,createMemory,sealMemorySummaryForks,visibleSummaryReceipts} from './memoryStore';
 import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelines';
 import {visibleMessage} from './messageBubbles';
-import {summaryDuplicateIndex} from './memorySummaryQuality';
-import {requestSummary,requestChunkEvents,requestGroupDigest,SummaryResponseError} from './memorySummaryRequest';
-import {parseSummary,summaryJsonCandidate,summaryPrompt,SummaryFormatError} from './memorySummaryFormat';
+import {summaryDuplicateIndex,selectSummaryCandidates} from './memorySummaryQuality';
+import {requestSummary,SummaryResponseError} from './memorySummaryRequest';
+import {maybeBuildCoreMemory} from './memoryCoreBuilder';
+import {SummaryFormatError,parseSummaryWithEvidence} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
 import {buildSummaryInputs} from './memorySummaryChunks';
@@ -21,7 +22,7 @@ const tables=()=>[...timelineTables(),db.characters,db.worlds,db.worldProfiles];
 const key=(turn:SummaryTurn)=>JSON.stringify([turn.userIds,turn.assistantId]);
 const scopeKey=memoryScopeKey;
 const labels={fact:'已发生事实',belief:'人物主观判断',speculation:'猜测（未证实）',pending:'未完成事项'};
-const system=summaryPrompt;
+const system='你将收到JSON数组，每项是一个聊天轮次，包含role与content。仅从原文提取值得长期保留的记忆；必须区分事实、观点、猜测与未完成事项。每条附上对应轮次和说话者的逐字原文证据，严格保留否定、条件、主体和状态。只输出含memories数组的JSON对象，不要正文摘要、Markdown或额外字段。';
 export async function saveSummarySettings(scope:MemoryScope,enabled:boolean,interval:number){
  if(typeof enabled!=='boolean'||!Number.isInteger(interval)||interval<20||interval>100||interval%10)throw Error('总结间隔须为20～100轮，每10轮一级。');
  await db.transaction('rw',tables(),async()=>{await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=structuredClone(c.memorySummary??emptySummaryState());state.enabled=enabled;state.interval=interval;await db.conversations.update(c.id,{memorySummary:state});});
@@ -47,7 +48,7 @@ async function snapshot(scope:MemoryScope,initialize=false){
 }
 export async function summaryStatus(scope:MemoryScope){
  return db.transaction('r',tables(),async()=>{await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=c.memorySummary??emptySummaryState();const data=await snapshot(scope);const job=state.job&&scopeKey(state.job.scope)===scopeKey(scope)?state.job:undefined;
-  return {enabled:state.enabled,interval:state.interval,pending:data.turns.length,unverified:data.unverified,changed:data.changed,requiresManualResume:state.requiresManualResume,deferUntilPending:state.deferUntilPending,receipts:(await visibleSummaryReceipts(scope)).length,busy:state.job?.status==='running'&&Date.now()<state.job.leaseUntil,job};
+  return {enabled:state.enabled,interval:state.interval,pending:data.turns.length,unverified:data.unverified,changed:data.changed,requiresManualResume:state.requiresManualResume,deferUntilPending:state.deferUntilPending,receipts:(await visibleSummaryReceipts(scope)).length,busy:state.job?.status==='running'&&Date.now()<state.job.leaseUntil,job,coreAttempt:c.memoryCoreAttempt};
  });
 }
 async function assertSummarySource(job:MemorySummaryJob,manual:boolean){
@@ -129,28 +130,13 @@ async function execute(scope:MemoryScope,manual:boolean){
    const saved=(await db.conversations.get(scope.conversationId))?.memorySummary?.checkpoint;
    if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]&&saved.completed[index].eventSummary!==undefined){const part=saved.completed[index];facts.push(...part.facts);if(part.eventSummary)events.push(part.eventSummary);stats.candidates+=part.candidates;stats.accepted+=part.accepted;stats.rejected+=part.rejected;for(const [reason,count] of Object.entries(part.reasons))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;}
    const before=facts.length;
-   const combined=claimed.inputs.length===1;
-   failure='provider';const raw=await requestSummary(config,apiKey,input,controller.signal,combined);
+   failure='provider';const raw=await requestSummary(config,apiKey,input,controller.signal);
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
    failure='format';try{
-    let memoryJson=raw,eventSummary='';
-    if(combined){
-     let result:unknown;
-     result=summaryJsonCandidate(raw);
-     if(!result||typeof result!=='object'||Array.isArray(result)||!Array.isArray((result as {memories?:unknown}).memories))throw new SummaryResponseError({version:1,stage:'validate',code:'response-shape'});
-     const response=result as {memories:unknown;summary:string};
-     if((response.summary??'').length>1200)throw new SummaryResponseError({version:1,stage:'validate',code:'output-limit'});
-     eventSummary=(response.summary??'').trim();
-     memoryJson=JSON.stringify({memories:response.memories});
-    }
-    // Keep all structurally valid facts; evidence/importance heuristics must not discard model output.
-    const parsed=parseSummary(memoryJson),selected={accepted:parsed,rejected:[] as {index:number;reason:never}[]};
-    if(!combined){await db.transaction('r',tables(),()=>assertSummarySource(job,manual));try{eventSummary=await requestChunkEvents(config,apiKey,input,controller.signal);}catch(error){
-     // Auxiliary event extraction must not discard valid, already paid-for memories.
-     // The memory facts remain available in the resumable checkpoint.
-     if(controller.signal.aborted)throw error;
-     eventSummary='';
-    }}
+    // Reject unsupported or misclassified claims before durable storage.
+    const parsed=parseSummaryWithEvidence(raw);
+    const selected=selectSummaryCandidates(parsed,input);
+    const eventSummary=selected.accepted.map(f=>`【${labels[f.type]}】${f.content}`).join('\n').slice(0,2500);
     if(eventSummary)events.push(eventSummary);
     facts.push(...selected.accepted);stats.candidates+=parsed.length;stats.accepted+=selected.accepted.length;
     stats.rejected+=selected.rejected.length;
@@ -163,23 +149,11 @@ async function execute(scope:MemoryScope,manual:boolean){
   // A single bounded, chronological event digest belongs to the whole configured
   // interval, never to an individual API chunk. It is separate from raw messages.
   const uniqueEvents=events.filter(Boolean);
-  const previousSummaries=(await visibleSummaryReceipts(scope)).filter(r=>r.shortSummary?.trim()).slice(-2).map(r=>r.shortSummary!);
   let groupSummary=uniqueEvents[0]??'';
   if(claimed.inputs.length>1){
-   let layer=uniqueEvents.slice();let depth=0;
-   while(layer.length>1){
-    if(++depth>12)throw Error('一级总结事件合并超过层级上限');
-    const next:string[]=[];
-    for(let i=0;i<layer.length;i+=6){
-     const batch=layer.slice(i,i+6);
-     failure='stale-path';await db.transaction('r',tables(),()=>assertSummarySource(job,manual));failure='provider';if(batch.length===1){next.push(batch[0]);}else{
-      try{next.push(await requestGroupDigest(config,apiKey,batch,controller.signal,depth===1?previousSummaries:[]));}
-      catch(error){if(controller.signal.aborted)throw error;next.push(batch.join('\n').slice(0,2500));}
-     }
-    }
-    layer=next;
-   }
-   groupSummary=layer[0]??'';
+   // Merge already-paid-for chunk summaries locally. Secondary/core synthesis
+   // runs independently and must never block first-pass persistence.
+   groupSummary=uniqueEvents.join('\n').slice(0,2500);
   }
 
   failure='stale-path';
@@ -214,6 +188,8 @@ async function execute(scope:MemoryScope,manual:boolean){
    for(const fact of pending){failure='capacity';await createMemory(scope,{kind:fact.kind??(fact.quality?.importance==='high'&&['major-event','relationship','identity','boundary','ongoing-conflict','continuity'].includes(fact.quality.category)?'core':'long'),source:'auto',sourceReceiptId:job.id,content:`【${labels[fact.type]}】${fact.content}`});added++;}
    state.capacityBlocked=undefined;state.checkpoint=undefined;state.autoAttempt=undefined;state.deferUntilPending=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,sourceFingerprint,shortSummary:groupSummary,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
   });
+  // Second pass is best-effort and never changes a successful primary receipt.
+  try{await maybeBuildCoreMemory(scope);}catch{/* Core synthesis is independent of primary progress. */}
  }catch(error){
    const decision=classifySummaryError(error,navigator.onLine);
    // Preserve the actual failure category. A stale timeline/checkpoint or local

@@ -1,58 +1,52 @@
+import {reviewExtractedEvents} from './memoryExtractionReview';
 import {browserTransport,type ApiConfig,type ApiTransport} from './api';
 import {requestReply} from './chatProvider';
 import type {ReplyInterruption} from './chatCompletion';
 import {summaryLimits,type SummaryDiagnostic} from './memorySummaryTypes';
-import {summaryPrompt,summaryResponseSchema} from './memorySummaryFormat';
-const combinedPrompt=summaryPrompt+'\n同时输出一个summary字符串字段，记录本片段对后续剧情真正重要的事件与未完成事项，通常0～5条，每条尽量30～80字。不要复述日常对话；保留人物主体、否定、因果、状态。无关键事件时为空字符串。根对象必须恰好包含memories与summary。';
-const combinedSchema={...summaryResponseSchema,properties:{...summaryResponseSchema.properties,summary:{type:'STRING'}},required:['memories','summary']};
 export class SummaryResponseError extends Error {constructor(public diagnostic:SummaryDiagnostic){super('summary-response');}}
-/** Summary-only protocol options/metadata. Normal chat requests are unchanged.
- * No fallback request is issued if an endpoint rejects structured output.
- */
-export async function requestSummary(config:ApiConfig,key:string,input:string,signal:AbortSignal,combined=false){
+/** Memory extraction requests require evidence-backed JSON; core synthesis remains plain text. Never auto-retry paid calls. */
+export async function requestSummary(config:ApiConfig,key:string,input:string,signal:AbortSignal,_combined=false,mode:'long'|'core'='long'){
  const gemini=config.provider==='gemini'||(config.provider==='custom'&&config.protocol==='gemini');
+ const instruction=mode==='core'?'你是核心记忆整理助手。输入为已经生成的长期记忆。请用第三人称提炼80到180字最稳定、最影响未来关系判断的身份、关系状态、长期边界、重要承诺和重大里程碑。不要复述日常琐事、暂时情绪、未证实猜测；若关系状态发生变化，以最新有依据的状态为准。只返回纯文本，不要JSON、标题或推理过程。':"你是长期记忆提取器。输入为JSON数组，每个元素是一轮消息数组，轮次从本次输入的第1个元素开始计数；每条消息包含role、content字段。仅返回JSON对象，格式为 {\"memories\":[{\"type\":\"fact\",\"kind\":\"long\",\"content\":\"用户明确拒绝某事\",\"quality\":{\"category\":\"boundary\",\"importance\":\"high\",\"durability\":\"lasting\",\"impact\":\"对未来互动的具体影响\",\"evidence\":[{\"turn\":1,\"role\":\"user\",\"quote\":\"逐字复制原文连续片段\"}]}}]}。type为fact、belief、speculation、pending之一；kind为core或long；category为identity、relationship、major-event、preference、boundary、habit、commitment、ongoing-conflict、continuity、routine、short-plan、resolved之一；importance为high、medium、low；durability为lasting、temporary。quote必须来自对应轮次及说话者，至少4字。明确人物主体、否定、条件、时间及完成状态，不能将猜测或计划当事实；不确定时不提取。仅保留有长期价值、证据明确的记忆，最多8条，没有则返回{\"memories\":[]}。不要Markdown或额外字段。";
  let diagnostic:SummaryDiagnostic|undefined;
  const transport:ApiTransport={send:async(url,init)=>{
-  const body=JSON.parse(String(init.body));
-  if(gemini)body.generationConfig={...body.generationConfig,responseMimeType:'application/json',responseSchema:combined?combinedSchema:summaryResponseSchema};
-  else body.response_format={type:'json_object'};
-  const response=await browserTransport.send(url,{...init,body:JSON.stringify(body)});
-  let data:any;try{data=await response.clone().json();}catch{if(response.ok)diagnostic={version:1,stage:'response',code:'response-shape'};return response;}
-  if(!response.ok){
-   if([400,422].includes(response.status)&&/response[_ ]?format|response.?schema|responseMimeType|json[_ ]?object|json[_ ]?schema/i.test(String(data?.error?.param??'')+' '+String(data?.error?.message??'')))diagnostic={version:1,stage:'response',code:'structured-unsupported'};
-   return response;
-  }
-  const finish=gemini?data?.candidates?.[0]?.finishReason:data?.choices?.[0]?.finish_reason;
-  if(['length','max_tokens','MAX_TOKENS','FINISH_REASON_MAX_TOKENS'].includes(finish))diagnostic={version:1,stage:'response',code:'truncated',suspectedTruncated:true};
-  if(['SAFETY','RECITATION','PROHIBITED_CONTENT','BLOCKLIST','content_filter'].includes(finish)||data?.promptFeedback?.blockReason)diagnostic={version:1,stage:'response',code:'blocked'};
-  // Some compatible Chat Completions endpoints return typed text blocks.
+  const response=await browserTransport.send(url,init);
+  if(!response.ok||response.headers.get('content-type')?.includes('text/event-stream'))return response;
+  let data:any;
+  try{data=await response.clone().json();}catch{return response;}
+  const candidate=data?.candidates?.[0];
   const message=data?.choices?.[0]?.message;
-  if(!gemini&&Array.isArray(message?.content)&&message.content.length&&message.content.every((p:any)=>p&&['text','output_text'].includes(p.type)&&typeof p.text==='string')){
-   message.content=message.content.map((p:any)=>p.text).join('');
-   return new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
-  }
-  // Normalize text-only compatible API responses before the shared chat parser
-  // checks message.content. Some providers use output_text or typed blocks.
-  if(!gemini&&message){
-   const typed=Array.isArray(message.content)?message.content.filter((p:any)=>p&&typeof p.text==='string').map((p:any)=>p.text).join(''):undefined;
-   const normalized=(typeof message.content==='string'&&message.content.trim()?message.content:
-    typed?.trim()?typed:
-    typeof message.output_text==='string'&&message.output_text.trim()?message.output_text:
-    typeof data?.output_text==='string'&&data.output_text.trim()?data.output_text:undefined);
-   if(normalized&&normalized!==message.content){
-    message.content=normalized;
+  const finish=gemini?candidate?.finishReason:data?.choices?.[0]?.finish_reason??data?.stop_reason;
+  if(['length','MAX_TOKENS','max_tokens','max_output_tokens','max_completion_tokens'].includes(String(finish)))diagnostic={version:1,stage:'response',code:'truncated',suspectedTruncated:true};
+  else if(['SAFETY','RECITATION','PROHIBITED_CONTENT','BLOCKLIST','content_filter'].includes(String(finish))||data?.promptFeedback?.blockReason)diagnostic={version:1,stage:'response',code:'blocked'};
+  if(!gemini){
+   const typed=Array.isArray(message?.content)?message.content.filter((p:any)=>p&&typeof p.text==='string').map((p:any)=>p.text).join(''):undefined;
+   const alt=typeof message?.content==='string'&&message.content.trim()?message.content:typed?.trim()?typed:typeof message?.output_text==='string'?message.output_text:typeof data?.output_text==='string'?data.output_text:typeof data?.output?.text==='string'?data.output.text:typeof data?.response==='string'?data.response:typeof data?.choices?.[0]?.text==='string'?data.choices[0].text:undefined;
+   if(typeof alt==='string'&&alt.trim()){
+    data.choices=data.choices?.length?data.choices:[{message:{content:alt}}];
+    data.choices[0].message={...(data.choices[0].message??{}),content:alt};
     return new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
    }
+   if(!diagnostic)diagnostic={version:1,stage:'response',code:'response-shape'};
+  }else{
+   const visible=candidate?.content?.parts?.filter((p:any)=>!p?.thought&&typeof p?.text==='string').map((p:any)=>p.text).join('')??'';
+   if(!visible.trim()&&!diagnostic)diagnostic={version:1,stage:'response',code:'response-shape'};
   }
-  const content=gemini?data?.candidates?.[0]?.content?.parts?.filter((p:any)=>!p.thought).map((p:any)=>p.text??'').join(''):message?.content;
-  if(!diagnostic&&(typeof content!=='string'||!content.trim()))diagnostic={version:1,stage:'response',code:'response-shape'};
   return response;
  }};
+ let reason:ReplyInterruption|undefined;
  try{
-  const text=await requestReply({...config,maxTokens:summaryLimits.outputTokens},key,[{role:'system',content:combined?combinedPrompt:summaryPrompt},{role:'user',content:input}],signal,transport,false);
+  const result=await requestReply({...config,maxTokens:summaryLimits.outputTokens},key,[{role:'system',content:instruction},{role:'user',content:input}],signal,transport,false,value=>{reason=value;});
   if(diagnostic)throw new SummaryResponseError({...diagnostic,outputTokenLimit:summaryLimits.outputTokens});
-  return text;
- }catch(error){if(diagnostic)throw new SummaryResponseError({...diagnostic,outputTokenLimit:summaryLimits.outputTokens});throw error;}
+  if(reason)throw new SummaryResponseError({version:1,stage:'response',code:reason==='length'?'truncated':reason==='blocked'?'blocked':'response-shape',...(reason==='length'?{suspectedTruncated:true}:{}),outputTokenLimit:summaryLimits.outputTokens});
+  const content=result.trim();
+  if(!content)throw new SummaryResponseError({version:1,stage:'response',code:'response-shape',outputTokenLimit:summaryLimits.outputTokens});
+  if(content.length>summaryLimits.outputChars)throw new SummaryResponseError({version:1,stage:'validate',code:'output-limit',receivedChars:content.length});
+  return content;
+ }catch(error){
+  if(diagnostic&&!(error instanceof SummaryResponseError))throw new SummaryResponseError({...diagnostic,outputTokenLimit:summaryLimits.outputTokens});
+  throw error;
+ }
 }
 
 /** Auxiliary summaries must not commit parseable but unfinished model output. */
@@ -70,7 +64,8 @@ export async function requestChunkEvents(config:ApiConfig,key:string,input:strin
  let value:unknown;try{value=JSON.parse(raw.trim().replace(/^\`\`\`(?:json)?\s*/i,'').replace(/\s*\`\`\`$/,''));}catch{throw new SummaryResponseError({version:1,stage:'parse',code:'json-syntax'});}
  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==1||typeof (value as {summary?:unknown}).summary!=='string')throw new SummaryResponseError({version:1,stage:'validate',code:'response-shape'});
  const result=(value as {summary:string}).summary.trim();
- if(result.length>4000)throw new SummaryResponseError({version:1,stage:'validate',code:'output-limit'});
+ const review=reviewExtractedEvents(input,result);
+ if(!review.accepted)throw new SummaryResponseError({version:1,stage:'validate',code:review.reasons.includes('oversized-events')?'output-limit':'response-shape',receivedChars:result.length});
  return result;
 }
 /** Second-pass synthesis of verified events from all chunks in one configured group. */
