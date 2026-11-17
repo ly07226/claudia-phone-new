@@ -1,6 +1,6 @@
 import {summaryLimits,type SummaryFact,type SummaryCategory,type SummaryDiagnostic,summaryQualityCategories} from './memorySummaryTypes';
-export const summaryPrompt="你是聊天长期记忆提取器。输入为JSON二维数组：最外层每个元素代表一轮（从1编号），内部消息有role和content。只输出JSON对象，格式严格如下：{\"memories\":[{\"type\":\"fact\",\"kind\":\"long\",\"content\":\"用户不接受别人随便碰自己的东西\",\"quality\":{\"category\":\"boundary\",\"importance\":\"high\",\"durability\":\"lasting\",\"impact\":\"后续互动必须尊重用户的物品边界\",\"evidence\":[{\"turn\":1,\"role\":\"user\",\"quote\":\"我不接受别人随便碰我的东西\"}]}}]}。所有字段都必填，尤其quality对象及其5个字段category、importance、durability、impact、evidence，绝不能省略。type只能是fact/belief/speculation/pending；kind只能core/long；category只能identity/relationship/major-event/preference/boundary/habit/commitment/ongoing-conflict/continuity/routine/short-plan/resolved；importance只能high/medium/low；durability只能lasting/temporary。evidence是数组，每条有整数turn、role(user或assistant)、quote（对应消息content的连续原文，至少4字），最多4条。只提取对后续聊天有长期价值且有逐字原文证据的记忆，最多8条；不编造，不省略否定、条件、人物主体和状态。不能找到确切原文证据的候选不要输出。没有合格记忆时输出{\"memories\":[]}。不要输出Markdown、说明或其他文字。本会话可能是角色扮演：只记录本角色、本聊天空间中已经表达的内容，不能将虚构经历当作用户现实个人资料。消息分片时不要补全未看到的条件或结局。";
-export const summaryResponseSchema={type:'OBJECT',properties:{memories:{type:'ARRAY',items:{type:'OBJECT',properties:{type:{type:'STRING',enum:['fact','belief','speculation','pending']},kind:{type:'STRING',enum:['core','long']},content:{type:'STRING'},quality:{type:'OBJECT',properties:{category:{type:'STRING',enum:['identity','relationship','major-event','preference','boundary','habit','commitment','ongoing-conflict','continuity','routine','short-plan','resolved']},importance:{type:'STRING',enum:['high','medium','low']},durability:{type:'STRING',enum:['lasting','temporary']},impact:{type:'STRING'},evidence:{type:'ARRAY',items:{type:'OBJECT',properties:{turn:{type:'INTEGER'},role:{type:'STRING',enum:['user','assistant']},quote:{type:'STRING'}},required:['turn','role','quote']}}},required:['category','importance','durability','impact','evidence']}},required:['type','kind','content','quality']}}},required:['memories']};
+export const summaryPrompt="你是一位敏锐的情感记忆档案管理员。你要从用户与角色的聊天中提取能维持人物连贯性、推动关系发展、支持未来互动的高价值记忆。只记录对话明确表达或发生的内容，不编造，不把猜测写成确定事实，不混淆用户与角色，不把角色扮演内容当作用户现实经历。忽略早晚安、空泛寒暄、无意义语气词、纯环境描写、重复且没有新意义的日常动作。优先关注四类：①核心人设与偏好：双方性格、边界雷区、喜好、专属称呼、习惯与口头禅；②情感转折与高光：关系变化、争吵和好、表白、吃醋、强烈情绪及其原因；③专属契约与暗号：承诺、未来约定、共同规矩、两人专属梗与暗号；④重要事件与日常切片：共同经历的特殊事件、影响后续互动的剧情，以及有特殊情感意义的日常细节。优先具体事件的前因后果，准确保留人物、时间顺序、条件与否定。返回严格JSON对象，结构为{\"memories\":[{\"type\":\"fact\",\"kind\":\"long\",\"category\":\"情感转折\",\"title\":\"争吵之后终于和好\",\"content\":\"用一两句话写清具体发生了什么、前因后果及重要细节\",\"emotion\":\"释然、依赖\",\"tags\":[\"和好\",\"关系变化\"],\"importance\":5}]}。category限核心人设/情感转折/专属契约/重要事件；type限fact/belief/speculation/pending；kind限long/core；importance为1至5整数；emotion无明显情绪填平稳；tags为简短字符串数组；最多8条。只输出JSON，不要Markdown，不要evidence、quote、turn、role等原文证据字段。没有高价值记忆时输出{\"memories\":[]}。";
+export const summaryResponseSchema={"type":"OBJECT","properties":{"memories":{"type":"ARRAY","items":{"type":"OBJECT","properties":{"type":{"type":"STRING","enum":["fact","belief","speculation","pending"]},"kind":{"type":"STRING","enum":["core","long"]},"category":{"type":"STRING","enum":["核心人设","情感转折","专属契约","重要事件"]},"title":{"type":"STRING"},"content":{"type":"STRING"},"emotion":{"type":"STRING"},"tags":{"type":"ARRAY","items":{"type":"STRING"}},"importance":{"type":"INTEGER"}},"required":["type","kind","content"]}}},"required":["memories"]};
 export class SummaryFormatError extends Error {
  constructor(public diagnostic:SummaryDiagnostic){super(diagnostic.code==='empty'?'empty':'format');}
 }
@@ -28,6 +28,25 @@ export function summaryJsonCandidate(raw:string){
  if(fences.length&&(fences.length!==2||fences.some(f=>!/^```(?:json)?\s*$/i.test(f))))reject('json-syntax',{suspectedTruncated:fences.length===1});
  if(/[{}\[\]]/.test(outside))reject('json-syntax');
  try{return JSON.parse(text.slice(value.start,value.end));}catch{reject('json-syntax');}
+}
+/** Lightweight extraction: source ownership belongs to the timeline receipt, not model citations. */
+export function parseSimpleSummary(raw:string):{facts:SummaryFact[];candidates:number;rejected:number}{
+ const value=summaryJsonCandidate(raw);
+ if(value&&typeof value==='object'&&!Array.isArray(value)&&['operation','deleteAll','resetDatabase','clear'].some(k=>Object.hasOwn(value,k)))reject('unexpected-field',{stage:'validate'});
+ const rows=Array.isArray(value)?value:value&&typeof value==='object'?(value.memories??value.facts):undefined;
+ if(!Array.isArray(rows))reject('root-shape',{stage:'validate'});
+ if(rows.length>summaryLimits.facts*100)reject('too-many-facts',{stage:'validate'});
+ const facts:SummaryFact[]=[];
+ for(const item of rows){
+  if(facts.length>=summaryLimits.facts)break;
+  const content=typeof item==='string'?item:item?.content??item?.text??item?.memory;
+  if(typeof content!=='string'||!content.trim()||content.length>summaryLimits.factChars||!/[\p{L}\p{N}]/u.test(content))continue;
+  const type=typeof item==='string'?'fact':item.type??'fact';
+  if(!['fact','belief','speculation','pending'].includes(type))continue;
+  const kind=typeof item==='string'?'long':item.kind==='core'?'core':'long';
+  facts.push({type,kind,content:content.trim()});
+ }
+ return {facts,candidates:rows.length,rejected:rows.length-facts.length};
 }
 export function parseSummary(raw:string):SummaryFact[]{
  if(raw.length>summaryLimits.outputChars)reject('output-limit');

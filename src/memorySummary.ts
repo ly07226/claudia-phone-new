@@ -3,15 +3,16 @@ import {memoryScopeKey} from './memoryScopeKey';
 import {withSummaryLock} from './summaryLock';
 import {getSummaryApi} from './dedicatedSummaryApi';
 import {classifySummaryError} from './memorySummaryErrors';
+import {describeReplyFailure} from './replyFailure';
 import {activeMessages} from './messagePath';
 import {db} from './store';
 import {getMemoryScope,listMemories,listMemoryRevisions,createMemory,sealMemorySummaryForks,visibleSummaryReceipts} from './memoryStore';
 import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelines';
 import {visibleMessage} from './messageBubbles';
-import {summaryDuplicateIndex,selectSummaryCandidates} from './memorySummaryQuality';
+import {summaryDuplicateIndex} from './memorySummaryQuality';
 import {requestSummary,SummaryResponseError} from './memorySummaryRequest';
 import {maybeBuildCoreMemory} from './memoryCoreBuilder';
-import {SummaryFormatError,recoverSummaryBatch,summaryPrompt} from './memorySummaryFormat';
+import {SummaryFormatError,parseSimpleSummary,summaryPrompt} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
 import {buildSummaryInputs} from './memorySummaryChunks';
@@ -24,7 +25,7 @@ const key=(turn:SummaryTurn)=>JSON.stringify([turn.userIds,turn.assistantId]);
 const scopeKey=memoryScopeKey;
 const labels={fact:'已发生事实',belief:'人物主观判断',speculation:'猜测（未证实）',pending:'未完成事项'};
 const system=summaryPrompt;
-const safeEmptyReasons=new Set(['temporary','low-importance','weak-impact']);
+
 export async function saveSummarySettings(scope:MemoryScope,enabled:boolean,interval:number){
  if(typeof enabled!=='boolean'||!Number.isInteger(interval)||interval<20||interval>100||interval%10)throw Error('总结间隔须为20～100轮，每10轮一级。');
  await db.transaction('rw',tables(),async()=>{await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=structuredClone(c.memorySummary??emptySummaryState());state.enabled=enabled;state.interval=interval;await db.conversations.update(c.id,{memorySummary:state});});
@@ -78,9 +79,21 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   if(!data.turns.length||(!manual&&data.turns.length<state.interval))return;
   await sealMemorySummaryForks(scope);
   const full=summaryCapacityFull(c);if(full)state.capacityBlocked=summaryCapacityKey(c);
-  // The configured interval is the logical group. Split only the API inputs;
-  // do not advance the receipt until every chunk of the group succeeds.
-  const group=full?[]:data.turns.slice(0,state.interval);
+  // Commit one API-sized, complete-turn group at a time. A later failed
+  // request cannot roll back an earlier successful receipt or its progress.
+  // The configured interval is an upper bound, not an all-or-nothing batch.
+  let group=full?[]:data.turns.slice(0,state.interval);
+  if(group.length>1){
+   let low=1,high=group.length,best=0;
+   while(low<=high){
+    const mid=Math.floor((low+high)/2);
+    try{
+     if(buildSummaryInputs(group.slice(0,mid),system,summaryLimits.inputTokens).length===1){best=mid;low=mid+1;}
+     else high=mid-1;
+    }catch{high=mid-1;}
+   }
+   if(best>0)group=group.slice(0,best);
+  }
   let inputs:string[]=[];let attemptedTokens=memoryTokenCost(system),oversized=false;
   if(group.length){
    attemptedTokens=memoryTokenCost(system)+memoryTokenCost(JSON.stringify(group.map(x=>x.messages)));
@@ -115,7 +128,7 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
 }
 async function fail(job:MemorySummaryJob,error:SummaryFailure,diagnostic?:SummaryDiagnostic,decision?:ReturnType<typeof classifySummaryError>,manual=false){
  await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(job.scope.conversationId);if(c?.memorySummary?.job?.id!==job.id)return;const state=structuredClone(c.memorySummary);// Failed automatic jobs pause for explicit recovery, not additional chat turns.
-  state.requiresManualResume=true;state.deferUntilPending=undefined;if(error==='capacity')state.capacityBlocked=summaryCapacityKey(c);state.job={...state.job!,status:'failed',error,...(decision?{retryable:decision.retry,failureKind:decision.kind}:{}),...(diagnostic?{diagnostic}:{}),finishedAt:Date.now()};
+  state.requiresManualResume=true;state.deferUntilPending=undefined;if(error==='capacity')state.capacityBlocked=summaryCapacityKey(c);state.job={...state.job!,status:'failed',error,...(decision?{retryable:decision.retry,failureKind:decision.kind}:{}),...(job.failureHttpStatus?{failureHttpStatus:job.failureHttpStatus}:{}),...(job.failureReason?{failureReason:job.failureReason}:{}),...(job.failureServiceCode?{failureServiceCode:job.failureServiceCode}:{}),...(diagnostic?{diagnostic}:{}),finishedAt:Date.now()};
   if(state.autoAttempt?.throughNodeId===job.throughNodeId)state.autoAttempt=undefined;
   await db.conversations.update(c.id,{memorySummary:state});});
 }
@@ -133,28 +146,26 @@ async function execute(scope:MemoryScope,manual:boolean){
    const input=claimed.inputs[index];
    const saved=(await db.conversations.get(scope.conversationId))?.memorySummary?.checkpoint;
    if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]){
-    try{const part=saved.completed[index],recovered=recoverSummaryBatch(JSON.stringify({memories:part.facts}),input),reviewed=selectSummaryCandidates(recovered.facts,input,claimed.reviewTurns),extra=[...recovered.rejected,...reviewed.rejected];
-    if(!reviewed.accepted.length&&extra.some(r=>!safeEmptyReasons.has(r.reason)))throw new SummaryFormatError({version:1,stage:'validate',code:'invalid-quality'});
-    for(const f of reviewed.accepted)inputForFact.set(f,index);facts.push(...reviewed.accepted);const event=reviewed.accepted.map(f=>`【${labels[f.type]}】${f.content}`).join('\n');if(event)events.push(event);
+    try{const part=saved.completed[index],reviewed=parseSimpleSummary(JSON.stringify({memories:part.facts}));
+    for(const f of reviewed.facts)inputForFact.set(f,index);facts.push(...reviewed.facts);const event=reviewed.facts.map(f=>`【${labels[f.type]}】${f.content}`).join('\n');if(event)events.push(event);
     const countsValid=[part.candidates,part.accepted,part.rejected].every(n=>Number.isSafeInteger(n)&&n>=0)&&part.accepted===part.facts.length&&part.candidates===part.accepted+part.rejected&&part.reasons&&Object.entries(part.reasons).every(([k,n])=>Object.hasOwn(summaryRejectionText,k)&&Number.isSafeInteger(n)&&n>=0)&&Object.values(part.reasons).reduce((a,b)=>a+b,0)===part.rejected;
-    stats.candidates+=countsValid?part.candidates:part.facts.length;stats.accepted+=reviewed.accepted.length;stats.rejected+=(countsValid?part.rejected:0)+extra.length;for(const [reason,count] of Object.entries(countsValid?part.reasons:{}))stats.reasons[reason]=(stats.reasons[reason]??0)+count;for(const r of extra)stats.reasons[r.reason]=(stats.reasons[r.reason]??0)+1;continue;
+    stats.candidates+=countsValid?part.candidates:part.facts.length;stats.accepted+=reviewed.facts.length;stats.rejected+=(countsValid?part.rejected:0);for(const [reason,count] of Object.entries(countsValid?part.reasons:{}))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;
     }catch(e){if(!manual||!(e instanceof SummaryFormatError))throw e;/* Explicit recovery may regenerate an invalid old fragment, never a verified one. */}
    }
    const before=facts.length;
    failure='provider';const raw=await requestSummary(config,apiKey,input,controller.signal);
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
    failure='format';try{
-    // Reject unsupported or misclassified claims before durable storage.
-    const batch=recoverSummaryBatch(raw,input),parsed=batch.facts;
-    const checked=selectSummaryCandidates(parsed,input,claimed.reviewTurns);const selected={accepted:checked.accepted,rejected:[...batch.rejected,...checked.rejected]};
-    if(!selected.accepted.length&&selected.rejected.some(r=>!safeEmptyReasons.has(r.reason)))throw new SummaryFormatError({version:1,stage:'validate',code:'invalid-quality'});
+    // Semantic extraction is model-owned; no citation or keyword gate.
+    const batch=parseSimpleSummary(raw);
+    const selected={accepted:batch.facts,rejected:[] as {index:number;reason:string}[]};
     const eventSummary=selected.accepted.map(f=>`【${labels[f.type]}】${f.content}`).join('\n').slice(0,2500);
     if(eventSummary)events.push(eventSummary);
     for(const f of selected.accepted)inputForFact.set(f,index);facts.push(...selected.accepted);stats.candidates+=batch.candidates;stats.accepted+=selected.accepted.length;
-    stats.rejected+=selected.rejected.length;
-    const reasons:Record<string,number>={};
-    for(const r of selected.rejected){stats.reasons[r.reason]=(stats.reasons[r.reason]??0)+1;reasons[r.reason]=(reasons[r.reason]??0)+1;}
-    failure='stale-path';await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,manual);const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);if(next.job)next.job.completedChunks=index+1;next.checkpoint!.completed[index]={facts:facts.slice(before),eventSummary,candidates:batch.candidates,accepted:selected.accepted.length,rejected:selected.rejected.length,reasons};await db.conversations.update(scope.conversationId,{memorySummary:next});});
+    stats.rejected+=batch.rejected;if(batch.rejected)stats.reasons['invalid-candidate']=(stats.reasons['invalid-candidate']??0)+batch.rejected;
+    const reasons:Record<string,number>=batch.rejected?{'invalid-candidate':batch.rejected}:{};
+
+    failure='stale-path';await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,manual);const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);if(next.job)next.job.completedChunks=index+1;next.checkpoint!.completed[index]={facts:facts.slice(before),eventSummary,candidates:batch.candidates,accepted:selected.accepted.length,rejected:batch.rejected,reasons};await db.conversations.update(scope.conversationId,{memorySummary:next});});
    }catch(e){if((e as Error).message==='empty')failure='empty';if(e instanceof SummaryFormatError)diagnostic={...e.diagnostic,receivedChars:raw.length,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)};throw e;}
   }
   job.completedChunks=claimed.inputs.length;job.selection=stats;
@@ -205,14 +216,24 @@ async function execute(scope:MemoryScope,manual:boolean){
   try{await maybeBuildCoreMemory(scope);}catch{/* Core synthesis is independent of primary progress. */}
  }catch(error){
    const decision=classifySummaryError(error,navigator.onLine);
+   const providerDetail=describeReplyFailure(error);
+   // Persist only a fixed diagnostic category and numeric HTTP status, never provider body or credentials.
+   if(providerDetail.httpStatus)job.failureHttpStatus=providerDetail.httpStatus;
+    if(providerDetail.serviceCode)job.failureServiceCode=providerDetail.serviceCode;
+   job.failureReason=controller.signal.aborted?'timeout':decision.reason==='unknown'?'unknown':decision.reason;
+   // An aborted request is a timeout/interruption, not an unspecified provider error.
+   if(controller.signal.aborted||error instanceof Error&&/abort|timeout|timed out|超时/i.test(error.message)){
+    failure='timeout';
+   }
    // Preserve the actual failure category. A stale timeline/checkpoint or local
    // state error must not be reported as a provider failure after switching APIs.
-   if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;failure=diagnostic.stage==='response'&&diagnostic.code!=='truncated'?'provider':'format';}
+   if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;if(failure!=='timeout')failure=diagnostic.stage==='response'&&diagnostic.code!=='truncated'?'provider':'format';}
+   else if(failure==='timeout'){/* Preserve explicit timeout classification. */}
    else if(decision.kind==='state'){
     // Do not overwrite the stage recorded immediately before the failing operation.
     // The previous catch collapsed capacity, interruption, checkpoint and source
     // validation failures into a misleading generic stale-path status.
-    if(!['capacity','stale-path','interrupted','input-too-large','format','empty','state'].includes(failure))failure='stale-path';
+    if(!['capacity','stale-path','interrupted','input-too-large','format','empty','timeout','state'].includes(failure))failure='stale-path';
    }
    else if(decision.kind==='format')failure='format';
    else if(!['capacity','stale-path','interrupted','input-too-large','format','empty','state'].includes(failure))failure='provider';
