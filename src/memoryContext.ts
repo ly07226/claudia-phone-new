@@ -11,7 +11,7 @@ import type {EffectiveMemory} from './memoryTypes';
  * Includes wrapper and JSON escaping. Facts are included whole or omitted. Not a model tokenizer.
  * Existing profile/lore/time/history budgets are allocated FIRST and unchanged.
  */
-export const memoryContextLimits={tokens:2000,entryTokens:640,entries:12,queryChars:1200};
+export const memoryContextLimits={tokens:2000,entryTokens:1900,entries:12,queryChars:1200};
 export const memoryTokenCost=(text:string)=>new TextEncoder().encode(text).length;
 export interface MemoryContextTrace {status:'injected'|'empty'|'budget'|'read-failed'|'scope-changed'|'irrelevant';eligible:number;selected:number;truncated:number;estimatedTokens:number;skippedIrrelevant:number;skippedBudget:number;skippedSource?:number;failureStage?:string;errorType?:string}
 const traces=new Map<string,MemoryContextTrace>();
