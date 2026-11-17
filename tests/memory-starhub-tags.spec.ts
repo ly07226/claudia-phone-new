@@ -27,3 +27,18 @@ test('StarHub tagger rejects invented emotion/topic classes',async({page})=>{
  });
  expect(result).toEqual({good:3,rejected:true});
 });
+
+test('tagging rejects empty or multiline summaries before saving a memory',async({page})=>{
+ await isolatedApp(page,'starhub-summary-validation');
+ const result=await page.evaluate(async()=>{
+  const {validateTagging}=await import('/src/memoryMagnetTagger.ts');
+  const taxonomy={emotion:['高兴'],topic:['旅行']};
+  const rejected:string[]=[];
+  for(const summary of ['', '   ', '第一行\\n第二行', '第一行\\r第二行', '超'.repeat(41)]){
+   try{validateTagging({summary,keyword:[],emotion:[],topic:[]},taxonomy);}catch{rejected.push(summary);}
+  }
+  const valid=validateTagging({summary:'记得码头上的约定',keyword:['码头'],emotion:[],topic:[]},taxonomy);
+  return {rejected:rejected.length,valid:valid.length};
+ });
+ expect(result).toEqual({rejected:5,valid:1});
+});
