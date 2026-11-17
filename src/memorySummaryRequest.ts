@@ -24,6 +24,7 @@ export async function requestSummary(config:ApiConfig,key:string,input:string,si
   }
   const finish=gemini?data?.candidates?.[0]?.finishReason:data?.choices?.[0]?.finish_reason;
   if(['length','max_tokens','MAX_TOKENS','FINISH_REASON_MAX_TOKENS'].includes(finish))diagnostic={version:1,stage:'response',code:'truncated',suspectedTruncated:true};
+  if(['SAFETY','RECITATION','PROHIBITED_CONTENT','BLOCKLIST','content_filter'].includes(finish)||data?.promptFeedback?.blockReason)diagnostic={version:1,stage:'response',code:'blocked'};
   // Some compatible Chat Completions endpoints return typed text blocks.
   const message=data?.choices?.[0]?.message;
   if(!gemini&&Array.isArray(message?.content)&&message.content.length&&message.content.every((p:any)=>p&&['text','output_text'].includes(p.type)&&typeof p.text==='string')){
