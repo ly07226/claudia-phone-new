@@ -156,3 +156,40 @@ export async function memoryContextSnapshot(scope:MemoryScope){
   return {owner:c,scope,entries,receipts,shortReceipts:receipts.filter(r=>!hidden.has(r.id))};
  });
 }
+
+/** Persist labels on the existing conversation-owned memory store. Never create a
+ * parallel database or copy of the chat transcript. A revision is the watermark:
+ * changed or tombstoned entries require new tagging and cannot reuse old tags.
+ */
+export async function saveMemoryTags(scope:MemoryScope,entryId:string,revision:number,tags:import('./memoryTypes').MemoryTag[]){
+ return db.transaction('rw',tables(),async()=>{
+  const c=await checked(scope),state=await reconciled(c);
+  const effective=latest(await eligible(c,scope,state)).get(entryId);
+  if(!effective||effective.deleted||effective.revision!==revision)throw Error('tag-source-changed');
+  if(tags.length>32||tags.some(t=>!['keyword','emotion','topic','person'].includes(t.axis)||!t.tag.trim()||t.tag.length>80||!Number.isFinite(t.weight)||t.weight<=0||t.weight>10))throw Error('invalid-memory-tags');
+  const clean=tags.map(t=>({axis:t.axis,tag:t.tag.trim().normalize('NFKC').toLowerCase(),weight:t.weight}));
+  state.tagRecords=(state.tagRecords??[]).filter(t=>!(t.entryId===entryId&&t.revision===revision));
+  state.tagRecords.push({entryId,revision,tags:clean,taggedAt:Date.now()});
+  state.tagFailures=(state.tagFailures??[]).filter(t=>!(t.entryId===entryId&&t.revision===revision));
+  await db.conversations.update(c.id,{memoryStore:state});
+ });
+}
+export async function recordMemoryTagFailure(scope:MemoryScope,entryId:string,revision:number,reason:string){
+ return db.transaction('rw',tables(),async()=>{
+  const c=await checked(scope),state=await reconciled(c);
+  const effective=latest(await eligible(c,scope,state)).get(entryId);
+  if(!effective||effective.deleted||effective.revision!==revision)return;
+  const previous=(state.tagFailures??[]).find(t=>t.entryId===entryId&&t.revision===revision);
+  state.tagFailures=(state.tagFailures??[]).filter(t=>!(t.entryId===entryId&&t.revision===revision));
+  state.tagFailures.push({entryId,revision,attempts:(previous?.attempts??0)+1,lastFailedAt:Date.now(),reason:reason.slice(0,120)});
+  await db.conversations.update(c.id,{memoryStore:state});
+ });
+}
+export async function memoryTagSnapshot(scope:MemoryScope){
+ return db.transaction('r',tables(),async()=>{
+  const c=await checked(scope),state=await reconciled(c),effective=latest(await eligible(c,scope,state));
+  const visible=new Set([...effective.values()].filter(e=>!e.deleted).map(e=>e.id+':'+e.revision));
+  return {records:(state.tagRecords??[]).filter(t=>visible.has(t.entryId+':'+t.revision)),
+   failures:(state.tagFailures??[]).filter(t=>visible.has(t.entryId+':'+t.revision))};
+ });
+}
