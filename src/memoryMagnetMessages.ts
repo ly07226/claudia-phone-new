@@ -31,6 +31,22 @@ async function source(scope:MemoryScope){
  }
  return rows;
 }
+/** Derived contiguous checkpoint, not a mutable global last-id. An edited,
+ * failed or interrupted source revision stops advancement; later successes
+ * remain stored and can be recovered without skipping the gap.
+ */
+export function magneticWatermark(rows:{id:string;fingerprint:string}[],completed:ReadonlySet<string>){
+ let throughMessageId:string|undefined;
+ let throughFingerprint:string|undefined;
+ let processed=0;
+ for(const row of rows){
+  if(!completed.has(key(row.id,row.fingerprint)))break;
+  throughMessageId=row.id;
+  throughFingerprint=row.fingerprint;
+  processed++;
+ }
+ return {processed,throughMessageId,throughFingerprint};
+}
 /** Counts are based on the selected message path, never local-calendar days.
  * Threshold is advisory; calling this function cannot spend API tokens.
  */
@@ -41,7 +57,8 @@ export async function magneticBatchReadiness(scope:MemoryScope,threshold=20){
  const attempted=new Set((store?.magneticAttempts??[]).map(r=>key(r.messageId,r.fingerprint)));
  const fresh=rows.filter(r=>!completed.has(key(r.id,r.fingerprint))&&!attempted.has(key(r.id,r.fingerprint)));
  const blocked=rows.filter(r=>attempted.has(key(r.id,r.fingerprint))&&!completed.has(key(r.id,r.fingerprint)));
- return {ready:fresh.length>=threshold,pending:fresh.length,blocked:blocked.length,threshold,deadlight:(store?.magneticZeroRuns??0)>=2};
+ const watermark=magneticWatermark(rows,completed);
+ return {ready:fresh.length>=threshold,pending:fresh.length,blocked:blocked.length,threshold,watermark,deadlight:(store?.magneticZeroRuns??0)>=2};
 }
 export async function recentMagneticMessages(scope:MemoryScope,limit=20){
  const rows=await source(scope),c=await db.conversations.get(scope.conversationId);
