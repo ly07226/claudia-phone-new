@@ -145,7 +145,12 @@ async function execute(scope:MemoryScope,manual:boolean){
     }
     // Keep all structurally valid facts; evidence/importance heuristics must not discard model output.
     const parsed=parseSummary(memoryJson),selected={accepted:parsed,rejected:[] as {index:number;reason:never}[]};
-    if(!combined){await db.transaction('r',tables(),()=>assertSummarySource(job,manual));eventSummary=await requestChunkEvents(config,apiKey,input,controller.signal);}
+    if(!combined){await db.transaction('r',tables(),()=>assertSummarySource(job,manual));try{eventSummary=await requestChunkEvents(config,apiKey,input,controller.signal);}catch(error){
+     // Auxiliary event extraction must not discard valid, already paid-for memories.
+     // The memory facts remain available in the resumable checkpoint.
+     if(controller.signal.aborted)throw error;
+     eventSummary='';
+    }}
     if(eventSummary)events.push(eventSummary);
     facts.push(...selected.accepted);stats.candidates+=parsed.length;stats.accepted+=selected.accepted.length;
     stats.rejected+=selected.rejected.length;
@@ -167,7 +172,10 @@ async function execute(scope:MemoryScope,manual:boolean){
     const next:string[]=[];
     for(let i=0;i<layer.length;i+=6){
      const batch=layer.slice(i,i+6);
-     failure='stale-path';await db.transaction('r',tables(),()=>assertSummarySource(job,manual));failure='provider';next.push(batch.length===1?batch[0]:await requestGroupDigest(config,apiKey,batch,controller.signal,depth===1?previousSummaries:[]));
+     failure='stale-path';await db.transaction('r',tables(),()=>assertSummarySource(job,manual));failure='provider';if(batch.length===1){next.push(batch[0]);}else{
+      try{next.push(await requestGroupDigest(config,apiKey,batch,controller.signal,depth===1?previousSummaries:[]));}
+      catch(error){if(controller.signal.aborted)throw error;next.push(batch.join('\n').slice(0,2500));}
+     }
     }
     layer=next;
    }
