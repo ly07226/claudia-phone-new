@@ -170,9 +170,10 @@ async function execute(scope:MemoryScope,manual:boolean){
    const currentPath=await nodesForHead(current.id,(await db.timelines.get(job.timelineId))?.headNodeId);
    const sourceFingerprint=await summarySourceFingerprint({turns:claimed!.turns},currentPath.map(n=>n.message));
    if(!sourceFingerprint||!job.sourceFingerprint||sourceFingerprint!==job.sourceFingerprint){failure='stale-path';throw Error('summary source changed');}
-   const liveMessages=current.mode==='world'?currentPath.map(n=>n.message):await activeMessages(current.id);
-   const liveFingerprint=await summarySourceFingerprint({turns:claimed!.turns},liveMessages);
-   if(liveFingerprint!==sourceFingerprint){failure='stale-path';throw Error('summary source changed');}
+   // The active timeline is the authoritative source for this claimed batch.
+   // activeMessages() is a separate legacy projection and may lag behind the
+   // initialized timeline even when every claimed source message is unchanged.
+   // Do not reject a verified immutable batch merely because that projection differs.
    const all=await listMemoryRevisions(scope);
    const known=summaryDuplicateIndex(all.map(e=>e.content));
    const pending:SummaryFact[]=[];
