@@ -10,6 +10,7 @@ import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelin
 import {visibleMessage} from './messageBubbles';
 import {summaryDuplicateIndex} from './memorySummaryQuality';
 import {requestSummary,SummaryResponseError} from './memorySummaryRequest';
+import {maybeBuildCoreMemory} from './memoryCoreBuilder';
 import {SummaryFormatError} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
@@ -189,6 +190,8 @@ async function execute(scope:MemoryScope,manual:boolean){
    for(const fact of pending){failure='capacity';await createMemory(scope,{kind:fact.kind??(fact.quality?.importance==='high'&&['major-event','relationship','identity','boundary','ongoing-conflict','continuity'].includes(fact.quality.category)?'core':'long'),source:'auto',sourceReceiptId:job.id,content:`【${labels[fact.type]}】${fact.content}`});added++;}
    state.capacityBlocked=undefined;state.checkpoint=undefined;state.autoAttempt=undefined;state.deferUntilPending=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,sourceFingerprint,shortSummary:groupSummary,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
   });
+  // Second pass is best-effort and never changes a successful primary receipt.
+  try{await maybeBuildCoreMemory(scope);}catch{/* Core synthesis is independent of primary progress. */}
  }catch(error){
    const decision=classifySummaryError(error,navigator.onLine);
    // Preserve the actual failure category. A stale timeline/checkpoint or local
