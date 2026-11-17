@@ -202,7 +202,17 @@ async function execute(scope:MemoryScope,manual:boolean){
    for(const fact of pending){failure='capacity';await createMemory(scope,{kind:fact.quality?.importance==='high'&&['major-event','relationship','identity','boundary','ongoing-conflict','continuity'].includes(fact.quality.category)?'core':'long',source:'auto',sourceReceiptId:job.id,content:`【${labels[fact.type]}】${fact.content}`});added++;}
    state.capacityBlocked=undefined;state.checkpoint=undefined;state.autoAttempt=undefined;state.deferUntilPending=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,sourceFingerprint,shortSummary:groupSummary,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
   });
- }catch(error){if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;failure=diagnostic.stage==='response'&&diagnostic.code!=='truncated'?'provider':'format';}if(diagnostic)diagnostic={...diagnostic,inputRounds:claimed.turns.length,inputTokenEstimate:memoryTokenCost(system)+Math.max(...claimed.inputs.map(memoryTokenCost))};await fail(job,failure,diagnostic,{...classifySummaryError(error,navigator.onLine),retry:manual&&classifySummaryError(error,navigator.onLine).retry},manual).catch(()=>{});}finally{clearTimeout(timer);}
+ }catch(error){
+   const decision=classifySummaryError(error,navigator.onLine);
+   // Preserve the actual failure category. A stale timeline/checkpoint or local
+   // state error must not be reported as a provider failure after switching APIs.
+   if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;failure=diagnostic.stage==='response'&&diagnostic.code!=='truncated'?'provider':'format';}
+   else if(decision.kind==='state')failure='stale-path';
+   else if(decision.kind==='format')failure='format';
+   else failure='provider';
+   if(diagnostic)diagnostic={...diagnostic,inputRounds:claimed.turns.length,inputTokenEstimate:memoryTokenCost(system)+Math.max(...claimed.inputs.map(memoryTokenCost))};
+   await fail(job,failure,diagnostic,{...decision,retry:manual&&decision.retry},manual).catch(()=>{});
+  }finally{clearTimeout(timer);}
 }
 const running=new Map<string,Promise<void>>();
 export function runMemorySummary(scope:MemoryScope,manual=true){
