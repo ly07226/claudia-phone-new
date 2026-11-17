@@ -40,10 +40,10 @@ export function MagnetMemorySettings({scope}:{scope:MemoryScope}){
  }
  async function run(retry:boolean){
   if(!taxonomy.emotion.length||!taxonomy.topic.length){setNotice('请先保存情感与主题类目。');return;}
-  if(!window.confirm(retry?'将手动重试失败或中断的打标任务。中断前的请求可能已计费，重试可能再次收费，是否继续？':'将调用总结专用 API，为最多20条未打标记忆生成标签，可能产生费用，是否继续？'))return;
+  if(!window.confirm(retry?'将手动重试失败任务；中断且仍在处理中的任务需等待至少30分钟才能重新领取。旧请求可能已计费，重试也可能再次收费，是否继续？':'将调用总结专用 API，为最多20条未打标记忆生成标签，可能产生费用，是否继续？'))return;
   setBusy(true);try{
    const result=await runMessageTagBatch(scope,taxonomy,20,retry);
-   setNotice(`已检查 ${result.seen} 条，成功 ${result.tagged} 条，失败 ${result.failed} 条。失败条目不会自动重试。`);
+   setNotice(`已检查 ${result.seen} 条，成功 ${result.tagged} 条，失败 ${result.failed} 条。失败条目不会自动重试；未超过30分钟的中断任务不会重复调用。`);
   }catch{setNotice('批量打标未能完成，已保存的标签不会清空。');}finally{setBusy(false);}
  }
  return <div className="memory-magnet-settings">
