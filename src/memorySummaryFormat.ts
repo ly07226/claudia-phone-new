@@ -69,7 +69,8 @@ export function parseSummaryWithSourceRecovery(raw:string,input:string):SummaryF
  for(const item of value.memories.slice(0,summaryLimits.facts)){
   if(!item||typeof item!=='object'||typeof item.content!=='string'||!item.content.trim()||item.content.length>summaryLimits.factChars)continue;
   const q=item.quality??{};
-  const validEvidence=(Array.isArray(q.evidence)?q.evidence:[]).filter((e:any)=>Number.isInteger(e?.turn)&&e.turn>0&&['user','assistant'].includes(e.role)&&typeof e.quote==='string'&&e.quote.length>=4&&turns[e.turn-1]?.some(m=>m.role===e.role&&m.content.includes(e.quote))).slice(0,4);
+  const suppliedEvidence=Array.isArray(q.evidence)?q.evidence:Array.isArray(item.evidence)?item.evidence:[];
+  const validEvidence=suppliedEvidence.filter((e:any)=>Number.isInteger(e?.turn)&&e.turn>0&&['user','assistant'].includes(e.role)&&typeof e.quote==='string'&&e.quote.length>=4&&turns[e.turn-1]?.some(m=>m.role===e.role&&m.content.includes(e.quote))).slice(0,4);
   // The only automatic evidence recovery allowed is a verbatim content match.
   if(!validEvidence.length)for(let i=0;i<turns.length;i++){const source=turns[i].find(m=>m.content.includes(item.content.trim())&&item.content.trim().length>=4);if(source){validEvidence.push({turn:i+1,role:source.role,quote:item.content.trim()});break;}}
   if(!validEvidence.length)continue;
