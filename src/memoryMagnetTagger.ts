@@ -32,6 +32,9 @@ export async function tagPendingMemories(scope:MemoryScope,provider:TagProvider,
  let tagged=0,failed=0;
  for(const entry of pending){
   try{
+   // Durable in-flight marker before network I/O: an interrupted browser
+   // session must not silently issue the same paid request on restart.
+   await recordMemoryTagFailure(scope,entry.id,entry.revision,'pending-or-interrupted');
    const output=await provider(entry.content,taxonomy);
    await saveMemoryTags(scope,entry.id,entry.revision,validateTagging(output,taxonomy));
    tagged++;
