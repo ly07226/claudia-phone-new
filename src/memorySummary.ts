@@ -48,7 +48,7 @@ async function snapshot(scope:MemoryScope,initialize=false){
 }
 export async function summaryStatus(scope:MemoryScope){
  return db.transaction('r',tables(),async()=>{await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=c.memorySummary??emptySummaryState();const data=await snapshot(scope);const job=state.job&&scopeKey(state.job.scope)===scopeKey(scope)?state.job:undefined;
-  return {enabled:state.enabled,interval:state.interval,pending:data.turns.length,unverified:data.unverified,changed:data.changed,requiresManualResume:state.requiresManualResume,deferUntilPending:state.deferUntilPending,receipts:(await visibleSummaryReceipts(scope)).length,busy:state.job?.status==='running'&&Date.now()<state.job.leaseUntil,job};
+  return {enabled:state.enabled,interval:state.interval,pending:data.turns.length,unverified:data.unverified,changed:data.changed,requiresManualResume:state.requiresManualResume,deferUntilPending:state.deferUntilPending,receipts:(await visibleSummaryReceipts(scope)).length,busy:state.job?.status==='running'&&Date.now()<state.job.leaseUntil,job,coreAttempt:c.memoryCoreAttempt};
  });
 }
 async function assertSummarySource(job:MemorySummaryJob,manual:boolean){
