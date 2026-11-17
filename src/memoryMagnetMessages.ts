@@ -35,6 +35,12 @@ async function source(scope:MemoryScope){
  * failed or interrupted source revision stops advancement; later successes
  * remain stored and can be recovered without skipping the gap.
  */
+/** A failed batch must be visible immediately; two consecutive zero-success
+ * batches raise the deadlight. No new attempts means no state transition. */
+export function magneticBatchHealth(previousZeroRuns:number,claimed:number,tagged:number){
+ const zeroRuns=claimed===0?previousZeroRuns:tagged>0?0:previousZeroRuns+1;
+ return {zeroRuns,deadlight:zeroRuns>=2};
+}
 export function magneticWatermark(rows:{id:string;fingerprint:string}[],completed:ReadonlySet<string>){
  let throughMessageId:string|undefined;
  let throughFingerprint:string|undefined;
@@ -131,11 +137,12 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
    const c=await db.conversations.get(scope.conversationId);if(!c)return;
    if(c.characterId!==scope.characterId||c.mode!==scope.mode||(scope.mode==='world'&&(c.worldId!==scope.worldId||c.activeTimelineId!==scope.timelineId||(c.timelineEpoch??0)!==scope.epoch)))return;
    const store=c.memoryStore??emptyMemoryStore();
-   const count=tagged?0:(store.magneticZeroRuns??0)+1;
+   const count=magneticBatchHealth(store.magneticZeroRuns??0,claimedCount,tagged).zeroRuns;
    await db.conversations.update(c.id,{memoryStore:{...store,magneticZeroRuns:count}});
   });
  }
- return {seen:claimedCount,tagged,failed,deadlight:claimedCount>0&&tagged===0&&(state.magneticZeroRuns??0)>=1};
+ const final=await db.conversations.get(scope.conversationId);
+ return {seen:claimedCount,tagged,failed,deadlight:(final?.memoryStore?.magneticZeroRuns??0)>=2};
 }
 
 /** Only live source-path records may be recalled; changed/deleted messages
