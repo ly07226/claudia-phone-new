@@ -18,7 +18,7 @@ async function digest(text:string){
 }
 async function source(scope:MemoryScope){
  const c=await db.conversations.get(scope.conversationId);
- if(!c||c.characterId!==scope.characterId||c.mode!==scope.mode||scope.mode==='world'&&(c.worldId!==scope.worldId||c.activeTimelineId!==scope.timelineId||c.timelineEpoch!==scope.epoch))throw Error('magnet-scope-changed');
+ if(!c||c.characterId!==scope.characterId||c.mode!==scope.mode||scope.mode==='world'&&(c.worldId!==scope.worldId||c.activeTimelineId!==scope.timelineId||(c.timelineEpoch??0)!==scope.epoch))throw Error('magnet-scope-changed');
  const timeline=scope.mode==='world'?await db.timelines.get(scope.timelineId):c.activeTimelineId?await db.timelines.get(c.activeTimelineId):undefined;
  const nodes=timeline?await nodesForHead(c.id,timeline.headNodeId):[];
  const raw=nodes.length?nodes.map(n=>({message:n.message,nodeId:n.id})):scope.mode==='daily'?(await activeMessages(c.id)).map(message=>({message,nodeId:undefined})): [];
@@ -56,7 +56,7 @@ export async function magneticMessageStatus(scope:MemoryScope){
  return {total:rows.length,tagged:rows.filter(r=>completed.has(key(r.id,r.fingerprint))).length,failed:rows.filter(r=>failures.has(key(r.id,r.fingerprint))).length,zeroRuns:state?.magneticZeroRuns??0};
 }
 export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider,taxonomy:TagTaxonomy,batchSize=20,retry=false){
- if(!Number.isInteger(batchSize)||batchSize<1||batchSize>100||!taxonomy.emotion.length||!taxonomy.topic.length)throw Error('invalid-magnet-batch');
+ if(!Number.isInteger(batchSize)||batchSize<1||batchSize>100||!taxonomy||!Array.isArray(taxonomy.emotion)||!Array.isArray(taxonomy.topic)||!taxonomy.emotion.length||!taxonomy.topic.length)throw Error('invalid-magnet-batch');
  const rows=await source(scope),initial=await db.conversations.get(scope.conversationId);
  if(!initial)throw Error('magnet-conversation-missing');
  const state=initial.memoryStore??emptyMemoryStore();
@@ -69,6 +69,7 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
   // the same message revision. Interrupted claims require explicit recovery.
   const claimed=await db.transaction('rw',db.conversations,async()=>{
     const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('magnet-conversation-missing');
+    if(c.characterId!==scope.characterId||c.mode!==scope.mode||(scope.mode==='world'&&(c.worldId!==scope.worldId||c.activeTimelineId!==scope.timelineId||(c.timelineEpoch??0)!==scope.epoch)))throw Error('magnet-scope-changed');
     const store=c.memoryStore??emptyMemoryStore();
     if((store.magneticMessages??[]).some(x=>x.active&&x.messageId===row.id&&x.fingerprint===row.fingerprint))return false;
     const existing=(store.magneticAttempts??[]).find(x=>x.messageId===row.id&&x.fingerprint===row.fingerprint);
@@ -87,6 +88,7 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
    if(!current||current.fingerprint!==row.fingerprint)throw Error('source-changed');
    await db.transaction('rw',db.conversations,async()=>{
     const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('magnet-conversation-missing');
+    if(c.characterId!==scope.characterId||c.mode!==scope.mode||(scope.mode==='world'&&(c.worldId!==scope.worldId||c.activeTimelineId!==scope.timelineId||(c.timelineEpoch??0)!==scope.epoch)))throw Error('magnet-scope-changed');
     const store=c.memoryStore??emptyMemoryStore();
     const record:MagneticMessageMemory={messageId:row.id,variantId:row.variantId,nodeId:row.nodeId,fingerprint:row.fingerprint,scope,summary:result.summary,detail:'',tags,createdAt:row.createdAt,taggedAt:Date.now(),active:true};
     await db.conversations.update(c.id,{memoryStore:{...store,magneticMessages:[...(store.magneticMessages??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint),record],magneticAttempts:(store.magneticAttempts??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint)}});
