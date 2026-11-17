@@ -58,7 +58,7 @@ interface Claim {job:MemorySummaryJob;turns:SummaryTurn[];inputs:string[]}
 async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
  return db.transaction('rw',tables(),async()=>{
   await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=structuredClone(c.memorySummary??emptySummaryState());
-  if(!manual&&(!state.enabled||(state.requiresManualResume&&!summaryCapacityRecovered(c))))return;
+  if(!manual&&(!state.enabled||state.requiresManualResume))return;
   if(summaryCapacityRecovered(c)){state.capacityBlocked=undefined;state.deferUntilPending=undefined;state.autoAttempt=undefined;state.requiresManualResume=undefined;}
   if(manual)state.requiresManualResume=undefined;
   if(state.job?.status==='running'&&Date.now()<state.job.leaseUntil)return;
@@ -69,8 +69,9 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   // An edited/regenerated old round is not a new completed round. Only an
   // explicit manual request may rebuild its invalidated, preserved receipt.
   if(!manual)data.turns=data.turns.filter(t=>!data.coveredAssistantIds.has(t.ref.assistantId));
-  if(!manual&&state.deferUntilPending!==undefined&&data.turns.length>=state.deferUntilPending){state.autoAttempt=undefined;state.deferUntilPending=undefined;}
-  if(!data.turns.length||(!manual&&(data.turns.length<state.interval||data.turns.length<(state.deferUntilPending??0))))return;
+  // Legacy pending-count backoff is obsolete; new turns must not be a recovery prerequisite.
+  if(state.deferUntilPending!==undefined){state.deferUntilPending=undefined;state.autoAttempt=undefined;}
+  if(!data.turns.length||(!manual&&data.turns.length<state.interval))return;
   await sealMemorySummaryForks(scope);
   const full=summaryCapacityFull(c);if(full)state.capacityBlocked=summaryCapacityKey(c);
   // The configured interval is the logical group. Split only the API inputs;
@@ -99,7 +100,8 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   if(!manual&&!fits){
    // A terminal local failure must not be retried on every foreground wake or chat turn.
    // Preserve all unsummarized turns and reconsider after one additional interval.
-   state.deferUntilPending=data.turns.length+state.interval;
+   state.requiresManualResume=true;
+   state.deferUntilPending=undefined;
    state.autoAttempt=undefined;
   }
   state.job=job;await db.conversations.update(c.id,{memorySummary:state});
@@ -107,8 +109,9 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
  });
 }
 async function fail(job:MemorySummaryJob,error:SummaryFailure,diagnostic?:SummaryDiagnostic,decision?:ReturnType<typeof classifySummaryError>,manual=false){
- await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(job.scope.conversationId);if(c?.memorySummary?.job?.id!==job.id)return;const state=structuredClone(c.memorySummary);if(manual)state.requiresManualResume=true;if(error==='capacity')state.capacityBlocked=summaryCapacityKey(c);state.job={...state.job!,status:'failed',error,...(decision?{retryable:decision.retry,failureKind:decision.kind}:{}),...(diagnostic?{diagnostic}:{}),finishedAt:Date.now()};
-  if(state.autoAttempt?.throughNodeId===job.throughNodeId){state.deferUntilPending=Math.max(state.deferUntilPending??0,state.autoAttempt.pendingAtStart+state.interval);state.autoAttempt=undefined;}
+ await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(job.scope.conversationId);if(c?.memorySummary?.job?.id!==job.id)return;const state=structuredClone(c.memorySummary);// Failed automatic jobs pause for explicit recovery, not additional chat turns.
+  state.requiresManualResume=true;state.deferUntilPending=undefined;if(error==='capacity')state.capacityBlocked=summaryCapacityKey(c);state.job={...state.job!,status:'failed',error,...(decision?{retryable:decision.retry,failureKind:decision.kind}:{}),...(diagnostic?{diagnostic}:{}),finishedAt:Date.now()};
+  if(state.autoAttempt?.throughNodeId===job.throughNodeId)state.autoAttempt=undefined;
   await db.conversations.update(c.id,{memorySummary:state});});
 }
 async function execute(scope:MemoryScope,manual:boolean){
@@ -241,11 +244,11 @@ export async function tryAutoSummary(conversationId:string){
    if(!navigator.onLine||document.hidden)break;
    const before=await summaryStatus(scope);
    const owner=await db.conversations.get(conversationId);const state=owner?.memorySummary;const recovered=owner&&summaryCapacityRecovered(owner);
-   if(!state?.enabled||state.requiresManualResume||before.pending<before.interval||(!recovered&&before.pending<(state.deferUntilPending??0)))break;
+   if(!state?.enabled||state.requiresManualResume||before.pending<before.interval)break;
    // One attempt per due cycle. A failure is terminal for this cycle:
    // do not silently issue another paid API request, even for transient errors.
    const attemptState=(await db.conversations.get(conversationId))?.memorySummary;
-   if(!recovered&&(attemptState?.deferUntilPending??0)>before.pending)return;
+   // No pending-count backoff: failed work is paused until explicit recovery.
    if(!navigator.onLine||document.hidden)return;
    await runMemorySummary(scope,false);
    const current=(await db.conversations.get(conversationId))?.memorySummary;
@@ -253,14 +256,7 @@ export async function tryAutoSummary(conversationId:string){
    const succeeded=current?.job?.status==='succeeded';
    if(!succeeded&&current?.job?.status!=='failed')return;
    if(!succeeded){
-    if(!navigator.onLine||document.hidden)return;
-    await db.transaction('rw',db.conversations,async()=>{
-     const latest=await db.conversations.get(conversationId);
-     if(!latest?.memorySummary?.enabled||latest.memorySummary.job?.status!=='failed')return;
-     const next=structuredClone(latest.memorySummary);
-     next.deferUntilPending=Math.max(before.pending+before.interval,next.deferUntilPending??0);
-     await db.conversations.update(conversationId,{memorySummary:next});
-    });
+    // No extra-turn penalty and no unattended repeated paid calls.
     break;
    }
   }
