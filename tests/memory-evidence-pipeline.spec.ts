@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {parseSummaryWithEvidence} from '../src/memorySummaryFormat';
+import {parseSummaryWithSourceRecovery,parseSummaryWithEvidence} from '../src/memorySummaryFormat';
 import {selectSummaryCandidates} from '../src/memorySummaryQuality';
 import type {SummaryFact} from '../src/memorySummaryTypes';
 
@@ -56,4 +56,15 @@ test('normalized quality never bypasses evidence validation',()=>{
  const raw={memories:[{type:'fact',kind:'long',content:'用户不接受别人随便碰自己的东西。',evidence:[{turn:1,role:'user',quote:'我其实允许别人随便碰我的东西'}]}]};
  const parsed=parseSummaryWithEvidence(JSON.stringify(raw));
  expect(selectSummaryCandidates(parsed,input).accepted).toHaveLength(0);
+});
+
+test('source recovery accepts top-level evidence and verifies it against original turns',()=>{
+ const raw={memories:[{type:'fact',kind:'long',content:'用户不接受别人随便碰自己的东西。',evidence:[{turn:1,role:'user',quote:'我不接受别人随便碰我的东西'}]}]};
+ const parsed=parseSummaryWithSourceRecovery(JSON.stringify(raw),input);
+ expect(parsed).toHaveLength(1);
+ expect(selectSummaryCandidates(parsed,input).accepted).toHaveLength(1);
+});
+test('source recovery rejects fabricated top-level evidence',()=>{
+ const raw={memories:[{type:'fact',kind:'long',content:'用户不接受别人随便碰自己的东西。',evidence:[{turn:1,role:'user',quote:'我允许别人碰我的东西'}]}]};
+ expect(()=>parseSummaryWithSourceRecovery(JSON.stringify(raw),input)).toThrow();
 });
