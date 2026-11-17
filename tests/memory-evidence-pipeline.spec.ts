@@ -44,3 +44,16 @@ test('one malformed quality row does not discard another grounded memory',()=>{
 test('all malformed quality rows must still fail visibly',()=>{
  expect(()=>parseSummaryWithEvidence(JSON.stringify({memories:[{type:'fact',kind:'long',content:'用户不接受别人随便碰自己的东西。',quality:{}}]}))).toThrow();
 });
+
+test('missing quality metadata with intact source evidence is normalized and accepted',()=>{
+ const raw={memories:[{type:'fact',kind:'long',content:'用户不接受别人随便碰自己的东西。',evidence:[{turn:1,role:'user',quote:'我不接受别人随便碰我的东西'}]}]};
+ const parsed=parseSummaryWithEvidence(JSON.stringify(raw));
+ expect(parsed).toHaveLength(1);
+ expect(parsed[0].quality?.category).toBe('boundary');
+ expect(selectSummaryCandidates(parsed,input).accepted).toHaveLength(1);
+});
+test('normalized quality never bypasses evidence validation',()=>{
+ const raw={memories:[{type:'fact',kind:'long',content:'用户不接受别人随便碰自己的东西。',evidence:[{turn:1,role:'user',quote:'我其实允许别人随便碰我的东西'}]}]};
+ const parsed=parseSummaryWithEvidence(JSON.stringify(raw));
+ expect(selectSummaryCandidates(parsed,input).accepted).toHaveLength(0);
+});
