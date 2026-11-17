@@ -1,6 +1,6 @@
 import type {SummaryQualityRejection} from './memorySummaryQuality';
 import type {MemoryScope} from './memoryTypes';
-export const summaryLimits={inputTokens:12000,outputTokens:1600,outputChars:12000,facts:8,factChars:800,receipts:5000,leaseMs:90000};
+export const summaryLimits={inputTokens:6000,outputTokens:4096,outputChars:12000,facts:8,factChars:800,receipts:5000,leaseMs:90000};
 export type SummaryCategory='fact'|'belief'|'speculation'|'pending';
 /** Request-only quality/evidence metadata; never added to stored MemoryEntry. */
 export const summaryQualityCategories=['identity','relationship','major-event','preference','boundary','habit','commitment','ongoing-conflict','continuity','routine','short-plan','resolved'] as const;
