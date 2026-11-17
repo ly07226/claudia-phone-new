@@ -11,6 +11,11 @@ import {validateTagging,type TagProvider,type TagTaxonomy} from './memoryMagnetT
  * Manual batch only until cross-window leases and scheduler are verified.
  */
 const key=(id:string,fingerprint:string)=>id+':'+fingerprint;
+/** A pending claim may still be running in another tab. Never retry it immediately. */
+export const MAGNET_PENDING_RECOVERY_MS=30*60*1000;
+export function canRecoverMagneticAttempt(attempt:{status:'pending'|'failed';startedAt:number}|undefined,now:number){
+ return !!attempt&&(attempt.status==='failed'||attempt.status==='pending'&&Number.isFinite(attempt.startedAt)&&now-attempt.startedAt>=MAGNET_PENDING_RECOVERY_MS);
+}
 async function digest(text:string){
  const bytes=new TextEncoder().encode(text);
  const result=await crypto.subtle.digest('SHA-256',bytes);
@@ -86,7 +91,7 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
  const done=new Set((state.magneticMessages??[]).filter(r=>r.active).map(r=>key(r.messageId,r.fingerprint)));
  const failures=new Set((state.magneticAttempts??[]).filter(r=>r.status==='failed'||r.status==='pending').map(r=>key(r.messageId,r.fingerprint)));
  const attempts=new Set((state.magneticAttempts??[]).map(r=>key(r.messageId,r.fingerprint)));
- const pending=rows.filter(r=>!done.has(key(r.id,r.fingerprint))&&(retry?failures.has(key(r.id,r.fingerprint)):!attempts.has(key(r.id,r.fingerprint)))).slice(0,batchSize);
+ const pending=rows.filter(r=>!done.has(key(r.id,r.fingerprint))&&(retry?canRecoverMagneticAttempt((state.magneticAttempts??[]).find(x=>x.messageId===r.id&&x.fingerprint===r.fingerprint),Date.now()):!attempts.has(key(r.id,r.fingerprint)))).slice(0,batchSize);
  let tagged=0,failed=0,claimedCount=0;
  for(const row of pending){
   // Atomic per-message claim: a second tab must not call a paid provider for
@@ -97,9 +102,10 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
     const store=c.memoryStore??emptyMemoryStore();
     if((store.magneticMessages??[]).some(x=>x.active&&x.messageId===row.id&&x.fingerprint===row.fingerprint))return false;
     const existing=(store.magneticAttempts??[]).find(x=>x.messageId===row.id&&x.fingerprint===row.fingerprint);
-    if(retry?existing?.status!=='failed'&&existing?.status!=='pending':!!existing)return false;
+    if(retry?!canRecoverMagneticAttempt(existing,Date.now()):!!existing)return false;
+    const startedAt=Date.now();
     const attempts=(store.magneticAttempts??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint);
-    attempts.push({messageId:row.id,fingerprint:row.fingerprint,status:'pending',startedAt:Date.now()});
+    attempts.push({messageId:row.id,fingerprint:row.fingerprint,status:'pending',startedAt});
     await db.conversations.update(c.id,{memoryStore:{...store,magneticAttempts:attempts}});
     return true;
    });
