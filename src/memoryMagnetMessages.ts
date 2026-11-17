@@ -97,7 +97,7 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
   // Atomic per-message claim: a second tab must not call a paid provider for
   // the same message revision. Interrupted claims require explicit recovery.
   const claimId=crypto.randomUUID();
-  const claimed=const saved=await db.transaction('rw',db.conversations,async()=>{
+  const claimed=await db.transaction('rw',db.conversations,async()=>{
     const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('magnet-conversation-missing');
     if(c.characterId!==scope.characterId||c.mode!==scope.mode||(scope.mode==='world'&&(c.worldId!==scope.worldId||c.activeTimelineId!==scope.timelineId||(c.timelineEpoch??0)!==scope.epoch)))throw Error('magnet-scope-changed');
     const store=c.memoryStore??emptyMemoryStore();
