@@ -9,7 +9,7 @@ import {getMemoryScope,listMemories,listMemoryRevisions,createMemory,sealMemoryS
 import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelines';
 import {visibleMessage} from './messageBubbles';
 import {summaryDuplicateIndex} from './memorySummaryQuality';
-import {requestSummary,requestChunkEvents,requestGroupDigest,SummaryResponseError} from './memorySummaryRequest';
+import {requestSummary,SummaryResponseError} from './memorySummaryRequest';
 import {parseSummary,summaryJsonCandidate,summaryPrompt,SummaryFormatError} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
@@ -133,24 +133,11 @@ async function execute(scope:MemoryScope,manual:boolean){
    failure='provider';const raw=await requestSummary(config,apiKey,input,controller.signal,combined);
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
    failure='format';try{
-    let memoryJson=raw,eventSummary='';
-    if(combined){
-     let result:unknown;
-     result=summaryJsonCandidate(raw);
-     if(!result||typeof result!=='object'||Array.isArray(result)||!Array.isArray((result as {memories?:unknown}).memories))throw new SummaryResponseError({version:1,stage:'validate',code:'response-shape'});
-     const response=result as {memories:unknown;summary:string};
-     if((response.summary??'').length>1200)throw new SummaryResponseError({version:1,stage:'validate',code:'output-limit'});
-     eventSummary=(response.summary??'').trim();
-     memoryJson=JSON.stringify({memories:response.memories});
-    }
-    // Keep all structurally valid facts; evidence/importance heuristics must not discard model output.
-    const parsed=parseSummary(memoryJson),selected={accepted:parsed,rejected:[] as {index:number;reason:never}[]};
-    if(!combined){await db.transaction('r',tables(),()=>assertSummarySource(job,manual));try{eventSummary=await requestChunkEvents(config,apiKey,input,controller.signal);}catch(error){
-     // Auxiliary event extraction must not discard valid, already paid-for memories.
-     // The memory facts remain available in the resumable checkpoint.
-     if(controller.signal.aborted)throw error;
-     eventSummary='';
-    }}
+    // The first pass is plain text. Preserve it as one long-term memory and
+    // one event digest; no JSON parsing, importance gate or auxiliary paid call.
+    const eventSummary=raw.trim();
+    const parsed:SummaryFact[]=[{type:'fact',kind:'long',content:eventSummary}];
+    const selected={accepted:parsed,rejected:[] as {index:number;reason:never}[]};
     if(eventSummary)events.push(eventSummary);
     facts.push(...selected.accepted);stats.candidates+=parsed.length;stats.accepted+=selected.accepted.length;
     stats.rejected+=selected.rejected.length;
@@ -163,23 +150,11 @@ async function execute(scope:MemoryScope,manual:boolean){
   // A single bounded, chronological event digest belongs to the whole configured
   // interval, never to an individual API chunk. It is separate from raw messages.
   const uniqueEvents=events.filter(Boolean);
-  const previousSummaries=(await visibleSummaryReceipts(scope)).filter(r=>r.shortSummary?.trim()).slice(-2).map(r=>r.shortSummary!);
   let groupSummary=uniqueEvents[0]??'';
   if(claimed.inputs.length>1){
-   let layer=uniqueEvents.slice();let depth=0;
-   while(layer.length>1){
-    if(++depth>12)throw Error('一级总结事件合并超过层级上限');
-    const next:string[]=[];
-    for(let i=0;i<layer.length;i+=6){
-     const batch=layer.slice(i,i+6);
-     failure='stale-path';await db.transaction('r',tables(),()=>assertSummarySource(job,manual));failure='provider';if(batch.length===1){next.push(batch[0]);}else{
-      try{next.push(await requestGroupDigest(config,apiKey,batch,controller.signal,depth===1?previousSummaries:[]));}
-      catch(error){if(controller.signal.aborted)throw error;next.push(batch.join('\n').slice(0,2500));}
-     }
-    }
-    layer=next;
-   }
-   groupSummary=layer[0]??'';
+   // Merge already-paid-for chunk summaries locally. Secondary/core synthesis
+   // runs independently and must never block first-pass persistence.
+   groupSummary=uniqueEvents.join('\n').slice(0,2500);
   }
 
   failure='stale-path';
