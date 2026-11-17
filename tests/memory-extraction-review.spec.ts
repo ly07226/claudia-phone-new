@@ -6,6 +6,6 @@ test('event extraction review accepts concise event and empty event set',()=>{
 });
 test('event extraction review rejects oversized or fabricated empty placeholder',()=>{
  expect(reviewExtractedEvents('原文','没有重要事件').reasons).toContain('empty-placeholder');
- expect(reviewExtractedEvents('原文',Array.from({length:6},(_,i)=>'事件'+i).join('\\n')).reasons).toContain('too-many-events');
+ expect(reviewExtractedEvents('原文',Array.from({length:6},(_,i)=>'事件'+i).join('\n')).reasons).toContain('too-many-events');
  expect(reviewExtractedEvents('原文','x'.repeat(4010)).reasons).toContain('oversized-events');
 });
