@@ -10,7 +10,7 @@ import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelin
 import {visibleMessage} from './messageBubbles';
 import {summaryDuplicateIndex} from './memorySummaryQuality';
 import {requestSummary,SummaryResponseError} from './memorySummaryRequest';
-import {parseSummary,summaryJsonCandidate,summaryPrompt,SummaryFormatError} from './memorySummaryFormat';
+import {summaryPrompt,SummaryFormatError} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
 import {buildSummaryInputs} from './memorySummaryChunks';
