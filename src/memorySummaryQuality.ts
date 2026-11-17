@@ -60,6 +60,7 @@ export function selectSummaryCandidates(facts:SummaryFact[],input:string){
   else if(['preference','habit'].includes(q.category)&&negative.test(fact.content)&&!negative.test(clauses))reason='unsupported-detail';
   else if(fact.type==='speculation'&&!uncertainty.test(clauses))reason='unsupported-inference';
   else if(negative.test(clauses)&&!negative.test(fact.content))reason='lost-condition';
+  else if(negative.test(fact.content)&&!negative.test(clauses))reason='unsupported-detail';
   else if(/只有|必须|前提|除非|只要|先.{0,12}才/u.test(sentences)&&!/只有|必须|前提|除非|只要|先.{0,12}才/u.test(fact.content))reason='lost-condition';
   else if(q.category==='habit'&&!/每天|每周|每次|习惯|经常|通常|总是|一直|一向|多年|长期/u.test(clauses))reason='unsupported-inference';
   else if(q.category==='preference'&&!namingPreference&&!/喜欢|偏好|讨厌|不爱|宁愿|希望|在意|接受|拒绝|想要|请叫我|更愿意|只(?:喝|吃|用|穿)|对.{1,16}过敏/u.test(clauses))reason='unsupported-inference';
