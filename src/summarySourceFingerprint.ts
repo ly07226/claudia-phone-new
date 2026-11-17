@@ -22,7 +22,7 @@ function sourceMessages(receipt:Pick<SummaryReceipt,'turns'>,byId:ReadonlyMap<st
  const ids=receipt.turns.flatMap(t=>[...t.userIds,t.assistantId]);if(new Set(ids).size!==ids.length)return;
  const source=ids.map(id=>byId.get(id));if(source.some(m=>!m))return;
  let previous=-1;
- for(const turn of receipt.turns){for(const id of turn.userIds){const m=byId.get(id)!;const p=positions.get(id)!;if(m.role!=='user'||p<=previous)return;previous=p;}const m=byId.get(turn.assistantId)!;const p=positions.get(m.id)!;if(m.role!=='assistant'||p<=previous)return;previous=p;}
+ for(const turn of receipt.turns){for(const id of turn.userIds){const m=byId.get(id)!;const p=positions.get(id)!;if(m.role!=='user'||p<=previous)return;previous=p;}const m=byId.get(turn.assistantId)!;const p=positions.get(m.id)!;if(m.role!=='assistant'||m.replyInterruption||p<=previous)return;previous=p;}
  return source as Message[];
 }
 export async function summarySourceFingerprint(receipt:Pick<SummaryReceipt,'turns'>,path:Message[]){const source=sourceMessages(receipt,new Map(path.map(m=>[m.id,m])));return source?messageSourceFingerprint(source):undefined;}

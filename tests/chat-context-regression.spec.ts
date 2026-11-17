@@ -19,10 +19,10 @@ for(const provider of ['openai-compatible','gemini'])test('最终请求：人物
  const ids=await seed(page);const requests:any[]=[];
  await page.route('https://context.test/**',r=>{requests.push(r.request().postDataJSON());return r.fulfill({json:provider==='gemini'?{candidates:[{content:{parts:[{text:'离线回复'}]}}]}:{choices:[{message:{content:'离线回复'}}]}});});
  const r=await page.evaluate(async({ids,provider})=>{
-  const {db}=await import('/src/store.ts');const {getMemoryScope,createMemory}=await import('/src/memoryStore.ts');const {sendMessage}=await import('/src/chatService.ts');const {newBook,newEntry}=await import('/src/loreTypes.ts');
+  const {db}=await import('/src/store.ts');const {getMemoryScope,createMemory,saveMemoryTags}=await import('/src/memoryStore.ts');const {sendMessage}=await import('/src/chatService.ts');const {newBook,newEntry}=await import('/src/loreTypes.ts');
   await db.apiConfigs.put({id:'mock',name:'测试配置',provider,baseUrl:'https://context.test/v1',model:'mock',temperature:.63,maxTokens:777,enabled:true,isDefault:true,createdAt:1,updatedAt:1});await db.apiCredentials.put({configId:'mock',apiKey:'synthetic-secret-not-logged'});
   const book={...newBook(),id:'lore-one',worldIds:['one']};await db.lorebooks.put(book);await db.loreEntries.put({...newEntry(book.id),constant:true,content:'ONE_ONLY_LORE'});
-  for(let i=0;i<ids.length;i++){const scope=await getMemoryScope(ids[i]);await createMemory(scope,{kind:'core',content:'仅此作用域核心'+i});await createMemory(scope,{kind:'long',content:'上班安排：仅此作用域长期'+i});}
+  for(let i=0;i<ids.length;i++){const scope=await getMemoryScope(ids[i]);await createMemory(scope,{kind:'core',content:'仅此作用域核心'+i});const long=await createMemory(scope,{kind:'long',content:'上班安排：仅此作用域长期'+i});await saveMemoryTags(scope,long.id,long.revision,[{axis:'keyword',tag:'上班',weight:1}]);}
   const stores=await db.conversations.toArray();for(const id of ids)await sendMessage(id,'我现在要去上班，不是去休息。');
   return {before:stores.map(c=>c.memoryStore),after:(await db.conversations.toArray()).map(c=>c.memoryStore),logs:(await import('/src/chatRequestDiagnostics.ts')).exportRequestDiagnostics()};
  },{ids,provider});
@@ -70,7 +70,7 @@ test('有效历史、选中回复版本及分支切换决定请求，不读取�
 test('ABCD来源分别标记世界书、记忆、历史与模型原始输出；不删改输出',async({page})=>{
  const ids=await seed(page);const choices='A. 第一项\nB. 第二项\nC. 第三项\nD. 玩家自由输入';
  const r=await page.evaluate(async({id,choices})=>{
-  const {db}=await import('/src/store.ts');const {buildContext}=await import('/src/chatContext.ts');const {requestReply}=await import('/src/chatProvider.ts');const {getRequestDiagnostics}=await import('/src/chatRequestDiagnostics.ts');const {newBook,newEntry}=await import('/src/loreTypes.ts');const {getMemoryScope,createMemory}=await import('/src/memoryStore.ts');
+  const {db}=await import('/src/store.ts');const {buildContext}=await import('/src/chatContext.ts');const {requestReply}=await import('/src/chatProvider.ts');const {getRequestDiagnostics}=await import('/src/chatRequestDiagnostics.ts');const {newBook,newEntry}=await import('/src/loreTypes.ts');const {getMemoryScope,createMemory,saveMemoryTags}=await import('/src/memoryStore.ts');
   await db.messages.put({id:id+'a',conversationId:id,role:'assistant',content:choices,createdAt:2});await db.messages.put({id:'current',conversationId:id,role:'user',content:'上班',createdAt:3});
   const book={...newBook(),id:'one-book',worldIds:['one']};await db.lorebooks.put(book);await db.loreEntries.put({...newEntry(book.id),constant:true,content:choices});await createMemory(await getMemoryScope(id),{kind:'core',content:choices});
   const messages=await buildContext((await db.conversations.get(id))!);const config={id:'mock',name:'mock',provider:'openai-compatible' as const,baseUrl:'https://offline.test/v1',model:'mock',temperature:.7,maxTokens:500,enabled:true,createdAt:1,updatedAt:1};

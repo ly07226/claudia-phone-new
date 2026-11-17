@@ -48,11 +48,13 @@ export async function maybeBuildCoreMemory(scope:MemoryScope,manual=false):Promi
   if(!long.length)return;
   const character=await db.characters.get(scope.characterId);
   const input=JSON.stringify({character:character?.name??'',longTermMemories:long.map(e=>e.content)});
-  const {config,key}=await getSummaryApi(scope);
   const startedAt=Date.now();
   await db.conversations.update(scope.conversationId,{memoryCoreAttempt:{anchorReceiptId:anchor,sourceReceiptIds,status:'running',startedAt}});
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),120000);
   try{
-   const result=await requestSummary(config,key,input,new AbortController().signal,false,'core');
+   const {config,key}=await getSummaryApi(scope);
+   const result=await requestSummary(config,key,input,controller.signal,false,'core');
+   if(controller.signal.aborted||Date.now()-startedAt>=120000)throw Error('core-timeout');
    if(memoryScopeKey(await getMemoryScope(scope.conversationId))!==memoryScopeKey(scope))throw Error('core-scope-changed');
    const current=(await visibleSummaryReceipts(scope)).filter(r=>r.shortSummary?.trim());
    const currentIds=new Set(current.map(r=>r.id));
@@ -74,7 +76,7 @@ export async function maybeBuildCoreMemory(scope:MemoryScope,manual=false):Promi
    if(now?.memoryCoreAttempt?.anchorReceiptId===anchor)
     await db.conversations.update(scope.conversationId,{memoryCoreAttempt:{anchorReceiptId:anchor,sourceReceiptIds,status:'failed',startedAt,finishedAt:Date.now()}});
    throw error;
-  }
+  }finally{clearTimeout(timeout);}
  });
 }
 /** Explicit user-initiated recovery. May incur a new provider charge. */

@@ -1,6 +1,6 @@
 import type {SummaryFact,SummaryCategory} from './memorySummaryTypes';
 import {SummaryFormatError} from './memorySummaryFormat';
-export type SummaryQualityRejection='unsupported-evidence'|'temporary'|'low-importance'|'weak-impact'|'unsupported-inference'|'uncertain-as-fact'|'lost-condition'|'unsupported-detail'|'unattributed-view';
+export type SummaryQualityRejection='invalid-candidate'|'unsupported-evidence'|'temporary'|'low-importance'|'weak-impact'|'unsupported-inference'|'uncertain-as-fact'|'lost-condition'|'unsupported-detail'|'unattributed-view';
 const evidenceText=(s:string)=>s.normalize('NFKC').replace(/\s+/g,' ').trim();
 // Match formatting only, never paraphrases; retain original offsets so negation
 // and conditional guards still inspect the full original clause.
@@ -36,13 +36,13 @@ function sourceContext(message:string,quote:string){
 /** Format validation is atomic. Quality rejection is content selection, not an
  * API failure: valid candidates may produce a genuinely empty selection.
  */
-export function selectSummaryCandidates(facts:SummaryFact[],input:string){
- const turns=JSON.parse(input) as {role:string;content:string}[][];
+export function selectSummaryCandidates(facts:SummaryFact[],input:string,originalTurns?:readonly {messages:{role:string;content:string}[]}[]){
+ const turns=JSON.parse(input) as {role:string;content:string;turnIndex?:number;part?:number}[][];
  for(let i=0;i<facts.length;i++)if(!facts[i].quality)throw new SummaryFormatError({version:1,stage:'validate',code:'invalid-quality',itemIndex:i});
  const accepted:SummaryFact[]=[],rejected:{index:number;reason:SummaryQualityRejection}[]=[];
  facts.forEach((fact,index)=>{
   const q=fact.quality!;let reason:SummaryQualityRejection|undefined;
-  const evidence=q.evidence.map(e=>{const source=turns[e.turn-1]?.find(m=>m.role===e.role&&evidenceLocation(m.content,e.quote));return source?sourceContext(source.content,e.quote):undefined;});
+  const evidence=q.evidence.map(e=>{let source=turns[e.turn-1]?.find(m=>m.role===e.role&&evidenceLocation(m.content,e.quote));if(source?.part!==undefined){const matches=source.turnIndex===undefined?[]:originalTurns?.[source.turnIndex]?.messages.filter(m=>m.role===e.role&&m.content.includes(source!.content))??[];if(matches.length!==1)return undefined;source=matches[0];}return source?sourceContext(source.content,e.quote):undefined;});
   const sentences=evidence.filter((e):e is NonNullable<typeof e>=>!!e).map(e=>e.sentence).join('\n');
   const clauses=evidence.filter((e):e is NonNullable<typeof e>=>!!e).map(e=>e.clause).join('\n');
   const lastingEvidence=/长期|持续|一直|从此|不再|再也|终身|永久|多年|每次|每天|每周|习惯|关系|伴侣|夫妻|身份|确诊|去世|死亡|结婚|离婚|决裂|和解/u.test(clauses)||naming.test(clauses);
@@ -74,13 +74,13 @@ export function selectSummaryCandidates(facts:SummaryFact[],input:string){
  accepted.sort((a,b)=>Number(b.quality!.importance==='high')-Number(a.quality!.importance==='high'));
  return {accepted,rejected};
 }
-const canonical=(text:string)=>text.replace(/^【[^】]+】/,'').normalize('NFKC').toLowerCase().replace(/^(角色|用户)(?:明确)?(?:表示|表达|说道|说|提到)自己/u,'$1').replace(/明确(?:表示|表达|说道|说)|表示|表达|说道|提到/gu,'').replace(/[\s\p{P}\p{S}]/gu,'');
+const canonical=(text:string)=>text.replace(/^【[^】]+】/,'').normalize('NFKC').toLowerCase().replace(/^(角色|用户)(?:明确)?(?:表示|表达|说道|说|提到)自己/u,'$1').replace(/明确(?:表示|表达|说道|说)|表示|表达|说道|提到/gu,'').replace(/[\s\p{P}\p{S}]/gu,c=>['-','+','%','−'].includes(c)?c.replace('−','-'):'');
 const shingles=(s:string)=>new Set(Array.from({length:Math.max(0,s.length-1)},(_,i)=>s.slice(i,i+2)));
-const numbers=(s:string):string[]=>evidenceText(s).match(/\d+(?:\.\d+)?|[零一二三四五六七八九十百千万两]+(?:年|月|日|天|点|岁|元|次)/gu)??[];
+const numbers=(s:string):string[]=>evidenceText(s).match(/[+\-−]?\d+(?:\.\d+)?(?:[%％])?|[零一二三四五六七八九十百千万两]+(?:年|月|日|天|点|岁|元|次)/gu)?.map(n=>n.replace('−','-'))??[];
 const anchors=(s:string)=>shingles(s.replace(/用户|角色|双方|自己|明确|表示|表达|认为|觉得|之后|以后|当前|这次|已经|可能|我们|你们/gu,'').replace(/[\s\p{P}\p{S}]/gu,''));
 function aligned(content:string,source:string){const a=anchors(content),b=anchors(source);let count=0;for(const x of a)if(b.has(x))count++;return count>0&&count/Math.max(1,Math.min(a.size,b.size))>=.2;}
 const category=(s:string):SummaryCategory|undefined=>s.startsWith('【已发生事实】')?'fact':s.startsWith('【人物主观判断】')?'belief':s.startsWith('【猜测（未证实）】')?'speculation':s.startsWith('【未完成事项】')?'pending':undefined;
-function critical(s:string){return JSON.stringify([s.match(/\d+(?:\.\d+)?|[零一二三四五六七八九十百千万两]+(?:年|月|天|岁|元|次)/gu)??[],s.match(/不|没|无|未|拒绝|禁止|避免|如果|除非|只有|必须/gu)??[],s.match(/用户|角色|双方/gu)??[]]);}
+function critical(s:string){return JSON.stringify([numbers(s),s.match(/不|没|无|未|拒绝|禁止|避免|如果|除非|只有|必须/gu)??[],s.match(/用户|角色|双方/gu)??[]]);}
 /** Skip only; never merge/edit an existing entry. Critical numbers, negation,
  * conditions, speaker order and epistemic category must agree for near matches.
  */

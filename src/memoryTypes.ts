@@ -1,3 +1,4 @@
+import type {SummaryQuality,SummaryCategory} from './memorySummaryTypes';
 /** Logical memory records live inside their owning Conversation; no v6 table migration. */
 export type MemoryKind='core'|'long'|'short';
 export type StoredMemoryKind=Exclude<MemoryKind,'short'>;
@@ -16,7 +17,7 @@ export interface MagneticTagAttempt {messageId:string;fingerprint:string;status:
 export interface MemoryTagFailure {entryId:string;revision:number;attempts:number;lastFailedAt:number;reason:string}
 export interface MemoryEntry {
  id:string;revision:number;scope:MemoryScope;kind:StoredMemoryKind;source:MemorySource;
- content:string;deleted:boolean;anchorNodeId?:string;sourceReceiptId?:string;createdAt:number;updatedAt:number;
+ content:string;deleted:boolean;type?:SummaryCategory;quality?:SummaryQuality;anchorNodeId?:string;sourceReceiptId?:string;createdAt:number;updatedAt:number;
 }
 export interface MemoryFork {
  timelineId:string;epoch:number;parentTimelineId?:string;sharedHeadNodeId?:string;
@@ -27,7 +28,7 @@ export interface MemoryFork {
  hiddenSummaryIds?:string[];
 }
 export interface MemoryStore {version:1;revision:number;entries:MemoryEntry[];forks:MemoryFork[];shortHides?:{scope:MemoryScope;receiptIds:string[]}[];tagRecords?:MemoryTagRecord[];tagFailures?:MemoryTagFailure[];magneticMessages?:MagneticMessageMemory[];magneticAttempts?:MagneticTagAttempt[];magneticZeroRuns?:number}
-export interface MemoryInput {kind:StoredMemoryKind;content:string;source?:MemorySource;sourceReceiptId?:string}
+export interface MemoryInput {kind:StoredMemoryKind;content:string;type?:SummaryCategory;quality?:SummaryQuality;source?:MemorySource;sourceReceiptId?:string}
 export interface EffectiveMemory extends MemoryEntry {inherited:boolean}
 export interface ShortMemoryItem {messageId:string;variantId?:string;nodeId?:string;role:'user'|'assistant';content:string;assetIds:string[];createdAt:number}
 export interface ShortMemory {
