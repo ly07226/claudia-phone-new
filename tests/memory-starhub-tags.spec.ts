@@ -34,7 +34,7 @@ test('tagging rejects empty or multiline summaries before saving a memory',async
   const {validateTagging}=await import('/src/memoryMagnetTagger.ts');
   const taxonomy={emotion:['高兴'],topic:['旅行']};
   const rejected:string[]=[];
-  for(const summary of ['', '   ', '第一行\\n第二行', '第一行\\r第二行', '超'.repeat(41)]){
+  for(const summary of ['', '   ', '第一行\n第二行', '第一行\r第二行', '超'.repeat(41)]){
    try{validateTagging({summary,keyword:[],emotion:[],topic:[]},taxonomy);}catch{rejected.push(summary);}
   }
   const valid=validateTagging({summary:'记得码头上的约定',keyword:['码头'],emotion:[],topic:[]},taxonomy);
