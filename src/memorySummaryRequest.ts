@@ -30,6 +30,19 @@ export async function requestSummary(config:ApiConfig,key:string,input:string,si
    message.content=message.content.map((p:any)=>p.text).join('');
    return new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
   }
+  // Normalize text-only compatible API responses before the shared chat parser
+  // checks message.content. Some providers use output_text or typed blocks.
+  if(!gemini&&message){
+   const typed=Array.isArray(message.content)?message.content.filter((p:any)=>p&&typeof p.text==='string').map((p:any)=>p.text).join(''):undefined;
+   const normalized=(typeof message.content==='string'&&message.content.trim()?message.content:
+    typed?.trim()?typed:
+    typeof message.output_text==='string'&&message.output_text.trim()?message.output_text:
+    typeof data?.output_text==='string'&&data.output_text.trim()?data.output_text:undefined);
+   if(normalized&&normalized!==message.content){
+    message.content=normalized;
+    return new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
+   }
+  }
   const content=gemini?data?.candidates?.[0]?.content?.parts?.filter((p:any)=>!p.thought).map((p:any)=>p.text??'').join(''):message?.content;
   if(!diagnostic&&(typeof content!=='string'||!content.trim()))diagnostic={version:1,stage:'response',code:'response-shape'};
   return response;
