@@ -207,9 +207,14 @@ async function execute(scope:MemoryScope,manual:boolean){
    // Preserve the actual failure category. A stale timeline/checkpoint or local
    // state error must not be reported as a provider failure after switching APIs.
    if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;failure=diagnostic.stage==='response'&&diagnostic.code!=='truncated'?'provider':'format';}
-   else if(decision.kind==='state')failure='stale-path';
+   else if(decision.kind==='state'){
+    // Do not overwrite the stage recorded immediately before the failing operation.
+    // The previous catch collapsed capacity, interruption, checkpoint and source
+    // validation failures into a misleading generic stale-path status.
+    if(!['capacity','stale-path','interrupted','input-too-large','format','empty'].includes(failure))failure='stale-path';
+   }
    else if(decision.kind==='format')failure='format';
-   else failure='provider';
+   else if(!['capacity','stale-path','interrupted','input-too-large','format','empty'].includes(failure))failure='provider';
    if(diagnostic)diagnostic={...diagnostic,inputRounds:claimed.turns.length,inputTokenEstimate:memoryTokenCost(system)+Math.max(...claimed.inputs.map(memoryTokenCost))};
    await fail(job,failure,diagnostic,{...decision,retry:manual&&decision.retry},manual).catch(()=>{});
   }finally{clearTimeout(timer);}
