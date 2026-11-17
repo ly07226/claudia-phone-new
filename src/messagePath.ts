@@ -1,3 +1,4 @@
+import {pathProvenance,rememberPath} from './pathProvenance';
 import { legacyActiveMessages } from "./legacyMessagePath";
 import { resolveTimelinePath } from "./timelines";
 import { db } from "./store";
@@ -11,7 +12,7 @@ export async function activeMessages(
   if (!beforeId) return rows;
   const index=rows.findIndex(m=>m.id===beforeId);
   if(index<0)throw Error("目标消息不在当前有效路径。");
-  return rows.slice(0,index);
+  const selected=rows.slice(0,index),proof=pathProvenance(rows);if(proof)rememberPath(selected,{...proof,nodeIds:proof.nodeIds.slice(0,index)});return selected;
 }
 
 export async function variantsFor(message: Message) {

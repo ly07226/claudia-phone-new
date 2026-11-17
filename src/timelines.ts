@@ -1,3 +1,6 @@
+import {canReuseSourceCache} from './chatSourceReadBarrier';
+import {cachedTimelinePrefix,cacheVerifiedTimeline,installTimelineReadCache,appendedMessageIds} from './timelineReadCache';
+import {rememberPath} from './pathProvenance';
 import {dataEqual} from './dataEqual';
 import Dexie from "dexie";
 import { db } from "./store";
@@ -22,29 +25,47 @@ function assertOwner(c:Conversation,t:MemoryTimeline) {
 }
 // Scope-bounded bulk reads avoid one IndexedDB round trip per parent. Very large
 // branched archives fall back to the original walk rather than loading every branch.
-const graphLimit=20000;
-async function scopedGraph(id:string){const query=db.pathNodes.where('conversationId').equals(id);return await query.count()<=graphLimit?query.toArray():undefined;}
+const graphLimit=50000;
+async function scopedGraph(id:string){
+ const query=db.pathNodes.where('conversationId').equals(id);if(await query.count()>graphLimit)return;
+ const rows:ConversationPathNode[]=[];let chars=0;
+ for(let offset=0;;offset+=512){const page=await query.clone().offset(offset).limit(512).toArray();for(const n of page){chars+=n.message?.content?.length??0;if(chars>8*1024*1024)return;rows.push(n);}if(page.length<512)return rows;}
+}
 function nodeShape(n:ConversationPathNode,id:string){
  if(n.conversationId!==id||typeof n.message?.content!=="string"||!Number.isFinite(n.message.createdAt)||!["user","assistant","system","tool"].includes(n.role)||n.messageId!==n.message.id||n.variantId!==n.message.activeVariantId||n.role!==n.message.role||n.message.conversationId!==id)throw Error("不可变节点内容校验失败。");
 }
 async function batches<T,R>(rows:T[],fn:(row:T)=>Promise<R>){const out:R[]=[];for(let i=0;i<rows.length;i+=64)out.push(...await Promise.all(rows.slice(i,i+64).map(fn)));return out;}
-// Reuse proof only inside one consistent transaction. No cross-transaction trust.
+// Transaction-local snapshots supplement the mutation-fenced committed-prefix cache.
 const transactionPaths=new WeakMap<object,{id:string;head?:string;nodes:ConversationPathNode[]}>();let pathHooks=false;
 function rootTransaction(tx:any):any{while(tx?.parent)tx=tx.parent;return tx;}
 function pathTransaction(){if(!pathHooks){pathHooks=true;const clear=(tx:any)=>{transactionPaths.delete(rootTransaction(tx));};db.pathNodes.hook('creating',(_k,_v,tx)=>{clear(tx);});db.pathNodes.hook('updating',(_m,_k,_v,tx)=>{clear(tx);});db.pathNodes.hook('deleting',(_k,_v,tx)=>{clear(tx);});}return rootTransaction(Dexie.currentTransaction);}
 export async function nodesForHead(conversationId:string,head?:string):Promise<ConversationPathNode[]> {
- const tx:object|undefined=pathTransaction(),cached=tx?transactionPaths.get(tx):undefined;if(cached?.id===conversationId&&cached.head===head)return structuredClone(cached.nodes);
- const graph=head?await scopedGraph(conversationId):[],index=graph?new Map(graph.map(n=>[n.id,n])):undefined;
- const rows:ConversationPathNode[]=[],seen=new Set<string>();let id=head;
- while(id){if(seen.has(id))throw Error("时间线路径存在循环。");seen.add(id);const n=index?index.get(id):await db.pathNodes.get(id);if(!n||n.conversationId!==conversationId)throw Error("时间线路径断链或跨会话。");nodeShape(n,conversationId);rows.push(n);id=n.parentNodeId;}
- await batches(rows,async n=>{if(n.fingerprint!==await messageFingerprint(n.message))throw Error("不可变节点内容校验失败。");});
- rows.reverse();if(new Set(rows.map(n=>n.messageId)).size!==rows.length)throw Error("时间线路径重复消息。");if(tx&&rows.length<=graphLimit&&rows.reduce((n,row)=>n+row.message.content.length,0)<=8*1024*1024)transactionPaths.set(tx,{id:conversationId,head,nodes:structuredClone(rows)});return rows;
+ installTimelineReadCache();const tx:object|undefined=pathTransaction(),cached=tx?transactionPaths.get(tx):undefined;if(cached?.id===conversationId&&cached.head===head)return structuredClone(cached.nodes);
+ const committed=await canReuseSourceCache()?cachedTimelinePrefix(conversationId):undefined;let boundary=head;
+ const tip:ConversationPathNode[]=[],visited=new Set<string>();let prefix=-1;
+ // Walk only new immutable nodes until a previously verified ancestor is reached.
+ // A mutation to ANY cached node invalidates the entire proof, even on rollback.
+ if(committed){while(boundary){const at=committed.positions.get(boundary);if(at!==undefined){prefix=at;break;}if(visited.has(boundary))throw Error("时间线路径存在循环。");visited.add(boundary);const n=await db.pathNodes.get(boundary);if(!n)throw Error("时间线路径断链或跨会话。");nodeShape(n,conversationId);if(n.fingerprint!==await messageFingerprint(n.message))throw Error("不可变节点内容校验失败。");tip.push(n);boundary=n.parentNodeId;}}
+ let rows:ConversationPathNode[];
+ if(committed?.valid&&prefix>=0){
+  const seenMessages=new Set<string>();for(const n of tip){const at=committed.messages.get(n.messageId);if(at!==undefined&&at<=prefix||seenMessages.has(n.messageId))throw Error("时间线路径重复消息。");seenMessages.add(n.messageId);}
+  rows=[...structuredClone(committed.nodes.slice(0,prefix+1)),...tip.reverse()];
+ }else{
+  const graph=head?await scopedGraph(conversationId):[],index=graph?new Map(graph.map(n=>[n.id,n])):undefined;
+  rows=[];const seen=new Set<string>();let id=head;
+  while(id){if(seen.has(id))throw Error("时间线路径存在循环。");seen.add(id);const n=index?index.get(id):await db.pathNodes.get(id);if(!n||n.conversationId!==conversationId)throw Error("时间线路径断链或跨会话。");nodeShape(n,conversationId);rows.push(n);id=n.parentNodeId;}
+  await batches(rows,async n=>{if(n.fingerprint!==await messageFingerprint(n.message))throw Error("不可变节点内容校验失败。");});rows.reverse();
+ }
+ if(new Set(rows.map(n=>n.messageId)).size!==rows.length)throw Error("时间线路径重复消息。");
+ if(tx&&rows.length<=graphLimit&&rows.reduce((n,row)=>n+row.message.content.length,0)<=8*1024*1024)transactionPaths.set(tx,{id:conversationId,head,nodes:structuredClone(rows)});
+ cacheVerifiedTimeline(conversationId,rows);return rows;
 }
 export async function resolveTimelinePath(conversationId:string,timelineId?:string):Promise<Message[]> {
- return db.transaction("r",timelineTables(),async()=>{const c=await db.conversations.get(conversationId);if(!c)throw Error("会话不存在。");const id=timelineId??c.activeTimelineId;if(!id)return legacyActiveMessages(conversationId);const t=await db.timelines.get(id);if(!t)throw Error("时间线不存在。");assertOwner(c,t);await getTimelineAncestors(c.id,t.id);return(await nodesForHead(c.id,t.headNodeId)).map(n=>({...n.message,archived:false}));});
+ return db.transaction("r",timelineTables(),async()=>{const c=await db.conversations.get(conversationId);if(!c)throw Error("会话不存在。");const id=timelineId??c.activeTimelineId;if(!id)return legacyActiveMessages(conversationId);const t=await db.timelines.get(id);if(!t)throw Error("时间线不存在。");assertOwner(c,t);await getTimelineAncestors(c.id,t.id);const nodes=await nodesForHead(c.id,t.headNodeId),rows=nodes.map(n=>({...n.message,archived:false}));rememberPath(rows,{conversationId:c.id,timelineId:t.id,epoch:t.epoch,head:t.headNodeId,nodeIds:nodes.map(n=>n.id)});return rows;});
 }
 /** Read-only preview: validates the timeline owner and each visited tip, not an
- * assertion that the entire historical graph is valid. Generation still validates all. */
+ * assertion that the entire historical graph is valid. Generation verifies new nodes
+ * and reuses a committed prefix only while its mutation proof remains valid. */
 export async function latestTimelineMessage(c:Conversation){
  const t=await db.timelines.get(c.activeTimelineId!);if(!t)throw Error('时间线不存在。');assertOwner(c,t);await getTimelineAncestors(c.id,t.id);
  const seen=new Set<string>();let id=t.headNodeId;while(id){if(seen.has(id))throw Error('时间线路径存在循环。');seen.add(id);const n=await db.pathNodes.get(id);if(!n)throw Error('时间线路径断链或跨会话。');nodeShape(n,c.id);if(n.fingerprint!==await messageFingerprint(n.message))throw Error('不可变节点内容校验失败。');if(n.role==='user'||n.role==='assistant')return {...n.message,archived:false};id=n.parentNodeId;}
@@ -69,6 +90,26 @@ async function buildNodes(c:Conversation,messages:Message[],prior:ConversationPa
  if(new Set(fresh.map(n=>n.messageId)).size!==fresh.length)throw Error('时间线路径重复消息。');if(created.length)await db.pathNodes.bulkAdd(created);
  return {headNodeId:parent||undefined,nodes:fresh};
 }
+/** Fast append is fenced by a committed projection proof, this transaction's
+ * created IDs, unchanged old rows and a native indexed count. Every other case
+ * retains the full reconciliation path (including edits and archived branches). */
+async function tryAppendProjection(c:Conversation,current:MemoryTimeline){
+ if(!await canReuseSourceCache())return;
+ const cached=cachedTimelinePrefix(c.id),ids=appendedMessageIds(c.id);
+ if(!cached?.valid||!ids?.size||cached.projection?.timelineId!==current.id||cached.projection.head!==current.headNodeId||cached.nodes.at(-1)?.id!==current.headNodeId)return;
+ if(await db.messages.where('conversationId').equals(c.id).count()!==cached.nodes.length+ids.size)return;
+ const rows=await db.messages.bulkGet([...ids]);if(rows.some(m=>!m||m.conversationId!==c.id||m.archived||!['user','assistant'].includes(m.role)))return;
+ const messages=(rows as Message[]).sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));let time=cached.nodes.at(-1)?.message.createdAt??-Infinity;
+ for(const m of messages){if(!Number.isFinite(m.createdAt)||m.createdAt<=time)return;time=m.createdAt;}
+ const created:ConversationPathNode[]=[],fresh:ConversationPathNode[]=[];let parent=current.headNodeId??'';
+ for(const original of messages){let m=original;if(m.activeVariantId){const v=await db.messageVariants.get(m.activeVariantId);if(!v||v.messageId!==m.id||v.conversationId!==c.id)throw Error('消息版本引用缺失或跨会话。');m={...m,content:v.content,userEdited:v.userEdited};}
+  const fingerprint=await messageFingerprint(m);let node=await db.pathNodes.where('[conversationId+parentNodeId+fingerprint]').equals([c.id,parent,fingerprint]).first();
+  if(node&&!dataEqual(node.message,{...m,archived:false}))throw Error('不可变节点内容校验失败。');
+  if(!node){node={id:crypto.randomUUID(),conversationId:c.id,parentNodeId:parent,messageId:m.id,variantId:m.activeVariantId,role:m.role,message:{...m,archived:false},fingerprint,createdAt:Date.now()};created.push(node);}nodeShape(node,c.id);fresh.push(node);parent=node.id;
+ }
+ if(created.length)await db.pathNodes.bulkAdd(created);const next={...current,headNodeId:parent,revision:current.revision+1};await db.timelines.put(next);
+ cacheVerifiedTimeline(c.id,[...cached.nodes,...fresh],{timelineId:next.id,head:next.headNodeId});return next;
+}
 /** Must be called inside the same write transaction as the legacy projection mutation. */
 export async function ensureTimelineInTransaction(id:string) {
   const c=await db.conversations.get(id);if(!c)throw Error("会话不存在。");
@@ -79,14 +120,15 @@ export async function ensureTimelineInTransaction(id:string) {
 export async function getCurrentTimeline(id:string) {return db.transaction("rw",timelineTables(),async()=>await ensureTimelineInTransaction(id));}
 export async function commitTimelineProjection(id:string,reason:MemoryTimeline["reason"],detached=false) {
   const current=await ensureTimelineInTransaction(id),c=(await db.conversations.get(id))!;
+  if(reason==='append'&&!detached){const fast=await tryAppendProjection(c,current);if(fast)return fast;}
   const old=await nodesForHead(id,current.headNodeId),messages=await legacyActiveMessages(id),built=await buildNodes(c,messages,old),headNodeId=built.headNodeId;
-  if(headNodeId===current.headNodeId)return current;
+  if(headNodeId===current.headNodeId){cacheVerifiedTimeline(id,built.nodes,{timelineId:current.id,head:headNodeId});return current;}
   const fresh=built.nodes;let prefix=0;while(prefix<old.length&&prefix<fresh.length&&old[prefix].id===fresh[prefix].id)prefix++;
-  if(reason==="append"&&prefix===old.length){const next={...current,headNodeId,revision:current.revision+1};await db.timelines.put(next);return next;}
+  if(reason==="append"&&prefix===old.length){const next={...current,headNodeId,revision:current.revision+1};await db.timelines.put(next);cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId});return next;}
   const existing=(await db.timelines.where("conversationId").equals(id).toArray()).find(t=>t.status==="live"&&t.epoch===current.epoch&&t.headNodeId===headNodeId&&(!detached||t.reason==="legacy-snapshot"));
   const next:MemoryTimeline=existing??{...current,id:crypto.randomUUID(),headNodeId,parentTimelineId:detached?undefined:current.id,forkNodeId:detached?undefined:old[prefix-1]?.id,parentRevisionAtFork:detached?undefined:current.revision,revision:0,createdAt:Date.now(),reason:detached?"legacy-snapshot":reason};
   if(!existing)await db.timelines.add(next);
-  await db.conversations.update(id,{activeTimelineId:next.id});return next;
+  await db.conversations.update(id,{activeTimelineId:next.id});cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId});return next;
 }
 async function projectTimeline(id:string,t:MemoryTimeline) {
   const rows=await resolveTimelinePath(id,t.id);
