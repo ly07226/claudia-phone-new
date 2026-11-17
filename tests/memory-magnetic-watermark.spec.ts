@@ -36,6 +36,6 @@ test('stale provider success or failure cannot overwrite a replacement claim',()
  expect(ownsMagneticClaim(old,'m1','rev1','old')).toBe(true);
  expect(ownsMagneticClaim(replacement,'m1','rev1','old')).toBe(false);
  expect(ownsMagneticClaim(replacement,'m1','rev1','new')).toBe(true);
- expect(ownsMagneticClaim({...replacement,status:'failed'},'m1','rev1','new')).toBe(false);
+ expect(ownsMagneticClaim({...replacement,status:'failed' as const},'m1','rev1','new')).toBe(false);
  expect(ownsMagneticClaim(replacement,'m1','rev2','new')).toBe(false);
 });
