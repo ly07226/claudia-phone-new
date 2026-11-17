@@ -104,7 +104,17 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
    if(!receipt.shortSummary?.trim()&&!requiredReceiptIds.has(receipt.id))continue;
    if(['verified','legacy-verified'].includes(await verify(receipt)))validReceiptIds.add(receipt.id);
   }
-  const reliableEntries=entries.filter(e=>e.source!=='auto'||(!!e.sourceReceiptId&&validReceiptIds.has(e.sourceReceiptId)));
+  // A core summary is derived from FIVE receipts, not only its anchor.
+  // If any source group was edited, removed or is outside this request prefix,
+  // exclude the entire derived core fact instead of leaking stale information.
+  const orderedReceipts=receiptsForSource.filter(r=>r.shortSummary?.trim());
+  const reliableEntries=entries.filter(e=>{
+   if(e.source!=='auto')return true;
+   if(!e.sourceReceiptId||!validReceiptIds.has(e.sourceReceiptId))return false;
+   if(e.kind!=='core')return true;
+   const index=orderedReceipts.findIndex(r=>r.id===e.sourceReceiptId);
+   return index>=4&&(index+1)%5===0&&orderedReceipts.slice(index-4,index+1).every(r=>validReceiptIds.has(r.id));
+  });
   failureStage='selection';const selected=selectMemoryContext(reliableEntries,query,remainingChars);
   // Include only receipts visible on the active branch AND completed within
   // the exact request prefix. Regeneration must not read future events.
