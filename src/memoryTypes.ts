@@ -22,7 +22,7 @@ export interface MemoryFork {
  summaryRevisionAtFork?:number;
  hiddenSummaryIds?:string[];
 }
-export interface MemoryStore {version:1;revision:number;entries:MemoryEntry[];forks:MemoryFork[];shortHides?:{scope:MemoryScope;receiptIds:string[]}[];tagRecords?:MemoryTagRecord[];tagFailures?:MemoryTagFailure[]}
+export interface MemoryStore {version:1;revision:number;entries:MemoryEntry[];forks:MemoryFork[];shortHides?:{scope:MemoryScope;receiptIds:string[]}[];tagRecords?:MemoryTagRecord[];tagFailures?:MemoryTagFailure[];magneticMessages?:MagneticMessageMemory[];magneticAttempts?:MagneticTagAttempt[];magneticZeroRuns?:number}
 export interface MemoryInput {kind:StoredMemoryKind;content:string;source?:MemorySource;sourceReceiptId?:string}
 export interface EffectiveMemory extends MemoryEntry {inherited:boolean}
 export interface ShortMemoryItem {messageId:string;variantId?:string;nodeId?:string;role:'user'|'assistant';content:string;assetIds:string[];createdAt:number}
