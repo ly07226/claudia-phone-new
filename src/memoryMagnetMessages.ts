@@ -2,8 +2,8 @@ import {db} from './store';
 import {activeMessages} from './messagePath';
 import {visibleMessage} from './messageBubbles';
 import {nodesForHead} from './timelines';
-import {getMemoryScope} from './memoryStore';
-import type {MemoryScope,MagneticMessageMemory,MagneticTagAttempt} from './memoryTypes';
+import type {MemoryScope,MagneticMessageMemory} from './memoryTypes';
+import type {Message} from './chatTypes';
 import {validateTagging,type TagProvider,type TagTaxonomy} from './memoryMagnetTagger';
 
 /** StarHub message-source tagging. The selected chat path, not the Float
@@ -95,4 +95,26 @@ export async function visibleMagneticMemories(scope:MemoryScope):Promise<Magneti
  const live=new Set(rows.map(r=>key(r.id,r.fingerprint)));
  return (c?.memoryStore?.magneticMessages??[]).filter(r=>r.active&&r.scope.conversationId===scope.conversationId&&r.scope.characterId===scope.characterId&&r.scope.mode===scope.mode&&
   (scope.mode==='daily'||r.scope.mode==='world'&&r.scope.worldId===scope.worldId&&r.scope.epoch===scope.epoch)&&live.has(key(r.messageId,r.fingerprint)));
+}
+
+/** Fast read-only retrieval for the existing prompt assembler.
+ * Avoid rewalking the full timeline and hashing every message on each turn:
+ * shortlist by tag, then verify only matched source messages in the supplied
+ * request prefix. No IndexedDB reads or writes.
+ */
+export async function magneticFromRequestPrefix(scope:MemoryScope,records:MagneticMessageMemory[],requestPath:Message[],query:string){
+ const q=query.normalize('NFKC').toLowerCase();
+ if(!q.trim())return [];
+ const byId=new Map(requestPath.map(m=>[m.id,visibleMessage(m)]));
+ const result:MagneticMessageMemory[]=[];
+ for(const record of records){
+  if(!record.active||record.scope.conversationId!==scope.conversationId||record.scope.characterId!==scope.characterId||record.scope.mode!==scope.mode)continue;
+  if(scope.mode==='world'&&(record.scope.mode!=='world'||record.scope.worldId!==scope.worldId||record.scope.epoch!==scope.epoch))continue;
+  if(!record.tags.some(t=>t.tag.trim()&&q.includes(t.tag.normalize('NFKC').toLowerCase())))continue;
+  const m=byId.get(record.messageId);
+  if(!m||m.activeVariantId!==record.variantId||m.content!==record.detail)continue;
+  const fingerprint=await digest(JSON.stringify([m.id,m.activeVariantId??'',m.content]));
+  if(fingerprint===record.fingerprint)result.push(record);
+ }
+ return result;
 }
