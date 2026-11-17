@@ -63,16 +63,24 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
  const done=new Set((state.magneticMessages??[]).filter(r=>r.active).map(r=>key(r.messageId,r.fingerprint)));
  const failures=new Set((state.magneticAttempts??[]).map(r=>key(r.messageId,r.fingerprint)));
  const pending=rows.filter(r=>!done.has(key(r.id,r.fingerprint))&&(retry?failures.has(key(r.id,r.fingerprint)):!failures.has(key(r.id,r.fingerprint)))).slice(0,batchSize);
- let tagged=0,failed=0;
+ let tagged=0,failed=0,claimedCount=0;
  for(const row of pending){
-  try{
-   await db.transaction('rw',db.conversations,async()=>{
+  // Atomic per-message claim: a second tab must not call a paid provider for
+  // the same message revision. Interrupted claims require explicit recovery.
+  const claimed=await db.transaction('rw',db.conversations,async()=>{
     const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('magnet-conversation-missing');
     const store=c.memoryStore??emptyMemoryStore();
+    if((store.magneticMessages??[]).some(x=>x.active&&x.messageId===row.id&&x.fingerprint===row.fingerprint))return false;
+    const existing=(store.magneticAttempts??[]).find(x=>x.messageId===row.id&&x.fingerprint===row.fingerprint);
+    if(retry?existing?.status!=='failed':!!existing)return false;
     const attempts=(store.magneticAttempts??[]).filter(x=>x.messageId!==row.id||x.fingerprint!==row.fingerprint);
     attempts.push({messageId:row.id,fingerprint:row.fingerprint,status:'pending',startedAt:Date.now()});
     await db.conversations.update(c.id,{memoryStore:{...store,magneticAttempts:attempts}});
+    return true;
    });
+  if(!claimed)continue;
+  claimedCount++;
+  try{
    const result=await provider(row.content,taxonomy);
    const tags=validateTagging(result,taxonomy);
    const current=(await source(scope)).find(x=>x.id===row.id);
@@ -95,7 +103,7 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
    });
   }
  }
- if(pending.length){
+ if(claimedCount){
   await db.transaction('rw',db.conversations,async()=>{
    const c=await db.conversations.get(scope.conversationId);if(!c)return;
    const store=c.memoryStore??emptyMemoryStore();
@@ -103,7 +111,7 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
    await db.conversations.update(c.id,{memoryStore:{...store,magneticZeroRuns:count}});
   });
  }
- return {seen:pending.length,tagged,failed,deadlight:pending.length>0&&tagged===0&&(state.magneticZeroRuns??0)>=1};
+ return {seen:claimedCount,tagged,failed,deadlight:claimedCount>0&&tagged===0&&(state.magneticZeroRuns??0)>=1};
 }
 
 /** Only live source-path records may be recalled; changed/deleted messages
