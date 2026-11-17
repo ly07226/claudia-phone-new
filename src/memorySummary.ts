@@ -78,9 +78,21 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   if(!data.turns.length||(!manual&&data.turns.length<state.interval))return;
   await sealMemorySummaryForks(scope);
   const full=summaryCapacityFull(c);if(full)state.capacityBlocked=summaryCapacityKey(c);
-  // The configured interval is the logical group. Split only the API inputs;
-  // do not advance the receipt until every chunk of the group succeeds.
-  const group=full?[]:data.turns.slice(0,state.interval);
+  // Commit one API-sized, complete-turn group at a time. A later failed
+  // request cannot roll back an earlier successful receipt or its progress.
+  // The configured interval is an upper bound, not an all-or-nothing batch.
+  let group=full?[]:data.turns.slice(0,state.interval);
+  if(group.length>1){
+   let low=1,high=group.length,best=0;
+   while(low<=high){
+    const mid=Math.floor((low+high)/2);
+    try{
+     if(buildSummaryInputs(group.slice(0,mid),system,summaryLimits.inputTokens).length===1){best=mid;low=mid+1;}
+     else high=mid-1;
+    }catch{high=mid-1;}
+   }
+   if(best>0)group=group.slice(0,best);
+  }
   let inputs:string[]=[];let attemptedTokens=memoryTokenCost(system),oversized=false;
   if(group.length){
    attemptedTokens=memoryTokenCost(system)+memoryTokenCost(JSON.stringify(group.map(x=>x.messages)));
@@ -149,8 +161,8 @@ async function execute(scope:MemoryScope,manual:boolean){
     const eventSummary=selected.accepted.map(f=>`【${labels[f.type]}】${f.content}`).join('\n').slice(0,2500);
     if(eventSummary)events.push(eventSummary);
     for(const f of selected.accepted)inputForFact.set(f,index);facts.push(...selected.accepted);stats.candidates+=batch.candidates;stats.accepted+=selected.accepted.length;
-    stats.rejected+=batch.rejected;
-    const reasons:Record<string,number>={};
+    stats.rejected+=batch.rejected;if(batch.rejected)stats.reasons['invalid-candidate']=(stats.reasons['invalid-candidate']??0)+batch.rejected;
+    const reasons:Record<string,number>=batch.rejected?{'invalid-candidate':batch.rejected}:{};
 
     failure='stale-path';await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,manual);const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);if(next.job)next.job.completedChunks=index+1;next.checkpoint!.completed[index]={facts:facts.slice(before),eventSummary,candidates:batch.candidates,accepted:selected.accepted.length,rejected:batch.rejected,reasons};await db.conversations.update(scope.conversationId,{memorySummary:next});});
    }catch(e){if((e as Error).message==='empty')failure='empty';if(e instanceof SummaryFormatError)diagnostic={...e.diagnostic,receivedChars:raw.length,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)};throw e;}
@@ -203,9 +215,14 @@ async function execute(scope:MemoryScope,manual:boolean){
   try{await maybeBuildCoreMemory(scope);}catch{/* Core synthesis is independent of primary progress. */}
  }catch(error){
    const decision=classifySummaryError(error,navigator.onLine);
+   // An aborted request is a timeout/interruption, not an unspecified provider error.
+   if(controller.signal.aborted||error instanceof Error&&/abort|timeout|timed out|超时/i.test(error.message)){
+    failure='interrupted';
+   }
    // Preserve the actual failure category. A stale timeline/checkpoint or local
    // state error must not be reported as a provider failure after switching APIs.
-   if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;failure=diagnostic.stage==='response'&&diagnostic.code!=='truncated'?'provider':'format';}
+   if(error instanceof SummaryResponseError){diagnostic=error.diagnostic;if(failure!=='interrupted')failure=diagnostic.stage==='response'&&diagnostic.code!=='truncated'?'provider':'format';}
+   else if(failure==='interrupted'){/* Preserve explicit timeout classification. */}
    else if(decision.kind==='state'){
     // Do not overwrite the stage recorded immediately before the failing operation.
     // The previous catch collapsed capacity, interruption, checkpoint and source
