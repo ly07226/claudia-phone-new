@@ -1,7 +1,28 @@
 import {memoryTokenCost} from './memoryContext';
 export interface SummaryChunkMessage {role:string;content:string;images:number;turnIndex?:number;part?:number}
 export interface SummaryChunkTurn {messages:SummaryChunkMessage[]}
-/** Preserve all text and chronology, splitting oversized turns into bounded API payloads. */
+const MAX_TURN_CHARS=3000;
+const OMITTED='【...后文省略】';
+/** Truncate only the summary API projection; never mutate original chat messages.
+ * Count Unicode code points and apply the limit to the entire completed turn,
+ * not independently to each message.
+ */
+export function limitSummaryTurn(messages:SummaryChunkMessage[]):SummaryChunkMessage[]{
+ const total=messages.reduce((n,m)=>n+Array.from(m.content).length,0);
+ if(total<=MAX_TURN_CHARS)return messages;
+ let remaining=MAX_TURN_CHARS-Array.from(OMITTED).length;
+ let marked=false;
+ return messages.flatMap(message=>{
+  if(marked)return [];
+  const chars=Array.from(message.content);
+  const take=Math.min(remaining,chars.length);
+  remaining-=take;
+  if(take<chars.length){marked=true;return [{...message,content:chars.slice(0,take).join('')+OMITTED}];}
+  if(remaining===0){marked=true;return [{...message,content:message.content+OMITTED}];}
+  return [message];
+ });
+}
+/** Build bounded summary API payloads; preserve source messages in storage. */
 export function buildSummaryInputs(turns:SummaryChunkTurn[],systemPrompt:string,budget:number):string[]{
  const base=memoryTokenCost(systemPrompt);
  if(base>=budget)throw Error('input-too-large');
@@ -13,7 +34,7 @@ export function buildSummaryInputs(turns:SummaryChunkTurn[],systemPrompt:string,
   flush();if(!fits([messages]))throw Error('input-too-large');batch.push(messages);
  };
  for(let turnIndex=0;turnIndex<turns.length;turnIndex++){
-  const messages=turns[turnIndex].messages;
+  const messages=limitSummaryTurn(turns[turnIndex].messages);
   if(fits([...batch,messages])){batch.push(messages);continue;}
   if(fits([messages])){flush();batch.push(messages);continue;}
   flush();
