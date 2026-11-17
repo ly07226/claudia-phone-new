@@ -19,3 +19,14 @@ test('paraphrases are not falsely certified as semantically verified',()=>{
  expect(review.accepted).toBe(true);
  // This is a known limitation: structural review cannot prove paraphrase truth.
 });
+
+test('quoted source evidence ignores whitespace and punctuation but not negation',()=>{
+ const source='他说：“我 没有\n答应离开。”';
+ expect(reviewExtractedEvents(source,'他明确说过“我没有答应离开”。').accepted).toBe(true);
+ expect(reviewExtractedEvents(source,'他明确说过“我已经答应离开”。').reasons).toContain('unsupported-quotation');
+});
+test('one unsupported quotation rejects the whole batch',()=>{
+ const source='她说：“明天再谈。”';
+ const events='她说“明天再谈”。\n他表示“我们已经结婚”。';
+ expect(reviewExtractedEvents(source,events).reasons).toContain('unsupported-quotation');
+});
