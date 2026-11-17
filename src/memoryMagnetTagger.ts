@@ -1,0 +1,42 @@
+import {listMemories,memoryTagSnapshot,recordMemoryTagFailure,saveMemoryTags} from './memoryStore';
+import type {MemoryScope,MemoryTag,EffectiveMemory} from './memoryTypes';
+/** StarHub SPEC §2: full-text input, strict taxonomy, one failure per entry.
+ * Provider is injected: never calls a paid API on ordinary chat turns.
+ */
+export interface TagTaxonomy {emotion:string[];topic:string[]}
+export interface TaggingOutput {summary:string;keyword:string[];emotion:string[];topic:string[];person?:string[]}
+export type TagProvider=(fullText:string,taxonomy:TagTaxonomy)=>Promise<TaggingOutput>;
+export function validateTagging(out:TaggingOutput,taxonomy:TagTaxonomy):MemoryTag[]{
+ if(!out||typeof out.summary!=='string'||out.summary.length>40||!Array.isArray(out.keyword)||out.keyword.length>6||!Array.isArray(out.emotion)||!Array.isArray(out.topic)||!Array.isArray(out.person??[]))throw Error('invalid-tagging-output');
+ const allowedEmotion=new Set(taxonomy.emotion),allowedTopic=new Set(taxonomy.topic);
+ if(out.emotion.some(t=>!allowedEmotion.has(t))||out.topic.some(t=>!allowedTopic.has(t)))throw Error('unknown-tag-axis');
+ const tags:MemoryTag[]=[];
+ for(const [axis,values,weight] of [['keyword',out.keyword,1],['emotion',out.emotion,1],['topic',out.topic,1],['person',out.person??[],1]] as const){
+  for(const value of values){
+   if(typeof value!=='string'||!value.trim()||value.length>80)throw Error('invalid-tag');
+   if(!tags.some(t=>t.axis===axis&&t.tag===value.trim()))tags.push({axis,tag:value.trim(),weight});
+  }
+ }
+ return tags;
+}
+/** Process at most batchSize untagged visible revisions; failures remain pending.
+ * No global last-id watermark: a failed entry cannot be lost behind later ones.
+ */
+export async function tagPendingMemories(scope:MemoryScope,provider:TagProvider,taxonomy:TagTaxonomy,batchSize=20){
+ if(!Number.isInteger(batchSize)||batchSize<1||batchSize>100)throw Error('invalid-batch-size');
+ const [all,tags]=await Promise.all([listMemories(scope),memoryTagSnapshot(scope)]);
+ const completed=new Set(tags.records.map(t=>t.entryId+':'+t.revision));
+ const pending=all.entries.filter(e=>!completed.has(e.id+':'+e.revision)).slice(0,batchSize);
+ let tagged=0,failed=0;
+ for(const entry of pending){
+  try{
+   const output=await provider(entry.content,taxonomy);
+   await saveMemoryTags(scope,entry.id,entry.revision,validateTagging(output,taxonomy));
+   tagged++;
+  }catch(error){
+   failed++;
+   await recordMemoryTagFailure(scope,entry.id,entry.revision,error instanceof Error?error.name:'UnknownError');
+  }
+ }
+ return {seen:pending.length,tagged,failed,pending:all.entries.length-tags.records.length-tagged};
+}
