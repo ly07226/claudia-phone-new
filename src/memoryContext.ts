@@ -3,10 +3,10 @@ import {db} from './store';
 import {summaryVerifier,sourceHash,sourceVisibleMessage} from './summarySourceFingerprint';
 import {visibleMessage} from './messageBubbles';
 import {nextOccurrence,localDay,addDays} from './smartTimeMemory';
-import {getMemoryScope,memoryContextSnapshot} from './memoryStore';
+import {getMemoryScope,memoryContextSnapshot,memoryTagSnapshot} from './memoryStore';
 import {timelineTables,nodesForHead,messageFingerprint,getTimelineAncestors} from './timelines';
 import type {Conversation,Message} from './chatTypes';
-import type {EffectiveMemory} from './memoryTypes';
+import type {EffectiveMemory,MemoryTagRecord} from './memoryTypes';
 /** Provider-independent conservative token proxy: one UTF-8 byte per token.
  * Includes wrapper and JSON escaping. Facts are included whole or omitted. Not a model tokenizer.
  * Existing profile/lore/time/history budgets are allocated FIRST and unchanged.
@@ -23,35 +23,19 @@ const outro='\n[会话记忆背景资料结束]';
 const dayEnd=(day:string)=>new Date(day+'T00:00:00').getTime();
 const json=(value:unknown)=>JSON.stringify(value).replace(/[<>&]/g,c=>`\\u${c.charCodeAt(0).toString(16).padStart(4,'0')}`);
 function words(text:string){const normalized=text.normalize('NFKC').toLowerCase();const result=new Set<string>();for(const w of normalized.match(/[a-z0-9_]{2,}|[\p{Script=Han}]+/gu)??[]){if(/^[\p{Script=Han}]+$/u.test(w)){for(let i=0;i<w.length-1&&result.size<600;i++)result.add(w.slice(i,i+2));}else if(result.size<600)result.add(w);}return result;}
-/** StarHub-style magnetic axes, computed locally from the current scoped memory.
- * No second database, no paid tagging request, no persistent stale tags.
- * Bigram overlap handles Chinese, while exact names/Latin words remain searchable.
- */
-const topicAxes:Record<string,string[]>={
- relationship:['关系','恋人','喜欢','分手','复合','亲密','信任','承诺','隐瞒','在一起'],
- conflict:['争吵','吵架','冲突','误会','生气','道歉','原谅','隐瞒','欺骗','骗我','撒谎','说谎','瞒着','不坦诚','不信任'],
- family:['家人','父母','妈妈','爸爸','哥哥','妹妹','家庭'],
- work:['工作','公司','同事','领导','上班','辞职'],
- plan:['约定','计划','打算','准备','明天','周末','未来','答应'],
-};
-function magneticAxes(text:string){
- const normalized=text.normalize('NFKC').toLowerCase();
- return new Set(Object.entries(topicAxes).filter(([,values])=>values.some(value=>normalized.includes(value))).map(([axis])=>axis));
-}
-function relevance(entry:EffectiveMemory,query:Set<string>,queryAxes:Set<string>){
- const tokens=words(entry.content.slice(0,4096));let score=0;
- for(const token of query)if(tokens.has(token))score++;
- for(const axis of magneticAxes(entry.content))if(queryAxes.has(axis))score+=2;
- return score;
-}
-/** Pure, deterministic local selection; no vector service or model call. */
-export function selectMemoryContext(entries:EffectiveMemory[],query:string,remainingChars:number){
- const queryText=query.slice(-memoryContextLimits.queryChars);
- const terms=words(queryText);
- const queryAxes=magneticAxes(queryText);
+/** Only persisted tags give a long-term entry magnetic relevance. */
+export function selectMemoryContext(entries:EffectiveMemory[],query:string,remainingChars:number,tagRecords:MemoryTagRecord[]=[]){
+ const triggers=words(query.slice(-memoryContextLimits.queryChars));
+ const records=new Map(tagRecords.map(r=>[r.entryId+':'+r.revision,r]));
  const candidates=entries.filter(e=>!e.deleted&&(e.kind==='core'||e.kind==='long')&&e.content.trim());
- const scored=candidates.map(entry=>({entry,score:relevance(entry,terms,queryAxes)}));
- const ranked=scored.filter(({entry,score})=>entry.kind==='core'||score>0).sort((a,b)=>Number(b.entry.kind==='core')-Number(a.entry.kind==='core')||b.score-a.score||Number(b.entry.source==='manual')-Number(a.entry.source==='manual')||b.entry.revision-a.entry.revision||a.entry.id.localeCompare(b.entry.id));
+ const scored=candidates.map(entry=>{
+  const record=records.get(entry.id+':'+entry.revision);
+  const hits=(record?.tags??[]).filter(t=>[...words(t.tag)].some(w=>triggers.has(w)));
+  const score=hits.reduce((sum,t)=>sum+t.weight,0)/(1+Math.max(0,(Date.now()-entry.createdAt)/86400000)/365);
+  return {entry,score,hits:hits.length};
+ });
+ const ranked=scored.filter(({entry,score})=>entry.kind==='core'||score>0)
+  .sort((a,b)=>Number(b.entry.kind==='core')-Number(a.entry.kind==='core')||b.score-a.score||b.hits-a.hits||b.entry.createdAt-a.entry.createdAt||a.entry.id.localeCompare(b.entry.id));
  const facts:{kind:string;source:string;fact:string}[]=[];
  const render=()=>intro+json(facts)+outro;
  let skippedBudget=0;
@@ -59,9 +43,7 @@ export function selectMemoryContext(entries:EffectiveMemory[],query:string,remai
   if(facts.length>=memoryContextLimits.entries){skippedBudget+=ranked.length-index;break;}
   const row={kind:entry.kind,source:entry.source,fact:entry.content};
   const text=intro+json([...facts,row])+outro;
-  // A prefix can invert a fact by losing its trailing negation, condition or date.
-  // Never split either core or long-term facts; stored memory is untouched.
-  if(facts.length>=memoryContextLimits.entries||memoryTokenCost(json(row))>memoryContextLimits.entryTokens||memoryTokenCost(text)>memoryContextLimits.tokens||text.length>Math.max(0,remainingChars)){skippedBudget++;continue;}
+  if(memoryTokenCost(json(row))>memoryContextLimits.entryTokens||memoryTokenCost(text)>memoryContextLimits.tokens||text.length>Math.max(0,remainingChars)){skippedBudget++;continue;}
   facts.push(row);
  }
  const text=facts.length?render():'';
@@ -118,7 +100,7 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
    if(index<4||(index+1)%5!==0)return true;
    return orderedReceipts.slice(index-4,index+1).every(r=>validReceiptIds.has(r.id));
   });
-  failureStage='selection';const selected=selectMemoryContext(reliableEntries,query,remainingChars);
+  failureStage='selection';const tagData=await memoryTagSnapshot(snapshot.scope);const selected=selectMemoryContext(reliableEntries,query,remainingChars,tagData.records);
   // Include only receipts visible on the active branch AND completed within
   // the exact request prefix. Regeneration must not read future events.
   failureStage='history';if(remainingChars>selected.text.length+300){
