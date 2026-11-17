@@ -73,6 +73,31 @@ export function parseSummaryWithSourceRecovery(raw:string,input:string):SummaryF
   const validEvidence=suppliedEvidence.filter((e:any)=>Number.isInteger(e?.turn)&&e.turn>0&&['user','assistant'].includes(e.role)&&typeof e.quote==='string'&&e.quote.length>=4&&turns[e.turn-1]?.some(m=>m.role===e.role&&m.content.includes(e.quote))).slice(0,4);
   // The only automatic evidence recovery allowed is a verbatim content match.
   if(!validEvidence.length)for(let i=0;i<turns.length;i++){const source=turns[i].find(m=>m.content.includes(item.content.trim())&&item.content.trim().length>=4);if(source){validEvidence.push({turn:i+1,role:source.role,quote:item.content.trim()});break;}}
+  // When the model omits citations, locate the underlying original sentence.
+  // Only a strongly matching, same-polarity source is eligible; no fabricated quote.
+  if(!validEvidence.length){
+   const normalized=(v:string)=>v.normalize('NFKC').replace(/[\\s\\p{P}\\p{S}]/gu,'').replace(/^(?:用户|角色)(?:明确)?(?:表示|说|提到|认为|觉得)?/u,'');
+   const candidate=normalized(item.content);
+   const pairs=(v:string)=>new Set(Array.from({length:Math.max(0,v.length-1)},(_,i)=>v.slice(i,i+2)));
+   const target=pairs(candidate);
+   const negation=(v:string)=>/不|没|无|未|拒绝|禁止|不能|不得/u.test(v);
+   const uncertainty=(v:string)=>/如果|假如|也许|可能|猜测|怀疑|未证实/u.test(v);
+   let best:{turn:number;role:'user'|'assistant';quote:string;score:number}|undefined;
+   for(let i=0;i<turns.length;i++)for(const message of turns[i]){
+    if(!['user','assistant'].includes(message.role))continue;
+    const sentences=message.content.split(/[。！？!?\\n]/u).map(v=>v.trim()).filter(v=>v.length>=6);
+    for(const sentence of sentences){
+     const source=normalized(sentence),tokens=pairs(source);
+     if(candidate.length<8||source.length<8||negation(candidate)!==negation(source)||uncertainty(candidate)!==uncertainty(source))continue;
+     const numerals=(v:string)=>v.match(/\\d+(?:\\.\\d+)?/g)?.join('|')??'';
+     if(numerals(candidate)!==numerals(source))continue;
+     let shared=0;for(const token of target)if(tokens.has(token))shared++;
+     const score=shared/Math.max(1,Math.min(target.size,tokens.size));
+     if(score>=0.8&&(!best||score>best.score))best={turn:i+1,role:message.role as 'user'|'assistant',quote:sentence,score};
+    }
+   }
+   if(best)validEvidence.push({turn:best.turn,role:best.role,quote:best.quote});
+  }
   if(!validEvidence.length)continue;
   const category=summaryQualityCategories.includes(q.category)?q.category:'continuity';
   const importance=['high','medium','low'].includes(q.importance)?q.importance:'medium';
