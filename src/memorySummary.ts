@@ -11,7 +11,7 @@ import {visibleMessage} from './messageBubbles';
 import {summaryDuplicateIndex,selectSummaryCandidates} from './memorySummaryQuality';
 import {requestSummary,SummaryResponseError} from './memorySummaryRequest';
 import {maybeBuildCoreMemory} from './memoryCoreBuilder';
-import {SummaryFormatError,parseSummaryWithEvidence} from './memorySummaryFormat';
+import {SummaryFormatError,parseSummaryWithSourceRecovery} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
 import {buildSummaryInputs} from './memorySummaryChunks';
@@ -134,7 +134,7 @@ async function execute(scope:MemoryScope,manual:boolean){
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
    failure='format';try{
     // Reject unsupported or misclassified claims before durable storage.
-    const parsed=parseSummaryWithEvidence(raw);
+    const parsed=parseSummaryWithSourceRecovery(raw,input);
     const selected=selectSummaryCandidates(parsed,input);
     const eventSummary=selected.accepted.map(f=>`【${labels[f.type]}】${f.content}`).join('\n').slice(0,2500);
     if(eventSummary)events.push(eventSummary);

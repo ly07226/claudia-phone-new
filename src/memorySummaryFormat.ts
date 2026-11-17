@@ -57,20 +57,99 @@ export function parseSummary(raw:string):SummaryFact[]{
  return facts;
 }
 
+/** Recover incomplete model metadata from the *actual* input, never from invented citations.
+ * A model may omit quality fields; source quotes remain mandatory unless the
+ * proposed memory itself appears verbatim in a source message.
+ */
+export function parseSummaryWithSourceRecovery(raw:string,input:string):SummaryFact[]{
+ const value=summaryJsonCandidate(raw);
+ if(!value||typeof value!=='object'||Array.isArray(value)||!Array.isArray(value.memories))reject('root-shape',{stage:'validate'});
+ const turns=JSON.parse(input) as {role:string;content:string}[][];
+ const out:SummaryFact[]=[];
+ for(const item of value.memories.slice(0,summaryLimits.facts)){
+  if(!item||typeof item!=='object'||typeof item.content!=='string'||!item.content.trim()||item.content.length>summaryLimits.factChars)continue;
+  const q=item.quality??{};
+  const suppliedEvidence=Array.isArray(q.evidence)?q.evidence:Array.isArray(item.evidence)?item.evidence:[];
+  const validEvidence=suppliedEvidence.filter((e:any)=>Number.isInteger(e?.turn)&&e.turn>0&&['user','assistant'].includes(e.role)&&typeof e.quote==='string'&&e.quote.length>=4&&turns[e.turn-1]?.some(m=>m.role===e.role&&m.content.includes(e.quote))).slice(0,4);
+  // The only automatic evidence recovery allowed is a verbatim content match.
+  if(!validEvidence.length)for(let i=0;i<turns.length;i++){const source=turns[i].find(m=>m.content.includes(item.content.trim())&&item.content.trim().length>=4);if(source){validEvidence.push({turn:i+1,role:source.role,quote:item.content.trim()});break;}}
+  // When the model omits citations, locate the underlying original sentence.
+  // Only a strongly matching, same-polarity source is eligible; no fabricated quote.
+  if(!validEvidence.length){
+   const normalized=(v:string)=>v.normalize('NFKC').replace(/[\\s\\p{P}\\p{S}]/gu,'').replace(/^(?:用户|角色)(?:明确)?(?:表示|说|提到|认为|觉得)?/u,'');
+   const candidate=normalized(item.content);
+   const pairs=(v:string)=>new Set(Array.from({length:Math.max(0,v.length-1)},(_,i)=>v.slice(i,i+2)));
+   const target=pairs(candidate);
+   const negation=(v:string)=>/不|没|无|未|拒绝|禁止|不能|不得/u.test(v);
+   const uncertainty=(v:string)=>/如果|假如|也许|可能|猜测|怀疑|未证实/u.test(v);
+   let best:{turn:number;role:'user'|'assistant';quote:string;score:number}|undefined;
+   for(let i=0;i<turns.length;i++)for(const message of turns[i]){
+    if(!['user','assistant'].includes(message.role))continue;
+    const sentences=message.content.split(/[。！？!?\\n]/u).map(v=>v.trim()).filter(v=>v.length>=6);
+    for(const sentence of sentences){
+     const source=normalized(sentence),tokens=pairs(source);
+     if(candidate.length<8||source.length<8||negation(candidate)!==negation(source)||uncertainty(candidate)!==uncertainty(source))continue;
+     const numerals=(v:string)=>v.match(/\\d+(?:\\.\\d+)?/g)?.join('|')??'';
+     if(numerals(candidate)!==numerals(source))continue;
+     let shared=0;for(const token of target)if(tokens.has(token))shared++;
+     const score=shared/Math.max(1,Math.min(target.size,tokens.size));
+     if(score>=0.8&&(!best||score>best.score))best={turn:i+1,role:message.role as 'user'|'assistant',quote:sentence,score};
+    }
+   }
+   if(best)validEvidence.push({turn:best.turn,role:best.role,quote:best.quote});
+  }
+  if(!validEvidence.length)continue;
+  const category=summaryQualityCategories.includes(q.category)?q.category:'continuity';
+  const importance=['high','medium','low'].includes(q.importance)?q.importance:'medium';
+  const durability=['lasting','temporary'].includes(q.durability)?q.durability:'lasting';
+  const impact=typeof q.impact==='string'&&q.impact.trim()?q.impact:'后续互动需要保留此来源明确的事实或状态';
+  const type=['fact','belief','speculation','pending'].includes(item.type)?item.type:'fact';
+  const kind=['core','long'].includes(item.kind)?item.kind:'long';
+  out.push({type,kind,content:item.content.trim(),quality:{category,importance,durability,impact,evidence:validEvidence}});
+ }
+ if(value.memories.length&&!out.length)reject('invalid-quality',{stage:'validate'});
+ return out;
+}
+/** Repair model-omitted classification metadata only when the original evidence is intact.
+ * Never synthesize quotations, turns, or speakers. Source verification still runs downstream. */
+function normalizeEvidenceQuality(m:any):any{
+ const q=m?.quality;
+ const evidence=Array.isArray(q?.evidence)?q.evidence:Array.isArray(m?.evidence)?m.evidence:undefined;
+ if(!evidence?.length||evidence.length>4||evidence.some((e:any)=>!e||!Number.isInteger(e.turn)||e.turn<1||!['user','assistant'].includes(e.role)||typeof e.quote!=='string'||e.quote.length<4))return q;
+ const content=String(m.content??'');
+ const category=summaryQualityCategories.includes(q?.category)?q.category:
+  /拒绝|不接受|禁止|不能|必须|边界/.test(content)?'boundary':
+  /喜欢|偏好|讨厌|希望|更愿意/.test(content)?'preference':
+  /关系|伴侣|恋人|夫妻|结婚|分手/.test(content)?'relationship':
+  /承诺|保证|约定/.test(content)?'commitment':
+  /每天|每周|每次|习惯|经常/.test(content)?'habit':
+  /身份|名字|职业|年龄/.test(content)?'identity':
+  /冲突|矛盾|争吵|决裂/.test(content)?'ongoing-conflict':
+  /已经|完成|发生|离开|去世|入职/.test(content)?'major-event':'continuity';
+ const importance=['high','medium','low'].includes(q?.importance)?q.importance:'medium';
+ const durability=['lasting','temporary'].includes(q?.durability)?q.durability:'lasting';
+ const impact=typeof q?.impact==='string'&&q.impact.trim()?q.impact:'后续对话应保留这一有来源的事实及其状态';
+ return {category,importance,durability,impact,evidence};
+}
 /** Source-backed candidates for the primary durable memory pipeline. */
 export function parseSummaryWithEvidence(raw:string):SummaryFact[]{
  const value=summaryJsonCandidate(raw);
  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>k!=='memories')||!Array.isArray(value.memories))reject('root-shape',{stage:'validate'});
  if(value.memories.length>summaryLimits.facts)reject('too-many-facts',{stage:'validate'});
  const result:SummaryFact[]=[];
+ let invalidQualityCount=0;
  for(let i=0;i<value.memories.length;i++){
   const m=value.memories[i];
   if(!m||typeof m!=='object'||Array.isArray(m))reject('invalid-item',{stage:'validate',itemIndex:i});
   if(!['fact','belief','speculation','pending'].includes(m.type)||!['core','long'].includes(m.kind))reject('invalid-enum',{stage:'validate',itemIndex:i});
   if(typeof m.content!=='string'||!m.content.trim()||m.content.length>summaryLimits.factChars)reject('invalid-content',{stage:'validate',itemIndex:i});
-  const q=m.quality;
-  if(!q||!summaryQualityCategories.includes(q.category)||!['high','medium','low'].includes(q.importance)||!['lasting','temporary'].includes(q.durability)||typeof q.impact!=='string'||!q.impact.trim()||!Array.isArray(q.evidence)||!q.evidence.length||q.evidence.length>4||q.evidence.some((e:unknown)=>!e||typeof e!=='object'||!Number.isInteger((e as any).turn)||(e as any).turn<1||!['user','assistant'].includes((e as any).role)||typeof (e as any).quote!=='string'||(e as any).quote.length<4))reject('invalid-quality',{stage:'validate',itemIndex:i});
+  const q=normalizeEvidenceQuality(m);
+  // Missing or malformed evidence is never invented. Reject only the offending
+  // candidate so one imperfect model row cannot discard other grounded memories.
+  if(!q||!summaryQualityCategories.includes(q.category)||!['high','medium','low'].includes(q.importance)||!['lasting','temporary'].includes(q.durability)||typeof q.impact!=='string'||!q.impact.trim()||!Array.isArray(q.evidence)||!q.evidence.length||q.evidence.length>4||q.evidence.some((e:unknown)=>!e||typeof e!=='object'||!Number.isInteger((e as any).turn)||(e as any).turn<1||!['user','assistant'].includes((e as any).role)||typeof (e as any).quote!=='string'||(e as any).quote.length<4)){invalidQualityCount++;continue;}
   result.push({type:m.type,kind:m.kind,content:m.content.trim(),quality:{category:q.category,importance:q.importance,durability:q.durability,impact:q.impact,evidence:q.evidence}});
  }
+ // Never mark an entirely invalid model response as a successful empty memory batch.
+ if(invalidQualityCount>0&&result.length===0)reject('invalid-quality',{stage:'validate'});
  return result;
 }
