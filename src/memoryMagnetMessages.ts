@@ -25,7 +25,7 @@ async function source(scope:MemoryScope){
  const rows=[] as {id:string;variantId?:string;nodeId?:string;content:string;createdAt:number;fingerprint:string}[];
  for(const row of raw){
   const m=visibleMessage(row.message);
-  if(m.role!=='user'&&m.role!=='assistant'||!m.content.trim())continue;
+  if((m.role!=='user'&&m.role!=='assistant')||!m.content.trim())continue;
   const fingerprint=await digest(JSON.stringify([m.id,m.activeVariantId??'',m.content]));
   rows.push({id:m.id,variantId:m.activeVariantId,nodeId:row.nodeId,content:m.content,createdAt:m.createdAt,fingerprint});
  }
@@ -85,4 +85,14 @@ export async function tagMagneticMessages(scope:MemoryScope,provider:TagProvider
   });
  }
  return {seen:pending.length,tagged,failed,deadlight:pending.length>0&&tagged===0&&(state.magneticZeroRuns??0)>=1};
+}
+
+/** Only live source-path records may be recalled; changed/deleted messages
+ * are excluded even if a historical tag remains in the journal.
+ */
+export async function visibleMagneticMemories(scope:MemoryScope):Promise<MagneticMessageMemory[]>{
+ const [rows,c]=await Promise.all([source(scope),db.conversations.get(scope.conversationId)]);
+ const live=new Set(rows.map(r=>key(r.id,r.fingerprint)));
+ return (c?.memoryStore?.magneticMessages??[]).filter(r=>r.active&&r.scope.conversationId===scope.conversationId&&r.scope.characterId===scope.characterId&&r.scope.mode===scope.mode&&
+  (scope.mode==='daily'||r.scope.mode==='world'&&r.scope.worldId===scope.worldId&&r.scope.epoch===scope.epoch)&&live.has(key(r.messageId,r.fingerprint)));
 }
