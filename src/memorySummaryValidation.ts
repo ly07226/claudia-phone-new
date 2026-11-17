@@ -16,6 +16,7 @@ function selection(x:any,added?:number,duplicates?:number){
 export async function validateSummaryState(d:Dexie,c:Conversation,validScope:(c:Conversation,s:MemoryScope)=>boolean){
  const s=c.memorySummary;if(s===undefined)return;
  check(s&&s.version===1&&typeof s.enabled==='boolean'&&num(s.interval)&&s.interval>=20&&s.interval<=100&&s.interval%10===0&&num(s.revision)&&Array.isArray(s.receipts)&&s.receipts.length<=summaryLimits.receipts&&s.revision===s.receipts.length);
+ if(s.job?.read){const r=s.job.read;check(r&&typeof r==='object'&&Object.keys(r).every(k=>['messages','characters','rounds','unanswered'].includes(k))&&Object.values(r).every(num));}if(s.job?.chunks!==undefined)check(num(s.job.chunks));if(s.job?.completedChunks!==undefined)check(num(s.job.completedChunks)&&s.job.completedChunks<=(s.job.chunks??100));
  const timelines=new Map<string,any>();const seen=new Set<string>(),paths=new Map<string,Map<string,any>>(),messageIndexes=new WeakMap<Map<string,any>,Map<string,any>>();let graph:Map<string,any>|undefined,graphLoaded=false;
  // Cached checks are synchronous: thousands of await-resolved calls can leave
  // IndexedDB with no pending requests and prematurely close a transaction.

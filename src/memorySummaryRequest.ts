@@ -1,3 +1,4 @@
+import {summaryPrompt} from './memorySummaryFormat';
 import {reviewExtractedEvents} from './memoryExtractionReview';
 import {browserTransport,type ApiConfig,type ApiTransport} from './api';
 import {requestReply} from './chatProvider';
@@ -6,56 +7,61 @@ import {summaryLimits,type SummaryDiagnostic} from './memorySummaryTypes';
 export class SummaryResponseError extends Error {constructor(public diagnostic:SummaryDiagnostic){super('summary-response');}}
 /** Memory extraction requests require evidence-backed JSON; core synthesis remains plain text. Never auto-retry paid calls. */
 export async function requestSummary(config:ApiConfig,key:string,input:string,signal:AbortSignal,_combined=false,mode:'long'|'core'='long'){
+ const outputLimit=Math.min(config.maxTokens,summaryLimits.outputTokens);
  const gemini=config.provider==='gemini'||(config.provider==='custom'&&config.protocol==='gemini');
- const instruction=mode==='core'?'你是核心记忆整理助手。输入为已经生成的长期记忆。请用第三人称提炼80到180字最稳定、最影响未来关系判断的身份、关系状态、长期边界、重要承诺和重大里程碑。不要复述日常琐事、暂时情绪、未证实猜测；若关系状态发生变化，以最新有依据的状态为准。只返回纯文本，不要JSON、标题或推理过程。':"你是聊天长期记忆提取器。输入为JSON二维数组：最外层每个元素代表一轮（从1编号），内部消息有role和content。只输出JSON对象，格式严格如下：{\"memories\":[{\"type\":\"fact\",\"kind\":\"long\",\"content\":\"用户不接受别人随便碰自己的东西\",\"quality\":{\"category\":\"boundary\",\"importance\":\"high\",\"durability\":\"lasting\",\"impact\":\"后续互动必须尊重用户的物品边界\",\"evidence\":[{\"turn\":1,\"role\":\"user\",\"quote\":\"我不接受别人随便碰我的东西\"}]}}]}。所有字段都必填，尤其quality对象及其5个字段category、importance、durability、impact、evidence，绝不能省略。type只能是fact/belief/speculation/pending；kind只能core/long；category只能identity/relationship/major-event/preference/boundary/habit/commitment/ongoing-conflict/continuity/routine/short-plan/resolved；importance只能high/medium/low；durability只能lasting/temporary。evidence是数组，每条有整数turn、role(user或assistant)、quote（对应消息content的连续原文，至少4字），最多4条。只提取对后续聊天有长期价值且有逐字原文证据的记忆，最多8条；不编造，不省略否定、条件、人物主体和状态。不能找到确切原文证据的候选不要输出。没有合格记忆时输出{\"memories\":[]}。不要输出Markdown、说明或其他文字。";
+ const instruction=mode==='core'?'你是核心记忆整理助手。输入为已经生成的长期记忆。请用第三人称提炼80到180字最稳定、最影响未来关系判断的身份、关系状态、长期边界、重要承诺和重大里程碑。不要复述日常琐事、暂时情绪、未证实猜测；若关系状态发生变化，以最新有依据的状态为准。只返回纯文本，不要JSON、标题或推理过程。':summaryPrompt;
  let diagnostic:SummaryDiagnostic|undefined;
  const transport:ApiTransport={send:async(url,init)=>{
   const response=await browserTransport.send(url,init);
-  if(!response.ok||response.headers.get('content-type')?.includes('text/event-stream'))return response;
+  if(response.headers.get('content-type')?.includes('text/event-stream'))return response;
   let data:any;
-  try{data=await response.clone().json();}catch{return response;}
+  try{data=await response.clone().json();}catch{if(response.ok){diagnostic={version:1,stage:'response',code:'envelope-json'};return response;}return new Response(JSON.stringify({error:{}}),{status:response.status,headers:{'Content-Type':'application/json'}});}
+  if(!response.ok)return response;
   const candidate=data?.candidates?.[0];
   const message=data?.choices?.[0]?.message;
-  const finish=gemini?candidate?.finishReason:data?.choices?.[0]?.finish_reason??data?.stop_reason;
+  const finish=gemini?candidate?.finishReason:data?.choices?.[0]?.finish_reason??data?.stop_reason??(data?.status==='incomplete'?data?.incomplete_details?.reason:undefined);
   if(['length','MAX_TOKENS','max_tokens','max_output_tokens','max_completion_tokens'].includes(String(finish)))diagnostic={version:1,stage:'response',code:'truncated',suspectedTruncated:true};
-  else if(['SAFETY','RECITATION','PROHIBITED_CONTENT','BLOCKLIST','content_filter'].includes(String(finish))||data?.promptFeedback?.blockReason)diagnostic={version:1,stage:'response',code:'blocked'};
+  else if(['SAFETY','RECITATION','PROHIBITED_CONTENT','BLOCKLIST','content_filter'].includes(String(finish))||data?.promptFeedback?.blockReason||typeof message?.refusal==='string'&&message.refusal.trim())diagnostic={version:1,stage:'response',code:'blocked'};
   if(!gemini){
-   const typed=Array.isArray(message?.content)?message.content.filter((p:any)=>p&&typeof p.text==='string').map((p:any)=>p.text).join(''):undefined;
+   const typed=Array.isArray(message?.content)?message.content.filter((p:any)=>p&&['text','output_text'].includes(p.type)&&typeof p.text==='string').map((p:any)=>p.text).join(''):undefined;
    const outputParts=Array.isArray(data?.output)?data.output.flatMap((item:any)=>Array.isArray(item?.content)?item.content.filter((part:any)=>part?.type==='output_text'&&typeof part.text==='string').map((part:any)=>part.text):[]).join(''):undefined;
-   const nestedOutput=Array.isArray(message?.content)?message.content.filter((p:any)=>p&&typeof p.text==='string').map((p:any)=>p.text).join(''):undefined;
+   const nestedOutput=Array.isArray(message?.content)?message.content.filter((p:any)=>p&&['text','output_text'].includes(p.type)&&typeof p.text==='string').map((p:any)=>p.text).join(''):undefined;
    const alt=typeof message?.content==='string'&&message.content.trim()?message.content:typed?.trim()?typed:nestedOutput?.trim()?nestedOutput:typeof message?.output_text==='string'?message.output_text:typeof data?.output_text==='string'?data.output_text:outputParts?.trim()?outputParts:typeof data?.output?.text==='string'?data.output.text:typeof data?.response==='string'?data.response:typeof data?.choices?.[0]?.text==='string'?data.choices[0].text:undefined;
    if(typeof alt==='string'&&alt.trim()){
     data.choices=data.choices?.length?data.choices:[{message:{content:alt}}];
     data.choices[0].message={...(data.choices[0].message??{}),content:alt};
     return new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
    }
-   if(!diagnostic)diagnostic={version:1,stage:'response',code:'response-shape'};
+   const reasoning=message?.reasoning_content||message?.reasoning||Array.isArray(message?.content)&&message.content.some((p:any)=>['reasoning','thinking'].includes(p?.type))||Array.isArray(data?.output)&&data.output.some((p:any)=>p?.type==='reasoning');
+   const empty=message&&(message.content===null||typeof message.content==='string'||Array.isArray(message.content)&&message.content.length===0)||Array.isArray(data?.output)&&data.output.length===0;
+   if(!diagnostic)diagnostic={version:1,stage:'response',code:reasoning?'reasoning-only':empty?'empty-output':'response-shape'};
   }else{
    const visible=candidate?.content?.parts?.filter((p:any)=>!p?.thought&&typeof p?.text==='string').map((p:any)=>p.text).join('')??'';
-   if(!visible.trim()&&!diagnostic)diagnostic={version:1,stage:'response',code:'response-shape'};
+   if(!visible.trim()&&!diagnostic)diagnostic={version:1,stage:'response',code:candidate?.content?.parts?.some((p:any)=>p?.thought)?'reasoning-only':Array.isArray(candidate?.content?.parts)?'empty-output':'response-shape'};
   }
   return response;
  }};
  let reason:ReplyInterruption|undefined;
  try{
-  const result=await requestReply({...config,maxTokens:summaryLimits.outputTokens},key,[{role:'system',content:instruction},{role:'user',content:input}],signal,transport,false,value=>{reason=value;});
-  if(diagnostic)throw new SummaryResponseError({...diagnostic,outputTokenLimit:summaryLimits.outputTokens});
-  if(reason)throw new SummaryResponseError({version:1,stage:'response',code:reason==='length'?'truncated':reason==='blocked'?'blocked':'response-shape',...(reason==='length'?{suspectedTruncated:true}:{}),outputTokenLimit:summaryLimits.outputTokens});
+  const result=await requestReply({...config,maxTokens:outputLimit},key,[{role:'system',content:instruction},{role:'user',content:input}],signal,transport,false,value=>{reason=value;});
+  if(diagnostic)throw new SummaryResponseError({...diagnostic,outputTokenLimit:outputLimit});
+  if(reason)throw new SummaryResponseError({version:1,stage:'response',code:reason==='length'?'truncated':reason==='blocked'?'blocked':'response-shape',...(reason==='length'?{suspectedTruncated:true}:{}),outputTokenLimit:outputLimit});
   const content=result.trim();
-  if(!content)throw new SummaryResponseError({version:1,stage:'response',code:'response-shape',outputTokenLimit:summaryLimits.outputTokens});
+  if(!content)throw new SummaryResponseError({version:1,stage:'response',code:'response-shape',outputTokenLimit:outputLimit});
   if(content.length>summaryLimits.outputChars)throw new SummaryResponseError({version:1,stage:'validate',code:'output-limit',receivedChars:content.length});
   return content;
  }catch(error){
-  if(diagnostic&&!(error instanceof SummaryResponseError))throw new SummaryResponseError({...diagnostic,outputTokenLimit:summaryLimits.outputTokens});
+  if(diagnostic&&!(error instanceof SummaryResponseError))throw new SummaryResponseError({...diagnostic,outputTokenLimit:outputLimit});
   throw error;
  }
 }
 
 /** Auxiliary summaries must not commit parseable but unfinished model output. */
 async function completeSummaryReply(config:ApiConfig,key:string,messages:Parameters<typeof requestReply>[2],signal:AbortSignal){
+ const outputLimit=Math.min(config.maxTokens,summaryLimits.outputTokens);
  let reason:ReplyInterruption|undefined;
- const text=await requestReply({...config,maxTokens:summaryLimits.outputTokens},key,messages,signal,browserTransport,false,value=>{reason=value;});
- if(reason)throw new SummaryResponseError({version:1,stage:'response',code:reason==='length'?'truncated':'response-shape',...(reason==='length'?{suspectedTruncated:true}:{}),outputTokenLimit:summaryLimits.outputTokens});
+ const text=await requestReply({...config,maxTokens:outputLimit},key,messages,signal,browserTransport,false,value=>{reason=value;});
+ if(reason)throw new SummaryResponseError({version:1,stage:'response',code:reason==='length'?'truncated':'response-shape',...(reason==='length'?{suspectedTruncated:true}:{}),outputTokenLimit:outputLimit});
  return text;
 }
 

@@ -7,10 +7,10 @@ test('零相关长期不注入，核心独立优先；空查询不补入长期�
   const {selectMemoryContext}=await import('/src/memoryContext.ts');
   const base={revision:1,scope:{mode:'daily' as const,spaceId:'daily' as const,conversationId:'fixture',characterId:'fixture'},source:'manual' as const,deleted:false,createdAt:1,updatedAt:1,inherited:false};
   const core={...base,id:'core',kind:'core' as const,content:'花生过敏，不能食用。'},long={...base,id:'long',kind:'long' as const,content:'篮球比赛结束了。'},related={...base,id:'related',kind:'long' as const,content:'咖啡必须不加糖。'};
-  return {normal:selectMemoryContext([long,related,core],'我想喝咖啡',24000),empty:selectMemoryContext([long,related,core],'',24000)};
+  const tags=[{entryId:'related',revision:1,tags:[{axis:'keyword' as const,tag:'咖啡',weight:1}],taggedAt:1}];return {normal:selectMemoryContext([long,related,core],'我想喝咖啡',24000,tags),empty:selectMemoryContext([long,related,core],'',24000,tags),untagged:selectMemoryContext([long,related,core],'我想喝咖啡',24000)};
  });
  expect(r.normal.text).toContain('花生过敏，不能食用。');expect(r.normal.text).toContain('咖啡必须不加糖。');expect(r.normal.text).not.toContain('篮球');expect(r.normal.skippedIrrelevant).toBe(1);expect(r.normal.text.indexOf('花生')).toBeLessThan(r.normal.text.indexOf('咖啡'));
- expect(r.empty.selected).toBe(1);expect(r.empty.text).not.toContain('咖啡');expect(r.empty.skippedIrrelevant).toBe(2);
+ expect(r.untagged.selected).toBe(1);expect(r.untagged.text).not.toContain('咖啡');expect(r.empty.selected).toBe(1);expect(r.empty.text).not.toContain('咖啡');expect(r.empty.skippedIrrelevant).toBe(2);
 });
 
 test('否定、主体、数字、时间及后置条件完整保留；超预算整条跳过不截断',async({page})=>{
