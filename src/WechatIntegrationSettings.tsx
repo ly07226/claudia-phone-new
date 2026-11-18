@@ -29,9 +29,35 @@ export function WechatIntegrationSettings(){
  const [aiBinding,setAiBinding]=useState('');
  const [aiStatus,setAiStatus]=useState('');
  const [aiModel,setAiModel]=useState('');
+ const [savedApis,setSavedApis]=useState<Array<{id:string;name:string;model:string;baseUrl:string;enabled:boolean;isDefault:boolean}>>([]);
+ const [selectedApi,setSelectedApi]=useState('');
  const [aiEndpoint,setAiEndpoint]=useState('https://api.openai.com/v1/chat/completions');
  const [aiKey,setAiKey]=useState('');
  const [aiBusy,setAiBusy]=useState(false);
+ const [apiLoaded,setApiLoaded]=useState(false);
+ const loadSavedApis=async()=>{
+  try{
+   const rows=await db.apiConfigs.toArray();
+   setSavedApis(rows.filter(c=>c.enabled).map(c=>({id:c.id,name:c.name,model:c.model,baseUrl:c.baseUrl,enabled:c.enabled,isDefault:c.isDefault})));
+   setApiLoaded(true);
+  }catch{setNotice('无法读取本地 API 配置。');}
+ };
+ const inheritApi=async()=>{
+  const binding=bindings?.find(b=>b.id===aiBinding&&b.status==='connected');
+  if(!binding)return setNotice('请先选择已绑定的角色。');
+  const character=await db.characters.get(binding.character_id);
+  const configs=await db.apiConfigs.toArray();
+  const config=configs.find(c=>c.id===selectedApi&&c.enabled)||
+   configs.find(c=>c.id===character?.apiConfigId&&c.enabled)||
+   configs.find(c=>c.isDefault&&c.enabled);
+  if(!config)return setNotice('没有可用的本地 API，请先在小手机 API 设置中配置。');
+  const credential=await db.apiCredentials.get(config.id);
+  if(!credential?.apiKey)return setNotice('所选 API 未保存密钥。');
+  const endpoint=config.baseUrl.replace(/\/+$/,'')+'/chat/completions';
+  if(!window.confirm('从本机读取「'+config.name+'」的模型、端点和密钥并填入微信授权表单？此操作只在本机填写，不会上传；仍需你单独确认云端授权。'))return;
+  setSelectedApi(config.id);setAiModel(config.model);setAiEndpoint(endpoint);setAiKey(credential.apiKey);
+  setNotice('已从本机填入 '+config.name+'；尚未上传密钥或启用云端 AI。');
+ };
  const [memoryStatus,setMemoryStatus]=useState('');
  const [autoMemory,setAutoMemory]=useState(false);
  const [closedContinuity,setClosedContinuity]=useState(false);
@@ -128,6 +154,7 @@ export function WechatIntegrationSettings(){
  };
  useEffect(()=>{
   if(section!=='account')return;
+  void loadSavedApis();
   let active=true;
   void db.conversations.toArray().then(rows=>{
    if(!active)return;
@@ -235,6 +262,14 @@ export function WechatIntegrationSettings(){
       {bindings.filter(b=>b.status==='connected').map(b=><option key={b.id} value={b.id}>{b.character_id}</option>)}
      </select>
     </label>
+    <label>继承小手机现有 API
+     <select value={selectedApi} onChange={e=>setSelectedApi(e.target.value)}>
+      <option value="">自动选择当前角色 API / 全局默认 API</option>
+      {savedApis.map(c=><option key={c.id} value={c.id}>{c.name} · {c.model}{c.isDefault?'（全局默认）':''}</option>)}
+     </select>
+    </label>
+    <button type="button" disabled={!aiBinding||!apiLoaded||aiBusy} onClick={()=>void inheritApi()}>继承选中的本地 API</button>
+    <p>继承只在本机填入配置，密钥不会自动上传。云端目前仅支持受允许的 OpenAI 兼容端点；其他服务商或自定义域名需要后端适配。</p>
     <label>AI 模型<input value={aiModel} onChange={e=>setAiModel(e.target.value)} placeholder="例如 gpt-4.1-mini"/></label>
     <label>API 端点<input value={aiEndpoint} onChange={e=>setAiEndpoint(e.target.value)}/></label>
     <label>API Key（仅提交到自己的 Supabase）<input type="password" autoComplete="off" value={aiKey} onChange={e=>setAiKey(e.target.value)}/></label>
