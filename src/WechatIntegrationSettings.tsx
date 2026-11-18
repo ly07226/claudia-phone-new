@@ -320,7 +320,7 @@ export function WechatIntegrationSettings(){
    <p>扫码前会通过当前站点的安全代理创建独立会话；不会向浏览器暴露 Railway 密钥或机器人凭据。</p>
    <button type="button" disabled={qqBusy} onClick={()=>void beginQq()}>{qqBusy?'正在生成…':'生成 QQ 绑定二维码'}</button>
    {qqSession&&<div className="card form" aria-live="polite">
-    {qqSession.qrContent&&(qqSession.qrContent.startsWith('https://')?<div style={{textAlign:'center'}}><WechatQrCode value={qqSession.qrContent} size={220}/></div>:qqSession.qrContent.startsWith('data:image/png;base64,')?<img src={qqSession.qrContent} alt="QQ 官方机器人授权二维码" width={220} height={220} style={{display:'block',margin:'auto'}}/>:<p>二维码内容格式不受支持，请重新生成。</p>)}
+    {qqSession.qrContent&&(qqSession.qrContent.startsWith('https://')?<div style={{textAlign:'center'}}><WechatQrCode value={qqSession.qrContent} size={220} label="QQ 官方机器人授权二维码"/></div>:qqSession.qrContent.startsWith('data:image/png;base64,')?<img src={qqSession.qrContent} alt="QQ 官方机器人授权二维码" width={220} height={220} style={{display:'block',margin:'auto'}}/>:<p>二维码内容格式不受支持，请重新生成。</p>)}
     <p>扫码状态：{qqSession.status==='waiting'?'等待扫码':qqSession.status==='refreshing'?'二维码刷新中':qqSession.status==='storage_not_configured'?'扫码完成，但凭据安全保存尚未配置':qqSession.status==='failed'?'授权失败':qqSession.status}</p>
     <p>会话过期：{new Date(qqSession.expiresAt).toLocaleTimeString()}</p>
    </div>}
