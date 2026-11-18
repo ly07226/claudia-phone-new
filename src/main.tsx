@@ -97,9 +97,13 @@ function App() {
       }
     };
     reconcile();
+    // Keep opted-in WeChat conversations current while the app stays open.
+    // The reconciler coalesces overlapping requests and checks opt-in itself.
+    const interval = window.setInterval(reconcile, 8000);
     document.addEventListener('visibilitychange', reconcile);
     window.addEventListener('pageshow', reconcile);
     return () => {
+      window.clearInterval(interval);
       document.removeEventListener('visibilitychange', reconcile);
       window.removeEventListener('pageshow', reconcile);
     };
