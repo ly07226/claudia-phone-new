@@ -89,7 +89,9 @@ Deno.serve(async request=>{
    signal:AbortSignal.timeout(45000)
   });
   const payload=await response.json() as Record<string,unknown>;
-  sent=response.ok&&(payload.ret===0||payload.ret===undefined);
+  // A successful HTTP status alone is not a confirmed WeChat delivery.
+  // Missing/unknown ret is quarantined rather than acknowledged as sent.
+  sent=response.ok&&payload.ret===0;
   if(!sent)errorCode="ilink_not_confirmed";
  }catch(error){
   errorCode=error instanceof Error&&["missing_verified_ilink_route","cloud_ai_authorization_revoked"].includes(error.message)?
