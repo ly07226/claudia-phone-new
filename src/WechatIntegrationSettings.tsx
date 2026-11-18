@@ -5,7 +5,6 @@ import {syncWechatEffectiveContext,deleteWechatEffectiveContext} from './wechatC
 import {getWechatClosedContinuity,setWechatClosedContinuity,reconcileWechatAfterReopen} from './wechatClosedContinuity';
 import {authorizeWechatAi,disableWechatAi,deleteWechatAi,getWechatAiStatus} from './wechatAiAuthorization';
 import {db} from './store';
-import {exportWechatIdentity,importWechatIdentity} from './wechatIdentityTransfer';
 import {startWechatLogin,pollWechatLogin} from './wechatQrLogin';
 import {listWechatCloudBindings} from './wechatCloudIdentity';
 import {syncWechatDailyConversation} from './wechatDailySync';
@@ -14,9 +13,6 @@ import {clearWechatCloudConfig,readWechatCloudConfig,saveWechatCloudConfig} from
 /** WeChat-only opt-in configuration; no cross-user shared project. */
 export function WechatIntegrationSettings(){
  const initial=readWechatCloudConfig();
- const [transferBusy,setTransferBusy]=useState(false);
- const [transferPassword,setTransferPassword]=useState('');
- const [transferFile,setTransferFile]=useState<File|null>(null);
  const [section,setSection]=useState<'cloud'|'account'|null>(null);
  const [url,setUrl]=useState(initial?.url??'');
  const [key,setKey]=useState(initial?.publishableKey??'');
@@ -207,26 +203,6 @@ export function WechatIntegrationSettings(){
   try{saveWechatCloudConfig({url,publishableKey:key});setConfigured(true);setNotice('微信专用 Supabase 公共配置已保存在本设备。尚未连接微信或部署云端服务。');}
   catch(error){setNotice(error instanceof Error?error.message:'配置保存失败');}
  };
- const exportIdentity=async()=>{
-  if(transferBusy)return;
-  setTransferBusy(true);setNotice('');
-  try{
-   const blob=await exportWechatIdentity(transferPassword);
-   const href=URL.createObjectURL(blob);
-   const link=document.createElement('a');link.href=href;link.download='Claudia-WeChat-Identity.encrypted.json';link.click();
-   window.setTimeout(()=>URL.revokeObjectURL(href),30000);
-   setNotice('已生成加密的微信云端身份迁移文件。请连同小手机主备份保存，并牢记迁移密码。');
-  }catch(error){setNotice(error instanceof Error?error.message:'微信身份导出失败');}
-  finally{setTransferBusy(false);setTransferPassword('');}
- };
- const restoreIdentity=async()=>{
-  if(!transferFile||transferBusy)return;
-  if(!window.confirm('确定将加密文件中的微信 Supabase 配置与原匿名身份恢复到当前网站？不会覆盖已有身份；请确保迁移文件来自你本人。'))return;
-  setTransferBusy(true);setNotice('');
-  try{await importWechatIdentity(transferFile,transferPassword);const config=readWechatCloudConfig();setUrl(config?.url??'');setKey(config?.publishableKey??'');setConfigured(!!config);setNotice('微信云端身份已恢复。请点击「查询我的微信绑定」验证，不需要重新扫码。');setTransferFile(null);}
-  catch(error){setNotice(error instanceof Error?error.message:'微信身份恢复失败');}
-  finally{setTransferBusy(false);setTransferPassword('');}
- };
  const clear=()=>{clearWechatCloudConfig();setConfigured(false);setUrl('');setKey('');setNotice('本设备的微信云端配置已清除。云端已有数据不会因此自动删除。');};
  return <section className="wechat-integration" aria-label="微信接入">
   <div className="wechat-integration__hero"><span className="wechat-integration__eyebrow">PRIVATE CONNECTION</span><h3>微信接入</h3><p>连接自己的微信与云端服务。每位使用者独立配置，不共享聊天或账号。</p></div>
@@ -246,12 +222,7 @@ export function WechatIntegrationSettings(){
    <button type="button" onClick={save}>保存本设备配置</button>
    {configured&&<button type="button" onClick={clear}>清除本设备配置</button>}
    <p>保存配置不代表云端已经部署，也不会自动创建账号或上传本地 API Key。</p>
-   <h4>跨网址迁移微信云端配置与绑定身份</h4>
-   <p>小手机主 ZIP 备份暂不包含浏览器微信身份。这里额外生成一个加密迁移文件，包含 Supabase 公钥与当前匿名登录身份，不包含服务端密钥。恢复时请与主 ZIP 一起使用。</p>
-   <label>迁移密码（至少 12 位）<input type="password" autoComplete="new-password" value={transferPassword} onChange={e=>setTransferPassword(e.target.value)}/></label>
-   <button type="button" disabled={transferBusy||transferPassword.length<12} onClick={()=>void exportIdentity()}>导出加密微信身份文件</button>
-   <label>恢复加密微信身份文件<input type="file" accept=".json,application/json" onChange={e=>setTransferFile(e.target.files?.[0]??null)}/></label>
-   <button type="button" disabled={transferBusy||!transferFile||transferPassword.length<12} onClick={()=>void restoreIdentity()}>恢复微信云端配置与原绑定身份</button>
+   <p>勾选主备份的「包含 API 密钥」并设置密码时，微信云端身份将一并加密存入同一个 ZIP；恢复时无需第二份文件。</p>
   </div>}
   <button type="button" className="wechat-integration__entry" aria-expanded={section==='account'} onClick={()=>{setSection(section==='account'?null:'account');setNotice('');}}>
    <span className="wechat-integration__entry-icon" aria-hidden="true">⌗</span><span className="wechat-integration__entry-text"><strong>微信账号绑定</strong><small>扫码登录 · 角色绑定 · AI 回复</small></span><span className="wechat-integration__entry-status">{bindings?.some(b=>b.status==='connected')?'已连接':'待查询'}　›</span>
