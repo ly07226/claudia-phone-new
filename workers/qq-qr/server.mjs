@@ -4,11 +4,13 @@
 import http from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { startQrConnect } from '@tencent-connect/qqbot-connector';
+import { startQqGateway } from './gateway.mjs';
 
 const origin=process.env.QQ_QR_ORIGIN;
 const token=process.env.QQ_QR_ACCESS_TOKEN;
 if(!origin||!/^https:\/\//.test(origin)||!token||token.length<32)throw Error('QQ_QR_ORIGIN and QQ_QR_ACCESS_TOKEN (32+ chars) required');
 const sessions=new Map();
+const listeners=new Map();
 const supabaseUrl=process.env.QQ_SUPABASE_URL;
 async function confirmBinding(id,credentials){
  if(!supabaseUrl||!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(supabaseUrl))throw Error('supabase_not_configured');
@@ -16,7 +18,7 @@ async function confirmBinding(id,credentials){
  for(let attempt=0;attempt<8;attempt++){
   const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
    body:JSON.stringify({bridgeAttemptId:id,credentials}),signal:AbortSignal.timeout(12000)});
-  if(response.ok)return;
+  if(response.ok){const result=await response.json();if(typeof result.bindingId!=='string')throw Error('missing_binding_id');return result.bindingId;}
   // The QR may complete before the owner's attempt record is committed.
   if(response.status!==409&&response.status!==404)throw Error('confirmation_failed');
   await new Promise(resolve=>setTimeout(resolve,750));
@@ -42,7 +44,14 @@ http.createServer(async(req,res)=>{
     onSuccess(credentials){
      if(!Array.isArray(credentials)||credentials.length!==1||credentials.some(c=>!c?.appId||!c?.appSecret)){s.status='failed';return;}
      s.status='confirming';s.url=null;
-     void confirmBinding(id,credentials).then(()=>{s.status='connected';}).catch(()=>{s.status='storage_not_configured';});
+     void confirmBinding(id,credentials).then(bindingId=>{
+      s.status='connected';
+      const account=credentials[0];
+      const previous=listeners.get(account.appId);
+      if(previous)previous();
+      listeners.set(account.appId,startQqGateway({appId:account.appId,appSecret:account.appSecret,
+       bindingId,supabaseUrl,bridgeToken:token,onStatus:state=>{s.gatewayStatus=state;}}));
+     }).catch(()=>{s.status='storage_not_configured';});
     },
     onFailure(){s.status='failed';s.url=null;}
    },{displayQrCodeToConsole:false});
