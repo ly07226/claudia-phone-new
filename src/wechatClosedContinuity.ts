@@ -20,6 +20,10 @@ export function reconcileWechatAfterReopen():Promise<void>{
  if(pending)return pending;
  pending=(async()=>{
   if(!readWechatCloudConfig()||document.visibilityState!=='visible')return;
+  // Avoid cloud auth, identity creation, and network traffic until explicitly opted in.
+  const optedIn=Array.from({length:localStorage.length},(_,i)=>localStorage.key(i))
+   .some(key=>key?.startsWith(prefix)&&localStorage.getItem(key)==='yes');
+  if(!optedIn)return;
   const bindings=await listWechatCloudBindings();
   for(const binding of bindings){
    if(!getWechatClosedContinuity(binding.id)||binding.status!=='connected')continue;
