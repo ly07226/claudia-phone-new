@@ -69,6 +69,17 @@ async function poll(binding){
  if(data.msgs.length>500)throw Error('unexpected message batch');
  for(const msg of data.msgs){
   if(!msg||typeof msg!=='object')continue;
+  // Never import messages dated before this binding. An absent or malformed
+  // source timestamp is not proof that a message is new: fail closed.
+  const sourceTime=msg.create_time;
+  const seconds=typeof sourceTime==='number'?sourceTime:
+   typeof sourceTime==='string'&&/^\\d{10,13}$/.test(sourceTime)?Number(sourceTime):NaN;
+  const eventMs=seconds>=1e12?seconds:seconds*1000;
+  const boundMs=Date.parse(binding.created_at);
+  if(!Number.isFinite(eventMs)||!Number.isFinite(boundMs)){
+   throw Error('iLink event timestamp missing or invalid; refusing to ingest unverified history');
+  }
+  if(eventMs<boundMs)continue;
   const text=(Array.isArray(msg.item_list)?msg.item_list:[])
    .filter(item=>item?.type===1&&typeof item.text_item?.text==='string')
    .map(item=>item.text_item.text).join('\n').trim();
@@ -94,7 +105,7 @@ process.on('SIGTERM',()=>{stopping=true;});
 process.on('SIGINT',()=>{stopping=true;});
 while(!stopping){
  try{
-  const bindings=await rest('claudia_wechat_bindings?status=eq.connected&select=id,user_id&limit=100');
+  const bindings=await rest('claudia_wechat_bindings?status=eq.connected&select=id,user_id,created_at&limit=100');
   for(const binding of bindings||[]){
    if(stopping)break;
    try{await poll(binding);}
