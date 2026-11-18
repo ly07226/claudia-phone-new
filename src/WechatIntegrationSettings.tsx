@@ -14,7 +14,7 @@ import {clearWechatCloudConfig,readWechatCloudConfig,saveWechatCloudConfig} from
 /** WeChat-only opt-in configuration; no cross-user shared project. */
 export function WechatIntegrationSettings(){
  const initial=readWechatCloudConfig();
- const [section,setSection]=useState<'cloud'|'account'|null>(null);
+ const [section,setSection]=useState<'cloud'|'account'|'qq'|null>(null);
  const [url,setUrl]=useState(initial?.url??'');
  const [key,setKey]=useState(initial?.publishableKey??'');
  const [configured,setConfigured]=useState(!!initial);
@@ -304,6 +304,16 @@ export function WechatIntegrationSettings(){
     {aiStatus&&<p role="status">{aiStatus}</p>}
    </div>}
    <p>云端 AI 授权与实际监听器部署是两回事；授权成功不代表微信自动回复已通过测试。</p>
+  </div>}
+  <button type="button" className="wechat-integration__entry" aria-expanded={section==='qq'} onClick={()=>{setSection(section==='qq'?null:'qq');setNotice('');}}>
+   <span className="wechat-integration__entry-icon" aria-hidden="true">QQ</span><span className="wechat-integration__entry-text"><strong>QQ账号绑定</strong><small>QQ 官方机器人 · 扫码绑定 · 角色聊天</small></span><span className="wechat-integration__entry-status">待接入　›</span>
+  </button>
+  {section==='qq'&&<div className="card form wechat-integration__details">
+   <h4>QQ 官方机器人接入</h4>
+   <p>将通过腾讯官方 QQ Bot 扫码绑定，而不是登录个人 QQ。QQ 与微信使用独立消息通道，角色设定和记忆仍由小手机管理。</p>
+   <p>扫码服务尚未部署，当前页面不会生成虚假二维码或索取 QQ 密码。后续接入需在服务器完成官方授权流程，安全保存返回的机器人凭据，再启用收发消息。</p>
+   <a href="https://github.com/tencent-connect/openclaw-qqbot" target="_blank" rel="noopener noreferrer">查看腾讯官方 QQ Bot 扫码接入说明</a>
+   <p>QQ 绑定未完成前，微信连接、角色数据与已有聊天不会改变。</p>
   </div>}
   {notice&&<p className="wechat-integration__notice" role="status">{notice}</p>}
  </section>;
