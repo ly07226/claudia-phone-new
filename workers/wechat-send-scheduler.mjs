@@ -22,6 +22,9 @@ while(!stopping){
   }else if(data?.ok!==true){
    console.error('wechat sender unexpected result',data?.error||'invalid_response');
    await sleep(5000);
+  }else{
+   // Bound request rate even when the queue is continuously non-empty.
+   await sleep(750);
   }
  }catch(error){console.error('wechat sender request failed',String(error));await sleep(5000);}
 }
