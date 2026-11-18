@@ -1,3 +1,4 @@
+import {restoreWechatFromBackupZip} from './backupZip';
 import React,{useEffect,useState} from 'react';
 import './wechatIntegration.css';
 import {WechatQrCode} from './WechatQrCode';
@@ -203,6 +204,18 @@ export function WechatIntegrationSettings(){
   try{saveWechatCloudConfig({url,publishableKey:key});setConfigured(true);setNotice('微信专用 Supabase 公共配置已保存在本设备。尚未连接微信或部署云端服务。');}
   catch(error){setNotice(error instanceof Error?error.message:'配置保存失败');}
  };
+ const restoreWechat=async()=>{
+  if(!restoreFile||restoring)return;
+  if(!window.confirm('确认从此 ZIP 恢复原微信身份？必须先完成小手机主数据恢复；已有微信身份不会被覆盖。'))return;
+  setRestoring(true);setNotice('');
+  try{
+   const restored=await restoreWechatFromBackupZip(restoreFile,restorePassword);
+   if(!restored)throw Error('该 ZIP 没有微信身份附件；请使用勾选包含密钥的新备份。');
+   const config=readWechatCloudConfig();setUrl(config?.url??'');setKey(config?.publishableKey??'');setConfigured(!!config);
+   setNotice('微信云端身份已恢复，可以查询原微信绑定。');setRestorePassword('');
+  }catch(e){setNotice(e instanceof Error?e.message:'微信身份恢复失败，未覆盖原身份。');}
+  finally{setRestoring(false);}
+ };
  const clear=()=>{clearWechatCloudConfig();setConfigured(false);setUrl('');setKey('');setNotice('本设备的微信云端配置已清除。云端已有数据不会因此自动删除。');};
  return <section className="wechat-integration" aria-label="微信接入">
   <div className="wechat-integration__hero"><span className="wechat-integration__eyebrow">PRIVATE CONNECTION</span><h3>微信接入</h3><p>连接自己的微信与云端服务。每位使用者独立配置，不共享聊天或账号。</p></div>
@@ -222,7 +235,10 @@ export function WechatIntegrationSettings(){
    <button type="button" onClick={save}>保存本设备配置</button>
    {configured&&<button type="button" onClick={clear}>清除本设备配置</button>}
    <p>保存配置不代表云端已经部署，也不会自动创建账号或上传本地 API Key。</p>
-   <p>勾选主备份的「包含 API 密钥」并设置密码时，微信云端身份将一并加密存入同一个 ZIP；恢复时无需第二份文件。</p>
+   <p>勾选主备份的「包含 API 密钥」并设置密码时，微信身份会加密放进同一个 ZIP。换网址后，先恢复小手机主数据，再用同一个 ZIP 恢复微信身份，不需要第二份文件。</p>
+   <label>恢复微信身份：选择同一个完整备份 ZIP<input type="file" accept=".zip,application/zip" onChange={e=>setRestoreFile(e.target.files?.[0]??null)}/></label>
+   <label>备份密码<input type="password" autoComplete="off" value={restorePassword} onChange={e=>setRestorePassword(e.target.value)}/></label>
+   <button type="button" disabled={!restoreFile||restorePassword.length<12||restoring} onClick={()=>void restoreWechat()}>{restoring?"正在验证并恢复…":"从同一个 ZIP 恢复微信身份"}</button>
   </div>}
   <button type="button" className="wechat-integration__entry" aria-expanded={section==='account'} onClick={()=>{setSection(section==='account'?null:'account');setNotice('');}}>
    <span className="wechat-integration__entry-icon" aria-hidden="true">⌗</span><span className="wechat-integration__entry-text"><strong>微信账号绑定</strong><small>扫码登录 · 角色绑定 · AI 回复</small></span><span className="wechat-integration__entry-status">{bindings?.some(b=>b.status==='connected')?'已连接':'待查询'}　›</span>
