@@ -157,13 +157,12 @@ export function WechatIntegrationSettings(){
   catch(error){setNotice(error instanceof Error?error.message:'配置保存失败');}
  };
  const clear=()=>{clearWechatCloudConfig();setConfigured(false);setUrl('');setKey('');setNotice('本设备的微信云端配置已清除。云端已有数据不会因此自动删除。');};
- return <section className="card form" aria-label="微信接入">
-  <h3>微信接入</h3>
-  <p>微信接入使用你自己的云端项目，不会把聊天上传到网站维护者的 Supabase。</p>
-  <button type="button" className="list-row" onClick={()=>{setSection(section==='cloud'?null:'cloud');setNotice('');}}>
-   <span>微信共享云端后台</span><span style={{marginLeft:'auto'}}>{configured?'已填写':'未配置'}　›</span>
+ return <section className="wechat-integration" aria-label="微信接入">
+  <div className="wechat-integration__hero"><span className="wechat-integration__eyebrow">PRIVATE CONNECTION</span><h3>微信接入</h3><p>连接自己的微信与云端服务。每位使用者独立配置，不共享聊天或账号。</p></div>
+  <button type="button" className="wechat-integration__entry" aria-expanded={section==='cloud'} onClick={()=>{setSection(section==='cloud'?null:'cloud');setNotice('');}}>
+   <span className="wechat-integration__entry-icon" aria-hidden="true">☁</span><span className="wechat-integration__entry-text"><strong>微信共享云端后台</strong><small>独立 Supabase 项目与数据</small></span><span className="wechat-integration__entry-status">{configured?'已填写':'未配置'}　›</span>
   </button>
-  {section==='cloud'&&<div className="card form">
+  {section==='cloud'&&<div className="card form wechat-integration__details">
    <p>填写自己的 Supabase 项目 URL 和公开的 publishable / anon Key。不要填写 service_role、secret Key 或数据库密码。</p>
    <label>Supabase 项目 URL
     <input type="url" value={url} onChange={e=>setUrl(e.target.value)}
@@ -177,10 +176,10 @@ export function WechatIntegrationSettings(){
    {configured&&<button type="button" onClick={clear}>清除本设备配置</button>}
    <p>保存配置不代表云端已经部署，也不会自动创建账号或上传本地 API Key。</p>
   </div>}
-  <button type="button" className="list-row" onClick={()=>{setSection(section==='account'?null:'account');setNotice('');}}>
-   <span>微信账号绑定</span><span style={{marginLeft:'auto'}}>尚未连接　›</span>
+  <button type="button" className="wechat-integration__entry" aria-expanded={section==='account'} onClick={()=>{setSection(section==='account'?null:'account');setNotice('');}}>
+   <span className="wechat-integration__entry-icon" aria-hidden="true">⌗</span><span className="wechat-integration__entry-text"><strong>微信账号绑定</strong><small>扫码登录 · 角色绑定 · AI 回复</small></span><span className="wechat-integration__entry-status">{bindings?.some(b=>b.status==='connected')?'已连接':'待查询'}　›</span>
   </button>
-  {section==='account'&&<div className="card form">
+  {section==='account'&&<div className="card form wechat-integration__details">
    <p>真实微信扫码绑定尚未完成。这里只查询你自己 Supabase 项目下的绑定记录；其他世界不会接入。</p>
    <button type="button" disabled={!configured||loading} onClick={()=>void load()}>
     {loading?'正在查询…':'查询我的微信绑定'}
@@ -245,6 +244,6 @@ export function WechatIntegrationSettings(){
    </div>}
    <p>云端 AI 授权与实际监听器部署是两回事；授权成功不代表微信自动回复已通过测试。</p>
   </div>}
-  {notice&&<p role="status">{notice}</p>}
+  {notice&&<p className="wechat-integration__notice" role="status">{notice}</p>}
  </section>;
 }
