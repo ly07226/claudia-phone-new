@@ -12,7 +12,7 @@ import type {Message,MessageVariant} from './chatTypes';
 const messageId=(id:string)=>'wechat:'+id;
 const variantId=(id:string)=>'wechat-variant:'+id;
 function eligible(row:WechatSyncedMessage):boolean {
- return row.direction==='inbound'||row.direction==='outbound'&&row.status==='sent';
+ // Unknown means delivery was attempted but the provider receipt was inconclusive.\n // Mirror the generated reply locally without claiming it was delivered to WeChat.\n // Do not mirror unsent/generated/failed replies or retry an unknown delivery.\n return row.direction==='inbound'||row.direction==='outbound'&&['sent','unknown'].includes(row.status);
 }
 export async function mergeWechatDailyPage(
  page:WechatSyncPage,
@@ -56,7 +56,7 @@ export async function mergeWechatDailyPage(
   let skipped=0;
   let nextSeq=cursor;
   for(const row of page.messages){
-   // An unsent outbound reply can become sent later. Do not advance past it.
+   // Pending outbound replies block the cursor; an attempted, unconfirmed\n   // delivery is mirrored locally, without treating it as a send receipt.
    if(!eligible(row))break;
    nextSeq=row.sync_seq;
    const id=messageId(row.id);
