@@ -73,7 +73,7 @@ async function poll(binding){
   // source timestamp is not proof that a message is new: fail closed.
   const sourceTime=msg.create_time;
   const seconds=typeof sourceTime==='number'?sourceTime:
-   typeof sourceTime==='string'&&/^\\d{10,13}$/.test(sourceTime)?Number(sourceTime):NaN;
+   typeof sourceTime==='string'&&/^\d{10,13}$/.test(sourceTime)?Number(sourceTime):NaN;
   const eventMs=seconds>=1e12?seconds:seconds*1000;
   const boundMs=Date.parse(binding.created_at);
   if(!Number.isFinite(eventMs)||!Number.isFinite(boundMs)){
