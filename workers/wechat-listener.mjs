@@ -57,12 +57,15 @@ async function poll(binding){
   signal:AbortSignal.timeout(65000)});
  if(!response.ok)throw Error('iLink HTTP '+response.status);
  const data=await response.json();
- if(data.ret!==0){
+ if(Object.hasOwn(data,'ret')&&data.ret!==0){
   // Only numeric response code; never log tokens, messages, or response bodies.
   const code=typeof data.ret==='number'&&Number.isSafeInteger(data.ret)?data.ret:'invalid';
   throw Error('iLink getupdates rejected (ret='+code+')');
  }
- if(!Array.isArray(data.msgs)||typeof data.get_updates_buf!=='string')throw Error('invalid getupdates');
+ if(!Array.isArray(data.msgs)||typeof data.get_updates_buf!=='string'){
+  // Safe shape diagnostics: never log raw response, credentials or messages.
+  throw Error('invalid getupdates shape (msgs='+Array.isArray(data.msgs)+',cursor='+(typeof data.get_updates_buf)+',keys='+Object.keys(data).filter(k=>/^(ret|errcode|errmsg|msgs|get_updates_buf|message_list|messages|next_cursor)$/.test(k)).join(',')+')');
+ }
  if(data.msgs.length>500)throw Error('unexpected message batch');
  for(const msg of data.msgs){
   if(!msg||typeof msg!=='object')continue;
