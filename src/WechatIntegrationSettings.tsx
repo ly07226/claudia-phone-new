@@ -311,7 +311,8 @@ export function WechatIntegrationSettings(){
   {section==='qq'&&<div className="card form wechat-integration__details">
    <h4>QQ 官方机器人接入</h4>
    <p>将通过腾讯官方 QQ Bot 扫码绑定，而不是登录个人 QQ。QQ 与微信使用独立消息通道，角色设定和记忆仍由小手机管理。</p>
-   <p>扫码服务尚未部署，当前页面不会生成虚假二维码或索取 QQ 密码。后续接入需在服务器完成官方授权流程，安全保存返回的机器人凭据，再启用收发消息。</p>
+   <p>QQ 扫码后端已经部署，但尚未完成用户身份隔离及安全的二维码会话代理。为防止其他使用者占用你的授权会话，暂不开放无鉴权的扫码按钮。</p>
+   <p>后端健康检查：<a href="https://qq-qr-bridge-production.up.railway.app/health" target="_blank" rel="noopener noreferrer">检查 QQ 扫码服务</a>。此地址只检查服务运行，不会生成二维码。</p>
    <a href="https://github.com/tencent-connect/openclaw-qqbot" target="_blank" rel="noopener noreferrer">查看腾讯官方 QQ Bot 扫码接入说明</a>
    <p>QQ 绑定未完成前，微信连接、角色数据与已有聊天不会改变。</p>
   </div>}
