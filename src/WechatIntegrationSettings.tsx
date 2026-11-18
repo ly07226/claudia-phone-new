@@ -7,6 +7,7 @@ import {authorizeWechatAi,disableWechatAi,deleteWechatAi,getWechatAiStatus} from
 import {db} from './store';
 import {startWechatLogin,pollWechatLogin} from './wechatQrLogin';
 import {listWechatCloudBindings} from './wechatCloudIdentity';
+import {syncWechatDailyConversation} from './wechatDailySync';
 import {clearWechatCloudConfig,readWechatCloudConfig,saveWechatCloudConfig} from './wechatCloudConfig';
 
 /** WeChat-only opt-in configuration; no cross-user shared project. */
@@ -68,6 +69,19 @@ export function WechatIntegrationSettings(){
   if(checked&&!window.confirm('开启后，只要这个设置页面保持打开且处于前台，就会定期将角色当前有效上下文同步到你自己的 Supabase。确认开启？'))return;
   localStorage.setItem('claudia-wechat-auto-context:'+aiBinding,checked?'yes':'no');
   setAutoMemory(checked);
+ };
+ const [messageSyncBusy,setMessageSyncBusy]=useState(false);
+ const syncMessages=async()=>{
+  const binding=bindings?.find(b=>b.id===aiBinding&&b.status==='connected');
+  if(!binding||messageSyncBusy)return;
+  setMessageSyncBusy(true);setNotice('');
+  try{
+   const result=await syncWechatDailyConversation(binding.id,binding.conversation_id,binding.character_id);
+   setMemoryStatus(result.hasMore
+    ?'已回填 '+result.added+' 条消息，仍有待同步内容，请稍后继续。'
+    :'微信消息同步完成，新增 '+result.added+' 条。');
+  }catch(error){setNotice(error instanceof Error?error.message:'微信消息回填失败');}
+  finally{setMessageSyncBusy(false);}
  };
  const memoryAction=async(action:'sync'|'delete')=>{
   const binding=bindings?.find(b=>b.id===aiBinding&&b.status==='connected');
@@ -220,6 +234,8 @@ export function WechatIntegrationSettings(){
     <label>API 端点<input value={aiEndpoint} onChange={e=>setAiEndpoint(e.target.value)}/></label>
     <label>角色提示词<textarea rows={5} value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)} placeholder="请自行核对并填写要授权到云端的角色设定"/></label>
     <label>API Key（仅提交到自己的 Supabase）<input type="password" autoComplete="off" value={aiKey} onChange={e=>setAiKey(e.target.value)}/></label>
+    <p>微信消息回填：将云端已确认的微信消息合并进当前日常聊天，不会新建第二个聊天。</p>
+    <button type="button" disabled={!aiBinding||messageSyncBusy} onClick={()=>void syncMessages()}>{messageSyncBusy?'正在回填微信消息…':'立即同步微信消息到小手机'}</button>
     <p>角色记忆：仅在你确认后，将当前日常聊天实际构建出的角色、世界书、记忆与有效历史同步到自己的云端。</p>
     <label><input type="checkbox" checked={closedContinuity} disabled={!aiBinding}
       onChange={e=>{
