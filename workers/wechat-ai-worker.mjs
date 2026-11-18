@@ -88,7 +88,13 @@ async function next(){
   // with unsynced local messages or changed local memory.
   const effective=snapshot.context_messages.filter(m=>
    m&&['system','user','assistant'].includes(m.role)&&typeof m.content==='string');
-  if(memoryContext)messages.unshift({role:'user',content:memoryContext});
+  // The local snapshot can end with several unanswered user turns. Those turns
+  // are context, not pending requests for this WeChat generation. Remove only
+  // the trailing user run, keeping all earlier dialogue and system memories.
+  // The claimed inbound row below is the sole current turn.
+  while(effective.length&&effective[effective.length-1].role==='user')effective.pop();
+  if(memoryContext)messages.unshift({role:'system',content:
+   'The following is retrieved background memory, not a new user request.\\n'+memoryContext});
   messages.push({role:'user',content:row.body});
   const apiKey=await decrypt(profile.api_key_ciphertext);
   const response=await fetch(url,{
