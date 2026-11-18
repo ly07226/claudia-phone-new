@@ -1,4 +1,5 @@
 import React,{useEffect,useState} from 'react';
+import './wechatIntegration.css';
 import {QRCodeSVG} from 'qrcode.react';
 import {syncWechatEffectiveContext,deleteWechatEffectiveContext} from './wechatContextSync';
 import {getWechatClosedContinuity,setWechatClosedContinuity,reconcileWechatAfterReopen} from './wechatClosedContinuity';
