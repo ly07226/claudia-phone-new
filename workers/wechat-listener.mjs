@@ -57,6 +57,9 @@ async function poll(binding){
   signal:AbortSignal.timeout(65000)});
  if(!response.ok)throw Error('iLink HTTP '+response.status);
  const data=await response.json();
+ if(typeof data.errcode==='number'&&data.errcode!==0){
+  throw Error('iLink getupdates rejected (errcode='+data.errcode+')');
+ }
  if(Object.hasOwn(data,'ret')&&data.ret!==0){
   // Only numeric response code; never log tokens, messages, or response bodies.
   const code=typeof data.ret==='number'&&Number.isSafeInteger(data.ret)?data.ret:'invalid';
@@ -71,10 +74,11 @@ async function poll(binding){
   if(!msg||typeof msg!=='object')continue;
   // Never import messages dated before this binding. An absent or malformed
   // source timestamp is not proof that a message is new: fail closed.
-  const sourceTime=msg.create_time;
-  const seconds=typeof sourceTime==='number'?sourceTime:
+  // iLink uses create_time_ms (milliseconds); older payloads may use create_time (seconds).
+  const sourceTime=msg.create_time_ms??msg.create_time;
+  const numericTime=typeof sourceTime==='number'?sourceTime:
    typeof sourceTime==='string'&&/^\d{10,13}$/.test(sourceTime)?Number(sourceTime):NaN;
-  const eventMs=seconds>=1e12?seconds:seconds*1000;
+  const eventMs=numericTime>=1e12?numericTime:numericTime*1000;
   const boundMs=Date.parse(binding.created_at);
   if(!Number.isFinite(eventMs)||!Number.isFinite(boundMs)){
    // Log metadata only; never print message text, routing tokens, or credentials.
