@@ -126,7 +126,7 @@ export function WechatIntegrationSettings(){
   finally{setLoading(false);}
  };
  useEffect(()=>{
-  if(!qr||section!=='account'||qrStatus==='已连接'||qrStatus==='已过期')return;
+  if(!qr||section!=='account'||['已连接','已过期','需要微信验证码（暂不支持）','验证被限制','需要服务端跳转支持','该微信账号已有绑定'].includes(qrStatus))return;
   let cancelled=false;
   const timer=window.setTimeout(async()=>{
    if(cancelled)return;
