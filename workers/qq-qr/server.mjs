@@ -26,7 +26,7 @@ async function restoreListeners(){
   const result=await response.json();
   if(!result.ok||!Array.isArray(result.accounts))throw Error('invalid_restore_response');
   for(const account of result.accounts){
-   if(typeof account.bindingId==='string'&&typeof account.appId==='string'&&typeof account.appSecret==='string')
+   if(typeof account.bindingId==='string'&&typeof account.appId==='string'&&typeof account.appSecret==='string'&&!listeners.has(account.appId))
     startListener(account);
   }
   console.info('qq_gateway_restore_count',result.accounts.length);
@@ -81,3 +81,5 @@ http.createServer(async(req,res)=>{
  if(req.method==='GET'&&match){const s=sessions.get(match[1]);return s?json(res,200,{status:s.status,qrContent:s.url,expiresAt:new Date(s.until).toISOString()}):json(res,404,{error:'expired'});}
  return json(res,404,{error:'not_found'});
 }).listen(Number(process.env.PORT||3000),'0.0.0.0',()=>{void restoreListeners();});
+// Recover automatically if Supabase was temporarily unavailable during startup.
+setInterval(()=>{void restoreListeners();},5*60*1000).unref();
