@@ -24,11 +24,11 @@ function validEndpoint(value:unknown):value is string{
   if(u.protocol!=="https:"||u.username||u.password||u.hash||u.port)return false;
   // Allow user-selected public HTTPS OpenAI-compatible endpoints, not a domain whitelist.
   // Reject local/private hostnames and IP literals (including IPv6) before storing.
-  const host=u.hostname.toLowerCase().replace(/\\.$/,'');
+  const host=u.hostname.toLowerCase().replace(/\.$/,'');
   if(!host.includes('.')||host==='localhost'||host.endsWith('.localhost')||
      host.endsWith('.local')||host.endsWith('.internal')||host.endsWith('.test')||
      host.endsWith('.invalid')||host.endsWith('.example')||
-     /^\\[/.test(host)||/^\\d+(?:\\.\\d+){3}$/.test(host)||
+     /^\[/.test(host)||/^\d+(?:\.\d+){3}$/.test(host)||
      /^(?:0x[0-9a-f]+|[0-9]+)$/i.test(host))return false;
   return u.pathname.endsWith("/chat/completions")&&!u.search;
  }catch{return false;}
