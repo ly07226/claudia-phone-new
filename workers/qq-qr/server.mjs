@@ -9,6 +9,20 @@ const origin=process.env.QQ_QR_ORIGIN;
 const token=process.env.QQ_QR_ACCESS_TOKEN;
 if(!origin||!/^https:\/\//.test(origin)||!token||token.length<32)throw Error('QQ_QR_ORIGIN and QQ_QR_ACCESS_TOKEN (32+ chars) required');
 const sessions=new Map();
+const supabaseUrl=process.env.QQ_SUPABASE_URL;
+async function confirmBinding(id,credentials){
+ if(!supabaseUrl||!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(supabaseUrl))throw Error('supabase_not_configured');
+ const endpoint=supabaseUrl+'/functions/v1/claudia-qq-bridge-confirm';
+ for(let attempt=0;attempt<8;attempt++){
+  const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+   body:JSON.stringify({bridgeAttemptId:id,credentials}),signal:AbortSignal.timeout(12000)});
+  if(response.ok)return;
+  // The QR may complete before the owner's attempt record is committed.
+  if(response.status!==409&&response.status!==404)throw Error('confirmation_failed');
+  await new Promise(resolve=>setTimeout(resolve,750));
+ }
+ throw Error('confirmation_timeout');
+}
 const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Access-Control-Allow-Origin':origin,'Vary':'Origin'});res.end(JSON.stringify(data));};
 function authorized(req){const supplied=req.headers.authorization?.replace(/^Bearer /,'')||'';const a=Buffer.from(supplied),b=Buffer.from(token);return a.length===b.length&&timingSafeEqual(a,b);}
 function cleanup(){for(const [id,s] of sessions){if(Date.now()>s.until){if(typeof s.stop==='function')s.stop();sessions.delete(id);}}}
@@ -25,7 +39,11 @@ http.createServer(async(req,res)=>{
    const connector=startQrConnect({
     onQrDisplayed(url){if(typeof url==='string'&&/^(https:\/\/|data:image\/png;base64,)/.test(url)){s.url=url;s.status='waiting';}},
     onQrExpired(){s.url=null;s.status='refreshing';},
-    onSuccess(credentials){if(!Array.isArray(credentials)||!credentials.length||credentials.some(c=>!c?.appId||!c?.appSecret)){s.status='failed';return;}s.status='storage_not_configured';s.url=null;/* Refuse to claim successful binding: credentials must be encrypted and saved under a verified user identity before this flow can be enabled. */},
+    onSuccess(credentials){
+     if(!Array.isArray(credentials)||credentials.length!==1||credentials.some(c=>!c?.appId||!c?.appSecret)){s.status='failed';return;}
+     s.status='confirming';s.url=null;
+     void confirmBinding(id,credentials).then(()=>{s.status='connected';}).catch(()=>{s.status='storage_not_configured';});
+    },
     onFailure(){s.status='failed';s.url=null;}
    },{displayQrCodeToConsole:false});
    Promise.resolve(connector).then(stop=>{if(typeof stop==='function')s.stop=stop;}).catch(()=>{s.status='failed';s.url=null;});
