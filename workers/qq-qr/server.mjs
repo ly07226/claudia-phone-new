@@ -11,7 +11,7 @@ if(!origin||!/^https:\/\//.test(origin)||!token||token.length<32)throw Error('QQ
 const sessions=new Map();
 const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Access-Control-Allow-Origin':origin,'Vary':'Origin'});res.end(JSON.stringify(data));};
 function authorized(req){const supplied=req.headers.authorization?.replace(/^Bearer /,'')||'';const a=Buffer.from(supplied),b=Buffer.from(token);return a.length===b.length&&timingSafeEqual(a,b);}
-function cleanup(){for(const [id,s] of sessions){if(Date.now()>s.until){s.stop?.();sessions.delete(id);}}}
+function cleanup(){for(const [id,s] of sessions){if(Date.now()>s.until){if(typeof s.stop==='function')s.stop();sessions.delete(id);}}}
 setInterval(cleanup,30000).unref();
 http.createServer(async(req,res)=>{
  if(req.method==='GET'&&req.url==='/health')return json(res,200,{status:'ok'});
@@ -22,12 +22,13 @@ http.createServer(async(req,res)=>{
   cleanup();if(sessions.size>=5)return json(res,429,{error:'too_many_sessions'});
   const id=randomUUID();const s={status:'waiting',url:null,until:Date.now()+10*60*1000,stop:null};sessions.set(id,s);
   try{
-   s.stop=startQrConnect({
+   const connector=startQrConnect({
     onQrDisplayed(url){if(typeof url==='string'&&/^(https:\/\/|data:image\/png;base64,)/.test(url)){s.url=url;s.status='waiting';}},
     onQrExpired(){s.url=null;s.status='refreshing';},
     onSuccess(credentials){if(!Array.isArray(credentials)||!credentials.length||credentials.some(c=>!c?.appId||!c?.appSecret)){s.status='failed';return;}s.status='storage_not_configured';s.url=null;/* Refuse to claim successful binding: credentials must be encrypted and saved under a verified user identity before this flow can be enabled. */},
     onFailure(){s.status='failed';s.url=null;}
    },{displayQrCodeToConsole:false});
+   Promise.resolve(connector).then(stop=>{if(typeof stop==='function')s.stop=stop;}).catch(()=>{s.status='failed';s.url=null;});
    return json(res,200,{attemptId:id,status:s.status,qrContent:s.url,expiresAt:new Date(s.until).toISOString()});
   }catch{sessions.delete(id);return json(res,502,{error:'qq_connector_failed'});}
  }
