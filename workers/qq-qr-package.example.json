@@ -1,0 +1,14 @@
+{
+  "name": "claudia-qq-qr-bridge",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node qq-qr-bridge.mjs"
+  },
+  "dependencies": {
+    "@tencent-connect/qqbot-connector": "1.2.0"
+  }
+}
