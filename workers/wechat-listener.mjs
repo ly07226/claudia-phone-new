@@ -77,7 +77,10 @@ async function poll(binding){
   const eventMs=seconds>=1e12?seconds:seconds*1000;
   const boundMs=Date.parse(binding.created_at);
   if(!Number.isFinite(eventMs)||!Number.isFinite(boundMs)){
-   throw Error('iLink event timestamp missing or invalid; refusing to ingest unverified history');
+   // Log metadata only; never print message text, routing tokens, or credentials.
+   const fields=Object.keys(msg).filter(k=>/time|date|timestamp|created/i.test(k));
+   const timestampTypes=Object.fromEntries(fields.map(k=>[k,typeof msg[k]]));
+   throw Error('iLink event timestamp missing or invalid; refusing to ingest unverified history; timestampFields='+JSON.stringify(timestampTypes));
   }
   if(eventMs<boundMs)continue;
   const text=(Array.isArray(msg.item_list)?msg.item_list:[])
