@@ -2,14 +2,18 @@
 // Browser access requires Supabase user JWT; never returns iLink credentials.
 import {createClient} from "npm:@supabase/supabase-js@2";
 const origin=Deno.env.get("CLAUDIA_APP_ORIGIN")||"";
+const trustedOrigins=new Set([origin,"https://claudia-phone-new.vercel.app","https://claudia-phone-nxya5vllj-2982991953-4231.vercel.app"].filter(Boolean));
 const headers={"Content-Type":"application/json","Cache-Control":"no-store","Vary":"Origin",
  "Access-Control-Allow-Origin":origin,"Access-Control-Allow-Headers":"authorization,apikey,content-type",
  "Access-Control-Allow-Methods":"POST,OPTIONS"};
 const reply=(status:number,value:Record<string,unknown>)=>new Response(JSON.stringify(value),{status,headers});
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 Deno.serve(async request=>{
- if(!origin||request.headers.get("Origin")!==origin)return reply(403,{error:"origin_denied"});
- if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
+ const requestOrigin=request.headers.get("Origin")||"";
+ if(!trustedOrigins.has(requestOrigin))return reply(403,{error:"origin_denied"});
+ const responseHeaders={...headers,"Access-Control-Allow-Origin":requestOrigin};
+ const reply=(status:number,value:Record<string,unknown>)=>new Response(JSON.stringify(value),{status,headers:responseHeaders});
+ if(request.method==="OPTIONS")return new Response(null,{status:204,headers:responseHeaders});
  if(request.method!=="POST")return reply(405,{error:"method_not_allowed"});
  const bearer=request.headers.get("Authorization")||"";
  if(!bearer.startsWith("Bearer "))return reply(401,{error:"unauthorized"});
