@@ -197,7 +197,7 @@ export function WechatIntegrationSettings(){
  const load=async()=>{
   if(loading)return;
   setLoading(true);setNotice('');
-  try{setBindings(await listWechatCloudBindings());}
+  try{const rows=await listWechatCloudBindings();setBindings(rows);setAiBinding(current=>rows.some(b=>b.id===current&&b.status==='connected')?current:rows.find(b=>b.status==='connected')?.id??'');}
   catch(error){setNotice(error instanceof Error?error.message:'绑定查询失败');}
   finally{setLoading(false);}
  };
@@ -231,14 +231,14 @@ export function WechatIntegrationSettings(){
    <span className="wechat-integration__entry-icon" aria-hidden="true">⌗</span><span className="wechat-integration__entry-text"><strong>微信账号绑定</strong><small>扫码登录 · 角色绑定 · AI 回复</small></span><span className="wechat-integration__entry-status">{bindings?.some(b=>b.status==='connected')?'已连接':'待查询'}　›</span>
   </button>
   {section==='account'&&<div className="card form wechat-integration__details">
-   <p>真实微信扫码绑定尚未完成。这里只查询你自己 Supabase 项目下的绑定记录；其他世界不会接入。</p>
+   <p>微信扫码绑定与云端 AI 授权是两个独立步骤。已有绑定无需重新扫码；连接后还需主动确认一次 AI 授权，才能自动回复。</p>
    <button type="button" disabled={!configured||loading} onClick={()=>void load()}>
     {loading?'正在查询…':'查询我的微信绑定'}
    </button>
    {bindings!==null&&<div aria-live="polite">
     {bindings.length===0?<p>当前没有微信绑定记录。</p>:
      bindings.map(b=><div key={b.id} className="list-row">
-      <span>角色 {b.character_id}</span><span style={{marginLeft:'auto'}}>{b.status}</span>
+      <span>角色 {daily.find(d=>d.characterId===b.character_id)?.characterName??'未命名角色'}</span><span style={{marginLeft:'auto'}}>{b.status}</span>
      </div>)}
    </div>}
    <label>选择日常聊天角色
@@ -259,11 +259,12 @@ export function WechatIntegrationSettings(){
    </div>}
    {bindings?.some(b=>b.status==='connected')&&<div className="card form">
     <h4>云端 AI 回复授权</h4>
+    <p>未授权时微信消息可以接收入库，但 AI 不会自动回复。完成一次明确授权后，无需每次发消息都重新授权。</p>
     <p>只针对你主动选择的已连接微信角色。不会自动读取或上传本地 API Key。确认授权时会先同步当前角色的有效上下文，无需重复填写角色介绍；如果同步失败则不会开启云端 AI。</p>
     <label>已绑定角色
      <select value={aiBinding} onChange={e=>{setAiBinding(e.target.value);setAiStatus('');}}>
       <option value="">选择角色</option>
-      {bindings.filter(b=>b.status==='connected').map(b=><option key={b.id} value={b.id}>{b.character_id}</option>)}
+      {bindings.filter(b=>b.status==='connected').map(b=><option key={b.id} value={b.id}>{daily.find(d=>d.characterId===b.character_id)?.characterName??'未命名角色'}</option>)}
      </select>
     </label>
     <label>继承小手机现有 API
