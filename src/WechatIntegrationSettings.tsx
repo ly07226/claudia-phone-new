@@ -7,7 +7,7 @@ import {getWechatClosedContinuity,setWechatClosedContinuity,reconcileWechatAfter
 import {authorizeWechatAi,disableWechatAi,deleteWechatAi,getWechatAiStatus} from './wechatAiAuthorization';
 import {db} from './store';
 import {startWechatLogin,pollWechatLogin} from './wechatQrLogin';
-import {startQqQr,pollQqQr,type QqQrSession} from './qqQrLogin';
+import {startQqQr,pollQqQr,listQqCloudBindings,disconnectQqCloudBinding,type QqQrSession} from './qqQrLogin';
 import {listWechatCloudBindings} from './wechatCloudIdentity';
 import {syncWechatDailyConversation} from './wechatDailySync';
 import {clearWechatCloudConfig,readWechatCloudConfig,saveWechatCloudConfig} from './wechatCloudConfig';
@@ -28,9 +28,13 @@ export function WechatIntegrationSettings(){
  const [qrStatus,setQrStatus]=useState('未开始');
  const [qqSession,setQqSession]=useState<QqQrSession|null>(null);
  const [qqBusy,setQqBusy]=useState(false);
+ const [qqTarget,setQqTarget]=useState('');
+ const [qqBindings,setQqBindings]=useState<Array<{id:string;character_id:string;conversation_id:string;status:string}>>([]);
+ const loadQq=async()=>{try{setQqBindings(await listQqCloudBindings());}catch(e){setQqNotice(e instanceof Error?e.message:'QQ 绑定查询失败');}};
+ useEffect(()=>{if(section==='qq'){void loadQq();void Promise.all([db.conversations.toArray(),db.characters.toArray()]).then(([rows,chars])=>{const names=new Map(chars.map(c=>[c.id,c.name]));const list=rows.filter(c=>c.mode==='daily'&&!c.worldId).map(c=>({id:c.id,characterId:c.characterId,characterName:names.get(c.characterId)||'未命名角色'}));setDaily(list);setQqTarget(current=>list.some(c=>c.id===current)?current:list[0]?.id||'');}).catch(()=>setQqNotice('读取日常角色失败'));}},[section]);
  const [qqNotice,setQqNotice]=useState('');
- const beginQq=async()=>{setQqBusy(true);setQqNotice('');setQqSession(null);try{setQqSession(await startQqQr());}catch(e){setQqNotice(e instanceof Error?e.message:'QQ 二维码获取失败');}finally{setQqBusy(false);}};
- useEffect(()=>{if(section!=='qq'||!qqSession||['failed','expired','storage_not_configured'].includes(qqSession.status))return;let active=true;const timer=window.setInterval(()=>{void pollQqQr(qqSession.attemptId).then(next=>{if(active)setQqSession(next);}).catch(e=>{if(active){setQqNotice(e instanceof Error?e.message:'扫码状态查询失败');window.clearInterval(timer);}});},2500);return()=>{active=false;window.clearInterval(timer);};},[section,qqSession?.attemptId,qqSession?.status]);
+ const beginQq=async()=>{setQqBusy(true);setQqNotice('');setQqSession(null);try{const chosen=daily.find(c=>c.id===qqTarget);if(!chosen)throw Error('请先选择日常角色');setQqSession(await startQqQr(chosen.id,chosen.characterId));}catch(e){setQqNotice(e instanceof Error?e.message:'QQ 二维码获取失败');}finally{setQqBusy(false);}};
+ useEffect(()=>{if(section!=='qq'||!qqSession||['failed','expired','storage_not_configured'].includes(qqSession.status))return;let active=true;const timer=window.setInterval(()=>{void pollQqQr(qqSession.attemptId).then(next=>{if(active){setQqSession(next);if(next.status==='connected')void loadQq();}}).catch(e=>{if(active){setQqNotice(e instanceof Error?e.message:'扫码状态查询失败');window.clearInterval(timer);}});},2500);return()=>{active=false;window.clearInterval(timer);};},[section,qqSession?.attemptId,qqSession?.status]);
  const [polling,setPolling]=useState(false);
  const [pollTick,setPollTick]=useState(0);
  const [aiBinding,setAiBinding]=useState('');
@@ -317,7 +321,10 @@ export function WechatIntegrationSettings(){
   {section==='qq'&&<div className="card form wechat-integration__details">
    <h4>QQ 官方机器人接入</h4>
    <p>将通过腾讯官方 QQ Bot 扫码绑定，而不是登录个人 QQ。QQ 与微信使用独立消息通道，角色设定和记忆仍由小手机管理。</p>
-   <p>扫码前会通过当前站点的安全代理创建独立会话；不会向浏览器暴露 Railway 密钥或机器人凭据。</p>
+   <p>QQ 沿用微信的 Supabase 身份和云端配置，但使用独立的 QQ 绑定、凭据和消息表。先在「微信共享云端后台」填写你的 Supabase 项目。</p>
+   <label>绑定到日常角色<select value={qqTarget} onChange={e=>setQqTarget(e.target.value)}>{daily.map(c=><option key={c.id} value={c.id}>{c.characterName}</option>)}</select></label>
+   <button type="button" onClick={()=>void loadQq()}>刷新 QQ 云端绑定</button>
+   {qqBindings.map(b=><div key={b.id} className="card form"><p>角色：{daily.find(c=>c.id===b.conversation_id)?.characterName||b.character_id} · {b.status}</p><button type="button" disabled={qqBusy} onClick={()=>{if(window.confirm('断开这个 QQ 绑定并清除云端凭据？'))void disconnectQqCloudBinding(b.id).then(loadQq).catch(e=>setQqNotice(e instanceof Error?e.message:'解绑失败'));}}>断开 QQ 绑定</button></div>)}
    <button type="button" disabled={qqBusy} onClick={()=>void beginQq()}>{qqBusy?'正在生成…':'生成 QQ 绑定二维码'}</button>
    {qqSession&&<div className="card form" aria-live="polite">
     {qqSession.qrContent&&(qqSession.qrContent.startsWith('https://')?<div style={{textAlign:'center'}}><WechatQrCode value={qqSession.qrContent} size={220} label="QQ 官方机器人授权二维码"/></div>:qqSession.qrContent.startsWith('data:image/png;base64,')?<img src={qqSession.qrContent} alt="QQ 官方机器人授权二维码" width={220} height={220} style={{display:'block',margin:'auto'}}/>:<p>二维码内容格式不受支持，请重新生成。</p>)}
@@ -325,7 +332,7 @@ export function WechatIntegrationSettings(){
     <p>会话过期：{new Date(qqSession.expiresAt).toLocaleTimeString()}</p>
    </div>}
    {qqNotice&&<p role="alert">{qqNotice}</p>
-   <p>如果当前站点尚未部署安全代理，点击后会明确提示不可用，不会生成虚假二维码。</p>
+   <p>QQ Supabase 后端或 Railway 凭据未配置时会提示不可用，不会生成虚假二维码。</p>
    <p>后端健康检查：<a href="https://qq-qr-bridge-production.up.railway.app/health" target="_blank" rel="noopener noreferrer">检查 QQ 扫码服务</a>。此地址只检查服务运行，不会生成二维码。</p>
    <a href="https://github.com/tencent-connect/openclaw-qqbot" target="_blank" rel="noopener noreferrer">查看腾讯官方 QQ Bot 扫码接入说明</a>
    <p>QQ 绑定未完成前，微信连接、角色数据与已有聊天不会改变。</p>
