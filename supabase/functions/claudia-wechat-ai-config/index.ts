@@ -2,6 +2,7 @@
 // on an explicit user action and encrypted before service-role storage.
 import {createClient} from "npm:@supabase/supabase-js@2";
 const allowedOrigin=Deno.env.get("CLAUDIA_APP_ORIGIN")||"";
+const trustedOrigins=new Set([allowedOrigin,"https://claudia-phone-new.vercel.app","https://claudia-phone-nxya5vllj-2982991953-4231.vercel.app"].filter(Boolean));
 const headers={"Content-Type":"application/json","Cache-Control":"no-store","Vary":"Origin",
  "Access-Control-Allow-Origin":allowedOrigin,"Access-Control-Allow-Headers":"authorization,apikey,content-type",
  "Access-Control-Allow-Methods":"POST,OPTIONS"};
@@ -21,14 +22,23 @@ function validEndpoint(value:unknown):value is string{
  try{
   const u=new URL(value);
   if(u.protocol!=="https:"||u.username||u.password||u.hash||u.port)return false;
-  // Initial release deliberately restricts providers to avoid SSRF.
-  return ["api.openai.com","generativelanguage.googleapis.com","openrouter.ai"].includes(u.hostname)
-   &&u.pathname.endsWith("/chat/completions");
+  // Allow user-selected public HTTPS OpenAI-compatible endpoints, not a domain whitelist.
+  // Reject local/private hostnames and IP literals (including IPv6) before storing.
+  const host=u.hostname.toLowerCase().replace(/\\.$/,'');
+  if(!host.includes('.')||host==='localhost'||host.endsWith('.localhost')||
+     host.endsWith('.local')||host.endsWith('.internal')||host.endsWith('.test')||
+     host.endsWith('.invalid')||host.endsWith('.example')||
+     /^\\[/.test(host)||/^\\d+(?:\\.\\d+){3}$/.test(host)||
+     /^(?:0x[0-9a-f]+|[0-9]+)$/i.test(host))return false;
+  return u.pathname.endsWith("/chat/completions")&&!u.search;
  }catch{return false;}
 }
 Deno.serve(async req=>{
- if(!allowedOrigin||req.headers.get("Origin")!==allowedOrigin)return json(403,{error:"origin_denied"});
- if(req.method==="OPTIONS")return new Response(null,{status:204,headers});
+ const requestOrigin=req.headers.get("Origin")||"";
+ if(!trustedOrigins.has(requestOrigin))return json(403,{error:"origin_denied"});
+ const responseHeaders={...headers,"Access-Control-Allow-Origin":requestOrigin};
+ const json=(status:number,data:Record<string,unknown>)=>new Response(JSON.stringify(data),{status,headers:responseHeaders});
+ if(req.method==="OPTIONS")return new Response(null,{status:204,headers:responseHeaders});
  if(req.method!=="POST")return json(405,{error:"method_not_allowed"});
  const authorization=req.headers.get("Authorization")||"";
  if(!authorization.startsWith("Bearer "))return json(401,{error:"unauthorized"});
