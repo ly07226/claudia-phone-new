@@ -22,10 +22,12 @@ Deno.serve(async req=>{
  if(!binding||binding.status!=="connected")return json(404,{error:"binding_not_connected"});
  const {data:credential}=await db.from("claudia_qq_credentials").select("binding_id").eq("binding_id",binding.id).maybeSingle();
  if(!credential)return json(409,{error:"binding_credentials_missing"});
- const {data:row,error:writeError}=await db.from("claudia_qq_messages").upsert({
+ // Insert-only: retries must never overwrite a previously processed message.
+ const {data:row,error:writeError}=await db.from("claudia_qq_messages").insert({
   user_id:binding.user_id,binding_id:binding.id,external_message_id:externalMessageId,
   direction:"inbound",body:text,status:"received"
- },{onConflict:"binding_id,external_message_id,direction",ignoreDuplicates:true}).select("id").maybeSingle();
- if(writeError)return json(500,{error:"ingest_failed"});
- return json(202,{ok:true,duplicate:!row,messageId:row?.id??null});
+ }).select("id").single();
+ if(writeError?.code==="23505")return json(202,{ok:true,duplicate:true});
+ if(writeError||!row)return json(500,{error:"ingest_failed"});
+ return json(202,{ok:true,duplicate:false,messageId:row.id});
 });
