@@ -1,6 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import './wechatIntegration.css';
-import {QRCodeSVG} from 'qrcode.react';
+import {WechatQrCode} from './WechatQrCode';
 import {syncWechatEffectiveContext,deleteWechatEffectiveContext} from './wechatContextSync';
 import {getWechatClosedContinuity,setWechatClosedContinuity,reconcileWechatAfterReopen} from './wechatClosedContinuity';
 import {authorizeWechatAi,disableWechatAi,deleteWechatAi,getWechatAiStatus} from './wechatAiAuthorization';
@@ -202,7 +202,7 @@ export function WechatIntegrationSettings(){
    {qr&&<div className="card form" aria-live="polite">
     <p>使用微信扫一扫，并在微信中确认授权。</p>
     <div style={{background:'#fff',padding:16,width:'fit-content',maxWidth:'100%',margin:'auto'}}>
-     <QRCodeSVG value={qr.qrContent} size={220} level="M" marginSize={2}/>
+     <WechatQrCode value={qr.qrContent} size={220}/>
     </div>
     <p>扫码状态：{qrStatus}{polling?' · 查询中':''}</p>
     <p>二维码过期时间：{new Date(qr.expiresAt).toLocaleTimeString()}</p>
