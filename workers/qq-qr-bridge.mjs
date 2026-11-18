@@ -24,7 +24,7 @@ http.createServer(async(req,res)=>{
    s.stop=startQrConnect({
     onQrDisplayed(url){if(typeof url==='string'&&/^https:\/\//.test(url)){s.url=url;s.status='waiting';}},
     onQrExpired(){s.url=null;s.status='refreshing';},
-    onSuccess(credentials){s.status='connected';s.url=null;s.credentials=credentials;/* TODO: encrypt and persist in owner-scoped database before production use */},
+    onSuccess(credentials){if(!Array.isArray(credentials)||!credentials.length||credentials.some(c=>!c?.appId||!c?.appSecret)){s.status='failed';return;}s.status='awaiting_secure_storage';s.url=null;/* Never expose credentials in status responses; implement encrypted owner-scoped storage before enabling binding. */},
     onFailure(){s.status='failed';s.url=null;}
    },{displayQrCodeToConsole:false});
    return json(res,200,{attemptId:id,status:s.status,qrContent:s.url});
