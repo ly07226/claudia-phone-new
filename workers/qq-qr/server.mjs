@@ -12,6 +12,27 @@ if(!origin||!/^https:\/\//.test(origin)||!token||token.length<32)throw Error('QQ
 const sessions=new Map();
 const listeners=new Map();
 const supabaseUrl=process.env.QQ_SUPABASE_URL;
+function startListener(account){
+ if(listeners.has(account.appId))listeners.get(account.appId)();
+ listeners.set(account.appId,startQqGateway({appId:account.appId,appSecret:account.appSecret,
+  bindingId:account.bindingId,supabaseUrl,bridgeToken:token,onStatus:state=>{console.info('qq_gateway',account.bindingId,state);}}));
+}
+async function restoreListeners(){
+ if(!supabaseUrl)return;
+ try{
+  const response=await fetch(supabaseUrl+'/functions/v1/claudia-qq-bridge-restore',{
+   method:'POST',headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(20000)});
+  if(!response.ok)throw Error('restore_http_'+response.status);
+  const result=await response.json();
+  if(!result.ok||!Array.isArray(result.accounts))throw Error('invalid_restore_response');
+  for(const account of result.accounts){
+   if(typeof account.bindingId==='string'&&typeof account.appId==='string'&&typeof account.appSecret==='string')
+    startListener(account);
+  }
+  console.info('qq_gateway_restore_count',result.accounts.length);
+ }catch(error){console.warn('qq_gateway_restore_failed',error instanceof Error?error.message:'unknown');}
+}
+
 async function confirmBinding(id,credentials){
  if(!supabaseUrl||!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(supabaseUrl))throw Error('supabase_not_configured');
  const endpoint=supabaseUrl+'/functions/v1/claudia-qq-bridge-confirm';
@@ -47,10 +68,7 @@ http.createServer(async(req,res)=>{
      void confirmBinding(id,credentials).then(bindingId=>{
       s.status='connected';
       const account=credentials[0];
-      const previous=listeners.get(account.appId);
-      if(previous)previous();
-      listeners.set(account.appId,startQqGateway({appId:account.appId,appSecret:account.appSecret,
-       bindingId,supabaseUrl,bridgeToken:token,onStatus:state=>{s.gatewayStatus=state;}}));
+      startListener({appId:account.appId,appSecret:account.appSecret,bindingId});
      }).catch(()=>{s.status='storage_not_configured';});
     },
     onFailure(){s.status='failed';s.url=null;}
@@ -62,4 +80,4 @@ http.createServer(async(req,res)=>{
  const match=path.match(/^\/qq\/qr\/([0-9a-f-]{36})$/);
  if(req.method==='GET'&&match){const s=sessions.get(match[1]);return s?json(res,200,{status:s.status,qrContent:s.url,expiresAt:new Date(s.until).toISOString()}):json(res,404,{error:'expired'});}
  return json(res,404,{error:'not_found'});
-}).listen(Number(process.env.PORT||3000),'0.0.0.0');
+}).listen(Number(process.env.PORT||3000),'0.0.0.0',()=>{void restoreListeners();});
