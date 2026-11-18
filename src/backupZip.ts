@@ -113,8 +113,10 @@ export async function restoreWechatFromBackupZip(file:File,password:string,signa
   const portable=await extract(entry,password,signal);
   // Require a complete, authenticated main archive before touching localStorage.
   const {result}=await verifyZipBackup(file,password,signal);
-  ensure(result.report.ok,'主备份校验失败，拒绝单独恢复微信身份。');
-  await importWechatIdentity(portable,password);
+  try{
+   ensure(result.report.status==='verified'&&result.report.recordDigestsMatch&&result.report.referencesValid,'主备份校验失败，拒绝单独恢复微信身份。');
+   await importWechatIdentity(portable,password);
+  }finally{await result.dispose();}
   return true;
  }finally{await opened.reader.close();}
 }
