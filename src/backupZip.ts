@@ -1,4 +1,4 @@
-import {exportWechatIdentity,importWechatIdentity} from './wechatIdentityTransfer';
+import {exportWechatIdentity,importWechatIdentity,inspectWechatIdentity} from './wechatIdentityTransfer';
 import { BackupError, backupLimits, checkAbort, ensure, withBackupPhase } from "./backupFormat";
 import { createBackup, readBackup, type BackupExport, type BackupProgress } from "./backupService";
 import type { Entry, FileEntry } from "@zip.js/zip.js";
@@ -60,6 +60,7 @@ export async function readBackupZip(file:File,password?:string,signal?:AbortSign
       for(const e of value.entries){checkAbort(signal);files.push(await extract(e,password,signal));}
       const portable=files.filter(f=>f.name===wechatName);
       ensure(portable.length<=1&&(!portable.length||value.info.version===3),'微信身份附件与备份版本不匹配。');
+      if(portable.length){ensure(!!password,'请填写微信身份备份密码。');await inspectWechatIdentity(portable[0],password);}
       const backupFiles=files.filter(f=>f.name!==wechatName);
       const manifests=backupFiles.filter(f=>f.name.endsWith('.manifest.json'));ensure(manifests.length===1,"ZIP 缺少唯一的备份清单。");
       let m:any;try{m=JSON.parse(await manifests[0].text());}catch{throw new BackupError("ZIP 内备份清单无法解析。");}
