@@ -59,13 +59,13 @@ export async function readBackupZip(file:File,password?:string,signal?:AbortSign
       ensure(value.info.encryption==='none'||!!password,"请填写备份密码。");const files:File[]=[];
       for(const e of value.entries){checkAbort(signal);files.push(await extract(e,password,signal));}
       const portable=files.filter(f=>f.name===wechatName);
-      ensure(portable.length<=1&&(!portable.length||value.info.version===3),'微信身份附件与备份版本不匹配。');
+      ensure((value.info.version===3&&portable.length===1)||(value.info.version!==3&&portable.length===0),'微信身份附件缺失或与备份版本不匹配。');
       if(portable.length){ensure(!!password,'请填写微信身份备份密码。');await inspectWechatIdentity(portable[0],password);}
       const backupFiles=files.filter(f=>f.name!==wechatName);
       const manifests=backupFiles.filter(f=>f.name.endsWith('.manifest.json'));ensure(manifests.length===1,"ZIP 缺少唯一的备份清单。");
       let m:any;try{m=JSON.parse(await manifests[0].text());}catch{throw new BackupError("ZIP 内备份清单无法解析。");}
       ensure(value.info.encryption!=='aes-gcm-backup'||(m.credentials==='encrypted'&&m.encryption?.algorithm==='AES-GCM'&&m.encryption?.kdf==='PBKDF2-SHA256'&&m.encryption?.iterations===600000),"ZIP 声明的加密保护与内部数据不一致，已拒绝读取。");
-      ensure(Array.isArray(m.parts)&&m.parts.length<=zipLimits.entries-2,"ZIP 备份文件列表无效。");
+      ensure(Array.isArray(m.parts)&&m.parts.length<=zipLimits.entries-2-portable.length,"ZIP 备份文件列表无效。");
       const names=[manifests[0].name,...m.parts.map((p:any)=>p.name)];ensure(new Set(names).size===names.length&&names.every(n=>typeof n==='string'&&safeName(n))&&backupFiles.length===names.length&&backupFiles.every(f=>names.includes(f.name)),"ZIP 内文件缺失、重复或包含未知数据，未执行恢复。");
       return backupFiles;
     }finally{await value.reader.close();}
@@ -111,6 +111,9 @@ export async function restoreWechatFromBackupZip(file:File,password:string,signa
   if(!entry)return false;
   ensure(opened.info.version===3&&opened.info.encryption==='aes-gcm-backup','微信身份附件未受完整备份加密保护。');
   const portable=await extract(entry,password,signal);
+  // Require a complete, authenticated main archive before touching localStorage.
+  const {result}=await verifyZipBackup(file,password,signal);
+  ensure(result.report.ok,'主备份校验失败，拒绝单独恢复微信身份。');
   await importWechatIdentity(portable,password);
   return true;
  }finally{await opened.reader.close();}
