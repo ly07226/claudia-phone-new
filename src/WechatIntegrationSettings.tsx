@@ -30,7 +30,6 @@ export function WechatIntegrationSettings(){
  const [aiStatus,setAiStatus]=useState('');
  const [aiModel,setAiModel]=useState('');
  const [aiEndpoint,setAiEndpoint]=useState('https://api.openai.com/v1/chat/completions');
- const [aiPrompt,setAiPrompt]=useState('');
  const [aiKey,setAiKey]=useState('');
  const [aiBusy,setAiBusy]=useState(false);
  const [memoryStatus,setMemoryStatus]=useState('');
@@ -108,8 +107,14 @@ export function WechatIntegrationSettings(){
     const result=await getWechatAiStatus(aiBinding);
     setAiStatus(result.enabled?'已授权并启用':result.configured?'已配置但停用':'尚未授权');
    }else if(action==='authorize'){
-    if(!window.confirm('确定把当前填写的 API Key 与角色提示词加密保存到你自己的 Supabase，并允许云端在手机关闭后调用 AI 吗？'))return;
-    await authorizeWechatAi({bindingId:aiBinding,systemPrompt:aiPrompt,
+    if(!window.confirm('将当前角色的有效上下文（含设定、世界书、记忆与近期消息）同步到你自己的 Supabase，并加密保存此 API Key 以授权微信云端 AI 回复。确定继续？'))return;
+    const binding=bindings?.find(b=>b.id===aiBinding&&b.status==='connected');
+    if(!binding)throw Error('微信绑定已失效，请重新查询。');
+    // Sync first; never enable cloud replies with a manually diverging persona.
+    const synced=await syncWechatEffectiveContext(binding.id,binding.conversation_id);
+    setMemoryStatus('已同步 '+synced.messageCount+' 段当前角色有效上下文。');
+    await authorizeWechatAi({bindingId:aiBinding,
+     systemPrompt:'请严格遵循当前已授权同步的角色有效上下文，不得自行编造角色设定。',
      model:aiModel,endpoint:aiEndpoint,apiKey:aiKey});
     setAiKey('');setAiStatus('已授权并启用');
    }else if(action==='disable'){
@@ -223,7 +228,7 @@ export function WechatIntegrationSettings(){
    </div>}
    {bindings?.some(b=>b.status==='connected')&&<div className="card form">
     <h4>云端 AI 回复授权</h4>
-    <p>只针对你主动选择的已连接微信角色。此处不会自动读取或上传本地 API Key；云端暂只支持手动填写的提示词与微信文字历史，不等同于小手机完整记忆。</p>
+    <p>只针对你主动选择的已连接微信角色。不会自动读取或上传本地 API Key。确认授权时会先同步当前角色的有效上下文，无需重复填写角色介绍；如果同步失败则不会开启云端 AI。</p>
     <label>已绑定角色
      <select value={aiBinding} onChange={e=>{setAiBinding(e.target.value);setAiStatus('');}}>
       <option value="">选择角色</option>
@@ -232,7 +237,6 @@ export function WechatIntegrationSettings(){
     </label>
     <label>AI 模型<input value={aiModel} onChange={e=>setAiModel(e.target.value)} placeholder="例如 gpt-4.1-mini"/></label>
     <label>API 端点<input value={aiEndpoint} onChange={e=>setAiEndpoint(e.target.value)}/></label>
-    <label>角色提示词<textarea rows={5} value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)} placeholder="请自行核对并填写要授权到云端的角色设定"/></label>
     <label>API Key（仅提交到自己的 Supabase）<input type="password" autoComplete="off" value={aiKey} onChange={e=>setAiKey(e.target.value)}/></label>
     <p>微信消息回填：将云端已确认的微信消息合并进当前日常聊天，不会新建第二个聊天。</p>
     <button type="button" disabled={!aiBinding||messageSyncBusy} onClick={()=>void syncMessages()}>{messageSyncBusy?'正在回填微信消息…':'立即同步微信消息到小手机'}</button>
@@ -254,7 +258,7 @@ export function WechatIntegrationSettings(){
     <button type="button" disabled={!aiBinding||aiBusy} onClick={()=>void memoryAction('delete')}>删除云端角色上下文</button>
     {memoryStatus&&<p role="status">{memoryStatus}</p>}
     <button type="button" disabled={!aiBinding||aiBusy} onClick={()=>void aiAction('status')}>查询授权状态</button>
-    <button type="button" disabled={!aiBinding||!aiModel||!aiPrompt||!aiKey||aiBusy} onClick={()=>void aiAction('authorize')}>确认授权云端 AI</button>
+    <button type="button" disabled={!aiBinding||!aiModel||!aiKey||aiBusy} onClick={()=>void aiAction('authorize')}>确认授权云端 AI</button>
     <button type="button" disabled={!aiBinding||aiBusy} onClick={()=>void aiAction('disable')}>停用云端 AI</button>
     <button type="button" disabled={!aiBinding||aiBusy} onClick={()=>void aiAction('delete')}>删除云端 AI 配置与密钥</button>
     {aiStatus&&<p role="status">{aiStatus}</p>}
