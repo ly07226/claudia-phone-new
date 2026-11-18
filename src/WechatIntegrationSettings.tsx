@@ -332,7 +332,7 @@ export function WechatIntegrationSettings(){
     <p>会话过期：{new Date(qqSession.expiresAt).toLocaleTimeString()}</p>
    </div>}
    {qqNotice&&<p role="alert">{qqNotice}</p>
-   <p>QQ Supabase 后端或 Railway 凭据未配置时会提示不可用，不会生成虚假二维码。</p>
+   <p>点击「生成 QQ 绑定二维码」后，使用腾讯官方 QQ Bot 授权流程扫码；若云端服务未配置或授权失败，会显示具体错误，不会生成虚假二维码。</p>
    <p>后端健康检查：<a href="https://qq-qr-bridge-production.up.railway.app/health" target="_blank" rel="noopener noreferrer">检查 QQ 扫码服务</a>。此地址只检查服务运行，不会生成二维码。</p>
    <a href="https://github.com/tencent-connect/openclaw-qqbot" target="_blank" rel="noopener noreferrer">查看腾讯官方 QQ Bot 扫码接入说明</a>
    <p>QQ 绑定未完成前，微信连接、角色数据与已有聊天不会改变。</p>
