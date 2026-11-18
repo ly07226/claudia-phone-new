@@ -327,7 +327,9 @@ export function WechatIntegrationSettings(){
    {qqBindings.map(b=><div key={b.id} className="card form"><p>角色：{daily.find(c=>c.id===b.conversation_id)?.characterName||b.character_id} · {b.status}</p><button type="button" disabled={qqBusy} onClick={()=>{if(window.confirm('断开这个 QQ 绑定并清除云端凭据？'))void disconnectQqCloudBinding(b.id).then(loadQq).catch(e=>setQqNotice(e instanceof Error?e.message:'解绑失败'));}}>断开 QQ 绑定</button></div>)}
    <button type="button" disabled={qqBusy} onClick={()=>void beginQq()}>{qqBusy?'正在生成…':'生成 QQ 绑定二维码'}</button>
    {qqSession&&<div className="card form" aria-live="polite">
-    {qqSession.qrContent&&(qqSession.qrContent.startsWith('https://')?<div style={{textAlign:'center'}}><WechatQrCode value={qqSession.qrContent} size={220} label="QQ 官方机器人授权二维码"/></div>:qqSession.qrContent.startsWith('data:image/png;base64,')?<img src={qqSession.qrContent} alt="QQ 官方机器人授权二维码" width={220} height={220} style={{display:'block',margin:'auto'}}/>:<p>二维码内容格式不受支持，请重新生成。</p>)}
+     {qqSession.qrContent?.startsWith('https://') && <div style={{textAlign:'center'}}><WechatQrCode value={qqSession.qrContent} size={220} label="QQ 官方机器人授权二维码"/></div>}
+     {qqSession.qrContent?.startsWith('data:image/png;base64,') && <img src={qqSession.qrContent} alt="QQ 官方机器人授权二维码" width={220} height={220} style={{display:'block',margin:'auto'}}/>}
+     {qqSession.qrContent && !qqSession.qrContent.startsWith('https://') && !qqSession.qrContent.startsWith('data:image/png;base64,') && <p>二维码内容格式不受支持，请重新生成。</p>}
     <p>扫码状态：{qqSession.status==='waiting'?'等待扫码':qqSession.status==='refreshing'?'二维码刷新中':qqSession.status==='storage_not_configured'?'扫码完成，但凭据安全保存尚未配置':qqSession.status==='failed'?'授权失败':qqSession.status}</p>
     <p>会话过期：{new Date(qqSession.expiresAt).toLocaleTimeString()}</p>
    </div>}
