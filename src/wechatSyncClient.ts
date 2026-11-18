@@ -17,7 +17,10 @@ export async function fetchWechatSyncPage(bindingId:string,afterSeq=0):Promise<W
  if(!value||typeof value!=='object'||Array.isArray(value))throw Error('微信同步数据格式无效。');
  const page=value as Partial<WechatSyncPage>;
  if(page.ok!==true||page.mode!=='incremental'||page.cursorType!=='commit_ordered'||
-   !page.binding||page.binding.id!==bindingId||!Array.isArray(page.messages)||
+   !page.binding||page.binding.id!==bindingId||
+   typeof page.binding.conversationId!=='string'||!page.binding.conversationId||
+   typeof page.binding.characterId!=='string'||!page.binding.characterId||
+   page.binding.status!=='connected'||!Array.isArray(page.messages)||
    typeof page.nextSeq!=='number'||!Number.isSafeInteger(page.nextSeq)||
    page.nextSeq<afterSeq||typeof page.hasMore!=='boolean')throw Error('微信同步数据不完整。');
  let previous=afterSeq;
@@ -59,6 +62,9 @@ export async function fetchWechatStatusPage(bindingId:string,afterSeq=0):Promise
   throw Error('微信状态数据格式无效。');
  const page=value as WechatSyncPage;
  if(page.ok!==true||(page.mode as string)!=='changes'||page.binding?.id!==bindingId||
+  typeof page.binding.conversationId!=='string'||!page.binding.conversationId||
+  typeof page.binding.characterId!=='string'||!page.binding.characterId||
+  page.binding.status!=='connected'||
   !Array.isArray(page.messages)||!Number.isSafeInteger(page.nextSeq)||
   page.nextSeq<afterSeq||typeof page.hasMore!=='boolean')
   throw Error('微信状态数据不完整。');
