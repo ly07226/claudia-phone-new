@@ -92,8 +92,11 @@ Deno.serve(async request=>{
   // A successful HTTP status alone is not a confirmed WeChat delivery.
   // Missing/unknown ret is quarantined rather than acknowledged as sent.
   sent=response.ok&&payload.ret===0;
+  // Log only non-sensitive receipt metadata, never the message or credentials.
+  console.info("wechat_send_receipt",JSON.stringify({outboundId:row.id,httpStatus:response.status,ret:typeof payload.ret==="number"?payload.ret:null,accepted:sent}));
   if(!sent)errorCode="ilink_not_confirmed";
  }catch(error){
+  console.warn("wechat_send_unconfirmed",JSON.stringify({outboundId:row.id,kind:error instanceof Error&&error.name==="TimeoutError"?"timeout":"request_or_route_error"}));
   errorCode=error instanceof Error&&["missing_verified_ilink_route","cloud_ai_authorization_revoked"].includes(error.message)?
    error.message:"send_result_unknown";
  }
