@@ -59,7 +59,7 @@ export async function listWechatCloudBindings():Promise<Array<{id:string;charact
   throw Error('微信绑定数据不完整。');
  return data.bindings as Array<{id:string;character_id:string;conversation_id:string;status:string}>;
 }
-export async function wechatCloudFunctionRequest(name:'claudia-wechat-sync'|'claudia-wechat-login'|'claudia-wechat-ai-config',body:unknown){
+export async function wechatCloudFunctionRequest(name:'claudia-wechat-sync'|'claudia-wechat-login'|'claudia-wechat-ai-config'|'claudia-qq-login',body:unknown){
  const c=project();
  const token=await wechatCloudAccessToken();
  const response=await fetch(c.url+'/functions/v1/'+name,{
