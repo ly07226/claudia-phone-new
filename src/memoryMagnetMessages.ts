@@ -176,7 +176,7 @@ export async function visibleMagneticMemories(scope:MemoryScope):Promise<Magneti
  */
 export async function magneticFromRequestPrefix(scope:MemoryScope,records:MagneticMessageMemory[],requestPath:Message[],query:string){
  const q=query.normalize('NFKC').toLowerCase();
- if(!q.trim())return [];
+ if(!q.trim()||!records.some(r=>r.active&&r.tags.some(t=>t.tag.trim()&&q.includes(t.tag.normalize('NFKC').toLowerCase()))))return [];
  const byId=new Map(requestPath.map(m=>[m.id,visibleMessage(m)]));
  const result:MagneticMessageMemory[]=[];
  for(const record of records){

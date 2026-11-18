@@ -118,7 +118,7 @@ export async function queueUserMessage(id:string,text:string,expectedPath?:Expec
     if(c.sendingUntil&&c.sendingUntil>Date.now())throw Error("此会话正在回复中，请稍候。");
     await storeImageReferences(c,images);
     await ensureTimelineInTransaction(id);
-    const rows=await activeMessages(id);
+    const rows=await activeMessages(id,undefined,true);
     if(replyTo)await assertQuoteForSend(replyTo,(await db.conversations.get(id))!,rows);
     const last=rows.at(-1);
     await db.messages.add({id:crypto.randomUUID(),conversationId:id,role:"user",content:text.trim(),...(replyTo?{replyTo}:{}),...(images.length?{attachments:images.map(assetId=>({assetId}))}:{}),createdAt:Math.max(Date.now(),(last?.createdAt||0)+1)});
@@ -190,7 +190,7 @@ async function generate(
           throw Error("此会话正在回复中，请稍候。");
         if(!options.retry&&!options.messageId)await storeImageReferences(c,options.images||[]);
         await ensureTimelineInTransaction(id);
-        const rows = await activeMessages(id);
+        const rows = await activeMessages(id,undefined,true);
         const last = rows.at(-1);
         if(!options.retry&&!options.messageId&&options.replyTo)await assertQuoteForSend(options.replyTo,(await db.conversations.get(id))!,rows);
         if (options.messageId) {
@@ -267,7 +267,7 @@ async function generate(
         (controller.signal.aborted&&!preserveTimeout)
       )
         return;
-      const rows = await activeMessages(id);
+      const rows = await activeMessages(id,undefined,true);
       let savedMessageId:string;
       if (options.messageId) {
         savedMessageId=options.messageId;

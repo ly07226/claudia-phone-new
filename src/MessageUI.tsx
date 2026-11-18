@@ -77,6 +77,7 @@ function AssistantBubbleText({ content }: { content: string }) {
     </>
   );
 }
+const noQuoteRows:Message[]=[];
 function ChatMessageView({
   message: m,
   variants,
@@ -89,7 +90,7 @@ function ChatMessageView({
   playbackKey,
   onReveal,
   conversation,
-  messages,
+  messages=noQuoteRows,
   messageIndex,
   onLocate,
 }: {
@@ -104,7 +105,7 @@ function ChatMessageView({
   playbackKey?: string;
   onReveal?: () => void;
   conversation: Pick<import("./chatTypes").Conversation,"id"|"mode"|"timelineEpoch">;
-  messages: Message[];
+  messages?: Message[];
   messageIndex?:ReadonlyMap<string,Message>;
   onLocate: (id:string,part:BubblePart)=>void;
 }) {

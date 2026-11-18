@@ -1,3 +1,4 @@
+import {chatRowChars} from './chatCooperative';
 import Dexie,{RangeSet,rangesOverlap} from 'dexie';
 import {db} from './store';
 import type {ConversationPathNode} from './chatTypes';
@@ -26,8 +27,8 @@ export function installTimelineReadCache(){
 export function cachedTimelinePrefix(id:string){installTimelineReadCache();const e=cache.get(id);if(e?.valid){cache.delete(id);cache.set(id,e);return e;}}
 /** Cache only after the source transaction commits. Aborts never publish trust. */
 export function cacheVerifiedTimeline(id:string,nodes:ConversationPathNode[],projection?:{timelineId:string;head?:string}){
- if(nodes.length>50000||nodes.reduce((n,r)=>n+r.message.content.length,0)>8*1024*1024)return;
+ if(nodes.length>50000||chatRowChars(nodes)>8*1024*1024)return;
  const stamp=version,tx=root(Dexie.currentTransaction);
- const publish=()=>{if(stamp!==version)return;const previous=cache.get(id);if(previous?.valid&&nodes.length>=previous.nodes.length&&nodes[previous.nodes.length-1]?.id===previous.nodes.at(-1)?.id){const extra=structuredClone(nodes.slice(previous.nodes.length));for(const n of extra){const i=previous.nodes.length;previous.positions.set(n.id,i);previous.messages.set(n.messageId,i);previous.keys.addKey(n.id);previous.messageKeys.addKey(n.messageId);previous.nodes.push(n);}if(projection)previous.projection=projection;return;}const copy=structuredClone(nodes);const entry:Entry={nodes:copy,positions:new Map(copy.map((n,i)=>[n.id,i])),messages:new Map(copy.map((n,i)=>[n.messageId,i])),keys:new RangeSet().addKeys(copy.map(n=>n.id)),messageKeys:new RangeSet().addKeys(copy.map(n=>n.messageId)),projection,valid:true};cache.delete(id);cache.set(id,entry);while(cache.size>2)cache.delete(cache.keys().next().value!);};
+ const publish=()=>{if(stamp!==version)return;const previous=cache.get(id);if(previous?.valid&&nodes.length>=previous.nodes.length&&nodes[previous.nodes.length-1]?.id===previous.nodes.at(-1)?.id){const extra=nodes.slice(previous.nodes.length);for(const n of extra){const i=previous.positions.size;previous.positions.set(n.id,i);previous.messages.set(n.messageId,i);previous.keys.addKey(n.id);previous.messageKeys.addKey(n.messageId);}previous.nodes=nodes;if(projection)previous.projection=projection;return;}if(previous)previous.valid=false;const copy=nodes;const entry:Entry={nodes:copy,positions:new Map(copy.map((n,i)=>[n.id,i])),messages:new Map(copy.map((n,i)=>[n.messageId,i])),keys:new RangeSet().addKeys(copy.map(n=>n.id)),messageKeys:new RangeSet().addKeys(copy.map(n=>n.messageId)),projection,valid:true};cache.delete(id);cache.set(id,entry);while(cache.size>2){const key=cache.keys().next().value!;cache.get(key)!.valid=false;cache.delete(key);}};
  if(tx)tx.on('complete',publish);else publish();
 }

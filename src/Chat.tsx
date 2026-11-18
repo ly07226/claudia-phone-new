@@ -238,7 +238,7 @@ export function Chat({ worldId }: { worldId?: string }) {
    const data=await db.transaction('r',[db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{const current=await db.conversations.get(id);if(!current)return null;const timeline=current.activeTimelineId?await db.timelines.get(current.activeTimelineId):undefined;
     const key=JSON.stringify([db.name,id,current.activeTimelineId,current.timelineEpoch,timeline?.headNodeId,timeline?.revision]);
     if(previous?.key===key&&previous.revision===revision)return {current,key,rows:previous.rows};
-    const incoming=await activeMessages(id),old=new Map(previous?.rows.map(m=>[m.id,m])??[]);const rows=incoming.map(m=>{const before=old.get(m.id);return before&&dataEqual(before,m)?before:m;});
+    const incoming=await activeMessages(id,undefined,true),old=new Map(previous?.rows.map(m=>[m.id,m])??[]);const rows=incoming.map(m=>{const before=old.get(m.id);return before&&dataEqual(before,m)?before:m;});
     return {current,key,rows:previous&&rows.length===previous.rows.length&&rows.every((m,i)=>m===previous.rows[i])?previous.rows:rows};
    });if(ticket!==refreshTicket.current||!data||!mounted.current||activeConversation.current!==id)return;
    const {current,key,rows}=data;
@@ -467,6 +467,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     setMenuId(null);
     setShowSnapshots(false);
   }
+  const bubbleScope=useMemo(()=>conversation?{id:conversation.id,mode:conversation.mode,timelineEpoch:conversation.timelineEpoch}:undefined,[conversation?.id,conversation?.mode,conversation?.timelineEpoch]);
   const visibleMessages=useMemo(()=>messages.slice(historyWindow.start,historyWindow.end),[messages,historyWindow.start,historyWindow.end]);
   const messageIndex=useMemo(()=>new Map(messages.map(m=>[m.id,m])),[messages]);
   const timeLabels=useMemo(()=>chatTimeLabels(messages.slice(Math.max(0,historyWindow.start-1),historyWindow.end)),[messages,historyWindow.start,historyWindow.end]);
@@ -476,7 +477,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   // Keep expensive message bubble JSX stable while the composer text changes.
   // Include state read by message actions so menus, versions and continuations stay current.
   const renderedMessages=useMemo(()=>{
-    if(!conversation)return null;
+    if(!conversation||!bubbleScope)return null;
     return visibleMessages.map((m) => (
               <Fragment key={m.id}>
               {timeLabels.has(m.id)&&<div className="chat-time-divider" data-chat-time-for={m.id}><time dateTime={new Date(m.createdAt).toISOString()}>{timeLabels.get(m.id)}</time></div>}
@@ -489,8 +490,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 characterAvatar={avatarSrc}
                 userAvatar={userAvatar}
                 userName={userIdentity.name}
-                conversation={conversation}
-                messages={messages}
+                conversation={bubbleScope}
                 messageIndex={messageIndex}
                 onLocate={locateQuote}
                 onMenu={(selected) => {
@@ -516,7 +516,7 @@ export function Chat({ worldId }: { worldId?: string }) {
             ));
   },[
     messages,messageIndex,visibleMessages,timeLabels,replyPresentation,variants,displayName,avatarSrc,userAvatar,
-    userIdentity.name,conversation,onBubbleReveal,failuresByMessage,busy
+    userIdentity.name,conversation,bubbleScope,onBubbleReveal,failuresByMessage,busy
   ]);
   if(requests && !worldId && !conversation)return <div className="chat-hub-new-contacts"><button className="message-action" onClick={()=>s.set({activeApp:'角色管理'})}>添加联系人（角色管理）</button><FriendRequests characters={applications} onClose={()=>setRequests(false)}/></div>;
   const listContent=(<>

@@ -1,5 +1,5 @@
 import type Dexie from 'dexie';
-import type {Conversation} from './chatTypes';
+import type {Conversation,ConversationPathNode} from './chatTypes';
 import type {MemoryScope} from './memoryTypes';
 import {summaryLimits,summaryDiagnosticCodes,summaryRejectionText} from './memorySummaryTypes';
 const str=(x:unknown):x is string=>typeof x==='string'&&!!x&&x.length<4096;
@@ -13,7 +13,7 @@ function selection(x:any,added?:number,duplicates?:number){
  let total=0;for(const [key,n] of Object.entries(x.reasons)){check(Object.hasOwn(summaryRejectionText,key)&&num(n));total+=n;}
  check(total===x.rejected);if(added!==undefined&&duplicates!==undefined)check(x.accepted===added+duplicates);
 }
-export async function validateSummaryState(d:Dexie,c:Conversation,validScope:(c:Conversation,s:MemoryScope)=>boolean){
+export async function validateSummaryState(d:Dexie,c:Conversation,validScope:(c:Conversation,s:MemoryScope)=>boolean,readPath?:(head?:string)=>Promise<readonly ConversationPathNode[]>){
  const s=c.memorySummary;if(s===undefined)return;
  check(s&&s.version===1&&typeof s.enabled==='boolean'&&num(s.interval)&&s.interval>=20&&s.interval<=100&&s.interval%10===0&&num(s.revision)&&Array.isArray(s.receipts)&&s.receipts.length<=summaryLimits.receipts&&s.revision===s.receipts.length);
  if(s.job?.read){const r=s.job.read;check(r&&typeof r==='object'&&Object.keys(r).every(k=>['messages','characters','rounds','unanswered'].includes(k))&&Object.values(r).every(num));}if(s.job?.chunks!==undefined)check(num(s.job.chunks));if(s.job?.completedChunks!==undefined)check(num(s.job.completedChunks)&&s.job.completedChunks<=(s.job.chunks??100));
@@ -31,7 +31,7 @@ export async function validateSummaryState(d:Dexie,c:Conversation,validScope:(c:
  async function scope(x:any){check(x&&validScope(c,x.scope)&&num(x.epoch)&&x.epoch<=(c.timelineEpoch??0)&&str(x.timelineId)&&str(x.throughNodeId));if(x.scope.mode==='world')check(x.scope.timelineId===x.timelineId&&x.scope.epoch===x.epoch);
   if(x.epoch<(c.timelineEpoch??0))return;
   let t=timelines.get(x.timelineId);if(!t){t=await d.table('timelines').get(x.timelineId);if(t)timelines.set(x.timelineId,t);}check(t&&t.conversationId===c.id&&t.characterId===c.characterId&&t.worldId===c.worldId&&t.epoch===x.epoch);
-  let path=paths.get(t.id);if(!path){if(!graphLoaded){graphLoaded=true;const query=d.table('pathNodes').where('conversationId').equals(c.id);if(await query.count()<=20000)graph=new Map((await query.toArray()).map(n=>[n.id,n]));}path=new Map();let id=t.headNodeId;while(id){check(!path.has(id));const n:any=graph?graph.get(id):await d.table('pathNodes').get(id);check(n&&n.conversationId===c.id);path.set(id,n);id=n.parentNodeId;}const ordered=[...path.values()].reverse();const messages=new Map();ordered.forEach((n,i)=>messages.set(n.messageId,{...n.message,position:i}));messageIndexes.set(path,messages);paths.set(t.id,path);}check(path.has(x.throughNodeId));return path;
+  let path=paths.get(t.id);if(!path){if(readPath){const rows=await readPath(t.headNodeId);path=new Map([...rows].reverse().map(n=>[n.id,n]));}else{if(!graphLoaded){graphLoaded=true;const query=d.table('pathNodes').where('conversationId').equals(c.id);if(await query.count()<=20000)graph=new Map((await query.toArray()).map(n=>[n.id,n]));}path=new Map();let id=t.headNodeId;while(id){check(!path.has(id));const n:any=graph?graph.get(id):await d.table('pathNodes').get(id);check(n&&n.conversationId===c.id);path.set(id,n);id=n.parentNodeId;}}const ordered=[...path.values()].reverse();const messages=new Map();ordered.forEach((n,i)=>messages.set(n.messageId,{...n.message,position:i}));messageIndexes.set(path,messages);paths.set(t.id,path);}check(path.has(x.throughNodeId));return path;
  }
  // A validated zero-result selection completes its range without adding memory.
  // Provider/format/truncation failures never enter the receipt commit path.

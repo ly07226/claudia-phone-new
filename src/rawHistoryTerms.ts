@@ -1,7 +1,7 @@
 /** Local topic expansion only. It never converts a speaker's words into a fact. */
 const concepts:readonly [string,readonly string[]][]=[
  ['menstrual',['来月经','月经','生理期','例假','大姨妈','经期']],
- ['health',['月经','生理期','例假','大姨妈','经期','肚子','腹痛','疼','痛','难受','不舒服','身体','生病','发烧','感冒','医院','过敏']],
+ ['health',['月经','生理期','例假','大姨妈','经期','肚子','腹痛','难受','不舒服','身体']],
  ['marriage',['结婚','婚姻','婚礼','领证','成家','不婚']],
  ['promise',['答应','承诺','约定','说好','保证','失约']],
  ['travel',['旅行','旅游','出游','旅途']],
@@ -23,8 +23,22 @@ export function historyTerms(text:string){
  }
  return [...topics,...lexical];
 }
-export const uncertainHistory=(text:string)=>/假如|假设|如果|要是|也许|可能|猜测|开玩笑|逗你|玩笑|并非真的|并不是真的|举个例子|比如说/u.test(text);
-export const importantHistory=(text:string)=>/月经|生理期|例假|大姨妈|经期|不喜欢|讨厌|不想|不愿|不要|拒绝|过敏|承诺|答应|约定|说好|保证|我们.{0,20}(?:去过|一起|第一次|上次)|生病|发烧|受伤|分手|伴侣|结婚|婚姻|离婚|家人|失业|入职|离职/u.test(text);
+export const uncertainHistory=(text:string)=>/假如|假设|如果|要是|也许|可能|猜测|开玩笑|逗你|玩笑|并非真的|并不是真的|举个例子|比如说/u.test(text.replace(/(?:不是|并非|没有|没在)(?:开)?玩笑|不可能/gu,''));
+export const importantHistory=(text:string)=>/月经|生理期|例假|大姨妈|经期|不喜欢|讨厌|不想|不愿|不要|拒绝|不婚|过敏|承诺|答应|约定|说好|保证|我们.{0,20}(?:去过|一起|第一次|上次)|生病|发烧|受伤|分手|伴侣|结婚|婚姻|离婚|家人|失业|入职|离职/u.test(text);
 export const greetingQuery=(text:string)=>/^(?:早上好|早安|晚上好|晚安|你好|我回来了|在吗|今天怎么样|好累|有点累)[。！!？?，,\s]*$/u.test(text.trim());
 
-export const durableHistory=(text:string)=>/不喜欢|讨厌|不想|不愿|不要|拒绝|偏好|喜欢|愿意|希望|宁愿|改变想法|改变主意|过敏|承诺|答应|约定|说好|保证|我们.{0,20}(?:去过|一起|第一次|上次)/u.test(text);
+export const durableHistory=(text:string)=>/不喜欢|讨厌|不想|不愿|不要|拒绝|不婚|不接受|不可能接受|偏好|喜欢|愿意|希望|宁愿|改变想法|改变主意|过敏|承诺|答应|约定|说好|保证|我们.{0,20}(?:去过|一起|第一次|上次)/u.test(text);
+
+/** Only explicit first-person marriage attitudes. Unknown wording is never
+ * coerced into a stance; facts are still quoted, not rewritten. */
+export function marriagePosition(text:string):'oppose'|'support'|undefined{
+ if(uncertainHistory(text)||!historyTerms(text).includes('@marriage'))return;
+ text=text.trim();
+ // Deliberately narrow: a question, attribution or "want to understand" is
+ // not an attitude. Do not infer consent or a plan from a topic mention.
+ const stance=text.match(/^我(?:(?:已经改变想法|改变想法|改主意|现在|已经|真的|明确|一直|仍然|其实|绝对|从来|完全|确实|就是|开始)[，, ]?){0,4}(.+)/u)?.[1];
+ if(!stance||/(?:结婚|婚姻)(?:了)?[吗么?？]/u.test(stance))return;
+ const target='(?:(?:再|去|和你|与你|跟你|任何形式的|所谓的|这种|一段稳定的|一段|这段) *){0,2}(?:结婚|婚姻)';
+ if(new RegExp('^(?:不想|不愿意?|不喜欢|讨厌|拒绝|不接受|不可能接受)'+target,'u').test(stance)||/^不婚/u.test(stance))return 'oppose';
+ if(new RegExp('^(?:愿意|想要?|接受)'+target,'u').test(stance))return 'support';
+}
