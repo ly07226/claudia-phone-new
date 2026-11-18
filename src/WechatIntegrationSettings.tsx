@@ -21,7 +21,7 @@ export function WechatIntegrationSettings(){
  const [notice,setNotice]=useState('');
  const [bindings,setBindings]=useState<Array<{id:string;character_id:string;conversation_id:string;status:string}>|null>(null);
  const [loading,setLoading]=useState(false);
- const [daily,setDaily]=useState<Array<{id:string;characterId:string}>>([]);
+ const [daily,setDaily]=useState<Array<{id:string;characterId:string;characterName:string}>>([]);
  const [target,setTarget]=useState('');
  const [qr,setQr]=useState<{attemptId:string;qrContent:string;expiresAt:string}|null>(null);
  const [qrStatus,setQrStatus]=useState('未开始');
@@ -157,9 +157,10 @@ export function WechatIntegrationSettings(){
   if(section!=='account')return;
   void loadSavedApis();
   let active=true;
-  void db.conversations.toArray().then(rows=>{
+  void Promise.all([db.conversations.toArray(),db.characters.toArray()]).then(([rows,characters])=>{
    if(!active)return;
-   const list=rows.filter(c=>c.mode==='daily'&&!c.worldId).map(c=>({id:c.id,characterId:c.characterId}));
+   const names=new Map(characters.map(c=>[c.id,c.name]));
+   const list=rows.filter(c=>c.mode==='daily'&&!c.worldId).map(c=>({id:c.id,characterId:c.characterId,characterName:names.get(c.characterId)?.trim()||'未命名角色'}));
    setDaily(list);setTarget(current=>current&&list.some(c=>c.id===current)?current:list[0]?.id??'');
   }).catch(()=>setNotice('无法读取日常聊天列表。'));
   return ()=>{active=false;};
@@ -242,7 +243,7 @@ export function WechatIntegrationSettings(){
    </div>}
    <label>选择日常聊天角色
     <select value={target} onChange={e=>setTarget(e.target.value)} disabled={!!qr&&qrStatus!=='已过期'}>
-     {daily.map(d=><option key={d.id} value={d.id}>{d.characterId}</option>)}
+     {daily.map(d=><option key={d.id} value={d.id}>{d.characterName}</option>)}
     </select>
    </label>
    <button type="button" disabled={!configured||!target||loading} onClick={()=>void begin()}>
