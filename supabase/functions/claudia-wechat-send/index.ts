@@ -92,9 +92,9 @@ Deno.serve(async request=>{
   const payload=await response.json() as Record<string,unknown>;
   // A successful HTTP status alone is not a confirmed WeChat delivery.
   // Missing/unknown ret is quarantined rather than acknowledged as sent.
-  sent=response.ok&&payload.ret===0;
+  sent=response.ok&&payload.ret===0&&(payload.errcode===undefined||payload.errcode===0);
   // Log only non-sensitive receipt metadata, never the message or credentials.
-  console.info("wechat_send_receipt",JSON.stringify({outboundId:row.id,httpStatus:response.status,ret:typeof payload.ret==="number"?payload.ret:null,accepted:sent,hasMessageId:typeof payload.message_id==="string"&&payload.message_id.length>0||typeof payload.message_id==="number",hasErrmsg:typeof payload.errmsg==="string"&&payload.errmsg.length>0,routePresent:!!peer&&!!context,contextLength:context.length}));
+  console.info("wechat_send_receipt",JSON.stringify({outboundId:row.id,httpStatus:response.status,ret:typeof payload.ret==="number"?payload.ret:null,errcode:typeof payload.errcode==="number"?payload.errcode:null,accepted:sent,hasMessageId:typeof payload.message_id==="string"&&payload.message_id.length>0||typeof payload.message_id==="number",hasErrmsg:typeof payload.errmsg==="string"&&payload.errmsg.length>0,routePresent:!!peer&&!!context,contextLength:context.length}));
   if(!sent)errorCode="ilink_not_confirmed";
  }catch(error){
   console.warn("wechat_send_unconfirmed",JSON.stringify({outboundId:row.id,kind:error instanceof Error&&error.name==="TimeoutError"?"timeout":"request_or_route_error"}));
