@@ -25,7 +25,7 @@ http.createServer(async(req,res)=>{
    s.stop=startQrConnect({
     onQrDisplayed(url){if(typeof url==='string'&&/^https:\/\//.test(url)){s.url=url;s.status='waiting';}},
     onQrExpired(){s.url=null;s.status='refreshing';},
-    onSuccess(credentials){if(!Array.isArray(credentials)||!credentials.length||credentials.some(c=>!c?.appId||!c?.appSecret)){s.status='failed';return;}s.status='awaiting_secure_storage';s.url=null;/* Never expose credentials in status responses; implement encrypted owner-scoped storage before enabling binding. */},
+    onSuccess(credentials){if(!Array.isArray(credentials)||!credentials.length||credentials.some(c=>!c?.appId||!c?.appSecret)){s.status='failed';return;}s.status='storage_not_configured';s.url=null;/* Refuse to claim successful binding: credentials must be encrypted and saved under a verified user identity before this flow can be enabled. */},
     onFailure(){s.status='failed';s.url=null;}
    },{displayQrCodeToConsole:false});
    return json(res,200,{attemptId:id,status:s.status,qrContent:s.url});
