@@ -66,3 +66,6 @@ alter table public.claudia_qq_messages enable row level security;
 revoke all on public.claudia_qq_bindings,public.claudia_qq_login_attempts,public.claudia_qq_credentials,public.claudia_qq_ai_profiles,public.claudia_qq_context_snapshots,public.claudia_qq_messages from anon,authenticated;
 
 create unique index if not exists claudia_qq_bridge_attempt_unique on public.claudia_qq_login_attempts(bridge_attempt_id) where bridge_attempt_id is not null;
+
+-- Service-role Edge Functions require explicit table privileges; RLS remains enabled for browsers.
+grant select,insert,update,delete on public.claudia_qq_bindings,public.claudia_qq_login_attempts,public.claudia_qq_credentials,public.claudia_qq_ai_profiles,public.claudia_qq_context_snapshots,public.claudia_qq_messages to service_role;
