@@ -32,7 +32,7 @@ export async function exportWechatIdentity(password:string):Promise<Blob>{
  const encrypted=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv as BufferSource,additionalData:encoder.encode(magic)},key,data);
  return new Blob([JSON.stringify({format:magic,kdf:'PBKDF2-SHA256',iterations:600000,salt:b64(salt),iv:b64(iv),ciphertext:b64(new Uint8Array(encrypted))})],{type:'application/json'});
 }
-export async function importWechatIdentity(file:File,password:string):Promise<void>{
+export async function inspectWechatIdentity(file:File,password:string):Promise<{config:{url:string;publishableKey:string};session:{access_token:string;refresh_token:string;expires_at:number}}>{
  if(file.size>32768)throw Error('微信身份迁移文件过大，已拒绝读取。');
  let data:unknown;
  try{data=JSON.parse(await file.text());}catch{throw Error('微信身份迁移文件无效。');}
@@ -52,11 +52,15 @@ export async function importWechatIdentity(file:File,password:string):Promise<vo
  if(!payload.config||typeof payload.config!=='object'||!validSession(payload.session))throw Error('迁移内容不完整。');
  const {validateWechatCloudConfig}=await import('./wechatCloudConfig');
  const config=validateWechatCloudConfig(payload.config as {url:string;publishableKey:string});
+ return {config,session:payload.session};
+}
+export async function importWechatIdentity(file:File,password:string):Promise<void>{
+ const {config,session}=await inspectWechatIdentity(file,password);
  const current=readWechatCloudConfig();
  if(current&&current.url!==config.url)throw Error('本机已连接不同 Supabase 项目；请先人工确认并清除旧配置。');
  if(localStorage.getItem(identityPrefix+config.url))throw Error('本机已有微信身份，拒绝覆盖。请先在原设备核对绑定。');
  // Save identity first and public config second; rollback on storage failure.
  const slot=identityPrefix+config.url;
- try{localStorage.setItem(slot,JSON.stringify(payload.session));saveWechatCloudConfig(config);}
+ try{localStorage.setItem(slot,JSON.stringify(session));saveWechatCloudConfig(config);}
  catch(error){localStorage.removeItem(slot);throw error;}
 }
