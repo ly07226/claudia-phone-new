@@ -1,4 +1,5 @@
 import {ChatBannerSettings} from './ChatBannerSettings';
+import {WechatIntegrationSettings} from './WechatIntegrationSettings';
 import {GlobalChatNotifications} from './GlobalChatNotifications';
 import {installMemorySummaryScheduler} from './memorySummaryScheduler';
 import {PhasePlayApp} from './phasePlay/PhasePlayApp';
@@ -484,6 +485,11 @@ function App() {
                     AI / API 设置
                     <ArrowRight size={17} />
                   </button>
+                  <button className="list-row" onClick={() => openPhoneApp("微信接入")}>
+                    <MessageCircle />
+                    微信接入
+                    <ArrowRight size={17} />
+                  </button>
                   <button
                     className="list-row"
                     onClick={() => openPhoneApp("主题编辑器")}
@@ -536,6 +542,8 @@ function App() {
                 <PhasePlayApp onBack={phoneNavigation.back}/>
               ) : s.activeApp === "世界书 / Lorebook" ? (
                 <Lorebooks />
+              ) : s.activeApp === "微信接入" ? (
+                <WechatIntegrationSettings />
               ) : s.activeApp === "AI / API 设置" ? (
                 <ApiSettings />
               ) : s.activeApp === "主题编辑器" ? (
