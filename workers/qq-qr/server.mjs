@@ -23,12 +23,12 @@ http.createServer(async(req,res)=>{
   const id=randomUUID();const s={status:'waiting',url:null,until:Date.now()+10*60*1000,stop:null};sessions.set(id,s);
   try{
    s.stop=startQrConnect({
-    onQrDisplayed(url){if(typeof url==='string'&&/^https:\/\//.test(url)){s.url=url;s.status='waiting';}},
+    onQrDisplayed(url){if(typeof url==='string'&&(/^(https:\/\/|data:image\/png;base64,)/.test(url)){s.url=url;s.status='waiting';}},
     onQrExpired(){s.url=null;s.status='refreshing';},
     onSuccess(credentials){if(!Array.isArray(credentials)||!credentials.length||credentials.some(c=>!c?.appId||!c?.appSecret)){s.status='failed';return;}s.status='storage_not_configured';s.url=null;/* Refuse to claim successful binding: credentials must be encrypted and saved under a verified user identity before this flow can be enabled. */},
     onFailure(){s.status='failed';s.url=null;}
    },{displayQrCodeToConsole:false});
-   return json(res,200,{attemptId:id,status:s.status,qrContent:s.url});
+   return json(res,200,{attemptId:id,status:s.status,qrContent:s.url,expiresAt:new Date(s.until).toISOString()});
   }catch{sessions.delete(id);return json(res,502,{error:'qq_connector_failed'});}
  }
  const match=path.match(/^\/qq\/qr\/([0-9a-f-]{36})$/);
