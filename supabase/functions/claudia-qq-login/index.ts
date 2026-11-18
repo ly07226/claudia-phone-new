@@ -73,7 +73,7 @@ Deno.serve(async request=>{
   if(!attempt.bridge_attempt_id)return send(502,{error:"bridge_attempt_missing"});
   const qr=await call("/qq/qr/"+attempt.bridge_attempt_id,"GET");
   const status=typeof qr.status==="string"?qr.status:"failed";
-  if(!["waiting","refreshing","failed","expired","storage_not_configured","connected"].includes(status))return send(502,{error:"invalid_bridge_status"});
+  if(!["waiting","refreshing","failed","expired","storage_not_configured","confirming","connected"].includes(status))return send(502,{error:"invalid_bridge_status"});
   if(status==="connected"){
    // Never mark connected on a bridge status alone: credential storage and owner association must complete first.
    const {data:binding}=await admin.from("claudia_qq_bindings").select("id,status").eq("user_id",auth.user.id).eq("conversation_id",attempt.conversation_id).maybeSingle();
