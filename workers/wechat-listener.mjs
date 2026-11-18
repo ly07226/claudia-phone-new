@@ -56,7 +56,11 @@ async function poll(binding){
   body:JSON.stringify({get_updates_buf:cursor,base_info:{channel_version:'1.0.0'}}),
   signal:AbortSignal.timeout(65000)});
  if(!response.ok)throw Error('iLink HTTP '+response.status);
- const data=await response.json();
+ // Preserve iLink 64-bit message IDs before JSON.parse rounds unsafe integers.
+ // Only quote the numeric value of a JSON property named message_id.
+ const rawResponse=await response.text();
+ const preservedIds=rawResponse.replace(/("message_id"\s*:\s*)(-?\d+)(?=\s*[,}])/g,(_match,prefix,id)=>prefix+JSON.stringify(id));
+ const data=JSON.parse(preservedIds);
  if(typeof data.errcode==='number'&&data.errcode!==0){
   throw Error('iLink getupdates rejected (errcode='+data.errcode+')');
  }
