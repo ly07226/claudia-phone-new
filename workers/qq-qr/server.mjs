@@ -14,6 +14,7 @@ function authorized(req){const supplied=req.headers.authorization?.replace(/^Bea
 function cleanup(){for(const [id,s] of sessions){if(Date.now()>s.until){s.stop?.();sessions.delete(id);}}}
 setInterval(cleanup,30000).unref();
 http.createServer(async(req,res)=>{
+ if(req.method==='GET'&&req.url==='/health')return json(res,200,{status:'ok'});
  if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'Authorization, Content-Type','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Vary':'Origin'});return res.end();}
  if(req.headers.origin!==origin||!authorized(req))return json(res,403,{error:'unauthorized'});
  const path=new URL(req.url||'/', 'http://localhost').pathname;
