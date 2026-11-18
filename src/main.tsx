@@ -1,5 +1,6 @@
 import {ChatBannerSettings} from './ChatBannerSettings';
 import {WechatIntegrationSettings} from './WechatIntegrationSettings';
+import {reconcileWechatAfterReopen} from './wechatClosedContinuity';
 import {GlobalChatNotifications} from './GlobalChatNotifications';
 import {installMemorySummaryScheduler} from './memorySummaryScheduler';
 import {PhasePlayApp} from './phasePlay/PhasePlayApp';
@@ -84,6 +85,25 @@ const icons = [
 function App() {
   const environment = useDisplayEnvironment();
   const s = usePhone();
+  // Opt-in WeChat recovery only: no project configuration means no cloud request.
+  // iOS cannot run this while the PWA is closed; reconcile on reopen/foreground.
+  useEffect(() => {
+    if (!s.ready) return;
+    const reconcile = () => {
+      if (document.visibilityState === 'visible') {
+        void reconcileWechatAfterReopen().catch(error =>
+          console.warn('微信离线同步将在下次打开时重试：', error instanceof Error ? error.message : 'unknown')
+        );
+      }
+    };
+    reconcile();
+    document.addEventListener('visibilitychange', reconcile);
+    window.addEventListener('pageshow', reconcile);
+    return () => {
+      document.removeEventListener('visibilitychange', reconcile);
+      window.removeEventListener('pageshow', reconcile);
+    };
+  }, [s.ready]);
   // iOS standalone first-paint experiment: emulate the smallest possible scroll
   // transaction on the existing scrollable element. Restore its position before
   // paint, and never touch focused inputs or the document scroll position.
