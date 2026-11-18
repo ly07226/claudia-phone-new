@@ -18,7 +18,7 @@ async function owner(id:string){
 async function checked(scope:MemoryScope){
  const c=await owner(scope.conversationId);if(!validMemoryScope(c,scope))throw Error('记忆作用域不匹配，不能跨角色、会话或世界读取。');
  if(scope.mode==='world'&&(c.activeTimelineId!==scope.timelineId||(c.timelineEpoch??0)!==scope.epoch))throw Error('当前剧情分支已变化，请重新读取记忆作用域。');
- await validateMemoryStore(db,c);return c;
+ await validateMemoryStore(db,c,head=>nodesForHead(c.id,head,true));return c;
 }
 export async function getMemoryScope(conversationId:string):Promise<MemoryScope>{
  return db.transaction('rw',tables(),async()=>{const c=await owner(conversationId);
@@ -48,7 +48,7 @@ async function reconciled(c:Conversation){
  return state;
 }
 async function visibility(c:Conversation,scope:Extract<MemoryScope,{mode:'world'}>,state:MemoryStore,summary=false){
- const chain=await getTimelineAncestors(c.id,scope.timelineId),nodes=new Set((await nodesForHead(c.id,chain.at(-1)?.headNodeId)).map(n=>n.id));
+ const chain=await getTimelineAncestors(c.id,scope.timelineId),nodes=new Set((await nodesForHead(c.id,chain.at(-1)?.headNodeId,true)).map(n=>n.id));
  const limits=new Map<string,number>();let limit=summary?(c.memorySummary?.revision??0):state.revision;
  for(let i=chain.length-1;i>=0;i--){const t=chain[i],fork=state.forks.find(f=>f.timelineId===t.id);if(!fork)throw Error('记忆分支修订边界缺失。');limits.set(t.id,limit);limit=Math.min(limit,summary?(fork.summaryRevisionAtFork??0):fork.inheritThroughRevision);}
  return {limits,nodes};
@@ -79,7 +79,7 @@ async function write(scope:MemoryScope,input:MemoryInput|undefined,id?:string,ex
   if(state.entries.length>=memoryLimits.events||state.entries.reduce((n,e)=>n+e.content.length,content.length)>memoryLimits.totalChars)throw Error('记忆达到本阶段安全容量上限，未清理或覆盖旧记忆。');
   let timeline:MemoryTimeline|undefined;if(scope.mode==='world')timeline=await db.timelines.get(scope.timelineId);
   const now=Math.max(0,Date.now(),previous?.updatedAt??0),entry:MemoryEntry={id:previous?.id??crypto.randomUUID(),revision:state.revision+1,scope:structuredClone(scope),kind:input?.kind??previous!.kind,source,content,deleted:!input,...(input?.sourceReceiptId?{sourceReceiptId:input.sourceReceiptId}:{}),...(input?.type?{type:input.type}:{}),...(input?.quality?{quality:structuredClone(input.quality)}:{}),createdAt:previous?.createdAt??now,updatedAt:now,...(timeline?.headNodeId?{anchorNodeId:timeline.headNodeId}:{})};
-  state.entries.push(entry);state.revision++;await validateMemoryStore(db,{...c,memoryStore:state});await db.conversations.update(c.id,{memoryStore:state});return entry;
+  state.entries.push(entry);state.revision++;await validateMemoryStore(db,{...c,memoryStore:state},head=>nodesForHead(c.id,head,true));await db.conversations.update(c.id,{memoryStore:state});return entry;
  });
 }
 export const createMemory=(scope:MemoryScope,input:MemoryInput,expectedStoreRevision?:number)=>write(scope,input,undefined,undefined,expectedStoreRevision);
@@ -142,7 +142,7 @@ export async function clearMemoryCategory(scope:MemoryScope,kind:'core'|'long'|'
    const t=scope.mode==='world'?await db.timelines.get(scope.timelineId):undefined;
    for(const previous of entries){state.entries.push({...previous,revision:++state.revision,scope:structuredClone(scope),source:'manual',content:'',deleted:true,updatedAt:Math.max(Date.now(),previous.updatedAt),...(t?.headNodeId?{anchorNodeId:t.headNodeId}:{})});}
   }
-  await validateMemoryStore(db,{...c,memoryStore:state});await db.conversations.update(c.id,{memoryStore:state});
+  await validateMemoryStore(db,{...c,memoryStore:state},head=>nodesForHead(c.id,head,true));await db.conversations.update(c.id,{memoryStore:state});
  });
 }
 /** One consistent, validated read for prompt assembly, never a cross-request cache. */

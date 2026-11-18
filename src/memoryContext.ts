@@ -1,3 +1,4 @@
+import {pathProvenance} from './pathProvenance';
 import {memoryScopeKey} from './memoryScopeKey';
 import {magneticFromRequestPrefix} from './memoryMagnetMessages';
 import {selectMagneticMessages} from './memoryMagnetRecall';
@@ -73,9 +74,9 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
    snapshot=await memoryContextSnapshot(scope);const {entries}=snapshot;
    if(scope.mode==='daily'||!entries.length)return entries; // daily memories deliberately do not branch
    const t=await db.timelines.get(scope.timelineId);if(!t){status='scope-changed';throw Error('memory path changed');}
-   const nodes=await nodesForHead(c.id,t.headNodeId),allowed=new Set<string>();
-   const requestById=new Map(requestPath.map(m=>[m.id,m]));
-   for(const node of nodes){const m=requestById.get(node.messageId);if(m&&node.fingerprint===await messageFingerprint(m))allowed.add(node.id);}
+   const proof=pathProvenance(requestPath),allowed=new Set<string>();
+   if(Object.isFrozen(requestPath)&&proof?.timelineId===t.id&&proof.head===t.headNodeId&&proof.epoch===t.epoch&&proof.conversationId===c.id){for(const id of proof.nodeIds)allowed.add(id);}
+   else{const nodes=await nodesForHead(c.id,t.headNodeId,true),requestById=new Map(requestPath.map(m=>[m.id,m]));for(const node of nodes){const m=requestById.get(node.messageId);if(m&&node.fingerprint===await messageFingerprint(m))allowed.add(node.id);}}
    return entries.filter(e=>!e.anchorNodeId||allowed.has(e.anchorNodeId));
   });
   let lastAssistant=-1;for(let i=requestPath.length-1;i>=0;i--)if(requestPath[i].role==='assistant'){lastAssistant=i;break;}
@@ -89,11 +90,11 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   // selection, not just the visible text of the primary/secondary summary.
   failureStage='receipt-scope';if(!snapshot)throw Error('missing memory snapshot');
   const receiptsForSource=snapshot.receipts;
-  const validReceiptIds=new Set<string>();const verify=summaryVerifier(requestPath);
+  const validReceiptIds=new Set<string>();let verify:ReturnType<typeof summaryVerifier>|undefined;
   const requiredReceiptIds=new Set(entries.filter(e=>e.source==='auto'&&e.sourceReceiptId).map(e=>e.sourceReceiptId));
   failureStage='receipt-verification';for(const receipt of receiptsForSource){
    if(!receipt.shortSummary?.trim()&&!requiredReceiptIds.has(receipt.id))continue;
-   if(['verified','legacy-verified'].includes(await verify(receipt)))validReceiptIds.add(receipt.id);
+   if(['verified','legacy-verified'].includes(await(verify??=summaryVerifier(requestPath))(receipt)))validReceiptIds.add(receipt.id);
   }
   // A core summary is derived from FIVE receipts, not only its anchor.
   // If any source group was edited, removed or is outside this request prefix,
@@ -128,15 +129,11 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
    const scope=snapshot.scope;
    const receipts=snapshot.shortReceipts;
    let safe=receipts.filter(r=>validReceiptIds.has(r.id));
-   if(scope.mode==='world'){
+   if(scope.mode==='world'&&safe.length){
     const timeline=await db.timelines.get(scope.timelineId);
-    const nodes=timeline?await nodesForHead(c.id,timeline.headNodeId):[];
-    const byId=new Map(requestPath.map(m=>[m.id,m]));
-    const allowed=new Set<string>();
-    for(const node of nodes){
-     const message=byId.get(node.messageId);
-     if(message&&node.fingerprint===await messageFingerprint(message))allowed.add(node.id);
-    }
+    const proof=pathProvenance(requestPath),allowed=new Set<string>();
+    if(timeline&&Object.isFrozen(requestPath)&&proof?.timelineId===timeline.id&&proof.head===timeline.headNodeId&&proof.epoch===timeline.epoch&&proof.conversationId===c.id){for(const id of proof.nodeIds)allowed.add(id);}
+    else{const nodes=timeline?await nodesForHead(c.id,timeline.headNodeId,true):[],byId=new Map(requestPath.map(m=>[m.id,m]));for(const node of nodes){const m=byId.get(node.messageId);if(m&&node.fingerprint===await messageFingerprint(m))allowed.add(node.id);}}
     safe=safe.filter(r=>allowed.has(r.throughNodeId));
    }
    // Prefer source-verified older receipts relevant to this turn instead of
@@ -157,7 +154,7 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
   // Only inject completed calendar windows entirely preceding this request path.
   // Never expose later events while regenerating an earlier branch.
   failureStage='digest-scope';const scope=snapshot.scope;
-  const prefixLast=Math.max(...requestPath.map(m=>m.createdAt),0);
+  const prefixLast=(snapshot.owner.dailyDigests?.length??0)?requestPath.reduce((max,m)=>Math.max(max,m.createdAt),0):0;
   const current=snapshot.owner;
   const sameScope=(a:unknown)=>memoryScopeKey(a as typeof scope)===memoryScopeKey(scope);
   // Parent-branch digests may be inherited only when every source message is
@@ -171,7 +168,7 @@ export async function memoryContext(c:Conversation,requestPath:Message[],remaini
    if(scope.mode==='daily')return sameScope(candidate);
    return candidate.mode==='world'&&candidate.worldId===scope.worldId&&candidate.spaceId===scope.spaceId&&candidate.epoch===scope.epoch&&ancestorIds.has(candidate.timelineId);
   };
-  const pathById=new Map(requestPath.map(m=>{const visible=sourceVisibleMessage(m);return [visible.id,visible] as const;}));
+  const pathById=new Map((current?.dailyDigests?.length?requestPath:[]).map(m=>{const visible=sourceVisibleMessage(m);return [visible.id,visible] as const;}));
   const digests:NonNullable<NonNullable<typeof current>['dailyDigests']> = [];
   for(const d of current?.dailyDigests??[]){
    if(!eligibleDigestScope(d.scope)||dayEnd(d.endDay)>prefixLast||!d.sourceMessageIds||!d.sourceFingerprint)continue;

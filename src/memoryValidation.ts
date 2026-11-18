@@ -2,7 +2,7 @@ import {summaryQualityCategories} from './memorySummaryTypes';
 import {validateMemoryV2Fields} from './memoryV2Validation';
 import {validateSummaryState} from './memorySummaryValidation';
 import type Dexie from 'dexie';
-import type {Conversation,MemoryTimeline} from './chatTypes';
+import type {Conversation,ConversationPathNode,MemoryTimeline} from './chatTypes';
 import {memoryLimits,type MemoryStore,type MemoryScope} from './memoryTypes';
 const id=(value:unknown):value is string=>typeof value==='string'&&value.length>0&&value.length<4096;
 const integer=(value:unknown):value is number=>Number.isSafeInteger(value)&&Number(value)>=0;
@@ -12,9 +12,9 @@ export function validMemoryScope(c:Conversation,scope:MemoryScope){
  return c.mode==='daily'? !c.worldId&&scope.spaceId==='daily'&&scope.worldId===undefined&&scope.timelineId===undefined&&scope.epoch===undefined:
  scope.mode==='world'&&!!c.worldId&&scope.worldId===c.worldId&&scope.spaceId===`world:${c.worldId}`&&id(scope.timelineId)&&integer(scope.epoch);
 }
-export async function validateMemoryStore(d:Dexie,c:Conversation){
+export async function validateMemoryStore(d:Dexie,c:Conversation,readPath?:(head?:string)=>Promise<readonly ConversationPathNode[]>){
  await validateMemoryV2Fields(d,c,validMemoryScope);
- await validateSummaryState(d,c,validMemoryScope);
+ await validateSummaryState(d,c,validMemoryScope,readPath);
  const state=c.memoryStore;if(state===undefined)return;
  check(state&&state.version===1&&integer(state.revision)&&Array.isArray(state.entries)&&Array.isArray(state.forks));
  check(state.entries.length<=memoryLimits.events&&state.forks.length<=memoryLimits.forks&&state.revision===state.entries.length);
@@ -85,7 +85,7 @@ export async function validateMemoryStore(d:Dexie,c:Conversation){
   }
  }
  const paths=new Map<string,Set<string>>();
- async function path(t:MemoryTimeline){if(paths.has(t.id))return paths.get(t.id)!;const nodes=new Set<string>();let next=t.headNodeId;
+ async function path(t:MemoryTimeline){if(paths.has(t.id))return paths.get(t.id)!;const nodes=new Set<string>();if(readPath){const rows=await readPath(t.headNodeId);for(const row of rows){check(row.conversationId===c.id&&!nodes.has(row.id));nodes.add(row.id);}paths.set(t.id,nodes);return nodes;}let next=t.headNodeId;
   while(next){check(!nodes.has(next));nodes.add(next);const row=await d.table('pathNodes').get(next);check(row&&row.conversationId===c.id);next=row.parentNodeId;}
   paths.set(t.id,nodes);return nodes;
  }
