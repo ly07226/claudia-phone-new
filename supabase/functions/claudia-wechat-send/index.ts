@@ -83,7 +83,8 @@ Deno.serve(async request=>{
   const response=await fetch(base.replace(/\/$/,"")+"/ilink/bot/sendmessage",{
    method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token,
     "AuthorizationType":"ilink_bot_token","X-WECHAT-UIN":btoa(String(Math.floor(Math.random()*4294967296)))},
-   body:JSON.stringify({msg:{to_user_id:peer,context_token:context,
+   body:JSON.stringify({msg:{from_user_id:"",to_user_id:peer,client_id:"claudia-wechat:"+row.id,
+    message_type:2,message_state:2,context_token:context,
     item_list:[{type:1,text_item:{text:row.body}}]},
     base_info:{channel_version:"1.0.0"}}),
    signal:AbortSignal.timeout(45000)
