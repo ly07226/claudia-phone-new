@@ -64,3 +64,5 @@ alter table public.claudia_qq_context_snapshots enable row level security;
 alter table public.claudia_qq_messages enable row level security;
 -- Browser data access is via authenticated Edge Functions, not direct table grants.
 revoke all on public.claudia_qq_bindings,public.claudia_qq_login_attempts,public.claudia_qq_credentials,public.claudia_qq_ai_profiles,public.claudia_qq_context_snapshots,public.claudia_qq_messages from anon,authenticated;
+
+create unique index if not exists claudia_qq_bridge_attempt_unique on public.claudia_qq_login_attempts(bridge_attempt_id) where bridge_attempt_id is not null;
