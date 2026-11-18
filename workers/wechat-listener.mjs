@@ -95,7 +95,10 @@ async function poll(binding){
   const messageId=msg.message_id;
   if(typeof peer!=='string'||!peer||typeof context!=='string'||!context||
      (!Number.isSafeInteger(messageId)&&typeof messageId!=='string')||
-     text.length>8000)throw Error('invalid incoming route; cursor not advanced');
+     text.length>8000){
+   const routeTypes=Object.fromEntries(['from_user_id','context_token','message_id'].map(k=>[k,typeof msg[k]]));
+   throw Error('invalid incoming route; cursor not advanced; routeTypes='+JSON.stringify(routeTypes));
+  }
   await rpc('claudia_wechat_receive_routed_text',{
    p_user_id:binding.user_id,p_binding_id:binding.id,
    p_external_message_id:String(messageId),p_body:text,
