@@ -83,8 +83,7 @@ Deno.serve(async request=>{
   const response=await fetch(base.replace(/\/$/,"")+"/ilink/bot/sendmessage",{
    method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token,
     "AuthorizationType":"ilink_bot_token","X-WECHAT-UIN":btoa(String(Math.floor(Math.random()*4294967296)))},
-   body:JSON.stringify({msg:{from_user_id:"",to_user_id:peer,client_id:"claudia-wechat:"+row.id,
-    message_type:2,message_state:2,context_token:context,
+   body:JSON.stringify({msg:{to_user_id:peer,context_token:context,
     item_list:[{type:1,text_item:{text:row.body}}]},
     base_info:{channel_version:"1.0.0"}}),
    signal:AbortSignal.timeout(45000)
@@ -92,12 +91,9 @@ Deno.serve(async request=>{
   const payload=await response.json() as Record<string,unknown>;
   // A successful HTTP status alone is not a confirmed WeChat delivery.
   // Missing/unknown ret is quarantined rather than acknowledged as sent.
-  sent=response.ok&&payload.ret===0&&(payload.errcode===undefined||payload.errcode===0);
-  // Log only non-sensitive receipt metadata, never the message or credentials.
-  console.info("wechat_send_receipt",JSON.stringify({outboundId:row.id,httpStatus:response.status,ret:typeof payload.ret==="number"?payload.ret:null,errcode:typeof payload.errcode==="number"?payload.errcode:null,accepted:sent,hasMessageId:typeof payload.message_id==="string"&&payload.message_id.length>0||typeof payload.message_id==="number",hasErrmsg:typeof payload.errmsg==="string"&&payload.errmsg.length>0,routePresent:!!peer&&!!context,contextLength:context.length}));
+  sent=response.ok&&payload.ret===0;
   if(!sent)errorCode="ilink_not_confirmed";
  }catch(error){
-  console.warn("wechat_send_unconfirmed",JSON.stringify({outboundId:row.id,kind:error instanceof Error&&error.name==="TimeoutError"?"timeout":"request_or_route_error"}));
   errorCode=error instanceof Error&&["missing_verified_ilink_route","cloud_ai_authorization_revoked"].includes(error.message)?
    error.message:"send_result_unknown";
  }
