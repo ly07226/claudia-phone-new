@@ -14,8 +14,8 @@ Deno.serve(async req=>{
  let body:Record<string,unknown>;
  try{const raw=await req.text();if(raw.length>12000)throw Error();body=JSON.parse(raw);if(!body||typeof body!=="object"||Array.isArray(body))throw Error();}
  catch{return json(400,{error:"invalid_json"});}
- const {bindingId,externalMessageId,text}=body;
- if(typeof bindingId!=="string"||!uuid.test(bindingId)||typeof externalMessageId!=="string"||!externalMessageId||externalMessageId.length>256||typeof text!=="string"||!text.trim()||text.length>8000)return json(400,{error:"invalid_event"});
+ const {bindingId,externalMessageId,text,routeType,routeTarget}=body;
+ if(typeof bindingId!=="string"||!uuid.test(bindingId)||typeof externalMessageId!=="string"||!externalMessageId||externalMessageId.length>256||typeof text!=="string"||!text.trim()||text.length>8000||!["c2c","group"].includes(String(routeType))||typeof routeTarget!=="string"||!routeTarget||routeTarget.length>512)return json(400,{error:"invalid_event"});
  const db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
  const {data:binding,error}=await db.from("claudia_qq_bindings").select("id,user_id,status").eq("id",bindingId).maybeSingle();
  if(error)return json(500,{error:"binding_lookup_failed"});
@@ -25,7 +25,7 @@ Deno.serve(async req=>{
  // Insert-only: retries must never overwrite a previously processed message.
  const {data:row,error:writeError}=await db.from("claudia_qq_messages").insert({
   user_id:binding.user_id,binding_id:binding.id,external_message_id:externalMessageId,
-  direction:"inbound",body:text,status:"received"
+  direction:"inbound",body:text,status:"received",route_type:routeType,route_target:routeTarget
  }).select("id").single();
  if(writeError?.code==="23505")return json(202,{ok:true,duplicate:true});
  if(writeError||!row)return json(500,{error:"ingest_failed"});
