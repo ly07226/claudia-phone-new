@@ -12,6 +12,28 @@ if(!origin||!/^https:\/\//.test(origin)||!token||token.length<32)throw Error('QQ
 const sessions=new Map();
 const listeners=new Map();
 const botAccounts=new Map();
+const accessTokens=new Map();
+const credentialRetryAfter=new Map();
+async function getBotAccessToken(bindingId,account){
+ const now=Date.now(),cached=accessTokens.get(bindingId);
+ if(cached&&cached.expiresAt>now+300000)return cached.value;
+ const auth=await fetch('https://bots.qq.com/app/getAppAccessToken',{
+  method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({appId:account.appId,clientSecret:account.appSecret}),signal:AbortSignal.timeout(12000)});
+ if(!auth.ok)throw Error('qq_token_http_'+auth.status);
+ const data=await auth.json();
+ if(typeof data?.access_token!=='string'||!data.access_token){
+  const code=typeof data?.code==='number'||typeof data?.code==='string'?String(data.code).slice(0,24):'missing';
+  console.warn('qq_token_business_rejected',bindingId,'code='+code);
+  throw Error('invalid_qq_token');
+ }
+ const seconds=Number(data.expires_in);
+ const ttl=Number.isFinite(seconds)&&seconds>0?seconds:7200;
+ accessTokens.set(bindingId,{value:data.access_token,expiresAt:now+ttl*1000});
+ credentialRetryAfter.delete(bindingId);
+ return data.access_token;
+}
+
 const supabaseUrl=process.env.QQ_SUPABASE_URL;
 // One active binding per QQ appId. Never leave a superseded binding in the send queue.
 function startListener(account){
@@ -22,12 +44,16 @@ function startListener(account){
    if(typeof stop==='function')stop();
    listeners.delete(existing.appId);
    botAccounts.delete(bindingId);
+   accessTokens.delete(bindingId);
+   credentialRetryAfter.delete(bindingId);
   }
  }
  const stop=startQqGateway({appId:account.appId,appSecret:account.appSecret,
   bindingId:account.bindingId,supabaseUrl,bridgeToken:token,onStatus:state=>{console.info('qq_gateway',account.bindingId,state);}});
  listeners.set(account.appId,stop);
  botAccounts.set(account.bindingId,{appId:account.appId,appSecret:account.appSecret});
+ accessTokens.delete(account.bindingId);
+ credentialRetryAfter.delete(account.bindingId);
 }
 async function restoreListeners(){
  if(!supabaseUrl)return;
@@ -40,7 +66,7 @@ async function restoreListeners(){
   for(const account of result.accounts){
    if(typeof account.bindingId==='string'&&typeof account.appId==='string'&&typeof account.appSecret==='string'&&
       (!botAccounts.has(account.bindingId)||botAccounts.get(account.bindingId).appId!==account.appId||
-       !listeners.has(account.appId)))
+       botAccounts.get(account.bindingId).appSecret!==account.appSecret||!listeners.has(account.appId)))
     startListener(account);
   }
   console.info('qq_gateway_restore_count',result.accounts.length);
@@ -120,6 +146,7 @@ async function sendTick(){
  sendTickRunning=true;
  try{
   for(const [bindingId,account] of botAccounts){
+   if((credentialRetryAfter.get(bindingId)||0)>Date.now())continue;
    const queue=async body=>{
     const response=await fetch(supabaseUrl+'/functions/v1/claudia-qq-outbound',{
      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
@@ -136,12 +163,7 @@ async function sendTick(){
        !msg.routeTarget||typeof msg.replyTo!=='string'||!msg.replyTo||
        !Number.isInteger(msg.msgSeq)||msg.msgSeq<1||msg.msgSeq>32||
        typeof msg.body!=='string'||!msg.body.trim())throw Error('invalid_outbound_route');
-    const auth=await fetch('https://bots.qq.com/app/getAppAccessToken',{
-     method:'POST',headers:{'Content-Type':'application/json'},
-     body:JSON.stringify({appId:account.appId,clientSecret:account.appSecret}),signal:AbortSignal.timeout(12000)});
-    if(!auth.ok)throw Error('qq_token_http_'+auth.status);
-    const access=(await auth.json()).access_token;
-    if(typeof access!=='string'||!access)throw Error('invalid_qq_token');
+    const access=await getBotAccessToken(bindingId,account);
     const path=msg.routeType==='c2c'?'/v2/users/'+encodeURIComponent(msg.routeTarget)+'/messages':
      '/v2/groups/'+encodeURIComponent(msg.routeTarget)+'/messages';
     const sent=await fetch('https://api.bot.qq.com'+path,{
@@ -153,6 +175,7 @@ async function sendTick(){
    }catch(e){
     const raw=e instanceof Error?e.message:'send_failed';
     error=/^(qq_token_http_\d+|qq_send_http_\d+|invalid_qq_token|invalid_outbound_route)$/.test(raw)?raw:'send_failed';
+    if(error==='invalid_qq_token')credentialRetryAfter.set(bindingId,Date.now()+60000);
     console.warn('qq_outbound_send_failed',bindingId,error);
    }
    try{await queue({action:'finish',messageId:msg.id,leaseUntil:msg.leaseUntil,success,error});}
