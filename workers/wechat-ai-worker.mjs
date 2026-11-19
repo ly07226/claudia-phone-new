@@ -53,8 +53,10 @@ async function next(){
   const profile=profiles?.[0];
   if(!profile||profile.user_id!==row.user_id)throw Error('profile_not_authorized');
   const snapshots=await request('claudia_wechat_context_snapshots?binding_id=eq.'+row.binding_id+
-   '&select=context_messages,revision,history_cutoff');
+   '&select=user_id,context_messages,revision,history_cutoff');
   const snapshot=snapshots?.[0];
+  // Reject cross-owner snapshots even when service_role bypasses RLS.
+  if(snapshot&&snapshot.user_id!==row.user_id)throw Error('context_owner_mismatch');
   if(!snapshot||!Array.isArray(snapshot.context_messages)||
    !snapshot.context_messages.some(m=>m?.role==='system'))
    throw Error('context_not_authorized');
