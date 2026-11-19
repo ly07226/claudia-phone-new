@@ -30,7 +30,9 @@ export function reconcileQqAfterReopen():Promise<void>{
       conversation.characterId!==binding.character_id)continue;
    try{
     const added=await syncQqDailyConversation(conversation.id);
-    if(added<=0)continue;
+    const dirtyKey='claudia-qq-context-dirty:'+binding.id;
+    if(added>0)localStorage.setItem(dirtyKey,'yes');
+    if(localStorage.getItem(dirtyKey)!=='yes')continue;
     const fresh=await db.conversations.get(conversation.id);
     if(!fresh||fresh.activeTimelineId!==conversation.activeTimelineId||
        (fresh.timelineEpoch??0)!==(conversation.timelineEpoch??0))continue;
@@ -40,6 +42,7 @@ export function reconcileQqAfterReopen():Promise<void>{
     if(!messages.some(m=>m.role==='system')||messages.length>64||JSON.stringify(messages).length>80000)
       throw Error('QQ 有效上下文超过安全容量或缺少系统设定');
     await syncQqContext(binding.id,messages);
+    localStorage.removeItem(dirtyKey);
    }catch(e){console.warn('QQ 离线消息回填或记忆同步待重试',e instanceof Error?e.message:'unknown');}
   }
  })().finally(()=>{pending=null;});
