@@ -48,11 +48,18 @@ function splitQqReply(text:string):string[]{
  // Cap fragment count and QQ message size without dropping any character.
  const packed:string[]=[];
  for(const p of parts){
-  if(p.length>1200)return [text]; // validated by generation reply limit below
+  if(p.length>1200){
+   for(let at=0;at<p.length;at+=1000)packed.push(p.slice(at,at+1000));
+   continue;
+  }
   if(packed.length>=31){packed[packed.length-1]+=p;continue;}
   packed.push(p);
  }
- if(packed.some(p=>p.length>1200))return [text];
+ if(packed.some(p=>p.length>1200)){
+  const safe:string[]=[];
+  for(const part of packed)for(let at=0;at<part.length;at+=1000)safe.push(part.slice(at,at+1000));
+  return safe.length<=32&&safe.join('')===text?safe:[text];
+ }
  return packed.join('')===text?packed:[text];
 }
 Deno.serve(async req=>{
