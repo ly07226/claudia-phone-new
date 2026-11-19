@@ -5,7 +5,8 @@ import {db} from './store';
 import {listQqCloudBindings} from './qqQrLogin';
 import {syncQqDailyConversation} from './qqDailySync';
 import {buildContext} from './chatContext';
-import {syncQqContext} from './qqAiAuthorization';
+import {syncQqContext,getQqAiStatus} from './qqAiAuthorization';
+import {readWechatCloudConfig} from './wechatCloudConfig';
 
 const prefix='claudia-qq-closed-continuity:';
 export function setQqClosedContinuity(bindingId:string,enabled:boolean){
@@ -15,10 +16,29 @@ export function getQqClosedContinuity(bindingId:string){
  return localStorage.getItem(prefix+bindingId)==='yes';
 }
 let pending:Promise<void>|null=null;
+let bootstrap:Promise<void>|null=null;
+let bootstrapDone=false;
+/** Existing owner-authorized bindings need no second consent or settings visit. */
+async function bootstrapExistingAuthorization(){
+ if(bootstrapDone||!readWechatCloudConfig())return;
+ if(bootstrap)return bootstrap;
+ bootstrap=(async()=>{
+  const bindings=await listQqCloudBindings();
+  for(const b of bindings.filter(b=>b.status==='connected')){
+   if(localStorage.getItem(prefix+b.id)==='no')continue;
+   if(getQqClosedContinuity(b.id))continue;
+   const status=await getQqAiStatus(b.id);
+   if(status.enabled)setQqClosedContinuity(b.id,true);
+  }
+  bootstrapDone=true;
+ })().finally(()=>{bootstrap=null;});
+ return bootstrap;
+}
 export function reconcileQqAfterReopen():Promise<void>{
  if(pending)return pending;
  pending=(async()=>{
   if(document.visibilityState!=='visible'||!navigator.onLine)return;
+  await bootstrapExistingAuthorization();
   const optedIn=Array.from({length:localStorage.length},(_,i)=>localStorage.key(i))
    .some(key=>key?.startsWith(prefix)&&localStorage.getItem(key)==='yes');
   if(!optedIn)return;
