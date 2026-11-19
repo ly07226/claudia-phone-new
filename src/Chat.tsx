@@ -1,3 +1,4 @@
+import {syncQqDailyConversation} from './qqDailySync';
 import {useChatHistoryWindow} from './useChatHistoryWindow';
 import {dataEqual} from './dataEqual';
 import {chatDataRevision} from './chatDataRevision';
@@ -54,6 +55,20 @@ export function Chat({ worldId }: { worldId?: string }) {
   const s = usePhone();
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  // Import QQ cloud replies into this exact daily conversation when it is opened
+  // or the app returns to foreground. Do not poll while backgrounded.
+  useEffect(()=>{
+    const id=conversation?.id;
+    if(!id||conversation.mode!=='daily'||conversation.worldId)return;
+    let active=true;
+    const sync=()=>{if(active&&document.visibilityState==='visible'&&navigator.onLine)
+      void syncQqDailyConversation(id).catch(e=>{if(active)console.warn('qq_daily_sync_failed',e instanceof Error?e.message:'unknown');});};
+    void sync();
+    document.addEventListener('visibilitychange',sync);
+    window.addEventListener('focus',sync);
+    return ()=>{active=false;document.removeEventListener('visibilitychange',sync);window.removeEventListener('focus',sync);};
+  },[conversation?.id,conversation?.mode,conversation?.worldId]);
+
   // Only an already opted-in cloud device reports foreground chat presence.
   // No login prompt, no automatic anonymous signup for ordinary local chats.
   useEffect(()=>{
