@@ -74,6 +74,19 @@ async function recall(c:Conversation,path:readonly Message[],recentIds:ReadonlyS
   for(const key of [term,'!'+term]){const posting=index.postings.get(key);if(!posting)continue;let lo=0,hi=posting.length;while(lo<hi){const mid=(lo+hi)>>>1;if(posting[mid]<path.length)lo=mid+1;else hi=mid;}const end=lo;for(let n=end-1;n>=Math.max(0,end-48);n--)matched.add(posting[n]);}
   for(const at of matched){const d=index.documents.get(at)!;if(recentIds.has(d.id))continue;scores.set(at,(scores.get(at)??0)+(term.startsWith('@')?5:1+Math.log(1+index.documents.size/ordinary.length)));}
  }
+ // Emotionally ambiguous references (e.g. "今天好凶") need recent user-side
+ // interaction evidence, not only lexical matches to the last short sentence.
+ // Keep this strictly bounded and source-grounded; never manufacture a cause.
+ if(/(?:今天|下午|上午|刚才|之前|那会儿|你刚|你那时).{0,18}(?:凶|生气|不高兴|难过|委屈|讨厌|不喜欢|道歉|错|工作|上班)|(?:凶|生气|不高兴|委屈|道歉|错).{0,12}(?:今天|下午|刚才|之前)/u.test(latestUser)){
+  let count=0;
+  for(let at=Math.min(path.length,index.processed)-1;at>=0&&count<18;at--){
+   const d=index.documents.get(at);
+   if(!d||d.role!=='user'||recentIds.has(d.id)||now-d.createdAt>86400000||d.createdAt>now)continue;
+   if(!/(?:工作|上班|累|烦|凶|不高兴|生气|难过|委屈|不喜欢|道歉|抱怨|开玩笑|摸鱼)/u.test(d.text))continue;
+   scores.set(at,(scores.get(at)??0)+4);
+   count++;
+  }
+ }
  if(greetingQuery(latestUser))for(const at of index.recent){const d=index.documents.get(at)!;if(at<path.length&&d.important&&d.role==='user'&&now-d.createdAt<=3*86400000&&!recentIds.has(d.id))scores.set(at,(scores.get(at)??0)+2);}
  const marriage=index.postings.get('@marriage')??[];let latestStance:{at:number;position:string}|undefined;
  for(let at=path.length-1;at>=Math.max(0,path.length-30);at--){if(path[at].role!=='user')continue;const position=marriagePosition(visibleMessage(path[at]).content);if(position){latestStance={at,position};break;}}
