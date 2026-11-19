@@ -1,6 +1,7 @@
 import {ChatBannerSettings} from './ChatBannerSettings';
 import {WechatIntegrationSettings} from './WechatIntegrationSettings';
 import {reconcileWechatAfterReopen} from './wechatClosedContinuity';
+import {reconcileQqAfterReopen} from './qqClosedContinuity';
 import {GlobalChatNotifications} from './GlobalChatNotifications';
 import {installMemorySummaryScheduler} from './memorySummaryScheduler';
 import {PhasePlayApp} from './phasePlay/PhasePlayApp';
@@ -91,6 +92,9 @@ function App() {
     if (!s.ready) return;
     const reconcile = () => {
       if (document.visibilityState === 'visible') {
+        void reconcileQqAfterReopen().catch(error =>
+          console.warn('QQ 离线同步将在下次打开时重试：',error instanceof Error?error.message:'unknown')
+        );
         void reconcileWechatAfterReopen().catch(error =>
           console.warn('微信离线同步将在下次打开时重试：', error instanceof Error ? error.message : 'unknown')
         );
