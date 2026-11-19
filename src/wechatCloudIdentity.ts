@@ -1,10 +1,12 @@
 /** WeChat-specific Supabase identity, isolated by project URL.
  * This identity is never reused by unrelated cloud features.
  * Anonymous identity is device-scoped; account recovery is not yet supported.
+ * Do not silently create a replacement owner when a known identity becomes unreadable.
  */
 import {readWechatCloudConfig} from './wechatCloudConfig';
 type Session={access_token:string;refresh_token:string;expires_at:number};
 const PREFIX='claudia-wechat-anon-v1:';
+const IDENTITY_MARKER='claudia-wechat-identity-created-v1:';
 function project(){
  const c=readWechatCloudConfig();
  if(!c)throw Error('请先配置自己的微信 Supabase 项目。');
@@ -36,12 +38,18 @@ export async function wechatCloudAccessToken():Promise<string>{
  const c=project(),id=slot(c.url);
  const pending=inflight.get(id);if(pending)return pending;
  const task=(async()=>{
-  const old=parse(localStorage.getItem(id));
+  const raw=localStorage.getItem(id);
+  const old=parse(raw);
+  // A damaged or missing session must never silently create a second owner.
+  // This protects existing QQ/WeChat bindings from appearing to have vanished.
+  if(!old&&(raw!==null||localStorage.getItem(IDENTITY_MARKER+c.url)==='1'))
+   throw Error('云端身份凭证已丢失或损坏，原 QQ 绑定可能仍在云端。已停止创建新身份；请勿重新扫码或清除数据。');
   if(old&&old.expires_at>Date.now()/1000+90)return old.access_token;
   const session=old?
    await tokenRequest(c.url,c.publishableKey,'token?grant_type=refresh_token',{refresh_token:old.refresh_token}):
    await tokenRequest(c.url,c.publishableKey,'signup',{});
   localStorage.setItem(id,JSON.stringify(session));
+  localStorage.setItem(IDENTITY_MARKER+c.url,'1');
   return session.access_token;
  })();
  inflight.set(id,task);

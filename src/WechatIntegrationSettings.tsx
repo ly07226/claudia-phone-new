@@ -16,6 +16,18 @@ import {syncWechatDailyConversation} from './wechatDailySync';
 import {clearWechatCloudConfig,readWechatCloudConfig,saveWechatCloudConfig} from './wechatCloudConfig';
 import {checkCloudReadiness,type CloudCheck} from './cloudReadiness';
 
+/** Accept an API base URL or a full OpenAI-compatible chat-completions URL. */
+function qqChatEndpoint(input:string):string{
+ const raw=input.trim();
+ let url:URL;
+ try{url=new URL(raw);}catch{throw Error('API 地址无效，请检查本地 API 配置');}
+ if(url.protocol!=='https:'||url.username||url.password||url.hash||url.search)
+  throw Error('QQ 云端 API 必须使用不含查询参数的 HTTPS 地址');
+ const path=url.pathname.replace(/\\/+$/,'');
+ if(!path.endsWith('/chat/completions'))
+  url.pathname=path+'/chat/completions';
+ return url.toString();
+}
 /** WeChat-only opt-in configuration; no cross-user shared project. */
 export function WechatIntegrationSettings(){
  const initial=readWechatCloudConfig();
@@ -36,7 +48,8 @@ export function WechatIntegrationSettings(){
  const [qqBusy,setQqBusy]=useState(false);
  const [qqTarget,setQqTarget]=useState('');
  const [qqBindings,setQqBindings]=useState<Array<{id:string;character_id:string;conversation_id:string;status:string}>>([]);
- const loadQq=async()=>{try{setQqBindings(await listQqCloudBindings());}catch(e){setQqNotice(e instanceof Error?e.message:'QQ 绑定查询失败');}};
+ const [qqBindingLoadState,setQqBindingLoadState]=useState<'idle'|'loading'|'loaded'|'error'>('idle');
+ const loadQq=async()=>{setQqBindingLoadState('loading');setQqNotice('');try{const rows=await listQqCloudBindings();setQqBindings(rows);setQqBindingLoadState('loaded');}catch(e){setQqBindingLoadState('error');setQqNotice((e instanceof Error?e.message:'QQ 绑定查询失败')+'；无法确认绑定状态，请勿重新扫码。');}};
  useEffect(()=>{if(section==='qq'){void loadQq();void Promise.all([db.conversations.toArray(),db.characters.toArray()]).then(([rows,chars])=>{const names=new Map(chars.map(c=>[c.id,c.name]));const list=rows.filter(c=>c.mode==='daily'&&!c.worldId).map(c=>({id:c.id,characterId:c.characterId,characterName:names.get(c.characterId)||'未命名角色'}));setDaily(list);setQqTarget(current=>list.some(c=>c.id===current)?current:list[0]?.id||'');}).catch(()=>setQqNotice('读取日常角色失败'));}},[section]);
  // Existing QQ authorization predates the foreground-sync opt-in flag.
  // Query only while the owner opens QQ settings; never authorize a new key.
@@ -96,9 +109,39 @@ export function WechatIntegrationSettings(){
   if(!credentials?.apiKey)throw Error('所选 API 没有本地保存的密钥');
   if(!window.confirm('从本机读取「'+config.name+'」的 API 信息填入 QQ 授权表单？此时不会上传密钥。'))return;
   setQqApiId(config.id);setQqAiModel(config.model);
-  setQqAiEndpoint(config.baseUrl.replace(/\/+$/,'')+'/chat/completions');
+  setQqAiEndpoint(qqChatEndpoint(config.baseUrl));
   setQqAiKey(credentials.apiKey);
   setQqAiStatus('本地 API 已填写。请点击「确认授权 QQ 云端 AI」完成后台授权；这一步不是重新扫码。');
+ };
+ // One explicit, owner-scoped action: use this character's local API and authorize its QQ binding.
+ // QR connection alone never grants cloud access to local credentials.
+ const qqAuthorizeLocal=async()=>{
+  const binding=qqBindings.find(b=>b.id===qqAiBinding&&b.status==='connected');
+  if(!binding||qqAiBusy)return;
+  setQqAiBusy(true);setQqNotice('');
+  try{
+   const existing=await getQqAiStatus(binding.id);
+   if(existing.enabled){setQqAiStatus('已授权并启用，无需重复授权或扫码');return;}
+   const character=await db.characters.get(binding.character_id);
+   const configs=await db.apiConfigs.toArray();
+   const config=configs.find(c=>c.id===qqApiId&&c.enabled)||
+    configs.find(c=>c.id===character?.apiConfigId&&c.enabled)||
+    configs.find(c=>c.isDefault&&c.enabled);
+   if(!config)throw Error('此角色没有可用的本地 API 配置');
+   const credentials=await db.apiCredentials.get(config.id);
+   if(!credentials?.apiKey)throw Error('本地 API Key 不存在，无法授权 QQ 后台');
+   const endpoint=config.baseUrl.replace(/\\/+$/,'')+'/chat/completions';
+   if(!window.confirm('为当前 QQ 机器人单独授权「'+config.name+'」？将同步该角色有效上下文，并加密保存 API Key 到你自己的 Supabase。不会影响其他 QQ 机器人。'))return;
+   await qqSync(binding);
+   await authorizeQqAi({bindingId:binding.id,systemPrompt:'严格遵循当前授权同步的角色有效上下文。',
+    model:config.model,endpoint,apiKey:credentials.apiKey});
+   const verified=await getQqAiStatus(binding.id);
+   if(!verified.enabled)throw Error('云端授权尚未生效，请查询授权状态，不要重新扫码');
+   setQqClosedContinuity(binding.id,true);
+   setQqAiKey('');setQqAiStatus('已授权并启用，无需重新扫码');
+   void reconcileQqAfterReopen().catch(()=>{});
+  }catch(e){setQqNotice(e instanceof Error?e.message:'QQ 云端授权失败');}
+  finally{setQqAiBusy(false);}
  };
  const qqAiAction=async(action:'status'|'authorize'|'disable'|'delete'|'sync'|'delete-context')=>{
   const binding=qqBindings.find(b=>b.id===qqAiBinding&&b.status==='connected');
@@ -113,7 +156,7 @@ export function WechatIntegrationSettings(){
     if(!window.confirm('将当前角色有效上下文同步到自己的 Supabase，并加密保存所选 API Key，授权 QQ 后台自动回复？'))return;
     await qqSync(binding);
     await authorizeQqAi({bindingId:binding.id,systemPrompt:'严格遵循当前授权同步的角色有效上下文。',
-     model:qqAiModel,endpoint:qqAiEndpoint,apiKey:qqAiKey});
+     model:qqAiModel,endpoint:qqChatEndpoint(qqAiEndpoint),apiKey:qqAiKey});
     setQqClosedContinuity(binding.id,true);
     setQqAiKey('');setQqAiStatus('已授权并启用');
     void reconcileQqAfterReopen().catch(()=>{});
@@ -422,6 +465,9 @@ export function WechatIntegrationSettings(){
    <p>QQ 沿用微信的 Supabase 身份和云端配置，但使用独立的 QQ 绑定、凭据和消息表。先在「微信共享云端后台」填写你的 Supabase 项目。</p>
    <label>绑定到日常角色<select value={qqTarget} onChange={e=>setQqTarget(e.target.value)}>{daily.map(c=><option key={c.id} value={c.id}>{c.characterName}</option>)}</select></label>
    <button type="button" onClick={()=>void loadQq()}>刷新 QQ 云端绑定</button>
+   {qqBindingLoadState==='loading'&&<p role="status">正在恢复云端 QQ 绑定…</p>}
+   {qqBindingLoadState==='error'&&<p role="alert">QQ 绑定查询失败，不代表绑定已失效。请保留当前数据，稍后重试。</p>}
+   {qqBindingLoadState==='loaded'&&qqBindings.length===0&&<p role="status">当前云端身份下未查询到 QQ 绑定。若以前绑定过，请先核对身份及使用的网址，不要直接重新扫码。</p>}
    {qqBindings.some(b=>b.status==='connected')&&<p role="status">已找到现有 QQ 绑定。重新打开小手机无需重新扫码；若 QQ 不回复，请先查看下方「QQ 云端 AI 回复授权」的状态。</p>}
    {qqAiStatus==='尚未授权'&&<p role="alert">当前 QQ 已连接，但云端 AI 尚未授权，因此 QQ 消息不会生成回复。请在下方继承本地 API，并点击「确认授权 QQ 云端 AI」。无需重新扫码。</p>}
    {qqBindings.map(b=><div key={b.id} className="card form"><p>角色：{daily.find(c=>c.id===b.conversation_id)?.characterName||b.character_id} · {b.status}</p><button type="button" disabled={qqBusy} onClick={()=>{if(window.confirm('断开这个 QQ 绑定并清除云端凭据？'))void disconnectQqCloudBinding(b.id).then(loadQq).catch(e=>setQqNotice(e instanceof Error?e.message:'解绑失败'));}}>断开 QQ 绑定</button></div>)}
@@ -435,6 +481,7 @@ export function WechatIntegrationSettings(){
      <option value="">自动选择角色 API / 全局默认</option>
      {qqApis.map(a=><option key={a.id} value={a.id}>{a.name} · {a.model}</option>)}
     </select></label>
+    <button type="button" disabled={qqAiBusy||!qqAiBinding} onClick={()=>void qqAuthorizeLocal()}>使用当前角色 API 一键授权 QQ 回复</button>
     <button type="button" disabled={qqAiBusy||!qqAiBinding} onClick={()=>void qqInheritApi().catch(e=>setQqNotice(e instanceof Error?e.message:'读取 API 失败'))}>继承本地 API</button>
     <label>模型<input value={qqAiModel} onChange={e=>setQqAiModel(e.target.value)}/></label>
     <label>API 端点<input value={qqAiEndpoint} onChange={e=>setQqAiEndpoint(e.target.value)} placeholder="https://api.example.com/v1/chat/completions"/></label>
