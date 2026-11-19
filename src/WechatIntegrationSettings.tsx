@@ -23,7 +23,7 @@ function qqChatEndpoint(input:string):string{
  try{url=new URL(raw);}catch{throw Error('API 地址无效，请检查本地 API 配置');}
  if(url.protocol!=='https:'||url.username||url.password||url.hash||url.search)
   throw Error('QQ 云端 API 必须使用不含查询参数的 HTTPS 地址');
- const path=url.pathname.replace(/\\/+$/,'');
+ const path=url.pathname.replace(/\/+$/,'');
  if(!path.endsWith('/chat/completions'))
   url.pathname=path+'/chat/completions';
  return url.toString();
@@ -130,7 +130,7 @@ export function WechatIntegrationSettings(){
    if(!config)throw Error('此角色没有可用的本地 API 配置');
    const credentials=await db.apiCredentials.get(config.id);
    if(!credentials?.apiKey)throw Error('本地 API Key 不存在，无法授权 QQ 后台');
-   const endpoint=config.baseUrl.replace(/\\/+$/,'')+'/chat/completions';
+   const endpoint=qqChatEndpoint(config.baseUrl);
    if(!window.confirm('为当前 QQ 机器人单独授权「'+config.name+'」？将同步该角色有效上下文，并加密保存 API Key 到你自己的 Supabase。不会影响其他 QQ 机器人。'))return;
    await qqSync(binding);
    await authorizeQqAi({bindingId:binding.id,systemPrompt:'严格遵循当前授权同步的角色有效上下文。',
