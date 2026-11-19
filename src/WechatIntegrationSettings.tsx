@@ -317,7 +317,7 @@ export function WechatIntegrationSettings(){
    <button type="button" onClick={save}>保存本设备配置</button>
    {configured&&<button type="button" onClick={clear}>清除本设备配置</button>}
    {configured&&<button type="button" disabled={cloudChecking} onClick={()=>{setCloudChecking(true);setCloudChecks(null);void checkCloudReadiness().then(setCloudChecks).catch(e=>setCloudChecks([{name:'连接检测',ok:false,detail:e instanceof Error?e.message:'检测失败'}])).finally(()=>setCloudChecking(false));}}>{cloudChecking?'正在检测…':'检测云端是否可用'}</button>}
-   {cloudChecks&&<div role="status" aria-live="polite">{cloudChecks.map(check=><p key={check.name}>{check.ok?'✓':'✕'} {check.name}：{check.detail}</p>)}<p>检测仅验证身份与绑定查询接口，不代表 Railway 消息监听或 AI 自动回复已可用。</p></div>}
+   {cloudChecks&&<div role="status" aria-live="polite">{cloudChecks.map(check=><p key={check.name}>{check.ok?'✓':'✕'} {check.name}：{check.detail}</p>)}<p>{cloudChecks.every(check=>check.ok)?'云端基础接口已就绪；仍需验证公共 Railway 绑定和 AI 自动回复。':'当前项目尚未具备完整云端服务。新建的 Supabase 项目需要先安装小手机数据库、Edge Functions 和权限规则，再授权接入公共 Railway。'}</p><p>检测不会自动安装服务，也不需要填写 service_role、数据库密码或其他私密密钥。</p></div>}
    <p>保存配置不代表云端已经部署，也不会自动创建账号或上传本地 API Key。</p>
    <p>勾选主备份的「包含 API 密钥」并设置密码时，微信身份会加密放进同一个 ZIP。微信身份应随主备份一起恢复，不需要在此单独导入。</p>
 
