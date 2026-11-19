@@ -11,8 +11,10 @@ const token=process.env.QQ_QR_ACCESS_TOKEN;
 if(!origin||!/^https:\/\//.test(origin)||!token||token.length<32)throw Error('QQ_QR_ORIGIN and QQ_QR_ACCESS_TOKEN (32+ chars) required');
 const sessions=new Map();
 const listeners=new Map();
+const botAccounts=new Map();
 const supabaseUrl=process.env.QQ_SUPABASE_URL;
 function startListener(account){
+ botAccounts.set(account.bindingId,{appId:account.appId,appSecret:account.appSecret});
  if(listeners.has(account.appId))listeners.get(account.appId)();
  listeners.set(account.appId,startQqGateway({appId:account.appId,appSecret:account.appSecret,
   bindingId:account.bindingId,supabaseUrl,bridgeToken:token,onStatus:state=>{console.info('qq_gateway',account.bindingId,state);}}));
