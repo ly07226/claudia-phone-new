@@ -16,6 +16,18 @@ import {syncWechatDailyConversation} from './wechatDailySync';
 import {clearWechatCloudConfig,readWechatCloudConfig,saveWechatCloudConfig} from './wechatCloudConfig';
 import {checkCloudReadiness,type CloudCheck} from './cloudReadiness';
 
+/** Accept an API base URL or a full OpenAI-compatible chat-completions URL. */
+function qqChatEndpoint(input:string):string{
+ const raw=input.trim();
+ let url:URL;
+ try{url=new URL(raw);}catch{throw Error('API 地址无效，请检查本地 API 配置');}
+ if(url.protocol!=='https:'||url.username||url.password||url.hash||url.search)
+  throw Error('QQ 云端 API 必须使用不含查询参数的 HTTPS 地址');
+ const path=url.pathname.replace(/\\/+$/,'');
+ if(!path.endsWith('/chat/completions'))
+  url.pathname=path+'/chat/completions';
+ return url.toString();
+}
 /** WeChat-only opt-in configuration; no cross-user shared project. */
 export function WechatIntegrationSettings(){
  const initial=readWechatCloudConfig();
@@ -97,7 +109,7 @@ export function WechatIntegrationSettings(){
   if(!credentials?.apiKey)throw Error('所选 API 没有本地保存的密钥');
   if(!window.confirm('从本机读取「'+config.name+'」的 API 信息填入 QQ 授权表单？此时不会上传密钥。'))return;
   setQqApiId(config.id);setQqAiModel(config.model);
-  setQqAiEndpoint(config.baseUrl.replace(/\/+$/,'')+'/chat/completions');
+  setQqAiEndpoint(qqChatEndpoint(config.baseUrl));
   setQqAiKey(credentials.apiKey);
   setQqAiStatus('本地 API 已填写。请点击「确认授权 QQ 云端 AI」完成后台授权；这一步不是重新扫码。');
  };
@@ -144,7 +156,7 @@ export function WechatIntegrationSettings(){
     if(!window.confirm('将当前角色有效上下文同步到自己的 Supabase，并加密保存所选 API Key，授权 QQ 后台自动回复？'))return;
     await qqSync(binding);
     await authorizeQqAi({bindingId:binding.id,systemPrompt:'严格遵循当前授权同步的角色有效上下文。',
-     model:qqAiModel,endpoint:qqAiEndpoint,apiKey:qqAiKey});
+     model:qqAiModel,endpoint:qqChatEndpoint(qqAiEndpoint),apiKey:qqAiKey});
     setQqClosedContinuity(binding.id,true);
     setQqAiKey('');setQqAiStatus('已授权并启用');
     void reconcileQqAfterReopen().catch(()=>{});
