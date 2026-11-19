@@ -1,0 +1,63 @@
+/** QQ -> existing daily timeline. Fetches latest 100 messages and merges idempotently.
+ * Never imports a failed or unsent AI reply; never alters a story/world timeline.
+ */
+import {db} from './store';
+import {wechatCloudFunctionRequest} from './wechatCloudIdentity';
+import {listQqCloudBindings} from './qqQrLogin';
+import {activeMessages} from './messagePath';
+import {timelineTables,ensureTimelineInTransaction,commitTimelineProjection} from './timelines';
+import type {Message,MessageVariant} from './chatTypes';
+type Row={id:string;direction:string;status:string;body:string;received_at:string;local_message_id:string|null};
+const busy=new Set<string>();
+export async function syncQqDailyConversation(conversationId:string):Promise<number>{
+ if(busy.has(conversationId))return 0;
+ busy.add(conversationId);
+ try{
+  const conversation=await db.conversations.get(conversationId);
+  if(!conversation||conversation.mode!=='daily'||conversation.worldId)return 0;
+  const bindings=await listQqCloudBindings();
+  const binding=bindings.find(b=>b.status==='connected'&&b.conversation_id===conversationId&&b.character_id===conversation.characterId);
+  if(!binding)return 0;
+  const response=await wechatCloudFunctionRequest('claudia-qq-sync',{bindingId:binding.id});
+  const page=await response.json() as {ok?:boolean;binding?:{conversationId:string;characterId:string;status:string};messages?:Row[];hasMore?:boolean};
+  if(!page.ok||page.binding?.conversationId!==conversationId||page.binding?.characterId!==conversation.characterId||
+    page.binding?.status!=='connected'||!Array.isArray(page.messages))throw Error('QQ 云端消息校验失败');
+  // Never silently lose older pages on first import.
+  if(page.hasMore)throw Error('QQ 历史超过单页容量，暂停回填以防遗漏旧消息');
+  const rows=page.messages.filter(m=>m.direction==='inbound'||m.direction==='outbound'&&m.status==='sent');
+  if(rows.some(m=>!m.id||typeof m.body!=='string'||!Number.isFinite(Date.parse(m.received_at))))
+   throw Error('QQ 消息格式错误');
+  return db.transaction('rw',timelineTables(),async()=>{
+   const c=await db.conversations.get(conversationId);
+   if(!c||c.mode!=='daily'||c.worldId||c.characterId!==binding.character_id||
+      c.activeTimelineId!==conversation.activeTimelineId||(c.timelineEpoch??0)!==(conversation.timelineEpoch??0))
+     throw Error('QQ 回填期间聊天时间线已改变');
+   if(c.sendingToken&&c.sendingUntil&&c.sendingUntil>Date.now())return 0;
+   await ensureTimelineInTransaction(c.id);
+   const existing=await activeMessages(c.id);
+   const activeIds=new Set(existing.map(m=>m.id));
+   const additions:Message[]=[];
+   const variants:MessageVariant[]=[];
+   for(const row of rows){
+    const id='qq:'+row.id;
+    if(activeIds.has(id))continue;
+    if(await db.messages.get(id))throw Error('QQ 消息已在其他聊天分支，暂停回填');
+    if(row.local_message_id&&await db.messages.get(row.local_message_id))continue;
+    if(!row.body.trim())continue;
+    const createdAt=Date.parse(row.received_at);
+    const m:Message={id,conversationId:c.id,role:row.direction==='inbound'?'user':'assistant',content:row.body,createdAt};
+    if(m.role==='assistant'){
+     m.activeVariantId='qq-variant:'+row.id;
+     variants.push({id:m.activeVariantId,conversationId:c.id,messageId:id,content:m.content,source:'generated',createdAt});
+    }
+    additions.push(m);activeIds.add(id);
+   }
+   if(!additions.length)return 0;
+   await db.messages.bulkAdd(additions);
+   if(variants.length)await db.messageVariants.bulkAdd(variants);
+   await commitTimelineProjection(c.id,'append');
+   await db.conversations.update(c.id,{updatedAt:Date.now()});
+   return additions.length;
+  });
+ }finally{busy.delete(conversationId);}
+}
