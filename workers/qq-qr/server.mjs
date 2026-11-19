@@ -122,6 +122,7 @@ async function sendTick(){
    try{
     if(!msg||!['c2c','group'].includes(msg.routeType)||typeof msg.routeTarget!=='string'||
        !msg.routeTarget||typeof msg.replyTo!=='string'||!msg.replyTo||
+       !Number.isInteger(msg.msgSeq)||msg.msgSeq<1||msg.msgSeq>32||
        typeof msg.body!=='string'||!msg.body.trim())throw Error('invalid_outbound_route');
     const auth=await fetch('https://bots.qq.com/app/getAppAccessToken',{
      method:'POST',headers:{'Content-Type':'application/json'},
@@ -133,7 +134,7 @@ async function sendTick(){
      '/v2/groups/'+encodeURIComponent(msg.routeTarget)+'/messages';
     const sent=await fetch('https://api.bot.qq.com'+path,{
      method:'POST',headers:{Authorization:'QQBot '+access,'Content-Type':'application/json'},
-     body:JSON.stringify({content:msg.body,msg_type:0,msg_id:msg.replyTo,msg_seq:1}),
+     body:JSON.stringify({content:msg.body,msg_type:0,msg_id:msg.replyTo,msg_seq:msg.msgSeq}),
      signal:AbortSignal.timeout(20000)});
     if(!sent.ok)throw Error('qq_send_http_'+sent.status);
     success=true;
