@@ -6,6 +6,7 @@ import './wechatIntegration.css';
 import {WechatQrCode} from './WechatQrCode';
 import {syncWechatEffectiveContext,deleteWechatEffectiveContext} from './wechatContextSync';
 import {getWechatClosedContinuity,setWechatClosedContinuity,reconcileWechatAfterReopen} from './wechatClosedContinuity';
+import {setQqClosedContinuity,reconcileQqAfterReopen} from './qqClosedContinuity';
 import {authorizeWechatAi,disableWechatAi,deleteWechatAi,getWechatAiStatus} from './wechatAiAuthorization';
 import {db} from './store';
 import {startWechatLogin,pollWechatLogin} from './wechatQrLogin';
@@ -84,14 +85,16 @@ export function WechatIntegrationSettings(){
     await qqSync(binding);
     await authorizeQqAi({bindingId:binding.id,systemPrompt:'严格遵循当前授权同步的角色有效上下文。',
      model:qqAiModel,endpoint:qqAiEndpoint,apiKey:qqAiKey});
+    setQqClosedContinuity(binding.id,true);
     setQqAiKey('');setQqAiStatus('已授权并启用');
+    void reconcileQqAfterReopen().catch(()=>{});
    }else if(action==='sync'){
     if(window.confirm('将当前日常聊天有效上下文同步到自己的 QQ 云端？'))await qqSync(binding);
    }else if(action==='delete-context'){
     if(window.confirm('删除这个 QQ 角色的云端上下文？')){await deleteQqContext(binding.id);setQqContextStatus('已删除云端上下文');}
-   }else if(action==='disable'){await disableQqAi(binding.id);setQqAiStatus('已停用');}
+   }else if(action==='disable'){await disableQqAi(binding.id);setQqClosedContinuity(binding.id,false);setQqAiStatus('已停用');}
    else if(window.confirm('删除 QQ 云端 AI 配置和已存储的 API Key？')){
-    await deleteQqAi(binding.id);setQqAiStatus('已删除');
+    await deleteQqAi(binding.id);setQqClosedContinuity(binding.id,false);setQqAiStatus('已删除');
    }
   }catch(e){setQqNotice(e instanceof Error?e.message:'QQ AI 操作失败');}
   finally{setQqAiBusy(false);}
