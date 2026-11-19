@@ -99,3 +99,52 @@ async function runAiTick(){
  finally{aiTickRunning=false;}
 }
 setInterval(()=>{void runAiTick();},5000).unref();
+
+let sendTickRunning=false;
+async function sendTick(){
+ if(sendTickRunning||!supabaseUrl)return;
+ sendTickRunning=true;
+ try{
+  for(const [bindingId,account] of botAccounts){
+   const queue=async body=>{
+    const response=await fetch(supabaseUrl+'/functions/v1/claudia-qq-outbound',{
+     method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+     body:JSON.stringify({bindingId,...body}),signal:AbortSignal.timeout(20000)});
+    if(!response.ok)throw Error('qq_outbound_queue_http_'+response.status);
+    return response.json();
+   };
+   const result=await queue({action:'claim'});
+   if(result.status!=='claimed')continue;
+   const msg=result.message;
+   let success=false,error='send_failed';
+   try{
+    if(!msg||!['c2c','group'].includes(msg.routeType)||typeof msg.routeTarget!=='string'||
+       !msg.routeTarget||typeof msg.replyTo!=='string'||!msg.replyTo||
+       typeof msg.body!=='string'||!msg.body.trim())throw Error('invalid_outbound_route');
+    const auth=await fetch('https://bots.qq.com/app/getAppAccessToken',{
+     method:'POST',headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({appId:account.appId,clientSecret:account.appSecret}),signal:AbortSignal.timeout(12000)});
+    if(!auth.ok)throw Error('qq_token_http_'+auth.status);
+    const access=(await auth.json()).access_token;
+    if(typeof access!=='string'||!access)throw Error('invalid_qq_token');
+    const path=msg.routeType==='c2c'?'/v2/users/'+encodeURIComponent(msg.routeTarget)+'/messages':
+     '/v2/groups/'+encodeURIComponent(msg.routeTarget)+'/messages';
+    const sent=await fetch('https://api.bot.qq.com'+path,{
+     method:'POST',headers:{Authorization:'QQBot '+access,'Content-Type':'application/json'},
+     body:JSON.stringify({content:msg.body,msg_type:0,msg_id:msg.replyTo,msg_seq:1}),
+     signal:AbortSignal.timeout(20000)});
+    if(!sent.ok)throw Error('qq_send_http_'+sent.status);
+    success=true;
+   }catch(e){
+    const raw=e instanceof Error?e.message:'send_failed';
+    error=/^(qq_token_http_\d+|qq_send_http_\d+|invalid_qq_token|invalid_outbound_route)$/.test(raw)?raw:'send_failed';
+    console.warn('qq_outbound_send_failed',bindingId,error);
+   }
+   try{await queue({action:'finish',messageId:msg.id,leaseUntil:msg.leaseUntil,success,error});}
+   catch(e){console.warn('qq_outbound_finish_failed',bindingId,e instanceof Error?e.name:'unknown');}
+   if(success)console.info('qq_outbound_sent',bindingId);
+  }
+ }catch(e){console.warn('qq_outbound_tick_failed',e instanceof Error?e.message:'unknown');}
+ finally{sendTickRunning=false;}
+}
+setInterval(()=>{void sendTick();},5000).unref();
