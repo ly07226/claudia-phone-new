@@ -13,12 +13,13 @@ export function startQqGateway({appId,appSecret,bindingId,supabaseUrl,bridgeToke
   if(typeof d.id!=='string'||typeof d.content!=='string'||!d.content.trim())return;
   const routeType=event.t==='C2C_MESSAGE_CREATE'?'c2c':'group';
   const routeTarget=routeType==='c2c'?d.author?.user_openid:d.group_openid;
-  if(typeof routeTarget!=='string'||!routeTarget)return;
+  if(typeof routeTarget!=='string'||!routeTarget){console.warn('qq_inbound_route_missing',bindingId,event.t);return;}
   const response=await fetch(supabaseUrl+'/functions/v1/claudia-qq-ingest',{
    method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+bridgeToken},
    body:JSON.stringify({bindingId,externalMessageId:d.id,text:d.content,routeType,routeTarget}),signal:AbortSignal.timeout(15000)
   });
   if(!response.ok)throw Error('qq_ingest_'+response.status);
+  console.info('qq_inbound_persisted',bindingId,routeType,response.status);
  };
  const getToken=async()=>{
   const response=await fetch(TOKEN,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -54,7 +55,8 @@ export function startQqGateway({appId,appSecret,bindingId,supabaseUrl,bridgeToke
        if(Number.isSafeInteger(packet.s))seq=packet.s;
        if(packet.t==='READY'){sessionId=packet.d?.session_id||null;retry=0;onStatus('connected');}
        if(packet.t==='RESUMED'){retry=0;onStatus('connected');}
-       void post(packet).catch(()=>onStatus('ingest_failed'));
+       if(['C2C_MESSAGE_CREATE','GROUP_AT_MESSAGE_CREATE'].includes(packet.t))console.info('qq_inbound_event',bindingId,packet.t);
+       void post(packet).catch(error=>{console.warn('qq_inbound_ingest_failed',bindingId,error instanceof Error&&/^qq_ingest_\d+$/.test(error.message)?error.message:'ingest_exception');onStatus('ingest_failed');});
       }
       if(packet.op===7)socket.close();
       if(packet.op===9){sessionId=null;seq=null;socket.close();}
