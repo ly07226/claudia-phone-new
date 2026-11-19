@@ -58,7 +58,12 @@ export function startQqGateway({appId,appSecret,bindingId,supabaseUrl,bridgeToke
      socket.onerror=()=>onStatus('gateway_error');
      socket.onclose=event=>{clear();if([4001,4002,4010,4011,4012,4013,4014,4914,4915].includes(event.code)){stopped=true;onStatus('gateway_rejected');}if(!settled){settled=true;resolve();}};
     });
-   }catch{onStatus('gateway_retrying');}
+   }catch(error){
+    const reason=error instanceof Error?error.message:'unknown';
+    // Log only an error category/status; never log tokens, secrets, or message content.
+    console.warn('qq_gateway_connect_failed',bindingId,/^(qq_token_http_\d+|qq_token_invalid|qq_gateway_http_\d+|qq_gateway_url_invalid|TimeoutError|AbortError)$/.test(reason)?reason:'connection_exception');
+    onStatus('gateway_retrying');
+   }
    if(stopped)break;
    retry=Math.min(retry+1,8);await sleep(Math.min(60000,1000*2**retry)+Math.floor(Math.random()*500));
   }
