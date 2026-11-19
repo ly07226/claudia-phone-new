@@ -57,6 +57,19 @@ export function WechatIntegrationSettings(){
  const [qqAiEndpoint,setQqAiEndpoint]=useState('');
  const [qqAiKey,setQqAiKey]=useState('');
  const [qqAiBusy,setQqAiBusy]=useState(false);
+ // Restore the selected binding's actual cloud authorization on every visit.
+ // This is read-only: never re-upload credentials or repeat authorization.
+ useEffect(()=>{
+  if(section!=='qq'||!qqAiBinding){setQqAiStatus('');return;}
+  let active=true;
+  setQqAiStatus('正在查询云端授权状态…');
+  void getQqAiStatus(qqAiBinding).then(status=>{
+   if(active)setQqAiStatus(status.enabled?'已授权并启用':status.configured?'已配置但停用':'尚未授权');
+  }).catch(()=>{
+   if(active)setQqAiStatus('授权状态查询失败，请检查网络后点击查询授权状态');
+  });
+  return()=>{active=false;};
+ },[section,qqAiBinding]);
  const [qqContextStatus,setQqContextStatus]=useState('');
  const [qqApis,setQqApis]=useState<Array<{id:string;name:string;model:string;enabled:boolean}>>([]);
  useEffect(()=>{if(section!=='qq')return;void db.apiConfigs.toArray().then(rows=>setQqApis(rows.filter(x=>x.enabled).map(x=>({id:x.id,name:x.name,model:x.model,enabled:x.enabled})))).catch(()=>setQqNotice('本地 API 列表读取失败'));},[section]);
