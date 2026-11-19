@@ -36,7 +36,8 @@ export function WechatIntegrationSettings(){
  const [qqBusy,setQqBusy]=useState(false);
  const [qqTarget,setQqTarget]=useState('');
  const [qqBindings,setQqBindings]=useState<Array<{id:string;character_id:string;conversation_id:string;status:string}>>([]);
- const loadQq=async()=>{try{setQqBindings(await listQqCloudBindings());}catch(e){setQqNotice(e instanceof Error?e.message:'QQ 绑定查询失败');}};
+ const [qqBindingLoadState,setQqBindingLoadState]=useState<'idle'|'loading'|'loaded'|'error'>('idle');
+ const loadQq=async()=>{setQqBindingLoadState('loading');setQqNotice('');try{const rows=await listQqCloudBindings();setQqBindings(rows);setQqBindingLoadState('loaded');}catch(e){setQqBindingLoadState('error');setQqNotice((e instanceof Error?e.message:'QQ 绑定查询失败')+'；无法确认绑定状态，请勿重新扫码。');}};
  useEffect(()=>{if(section==='qq'){void loadQq();void Promise.all([db.conversations.toArray(),db.characters.toArray()]).then(([rows,chars])=>{const names=new Map(chars.map(c=>[c.id,c.name]));const list=rows.filter(c=>c.mode==='daily'&&!c.worldId).map(c=>({id:c.id,characterId:c.characterId,characterName:names.get(c.characterId)||'未命名角色'}));setDaily(list);setQqTarget(current=>list.some(c=>c.id===current)?current:list[0]?.id||'');}).catch(()=>setQqNotice('读取日常角色失败'));}},[section]);
  // Existing QQ authorization predates the foreground-sync opt-in flag.
  // Query only while the owner opens QQ settings; never authorize a new key.
@@ -452,6 +453,9 @@ export function WechatIntegrationSettings(){
    <p>QQ 沿用微信的 Supabase 身份和云端配置，但使用独立的 QQ 绑定、凭据和消息表。先在「微信共享云端后台」填写你的 Supabase 项目。</p>
    <label>绑定到日常角色<select value={qqTarget} onChange={e=>setQqTarget(e.target.value)}>{daily.map(c=><option key={c.id} value={c.id}>{c.characterName}</option>)}</select></label>
    <button type="button" onClick={()=>void loadQq()}>刷新 QQ 云端绑定</button>
+   {qqBindingLoadState==='loading'&&<p role="status">正在恢复云端 QQ 绑定…</p>}
+   {qqBindingLoadState==='error'&&<p role="alert">QQ 绑定查询失败，不代表绑定已失效。请保留当前数据，稍后重试。</p>}
+   {qqBindingLoadState==='loaded'&&qqBindings.length===0&&<p role="status">当前云端身份下未查询到 QQ 绑定。若以前绑定过，请先核对身份及使用的网址，不要直接重新扫码。</p>}
    {qqBindings.some(b=>b.status==='connected')&&<p role="status">已找到现有 QQ 绑定。重新打开小手机无需重新扫码；若 QQ 不回复，请先查看下方「QQ 云端 AI 回复授权」的状态。</p>}
    {qqAiStatus==='尚未授权'&&<p role="alert">当前 QQ 已连接，但云端 AI 尚未授权，因此 QQ 消息不会生成回复。请在下方继承本地 API，并点击「确认授权 QQ 云端 AI」。无需重新扫码。</p>}
    {qqBindings.map(b=><div key={b.id} className="card form"><p>角色：{daily.find(c=>c.id===b.conversation_id)?.characterName||b.character_id} · {b.status}</p><button type="button" disabled={qqBusy} onClick={()=>{if(window.confirm('断开这个 QQ 绑定并清除云端凭据？'))void disconnectQqCloudBinding(b.id).then(loadQq).catch(e=>setQqNotice(e instanceof Error?e.message:'解绑失败'));}}>断开 QQ 绑定</button></div>)}
