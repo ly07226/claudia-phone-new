@@ -18,14 +18,30 @@ export async function syncQqDailyConversation(conversationId:string):Promise<num
   const bindings=await listQqCloudBindings();
   const binding=bindings.find(b=>b.status==='connected'&&b.conversation_id===conversationId&&b.character_id===conversation.characterId);
   if(!binding)return 0;
-  const response=await wechatCloudFunctionRequest('claudia-qq-sync',{bindingId:binding.id});
-  const page=await response.json() as {ok?:boolean;binding?:{conversationId:string;characterId:string;status:string};messages?:Row[];hasMore?:boolean};
-  if(!page.ok||page.binding?.conversationId!==conversationId||page.binding?.characterId!==conversation.characterId||
-    page.binding?.status!=='connected'||!Array.isArray(page.messages))throw Error('QQ 云端消息校验失败');
-  // Never silently lose older pages on first import.
-  if(page.hasMore)throw Error('QQ 历史超过单页容量，暂停回填以防遗漏旧消息');
-  const rows=page.messages.filter(m=>m.direction==='inbound'||m.direction==='outbound'&&m.status==='sent');
-  if(rows.some(m=>!m.id||typeof m.body!=='string'||!Number.isFinite(Date.parse(m.received_at))))
+  const pages:Row[][]=[];
+  let cursor:{at:string;id:string}|undefined;
+  let completed=false;
+  // Fetch older pages first, then commit all at once. Never partially import a
+  // truncated history or advance an implicit cursor past pending sends.
+  for(let n=0;n<30;n++){
+   const response=await wechatCloudFunctionRequest('claudia-qq-sync',{bindingId:binding.id,...(cursor?{cursor}:{})});
+   if(!response.ok)throw Error('QQ 云端消息读取失败：'+response.status);
+   const page=await response.json() as {ok?:boolean;binding?:{conversationId:string;characterId:string;status:string};messages?:Row[];hasMore?:boolean;nextCursor?:{at:string;id:string}|null};
+   if(!page.ok||page.binding?.conversationId!==conversationId||page.binding?.characterId!==conversation.characterId||
+      page.binding?.status!=='connected'||!Array.isArray(page.messages))throw Error('QQ 云端消息校验失败');
+   pages.unshift(page.messages);
+   if(!page.hasMore){completed=true;break;}
+   if(!page.nextCursor||page.nextCursor.at===cursor?.at&&page.nextCursor.id===cursor?.id)
+     throw Error('QQ 云端分页游标异常');
+   cursor=page.nextCursor;
+  }
+  if(!completed)throw Error('QQ 历史超过本次安全同步容量，未修改本地记录');
+  const rows=pages.flat();
+  // Stop at the first unsent outbound: importing later turns would break causal order.
+  const firstPending=rows.findIndex(m=>m.direction==='outbound'&&m.status!=='sent');
+  const ready=rows.slice(0,firstPending<0?rows.length:firstPending)
+   .filter(m=>m.direction==='inbound'||m.direction==='outbound'&&m.status==='sent');
+  if(ready.some(m=>!m.id||typeof m.body!=='string'||!Number.isFinite(Date.parse(m.received_at))))
    throw Error('QQ 消息格式错误');
   return db.transaction('rw',timelineTables(),async()=>{
    const c=await db.conversations.get(conversationId);
@@ -38,7 +54,7 @@ export async function syncQqDailyConversation(conversationId:string):Promise<num
    const activeIds=new Set(existing.map(m=>m.id));
    const additions:Message[]=[];
    const variants:MessageVariant[]=[];
-   for(const row of rows){
+   for(const row of ready){
     const id='qq:'+row.id;
     if(activeIds.has(id))continue;
     if(await db.messages.get(id))throw Error('QQ 消息已在其他聊天分支，暂停回填');
