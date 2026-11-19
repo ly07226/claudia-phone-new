@@ -175,8 +175,14 @@ export async function createBackup(options: {
   // keepalive callback from outside its transaction scope.
   try {
     ensure(!document.hidden, "请保持页面在前台再开始备份。");
+    phase='export-read';
+    // A PWA may still be opening its IndexedDB connection after a service-worker update.
+    // Never inspect backendDB() before Dexie has finished opening the actual database.
+    await db.open();
+    checkAbort(controller.signal);
     const coordination = await checkBackupClients();
     checkAbort(controller.signal);
+    phase='export-validate';
     ensure(
       supportedDataSchema(db),
       '数据库不是受支持的完整 v7/v8 结构；不会自动迁移、忽略未知表或继续导出。',
