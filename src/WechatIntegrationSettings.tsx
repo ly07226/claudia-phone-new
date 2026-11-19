@@ -1,3 +1,5 @@
+import {authorizeQqAi,disableQqAi,deleteQqAi,getQqAiStatus,syncQqContext,deleteQqContext} from './qqAiAuthorization';
+import {buildContext} from './chatContext';
 import {restoreWechatFromBackupZip} from './backupZip';
 import React,{useEffect,useState} from 'react';
 import './wechatIntegration.css';
@@ -32,6 +34,68 @@ export function WechatIntegrationSettings(){
  const [qqBindings,setQqBindings]=useState<Array<{id:string;character_id:string;conversation_id:string;status:string}>>([]);
  const loadQq=async()=>{try{setQqBindings(await listQqCloudBindings());}catch(e){setQqNotice(e instanceof Error?e.message:'QQ 绑定查询失败');}};
  useEffect(()=>{if(section==='qq'){void loadQq();void Promise.all([db.conversations.toArray(),db.characters.toArray()]).then(([rows,chars])=>{const names=new Map(chars.map(c=>[c.id,c.name]));const list=rows.filter(c=>c.mode==='daily'&&!c.worldId).map(c=>({id:c.id,characterId:c.characterId,characterName:names.get(c.characterId)||'未命名角色'}));setDaily(list);setQqTarget(current=>list.some(c=>c.id===current)?current:list[0]?.id||'');}).catch(()=>setQqNotice('读取日常角色失败'));}},[section]);
+ const [qqAiBinding,setQqAiBinding]=useState('');
+ const [qqAiStatus,setQqAiStatus]=useState('');
+ const [qqApiId,setQqApiId]=useState('');
+ const [qqAiModel,setQqAiModel]=useState('');
+ const [qqAiEndpoint,setQqAiEndpoint]=useState('');
+ const [qqAiKey,setQqAiKey]=useState('');
+ const [qqAiBusy,setQqAiBusy]=useState(false);
+ const [qqContextStatus,setQqContextStatus]=useState('');
+ const [qqApis,setQqApis]=useState<Array<{id:string;name:string;model:string;enabled:boolean}>>([]);
+ useEffect(()=>{if(section!=='qq')return;void db.apiConfigs.toArray().then(rows=>setQqApis(rows.filter(x=>x.enabled).map(x=>({id:x.id,name:x.name,model:x.model,enabled:x.enabled})))).catch(()=>setQqNotice('本地 API 列表读取失败'));},[section]);
+ useEffect(()=>{if(!qqBindings.some(b=>b.id===qqAiBinding&&b.status==='connected'))setQqAiBinding(qqBindings.find(b=>b.status==='connected')?.id||'');},[qqBindings,qqAiBinding]);
+ const qqSync=async(binding:{id:string;conversation_id:string})=>{
+  const conversation=await db.conversations.get(binding.conversation_id);
+  if(!conversation||conversation.mode!=='daily'||conversation.worldId)throw Error('仅支持已绑定的日常聊天');
+  const context=await buildContext(conversation);
+  if(context.some(m=>m.images?.length))throw Error('当前有效上下文包含图片，QQ 云端文字模型无法完整还原');
+  const messages=context.map(m=>({role:m.role,content:m.content}));
+  if(!messages.some(m=>m.role==='system')||messages.length>64||JSON.stringify(messages).length>80000)
+   throw Error('QQ 角色上下文超过云端安全容量或缺少系统设定，已停止同步');
+  await syncQqContext(binding.id,messages);
+  setQqContextStatus('已同步 '+messages.length+' 段角色有效上下文');
+ };
+ const qqInheritApi=async()=>{
+  const binding=qqBindings.find(b=>b.id===qqAiBinding&&b.status==='connected');
+  if(!binding)throw Error('请先选择已连接的 QQ 角色');
+  const character=await db.characters.get(binding.character_id);
+  const configs=await db.apiConfigs.toArray();
+  const config=configs.find(c=>c.id===qqApiId&&c.enabled)||configs.find(c=>c.id===character?.apiConfigId&&c.enabled)||configs.find(c=>c.isDefault&&c.enabled);
+  if(!config)throw Error('请先在小手机配置可用 API');
+  const credentials=await db.apiCredentials.get(config.id);
+  if(!credentials?.apiKey)throw Error('所选 API 没有本地保存的密钥');
+  if(!window.confirm('从本机读取「'+config.name+'」的 API 信息填入 QQ 授权表单？此时不会上传密钥。'))return;
+  setQqApiId(config.id);setQqAiModel(config.model);
+  setQqAiEndpoint(config.baseUrl.replace(/\\/+$/,'')+'/chat/completions');
+  setQqAiKey(credentials.apiKey);
+  setQqAiStatus('已从本机填写，尚未授权云端');
+ };
+ const qqAiAction=async(action:'status'|'authorize'|'disable'|'delete'|'sync'|'delete-context')=>{
+  const binding=qqBindings.find(b=>b.id===qqAiBinding&&b.status==='connected');
+  if(!binding||qqAiBusy)return;
+  setQqAiBusy(true);setQqNotice('');
+  try{
+   if(action==='status'){
+    const status=await getQqAiStatus(binding.id);
+    setQqAiStatus(status.enabled?'已授权并启用':status.configured?'已配置但停用':'尚未授权');
+   }else if(action==='authorize'){
+    if(!window.confirm('将当前角色有效上下文同步到自己的 Supabase，并加密保存所选 API Key，授权 QQ 后台自动回复？'))return;
+    await qqSync(binding);
+    await authorizeQqAi({bindingId:binding.id,systemPrompt:'严格遵循当前授权同步的角色有效上下文。',
+     model:qqAiModel,endpoint:qqAiEndpoint,apiKey:qqAiKey});
+    setQqAiKey('');setQqAiStatus('已授权并启用');
+   }else if(action==='sync'){
+    if(window.confirm('将当前日常聊天有效上下文同步到自己的 QQ 云端？'))await qqSync(binding);
+   }else if(action==='delete-context'){
+    if(window.confirm('删除这个 QQ 角色的云端上下文？')){await deleteQqContext(binding.id);setQqContextStatus('已删除云端上下文');}
+   }else if(action==='disable'){await disableQqAi(binding.id);setQqAiStatus('已停用');}
+   else if(window.confirm('删除 QQ 云端 AI 配置和已存储的 API Key？')){
+    await deleteQqAi(binding.id);setQqAiStatus('已删除');
+   }
+  }catch(e){setQqNotice(e instanceof Error?e.message:'QQ AI 操作失败');}
+  finally{setQqAiBusy(false);}
+ };
  const [qqNotice,setQqNotice]=useState('');
  const beginQq=async()=>{setQqBusy(true);setQqNotice('');setQqSession(null);try{const chosen=daily.find(c=>c.id===qqTarget);if(!chosen)throw Error('请先选择日常角色');setQqSession(await startQqQr(chosen.id,chosen.characterId));}catch(e){setQqNotice(e instanceof Error?e.message:'QQ 二维码获取失败');}finally{setQqBusy(false);}};
  useEffect(()=>{if(section!=='qq'||!qqSession||['failed','expired','storage_not_configured'].includes(qqSession.status))return;let active=true;const timer=window.setInterval(()=>{void pollQqQr(qqSession.attemptId).then(next=>{if(active){setQqSession(next);if(next.status==='connected')void loadQq();}}).catch(e=>{if(active){setQqNotice(e instanceof Error?e.message:'扫码状态查询失败');window.clearInterval(timer);}});},2500);return()=>{active=false;window.clearInterval(timer);};},[section,qqSession?.attemptId,qqSession?.status]);
@@ -325,6 +389,30 @@ export function WechatIntegrationSettings(){
    <label>绑定到日常角色<select value={qqTarget} onChange={e=>setQqTarget(e.target.value)}>{daily.map(c=><option key={c.id} value={c.id}>{c.characterName}</option>)}</select></label>
    <button type="button" onClick={()=>void loadQq()}>刷新 QQ 云端绑定</button>
    {qqBindings.map(b=><div key={b.id} className="card form"><p>角色：{daily.find(c=>c.id===b.conversation_id)?.characterName||b.character_id} · {b.status}</p><button type="button" disabled={qqBusy} onClick={()=>{if(window.confirm('断开这个 QQ 绑定并清除云端凭据？'))void disconnectQqCloudBinding(b.id).then(loadQq).catch(e=>setQqNotice(e instanceof Error?e.message:'解绑失败'));}}>断开 QQ 绑定</button></div>)}
+   {qqBindings.some(b=>b.status==='connected')&&<div className="card form">
+    <h4>QQ 云端 AI 回复授权</h4>
+    <p>QQ 绑定已连接，无需重新扫码。QQ 与微信的 AI 授权独立，首次授权会先同步角色当前有效上下文。</p>
+    <label>已连接的 QQ 角色<select value={qqAiBinding} onChange={e=>{setQqAiBinding(e.target.value);setQqAiStatus('');}}>
+     {qqBindings.filter(b=>b.status==='connected').map(b=><option key={b.id} value={b.id}>{daily.find(d=>d.id===b.conversation_id)?.characterName||b.character_id}</option>)}
+    </select></label>
+    <label>继承小手机 API<select value={qqApiId} onChange={e=>setQqApiId(e.target.value)}>
+     <option value="">自动选择角色 API / 全局默认</option>
+     {qqApis.map(a=><option key={a.id} value={a.id}>{a.name} · {a.model}</option>)}
+    </select></label>
+    <button type="button" disabled={qqAiBusy||!qqAiBinding} onClick={()=>void qqInheritApi().catch(e=>setQqNotice(e instanceof Error?e.message:'读取 API 失败'))}>继承本地 API</button>
+    <label>模型<input value={qqAiModel} onChange={e=>setQqAiModel(e.target.value)}/></label>
+    <label>API 端点<input value={qqAiEndpoint} onChange={e=>setQqAiEndpoint(e.target.value)} placeholder="https://api.example.com/v1/chat/completions"/></label>
+    <label>API Key<input type="password" autoComplete="off" value={qqAiKey} onChange={e=>setQqAiKey(e.target.value)}/></label>
+    <button type="button" disabled={qqAiBusy||!qqAiBinding} onClick={()=>void qqAiAction('status')}>查询授权状态</button>
+    <button type="button" disabled={qqAiBusy||!qqAiBinding||!qqAiModel||!qqAiEndpoint||!qqAiKey} onClick={()=>void qqAiAction('authorize')}>确认授权 QQ 云端 AI</button>
+    <button type="button" disabled={qqAiBusy||!qqAiBinding} onClick={()=>void qqAiAction('sync')}>重新同步角色记忆</button>
+    <button type="button" disabled={qqAiBusy||!qqAiBinding} onClick={()=>void qqAiAction('disable')}>停用 QQ AI</button>
+    <button type="button" disabled={qqAiBusy||!qqAiBinding} onClick={()=>void qqAiAction('delete')}>删除 QQ AI 授权与密钥</button>
+    <button type="button" disabled={qqAiBusy||!qqAiBinding} onClick={()=>void qqAiAction('delete-context')}>删除 QQ 云端上下文</button>
+    {qqAiStatus&&<p role="status">{qqAiStatus}</p>}
+    {qqContextStatus&&<p role="status">{qqContextStatus}</p>}
+    <p>角色记忆仅在授权或手动同步时更新；关闭小手机后，未同步的本地变化无法自动上传。</p>
+   </div>}
    <button type="button" disabled={qqBusy} onClick={()=>void beginQq()}>{qqBusy?'正在生成…':'生成 QQ 绑定二维码'}</button>
    {qqSession&&<div className="card form" aria-live="polite">
      {qqSession.qrContent?.startsWith('https://') && <div style={{textAlign:'center'}}><WechatQrCode value={qqSession.qrContent} size={220} label="QQ 官方机器人授权二维码"/></div>}
