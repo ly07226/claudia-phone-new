@@ -100,6 +100,36 @@ export function WechatIntegrationSettings(){
   setQqAiKey(credentials.apiKey);
   setQqAiStatus('本地 API 已填写。请点击「确认授权 QQ 云端 AI」完成后台授权；这一步不是重新扫码。');
  };
+ // One explicit, owner-scoped action: use this character's local API and authorize its QQ binding.
+ // QR connection alone never grants cloud access to local credentials.
+ const qqAuthorizeLocal=async()=>{
+  const binding=qqBindings.find(b=>b.id===qqAiBinding&&b.status==='connected');
+  if(!binding||qqAiBusy)return;
+  setQqAiBusy(true);setQqNotice('');
+  try{
+   const existing=await getQqAiStatus(binding.id);
+   if(existing.enabled){setQqAiStatus('已授权并启用，无需重复授权或扫码');return;}
+   const character=await db.characters.get(binding.character_id);
+   const configs=await db.apiConfigs.toArray();
+   const config=configs.find(c=>c.id===qqApiId&&c.enabled)||
+    configs.find(c=>c.id===character?.apiConfigId&&c.enabled)||
+    configs.find(c=>c.isDefault&&c.enabled);
+   if(!config)throw Error('此角色没有可用的本地 API 配置');
+   const credentials=await db.apiCredentials.get(config.id);
+   if(!credentials?.apiKey)throw Error('本地 API Key 不存在，无法授权 QQ 后台');
+   const endpoint=config.baseUrl.replace(/\\/+$/,'')+'/chat/completions';
+   if(!window.confirm('为当前 QQ 机器人单独授权「'+config.name+'」？将同步该角色有效上下文，并加密保存 API Key 到你自己的 Supabase。不会影响其他 QQ 机器人。'))return;
+   await qqSync(binding);
+   await authorizeQqAi({bindingId:binding.id,systemPrompt:'严格遵循当前授权同步的角色有效上下文。',
+    model:config.model,endpoint,apiKey:credentials.apiKey});
+   const verified=await getQqAiStatus(binding.id);
+   if(!verified.enabled)throw Error('云端授权尚未生效，请查询授权状态，不要重新扫码');
+   setQqClosedContinuity(binding.id,true);
+   setQqAiKey('');setQqAiStatus('已授权并启用，无需重新扫码');
+   void reconcileQqAfterReopen().catch(()=>{});
+  }catch(e){setQqNotice(e instanceof Error?e.message:'QQ 云端授权失败');}
+  finally{setQqAiBusy(false);}
+ };
  const qqAiAction=async(action:'status'|'authorize'|'disable'|'delete'|'sync'|'delete-context')=>{
   const binding=qqBindings.find(b=>b.id===qqAiBinding&&b.status==='connected');
   if(!binding||qqAiBusy)return;
@@ -435,6 +465,7 @@ export function WechatIntegrationSettings(){
      <option value="">自动选择角色 API / 全局默认</option>
      {qqApis.map(a=><option key={a.id} value={a.id}>{a.name} · {a.model}</option>)}
     </select></label>
+    <button type="button" disabled={qqAiBusy||!qqAiBinding} onClick={()=>void qqAuthorizeLocal()}>使用当前角色 API 一键授权 QQ 回复</button>
     <button type="button" disabled={qqAiBusy||!qqAiBinding} onClick={()=>void qqInheritApi().catch(e=>setQqNotice(e instanceof Error?e.message:'读取 API 失败'))}>继承本地 API</button>
     <label>模型<input value={qqAiModel} onChange={e=>setQqAiModel(e.target.value)}/></label>
     <label>API 端点<input value={qqAiEndpoint} onChange={e=>setQqAiEndpoint(e.target.value)} placeholder="https://api.example.com/v1/chat/completions"/></label>
