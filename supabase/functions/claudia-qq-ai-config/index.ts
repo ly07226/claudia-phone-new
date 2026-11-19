@@ -35,7 +35,8 @@ function validEndpoint(value:unknown):value is string{
 }
 Deno.serve(async req=>{
  const requestOrigin=req.headers.get("Origin")||"";
- if(!trustedOrigins.has(requestOrigin))return json(403,{error:"origin_denied"});
+ const trustedNetlifyOrigin=(()=>{try{const u=new URL(requestOrigin);return u.protocol==="https:" && u.hostname.endsWith("-avenori.netlify.app") && !u.port;}catch{return false;}})();
+ if(!trustedOrigins.has(requestOrigin)&&!trustedNetlifyOrigin)return json(403,{error:"origin_denied"});
  const responseHeaders={...headers,"Access-Control-Allow-Origin":requestOrigin};
  const json=(status:number,data:Record<string,unknown>)=>new Response(JSON.stringify(data),{status,headers:responseHeaders});
  if(req.method==="OPTIONS")return new Response(null,{status:204,headers:responseHeaders});
