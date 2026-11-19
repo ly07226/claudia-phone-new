@@ -5,6 +5,8 @@ import http from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { startQrConnect } from '@tencent-connect/qqbot-connector';
 import { startQqGateway } from './gateway.mjs';
+import {TenantRegistry} from './tenant-registry.mjs';
+import {createTenantDispatcher} from './tenant-dispatcher.mjs';
 
 const origin=process.env.QQ_QR_ORIGIN;
 const token=process.env.QQ_QR_ACCESS_TOKEN;
@@ -13,6 +15,33 @@ const sessions=new Map();
 const listeners=new Map();
 const botAccounts=new Map();
 const supabaseUrl=process.env.QQ_SUPABASE_URL;
+// Optional server-only configuration; disabled by default to preserve existing service.
+const tenantRegistry=new TenantRegistry();
+const tenantBridgeTokens=new Map();
+if(process.env.QQ_MULTITENANT_ENABLED==='true'){
+ const records=JSON.parse(process.env.QQ_TENANTS_JSON||'[]');
+ if(!Array.isArray(records)||records.length>100)throw Error('invalid_tenant_configuration');
+ for(const record of records){
+  if(typeof record.bridgeToken!=='string'||record.bridgeToken.length<32)throw Error('invalid_tenant_bridge_token');
+  tenantRegistry.register(record);
+  tenantBridgeTokens.set(record.tenantId,record.bridgeToken);
+ }
+}
+const dispatchTenant=createTenantDispatcher({registry:tenantRegistry,timeoutMs:120000});
+let tenantAiTickRunning=false;
+async function runTenantAiTick(){
+ if(tenantAiTickRunning||!tenantBridgeTokens.size)return;
+ tenantAiTickRunning=true;
+ try{
+  for(const [tenantId,accessToken] of tenantBridgeTokens){
+   try{
+    const result=await dispatchTenant({tenantId,functionName:'claudia-qq-ai-run',body:{},accessToken});
+    if(result.status!=='idle')console.info('qq_tenant_ai_tick',tenantId,result.status);
+   }catch(error){console.warn('qq_tenant_ai_tick_failed',tenantId,error instanceof Error?error.message:'unknown');}
+  }
+ }finally{tenantAiTickRunning=false;}
+}
+
 function startListener(account){
  botAccounts.set(account.bindingId,{appId:account.appId,appSecret:account.appSecret});
  if(listeners.has(account.appId))listeners.get(account.appId)();
@@ -101,6 +130,7 @@ async function runAiTick(){
  finally{aiTickRunning=false;}
 }
 setInterval(()=>{void runAiTick();},5000).unref();
+setInterval(()=>{void runTenantAiTick();},5000).unref();
 
 let sendTickRunning=false;
 async function sendTick(){
