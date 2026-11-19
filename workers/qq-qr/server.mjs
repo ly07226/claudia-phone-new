@@ -45,12 +45,25 @@ async function runTenantAiTick(){
 function startListener(account,tenantId=null){
  const project=tenantId?tenantRegistry.get(tenantId):null;
  if(tenantId&&!project)throw Error('tenant_not_registered');
+ if(!account?.bindingId||!account?.appId||!account?.appSecret)throw Error('invalid_qq_account');
  const key=tenantId+':'+account.bindingId;
  const appKey=tenantId+':'+account.appId;
+ // A QQ app can have only one active listener per tenant; remove superseded outbound entries.
+ for(const [existingKey,existing] of botAccounts){
+  if(existing.tenantId===tenantId&&(existingKey===key||existing.appId===account.appId)){
+   const oldKey=tenantId+':'+existing.appId;
+   const stop=listeners.get(oldKey);
+   if(typeof stop==='function')stop();
+   listeners.delete(oldKey);
+   botAccounts.delete(existingKey);
+  }
+ }
+ const stop=startQqGateway({appId:account.appId,appSecret:account.appSecret,
+  bindingId:account.bindingId,supabaseUrl:project?.projectUrl||supabaseUrl,
+  bridgeToken:tenantId?tenantBridgeTokens.get(tenantId):token,
+  onStatus:state=>{console.info('qq_gateway',tenantId||'legacy',account.bindingId,state);}});
+ listeners.set(appKey,stop);
  botAccounts.set(key,{appId:account.appId,appSecret:account.appSecret,bindingId:account.bindingId,tenantId});
- if(listeners.has(appKey))listeners.get(appKey)();
- listeners.set(appKey,startQqGateway({appId:account.appId,appSecret:account.appSecret,
-  bindingId:account.bindingId,supabaseUrl:project?.projectUrl||supabaseUrl,bridgeToken:tenantId?tenantBridgeTokens.get(tenantId):token,onStatus:state=>{console.info('qq_gateway',tenantId||'legacy',account.bindingId,state);}}));
 }
 async function restoreListeners(){
  if(!supabaseUrl)return;
