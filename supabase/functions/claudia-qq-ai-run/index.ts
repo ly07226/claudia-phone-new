@@ -20,6 +20,41 @@ function endpointAllowed(value:string){
    !/^\d+(?:\.\d+){3}$/.test(host);
  }catch{return false;}
 }
+/** Lossless chat-bubble boundaries; punctuation-only lines remain separate.
+ * Keep original text for memory while outbound rows carry ordered fragments.
+ */
+function splitQqReply(text:string):string[]{
+ const parts:string[]=[];let start=0;let depth=0;let quote:string|null=null;
+ const close:Record<string,string>={'（':'）','(':')','“':'”','「':'」','『':'』','"':'"'};
+ for(let i=0;i<text.length;i++){
+  const c=text[i],next=text[i+1]||'';
+  if(c==='\\\\'){i++;continue;}
+  if(quote){if(c===quote)quote=null;continue;}
+  if(c==='“'||c==='「'||c==='『'||c==='"'){quote=close[c];continue;}
+  if(c==='（'||c==='('){depth++;continue;}
+  if(c==='）'||c===')'){depth=Math.max(0,depth-1);continue;}
+  if(depth)continue;
+  if(c==='\\n'||/[。！？!?]/.test(c)||c==='.'&&(!next||/\\s/.test(next))){
+   let end=i+1;
+   if(c==='\\n'){while(end<text.length&&text[end]==='\\n')end++;}
+   else {while(end<text.length&&/[。！？!?]/.test(text[end]))end++;while(end<text.length&&/[ \\t]/.test(text[end]))end++;}
+   const part=text.slice(start,end);
+   if(part.trim()){parts.push(part);start=end;}
+   i=end-1;
+  }
+ }
+ if(start<text.length){const tail=text.slice(start);if(tail.trim())parts.push(tail);else if(parts.length)parts[parts.length-1]+=tail;}
+ if(!parts.length)return [text];
+ // Cap fragment count and QQ message size without dropping any character.
+ const packed:string[]=[];
+ for(const p of parts){
+  if(p.length>1200)return [text]; // validated by generation reply limit below
+  if(packed.length>=31){packed[packed.length-1]+=p;continue;}
+  packed.push(p);
+ }
+ if(packed.some(p=>p.length>1200))return [text];
+ return packed.join('')===text?packed:[text];
+}
 Deno.serve(async req=>{
  if(req.method!=="POST")return reply(405,{error:"method_not_allowed"});
  const secret=Deno.env.get("QQ_QR_ACCESS_TOKEN")||"";
@@ -68,7 +103,7 @@ Deno.serve(async req=>{
    reason=/^(model_http_\d+|invalid_model_reply|invalid_context|invalid_endpoint|profile_or_context_missing|invalid_ciphertext)$/.test(raw)?raw:"generation_failed";
    console.warn("qq_ai_generation_failed",row.id,reason);
   }
-  const {data:finished,error:finishError}=await db.rpc("claudia_qq_finish_generation",{p_inbound_id:row.id,p_expected_lease_until:row.lease_until,p_reply_body:generated,p_error_code:reason});
+  const {data:finished,error:finishError}=await db.rpc("claudia_qq_finish_generation",{p_inbound_id:row.id,p_expected_lease_until:row.lease_until,p_reply_body:generated,p_error_code:reason,p_parts:generated?splitQqReply(generated):null});
   if(finishError)return reply(500,{error:"finish_failed"});
   return reply(200,{ok:true,status:finished?"processed":"stale",generated:!!generated});
  }
