@@ -80,6 +80,7 @@ export function WechatIntegrationSettings(){
    if(action==='status'){
     const status=await getQqAiStatus(binding.id);
     setQqAiStatus(status.enabled?'已授权并启用':status.configured?'已配置但停用':'尚未授权');
+    if(status.enabled){setQqClosedContinuity(binding.id,true);void reconcileQqAfterReopen().catch(()=>{});}
    }else if(action==='authorize'){
     if(!window.confirm('将当前角色有效上下文同步到自己的 Supabase，并加密保存所选 API Key，授权 QQ 后台自动回复？'))return;
     await qqSync(binding);
