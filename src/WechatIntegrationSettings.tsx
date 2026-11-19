@@ -98,7 +98,7 @@ export function WechatIntegrationSettings(){
   setQqApiId(config.id);setQqAiModel(config.model);
   setQqAiEndpoint(config.baseUrl.replace(/\/+$/,'')+'/chat/completions');
   setQqAiKey(credentials.apiKey);
-  setQqAiStatus('已从本机填写，尚未授权云端');
+  setQqAiStatus('本地 API 已填写。请点击「确认授权 QQ 云端 AI」完成后台授权；这一步不是重新扫码。');
  };
  const qqAiAction=async(action:'status'|'authorize'|'disable'|'delete'|'sync'|'delete-context')=>{
   const binding=qqBindings.find(b=>b.id===qqAiBinding&&b.status==='connected');
@@ -422,6 +422,8 @@ export function WechatIntegrationSettings(){
    <p>QQ 沿用微信的 Supabase 身份和云端配置，但使用独立的 QQ 绑定、凭据和消息表。先在「微信共享云端后台」填写你的 Supabase 项目。</p>
    <label>绑定到日常角色<select value={qqTarget} onChange={e=>setQqTarget(e.target.value)}>{daily.map(c=><option key={c.id} value={c.id}>{c.characterName}</option>)}</select></label>
    <button type="button" onClick={()=>void loadQq()}>刷新 QQ 云端绑定</button>
+   {qqBindings.some(b=>b.status==='connected')&&<p role="status">已找到现有 QQ 绑定。重新打开小手机无需重新扫码；若 QQ 不回复，请先查看下方「QQ 云端 AI 回复授权」的状态。</p>}
+   {qqAiStatus==='尚未授权'&&<p role="alert">当前 QQ 已连接，但云端 AI 尚未授权，因此 QQ 消息不会生成回复。请在下方继承本地 API，并点击「确认授权 QQ 云端 AI」。无需重新扫码。</p>}
    {qqBindings.map(b=><div key={b.id} className="card form"><p>角色：{daily.find(c=>c.id===b.conversation_id)?.characterName||b.character_id} · {b.status}</p><button type="button" disabled={qqBusy} onClick={()=>{if(window.confirm('断开这个 QQ 绑定并清除云端凭据？'))void disconnectQqCloudBinding(b.id).then(loadQq).catch(e=>setQqNotice(e instanceof Error?e.message:'解绑失败'));}}>断开 QQ 绑定</button></div>)}
    {qqBindings.some(b=>b.status==='connected')&&<div className="card form">
     <h4>QQ 云端 AI 回复授权</h4>
