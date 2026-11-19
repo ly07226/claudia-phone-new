@@ -54,7 +54,7 @@ Deno.serve(async request=>{
    if(typeof conversationId!=="string"||!conversationId||conversationId.length>128||
       typeof characterId!=="string"||!characterId||characterId.length>128)return send(400,{error:"invalid_daily_target"});
    const {data:existing}=await admin.from("claudia_qq_bindings").select("status").eq("user_id",auth.user.id).eq("conversation_id",conversationId).maybeSingle();
-   if(existing?.status==="connected")return send(409,{error:"already_connected"});
+   // Reauthorization is allowed for an existing owner-scoped binding. Keep the\n   // original binding and AI profile active until a fresh QR is confirmed.\n   // A failed or expired attempt must not revoke the previous credentials.
    const qr=await call("/qq/qr/start","POST");
    if(typeof qr.attemptId!=="string"||!uuid.test(qr.attemptId))return send(502,{error:"invalid_bridge_response"});
    const expiry=typeof qr.expiresAt==="string"?Date.parse(qr.expiresAt):NaN;
