@@ -42,11 +42,15 @@ async function runTenantAiTick(){
  }finally{tenantAiTickRunning=false;}
 }
 
-function startListener(account){
- botAccounts.set(account.bindingId,{appId:account.appId,appSecret:account.appSecret});
- if(listeners.has(account.appId))listeners.get(account.appId)();
- listeners.set(account.appId,startQqGateway({appId:account.appId,appSecret:account.appSecret,
-  bindingId:account.bindingId,supabaseUrl,bridgeToken:token,onStatus:state=>{console.info('qq_gateway',account.bindingId,state);}}));
+function startListener(account,tenantId=null){
+ const project=tenantId?tenantRegistry.get(tenantId):null;
+ if(tenantId&&!project)throw Error('tenant_not_registered');
+ const key=tenantId+':'+account.bindingId;
+ const appKey=tenantId+':'+account.appId;
+ botAccounts.set(key,{appId:account.appId,appSecret:account.appSecret,bindingId:account.bindingId,tenantId});
+ if(listeners.has(appKey))listeners.get(appKey)();
+ listeners.set(appKey,startQqGateway({appId:account.appId,appSecret:account.appSecret,
+  bindingId:account.bindingId,supabaseUrl:project?.projectUrl||supabaseUrl,bridgeToken:tenantId?tenantBridgeTokens.get(tenantId):token,onStatus:state=>{console.info('qq_gateway',tenantId||'legacy',account.bindingId,state);}}));
 }
 async function restoreListeners(){
  if(!supabaseUrl)return;
@@ -57,18 +61,22 @@ async function restoreListeners(){
   const result=await response.json();
   if(!result.ok||!Array.isArray(result.accounts))throw Error('invalid_restore_response');
   for(const account of result.accounts){
-   if(typeof account.bindingId==='string'&&typeof account.appId==='string'&&typeof account.appSecret==='string'&&!listeners.has(account.appId))
+   if(typeof account.bindingId==='string'&&typeof account.appId==='string'&&typeof account.appSecret==='string'&&!listeners.has('null:'+account.appId))
     startListener(account);
   }
   console.info('qq_gateway_restore_count',result.accounts.length);
  }catch(error){console.warn('qq_gateway_restore_failed',error instanceof Error?error.message:'unknown');}
 }
 
-async function confirmBinding(id,credentials){
- if(!supabaseUrl||!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(supabaseUrl))throw Error('supabase_not_configured');
- const endpoint=supabaseUrl+'/functions/v1/claudia-qq-bridge-confirm';
+async function confirmBinding(id,credentials,tenantId=null){
+ const project=tenantId?tenantRegistry.get(tenantId):null;
+ if(tenantId&&!project)throw Error('tenant_not_registered');
+ const destination=project?.projectUrl||supabaseUrl;
+ if(!destination||!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(destination))throw Error('supabase_not_configured');
+ const endpoint=destination+'/functions/v1/claudia-qq-bridge-confirm';
+ const bridgeCredential=tenantId?tenantBridgeTokens.get(tenantId):token;
  for(let attempt=0;attempt<8;attempt++){
-  const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+  const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+bridgeCredential},
    body:JSON.stringify({bridgeAttemptId:id,credentials}),signal:AbortSignal.timeout(12000)});
   if(response.ok){const result=await response.json();if(typeof result.bindingId!=='string')throw Error('missing_binding_id');return result.bindingId;}
   // The QR may complete before the owner's attempt record is committed.
@@ -137,10 +145,13 @@ async function sendTick(){
  if(sendTickRunning||!supabaseUrl)return;
  sendTickRunning=true;
  try{
-  for(const [bindingId,account] of botAccounts){
+  for(const [bindingKey,account] of botAccounts){
+   const bindingId=account.bindingId;
+   const project=account.tenantId?tenantRegistry.get(account.tenantId):null;
+   if(account.tenantId&&!project)continue;
    const queue=async body=>{
-    const response=await fetch(supabaseUrl+'/functions/v1/claudia-qq-outbound',{
-     method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    const response=await fetch((project?.projectUrl||supabaseUrl)+'/functions/v1/claudia-qq-outbound',{
+     method:'POST',headers:{Authorization:'Bearer '+(account.tenantId?tenantBridgeTokens.get(account.tenantId):token),'Content-Type':'application/json'},
      body:JSON.stringify({bindingId,...body}),signal:AbortSignal.timeout(20000)});
     if(!response.ok)throw Error('qq_outbound_queue_http_'+response.status);
     return response.json();
