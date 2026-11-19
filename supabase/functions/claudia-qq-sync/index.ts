@@ -7,7 +7,8 @@ Deno.serve(async req=>{
  const headers={"Content-Type":"application/json","Cache-Control":"no-store","Vary":"Origin","Access-Control-Allow-Origin":origin,
  "Access-Control-Allow-Headers":"authorization,apikey,content-type","Access-Control-Allow-Methods":"POST,OPTIONS"};
  const json=(status:number,data:Record<string,unknown>)=>new Response(JSON.stringify(data),{status,headers});
- if(!allowed.has(origin))return json(403,{error:"origin_denied"});
+ const netlify=(()=>{try{const u=new URL(origin);return u.protocol==="https:"&&u.hostname.endsWith("-avenori.netlify.app")&&!u.port;}catch{return false;}})();
+ if(!allowed.has(origin)&&!netlify)return json(403,{error:"origin_denied"});
  if(req.method==="OPTIONS")return new Response(null,{status:204,headers});
  if(req.method!=="POST")return json(405,{error:"method_not_allowed"});
  const bearer=req.headers.get("Authorization")||"";
