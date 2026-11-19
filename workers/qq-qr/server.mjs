@@ -83,3 +83,19 @@ http.createServer(async(req,res)=>{
 }).listen(Number(process.env.PORT||3000),'0.0.0.0',()=>{void restoreListeners();});
 // Recover automatically if Supabase was temporarily unavailable during startup.
 setInterval(()=>{void restoreListeners();},5*60*1000).unref();
+
+// Reuse the existing Railway service for QQ AI processing; never invoke without owner authorization.
+let aiTickRunning=false;
+async function runAiTick(){
+ if(aiTickRunning||!supabaseUrl)return;
+ aiTickRunning=true;
+ try{
+  const response=await fetch(supabaseUrl+'/functions/v1/claudia-qq-ai-run',{
+   method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+   body:'{}',signal:AbortSignal.timeout(145000)});
+  if(!response.ok)console.warn('qq_ai_tick_failed','http_'+response.status);
+  else{const data=await response.json();if(data.status!=='idle')console.info('qq_ai_tick',data.status,data.generated===true);}
+ }catch(error){console.warn('qq_ai_tick_failed',error instanceof Error?error.name:'unknown');}
+ finally{aiTickRunning=false;}
+}
+setInterval(()=>{void runAiTick();},5000).unref();
