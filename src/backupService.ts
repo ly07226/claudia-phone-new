@@ -178,9 +178,30 @@ export async function createBackup(options: {
     phase='export-read';
     // A PWA may still be opening its IndexedDB connection after a service-worker update.
     // Never inspect backendDB() before Dexie has finished opening the actual database.
-    await db.open();
+    // Distinguish IndexedDB open failures from cross-client preflight failures.
+    // Keep user data untouched and avoid leaking arbitrary exception messages.
+    try {
+      await db.open();
+    } catch (error) {
+      if (error instanceof BackupError) throw error;
+      const kind = error instanceof Error ? error.name : 'Unknown';
+      throw new BackupError(
+        '无法打开当前小手机数据库（数据库打开阶段，错误类型：'+kind+'）。请勿清理网站数据或卸载小手机。',
+        'EXPORT_DB_OPEN',
+      );
+    }
     checkAbort(controller.signal);
-    const coordination = await checkBackupClients();
+    let coordination: string;
+    try {
+      coordination = await checkBackupClients();
+    } catch (error) {
+      if (error instanceof BackupError) throw error;
+      const kind = error instanceof Error ? error.name : 'Unknown';
+      throw new BackupError(
+        '备份前的多窗口检查失败（错误类型：'+kind+'）。没有修改原始数据库。',
+        'EXPORT_CLIENT_CHECK',
+      );
+    }
     checkAbort(controller.signal);
     phase='export-validate';
     ensure(
