@@ -1,3 +1,4 @@
+import {assertOutboundOwnership} from "../_shared/outbound-ownership.mjs";
 // Server-to-server QQ outbound queue API; bot credentials remain on Railway.
 import {createClient} from "npm:@supabase/supabase-js@2";
 const json=(status:number,data:unknown)=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json","cache-control":"no-store"}});
@@ -18,14 +19,14 @@ Deno.serve(async req=>{
   const row=data?.[0];if(!row)return json(200,{ok:true,status:"idle"});
   // Reject any outbound whose source, binding, and owner do not agree.
   const {data:outbound,error:outboundError}=await db.from("claudia_qq_messages")
-   .select("id,user_id,binding_id").eq("id",row.id).eq("binding_id",row.binding_id).maybeSingle();
+   .select("id,user_id,binding_id,in_reply_to").eq("id",row.id).eq("binding_id",row.binding_id).maybeSingle();
   const {data:binding,error:bindingError}=await db.from("claudia_qq_bindings")
    .select("id,user_id").eq("id",row.binding_id).maybeSingle();
-  const {data:source,error:sourceError}=await db.from("claudia_qq_messages").select("external_message_id,user_id")
+  const {data:source,error:sourceError}=await db.from("claudia_qq_messages").select("id,external_message_id,user_id,binding_id,direction")
    .eq("id",row.in_reply_to).eq("binding_id",row.binding_id).eq("direction","inbound").maybeSingle();
-  if(outboundError||bindingError||!outbound||!binding||!outbound.user_id||
-     outbound.user_id!==binding.user_id||outbound.user_id!==source?.user_id)
-   return json(409,{error:"cross_owner_route_denied"});
+  if(outboundError||bindingError||sourceError)return json(409,{error:"cross_owner_route_denied"});
+  try{assertOutboundOwnership({outbound,source,binding,expectedBindingId:row.binding_id});}
+  catch{return json(409,{error:"cross_owner_route_denied"});}
   if(sourceError||!source?.external_message_id)return json(409,{error:"source_message_missing"});
   return json(200,{ok:true,status:"claimed",message:{id:row.id,body:row.body,routeType:row.route_type,
    routeTarget:row.route_target,replyTo:source.external_message_id,leaseUntil:row.lease_until,msgSeq:row.part_index||1}});
