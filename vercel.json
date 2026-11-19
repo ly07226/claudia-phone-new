@@ -1,14 +1,19 @@
 {
   "rewrites": [
     {
-      "source": "/((?!assets/|sw.js|manifest.webmanifest|icon.svg).*)",
+      "source": "/((?!api/|assets/|sw.js|manifest.webmanifest|icon.svg).*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
     {
       "source": "/sw.js",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
     }
   ]
 }

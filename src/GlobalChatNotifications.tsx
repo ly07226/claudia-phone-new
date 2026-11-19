@@ -7,6 +7,7 @@ import {isTargetChatVisible,openSavedChat} from './chatNotificationNavigation';
 import {audioKeepAliveEnabled} from './AudioKeepAliveSettings';
 import {localReplyNotificationsEnabled} from './PushNotificationSettings';
 import './globalChatNotifications.css';
+import {MessageAvatar} from './MessageUI';
 type Banner=SavedChatMessage&{name:string;avatar?:string};
 /** Application root lifetime, independent of phone page and world remounts. */
 export function GlobalChatNotifications(){
@@ -38,5 +39,5 @@ export function GlobalChatNotifications(){
  useEffect(()=>{if(!current)return;const sync=()=>{if(isTargetChatVisible(current))setCurrent(undefined);};window.addEventListener('claudia:chat-visible',sync);return()=>window.removeEventListener('claudia:chat-visible',sync);},[current]);
  useEffect(()=>{if(!current)return;const timer=setTimeout(()=>setCurrent(undefined),3000);return()=>clearTimeout(timer);},[current]);
  if(!enabled||!current)return null;
- return createPortal(<div className="global-chat-banner-layer" aria-live="polite"><button className="global-chat-banner claudia-proactive-toast" aria-label={current.name+'发来新消息，点击打开聊天'} onTouchStart={e=>{swiped.current=false;touch.current=e.touches[0]?.clientY;}} onTouchEnd={e=>{if(touch.current!==undefined&&e.changedTouches[0]?.clientY<touch.current-24){swiped.current=true;setCurrent(undefined);touch.current=undefined;}}} onClick={()=>{if(swiped.current){swiped.current=false;return;}const target=current;setCurrent(undefined);void openSavedChat(target).catch(()=>{});}}><span className="global-chat-avatar">{current.avatar?<img src={current.avatar} alt=""/>:current.name.slice(0,1)}</span><span className="global-chat-text"><span><strong>{current.name}</strong><time>{new Date(current.createdAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time></span><span className="global-chat-preview">{current.preview||'[图片]'}</span></span></button></div>,document.body);
+ return createPortal(<div className="global-chat-banner-layer" aria-live="polite"><button className="global-chat-banner claudia-proactive-toast" aria-label={current.name+'发来新消息，点击打开聊天'} onTouchStart={e=>{swiped.current=false;touch.current=e.touches[0]?.clientY;}} onTouchEnd={e=>{if(touch.current!==undefined&&e.changedTouches[0]?.clientY<touch.current-24){swiped.current=true;setCurrent(undefined);touch.current=undefined;}}} onClick={()=>{if(swiped.current){swiped.current=false;return;}const target=current;setCurrent(undefined);void openSavedChat(target).catch(()=>{});}}><span className="global-chat-avatar"><MessageAvatar src={current.avatar} name={current.name}/></span><span className="global-chat-text"><span><strong>{current.name}</strong><time>{new Date(current.createdAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time></span><span className="global-chat-preview">{current.preview||'[图片]'}</span></span></button></div>,document.body);
 }
