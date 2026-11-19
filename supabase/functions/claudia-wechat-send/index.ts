@@ -1,3 +1,4 @@
+import {assertOutboundOwnership} from "../_shared/outbound-ownership.mjs";
 // Trusted server-only outbound sender. Invoked by an external scheduler/worker,
 // NEVER by a browser. Each invocation claims at most one generated reply.
 // Unknown outcomes are quarantined, never automatically retried.
@@ -70,10 +71,8 @@ Deno.serve(async request=>{
    .select("id,user_id,binding_id,direction").eq("id",outboundOwner?.in_reply_to??"").maybeSingle();
   const {data:bindingOwner,error:bindingOwnerError}=await db.from("claudia_wechat_bindings")
    .select("id,user_id").eq("id",row.binding_id).maybeSingle();
-  if(outboundOwnerError||sourceOwnerError||bindingOwnerError||!outboundOwner||!sourceOwner||!bindingOwner||
-     !outboundOwner.user_id||outboundOwner.user_id!==sourceOwner.user_id||
-     outboundOwner.user_id!==bindingOwner.user_id||sourceOwner.binding_id!==row.binding_id||
-     sourceOwner.direction!=="inbound")throw Error("cross_owner_route_denied");
+  if(outboundOwnerError||sourceOwnerError||bindingOwnerError)throw Error("cross_owner_route_denied");
+  assertOutboundOwnership({outbound:outboundOwner,source:sourceOwner,binding:bindingOwner,expectedBindingId:row.binding_id});
   // Recheck consent after claiming and immediately before network delivery.
   // Disabling or deleting a profile must prevent any new send attempt.
   const {data:permission,error:permissionError}=await db.from("claudia_wechat_ai_profiles")
