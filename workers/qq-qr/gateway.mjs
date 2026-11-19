@@ -61,7 +61,9 @@ export function startQqGateway({appId,appSecret,bindingId,supabaseUrl,bridgeToke
    }catch(error){
     const reason=error instanceof Error?error.message:'unknown';
     // Log only an error category/status; never log tokens, secrets, or message content.
-    console.warn('qq_gateway_connect_failed',bindingId,/^(qq_token_http_\d+|qq_token_invalid|qq_gateway_http_\d+|qq_gateway_url_invalid|TimeoutError|AbortError)$/.test(reason)?reason:'connection_exception');
+    const safeReason=/^(qq_token_http_\d+|qq_token_invalid|qq_gateway_http_\d+|qq_gateway_url_invalid|TimeoutError|AbortError)$/.test(reason)?reason:'connection_exception';
+    const stage=reason==='fetch failed'?'network_fetch_failed':reason==='WebSocket is not defined'?'websocket_unavailable':safeReason;
+    console.warn('qq_gateway_connect_failed',bindingId,stage,error instanceof Error?error.name:'unknown');
     onStatus('gateway_retrying');
    }
    if(stopped)break;
