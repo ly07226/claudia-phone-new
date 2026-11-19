@@ -1,4 +1,5 @@
 // QQ official gateway, one socket per authorized bot. Never expose app credentials to browsers.
+import WebSocket from 'ws';
 const API='https://api.bot.qq.com';
 const TOKEN='https://bots.qq.com/app/getAppAccessToken';
 const INTENTS=1<<25; // C2C and group @ messages
