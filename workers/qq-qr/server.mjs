@@ -86,17 +86,22 @@ async function confirmBinding(id,credentials,tenantId=null){
  throw Error('confirmation_timeout');
 }
 const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Access-Control-Allow-Origin':origin,'Vary':'Origin'});res.end(JSON.stringify(data));};
-function authorized(req){const supplied=req.headers.authorization?.replace(/^Bearer /,'')||'';const a=Buffer.from(supplied),b=Buffer.from(token);return a.length===b.length&&timingSafeEqual(a,b);}
+function tokenEquals(supplied,expected){if(typeof expected!=='string')return false;const a=Buffer.from(supplied),b=Buffer.from(expected);return a.length===b.length&&timingSafeEqual(a,b);}
+function authorized(req){return tokenEquals(req.headers.authorization?.replace(/^Bearer /,'')||'',token);}
+function authorizedTenant(req,tenantId){return tenantBridgeTokens.has(tenantId)&&tokenEquals(req.headers.authorization?.replace(/^Bearer /,'')||'',tenantBridgeTokens.get(tenantId));}
 function cleanup(){for(const [id,s] of sessions){if(Date.now()>s.until){if(typeof s.stop==='function')s.stop();sessions.delete(id);}}}
 setInterval(cleanup,30000).unref();
 http.createServer(async(req,res)=>{
  if(req.method==='GET'&&req.url==='/health')return json(res,200,{status:'ok'});
  if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'Authorization, Content-Type','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Vary':'Origin'});return res.end();}
- if(req.headers.origin!==origin||!authorized(req))return json(res,403,{error:'unauthorized'});
  const path=new URL(req.url||'/', 'http://localhost').pathname;
+ const tenantId=req.headers['x-claudia-tenant-id'];
+ const tenantMode=typeof tenantId==='string'&&tenantId.length>0;
+ // The existing global token must never authorize a tenant request.
+ if(req.headers.origin!==origin||!(tenantMode?authorizedTenant(req,tenantId):authorized(req)))return json(res,403,{error:'unauthorized'});
  if(req.method==='POST'&&path==='/qq/qr/start'){
   cleanup();if(sessions.size>=5)return json(res,429,{error:'too_many_sessions'});
-  const id=randomUUID();const s={status:'waiting',url:null,until:Date.now()+10*60*1000,stop:null};sessions.set(id,s);
+  const id=randomUUID();const s={status:'waiting',url:null,until:Date.now()+10*60*1000,stop:null,tenantId:tenantMode?tenantId:null};sessions.set(id,s);
   try{
    const connector=startQrConnect({
     onQrDisplayed(url){if(typeof url==='string'&&/^(https:\/\/|data:image\/png;base64,)/.test(url)){s.url=url;s.status='waiting';}},
@@ -104,10 +109,10 @@ http.createServer(async(req,res)=>{
     onSuccess(credentials){
      if(!Array.isArray(credentials)||credentials.length!==1||credentials.some(c=>!c?.appId||!c?.appSecret)){s.status='failed';return;}
      s.status='confirming';s.url=null;
-     void confirmBinding(id,credentials).then(bindingId=>{
+     void confirmBinding(id,credentials,s.tenantId).then(bindingId=>{
       s.status='connected';
       const account=credentials[0];
-      startListener({appId:account.appId,appSecret:account.appSecret,bindingId});
+      startListener({appId:account.appId,appSecret:account.appSecret,bindingId},s.tenantId);
      }).catch(()=>{s.status='storage_not_configured';});
     },
     onFailure(){s.status='failed';s.url=null;}
@@ -117,7 +122,7 @@ http.createServer(async(req,res)=>{
   }catch{sessions.delete(id);return json(res,502,{error:'qq_connector_failed'});}
  }
  const match=path.match(/^\/qq\/qr\/([0-9a-f-]{36})$/);
- if(req.method==='GET'&&match){const s=sessions.get(match[1]);return s?json(res,200,{status:s.status,qrContent:s.url,expiresAt:new Date(s.until).toISOString()}):json(res,404,{error:'expired'});}
+ if(req.method==='GET'&&match){const s=sessions.get(match[1]);if(s&&s.tenantId!==(tenantMode?tenantId:null))return json(res,404,{error:'expired'});return s?json(res,200,{status:s.status,qrContent:s.url,expiresAt:new Date(s.until).toISOString()}):json(res,404,{error:'expired'});}
  return json(res,404,{error:'not_found'});
 }).listen(Number(process.env.PORT||3000),'0.0.0.0',()=>{void restoreListeners();});
 // Recover automatically if Supabase was temporarily unavailable during startup.
