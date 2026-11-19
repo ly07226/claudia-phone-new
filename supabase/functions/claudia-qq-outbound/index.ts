@@ -20,7 +20,7 @@ Deno.serve(async req=>{
    .eq("id",row.in_reply_to).eq("binding_id",row.binding_id).eq("direction","inbound").maybeSingle();
   if(sourceError||!source?.external_message_id)return json(409,{error:"source_message_missing"});
   return json(200,{ok:true,status:"claimed",message:{id:row.id,body:row.body,routeType:row.route_type,
-   routeTarget:row.route_target,replyTo:source.external_message_id,leaseUntil:row.lease_until}});
+   routeTarget:row.route_target,replyTo:source.external_message_id,leaseUntil:row.lease_until,msgSeq:row.part_index||1}});
  }
  if(body.action==="finish"){
   if(typeof body.messageId!=="string"||typeof body.leaseUntil!=="string"||typeof body.success!=="boolean")return json(400,{error:"invalid_finish"});
