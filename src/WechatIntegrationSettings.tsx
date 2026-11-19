@@ -67,7 +67,7 @@ export function WechatIntegrationSettings(){
   if(!credentials?.apiKey)throw Error('所选 API 没有本地保存的密钥');
   if(!window.confirm('从本机读取「'+config.name+'」的 API 信息填入 QQ 授权表单？此时不会上传密钥。'))return;
   setQqApiId(config.id);setQqAiModel(config.model);
-  setQqAiEndpoint(config.baseUrl.replace(/\\/+$/,'')+'/chat/completions');
+  setQqAiEndpoint(config.baseUrl.replace(/\/+$/,'')+'/chat/completions');
   setQqAiKey(credentials.apiKey);
   setQqAiStatus('已从本机填写，尚未授权云端');
  };
