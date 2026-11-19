@@ -13,11 +13,21 @@ const sessions=new Map();
 const listeners=new Map();
 const botAccounts=new Map();
 const supabaseUrl=process.env.QQ_SUPABASE_URL;
+// One active binding per QQ appId. Never leave a superseded binding in the send queue.
 function startListener(account){
+ if(!account?.bindingId||!account?.appId||!account?.appSecret)throw Error('invalid_qq_account');
+ for(const [bindingId,existing] of botAccounts){
+  if(bindingId===account.bindingId||existing.appId===account.appId){
+   const stop=listeners.get(existing.appId);
+   if(typeof stop==='function')stop();
+   listeners.delete(existing.appId);
+   botAccounts.delete(bindingId);
+  }
+ }
+ const stop=startQqGateway({appId:account.appId,appSecret:account.appSecret,
+  bindingId:account.bindingId,supabaseUrl,bridgeToken:token,onStatus:state=>{console.info('qq_gateway',account.bindingId,state);}});
+ listeners.set(account.appId,stop);
  botAccounts.set(account.bindingId,{appId:account.appId,appSecret:account.appSecret});
- if(listeners.has(account.appId))listeners.get(account.appId)();
- listeners.set(account.appId,startQqGateway({appId:account.appId,appSecret:account.appSecret,
-  bindingId:account.bindingId,supabaseUrl,bridgeToken:token,onStatus:state=>{console.info('qq_gateway',account.bindingId,state);}}));
 }
 async function restoreListeners(){
  if(!supabaseUrl)return;
@@ -28,7 +38,9 @@ async function restoreListeners(){
   const result=await response.json();
   if(!result.ok||!Array.isArray(result.accounts))throw Error('invalid_restore_response');
   for(const account of result.accounts){
-   if(typeof account.bindingId==='string'&&typeof account.appId==='string'&&typeof account.appSecret==='string'&&!listeners.has(account.appId))
+   if(typeof account.bindingId==='string'&&typeof account.appId==='string'&&typeof account.appSecret==='string'&&
+      (!botAccounts.has(account.bindingId)||botAccounts.get(account.bindingId).appId!==account.appId||
+       !listeners.has(account.appId)))
     startListener(account);
   }
   console.info('qq_gateway_restore_count',result.accounts.length);
