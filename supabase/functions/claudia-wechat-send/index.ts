@@ -62,6 +62,18 @@ Deno.serve(async request=>{
  try{
   if(!source?.ilink_peer_ciphertext||!source?.ilink_context_ciphertext||!bot?.bot_token_ciphertext)
    throw Error("missing_verified_ilink_route");
+  // Fail closed: the claimed reply, source message and binding must have the same owner.
+  // The service-role client bypasses RLS, so checking binding_id alone is insufficient.
+  const {data:outboundOwner,error:outboundOwnerError}=await db.from("claudia_wechat_messages")
+   .select("id,user_id,binding_id,in_reply_to").eq("id",row.id).eq("binding_id",row.binding_id).maybeSingle();
+  const {data:sourceOwner,error:sourceOwnerError}=await db.from("claudia_wechat_messages")
+   .select("id,user_id,binding_id,direction").eq("id",outboundOwner?.in_reply_to??"").maybeSingle();
+  const {data:bindingOwner,error:bindingOwnerError}=await db.from("claudia_wechat_bindings")
+   .select("id,user_id").eq("id",row.binding_id).maybeSingle();
+  if(outboundOwnerError||sourceOwnerError||bindingOwnerError||!outboundOwner||!sourceOwner||!bindingOwner||
+     !outboundOwner.user_id||outboundOwner.user_id!==sourceOwner.user_id||
+     outboundOwner.user_id!==bindingOwner.user_id||sourceOwner.binding_id!==row.binding_id||
+     sourceOwner.direction!=="inbound")throw Error("cross_owner_route_denied");
   // Recheck consent after claiming and immediately before network delivery.
   // Disabling or deleting a profile must prevent any new send attempt.
   const {data:permission,error:permissionError}=await db.from("claudia_wechat_ai_profiles")
