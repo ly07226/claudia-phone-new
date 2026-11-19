@@ -11,9 +11,12 @@ export function startQqGateway({appId,appSecret,bindingId,supabaseUrl,bridgeToke
   if(!['C2C_MESSAGE_CREATE','GROUP_AT_MESSAGE_CREATE'].includes(event.t))return;
   const d=event.d||{};
   if(typeof d.id!=='string'||typeof d.content!=='string'||!d.content.trim())return;
+  const routeType=event.t==='C2C_MESSAGE_CREATE'?'c2c':'group';
+  const routeTarget=routeType==='c2c'?d.author?.user_openid:d.group_openid;
+  if(typeof routeTarget!=='string'||!routeTarget)return;
   const response=await fetch(supabaseUrl+'/functions/v1/claudia-qq-ingest',{
    method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+bridgeToken},
-   body:JSON.stringify({bindingId,externalMessageId:d.id,text:d.content}),signal:AbortSignal.timeout(15000)
+   body:JSON.stringify({bindingId,externalMessageId:d.id,text:d.content,routeType,routeTarget}),signal:AbortSignal.timeout(15000)
   });
   if(!response.ok)throw Error('qq_ingest_'+response.status);
  };
