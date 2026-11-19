@@ -37,8 +37,9 @@ export async function syncQqDailyConversation(conversationId:string):Promise<num
   }
   if(!completed)throw Error('QQ 历史超过本次安全同步容量，未修改本地记录');
   const rows=pages.flat();
-  // Stop at the first unsent outbound: importing later turns would break causal order.
-  const firstPending=rows.findIndex(m=>m.direction==='outbound'&&m.status!=='sent');
+  // Pending deliveries must not appear as sent. Terminal failures do not block
+  // later independent turns; they are skipped, not silently treated as replies.
+  const firstPending=rows.findIndex(m=>m.direction==='outbound'&&m.status!=='sent'&&m.status!=='failed');
   const ready=rows.slice(0,firstPending<0?rows.length:firstPending)
    .filter(m=>m.direction==='inbound'||m.direction==='outbound'&&m.status==='sent');
   if(ready.some(m=>!m.id||typeof m.body!=='string'||!Number.isFinite(Date.parse(m.received_at))))
