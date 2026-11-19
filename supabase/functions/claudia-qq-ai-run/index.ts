@@ -81,10 +81,14 @@ Deno.serve(async req=>{
    const [p,s,h]=await Promise.all([
     db.from("claudia_qq_ai_profiles").select("user_id,model,endpoint,api_key_ciphertext").eq("binding_id",row.binding_id).eq("enabled",true).maybeSingle(),
     db.from("claudia_qq_context_snapshots").select("user_id,context_messages").eq("binding_id",row.binding_id).maybeSingle(),
-    db.from("claudia_qq_messages").select("direction,body,status").eq("binding_id",row.binding_id)
+    db.from("claudia_qq_messages").select("direction,body,status").eq("user_id",row.user_id).eq("binding_id",row.binding_id)
      .lt("received_at",row.received_at).in("status",["received","generated","sent"]).order("received_at",{ascending:false}).limit(24)
    ]);
    if(p.error||s.error||h.error||!p.data||!s.data||p.data.user_id!==row.user_id||s.data.user_id!==row.user_id)throw Error("profile_or_context_missing");
+   // Service-role bypasses RLS: never combine a claimed message with a binding from another owner.
+   const {data:ownerBinding,error:ownerError}=await db.from("claudia_qq_bindings")
+    .select("id,user_id,conversation_id,character_id").eq("id",row.binding_id).eq("user_id",row.user_id).maybeSingle();
+   if(ownerError||!ownerBinding)throw Error("binding_not_owned");
    const profile=p.data,snapshot=s.data;
    if(!endpointAllowed(profile.endpoint))throw Error("invalid_endpoint");
    if(!Array.isArray(snapshot.context_messages)||!snapshot.context_messages.some((m:any)=>m?.role==="system"))throw Error("invalid_context");

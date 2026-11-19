@@ -14,6 +14,7 @@ import {startQqQr,pollQqQr,listQqCloudBindings,disconnectQqCloudBinding,type QqQ
 import {listWechatCloudBindings} from './wechatCloudIdentity';
 import {syncWechatDailyConversation} from './wechatDailySync';
 import {clearWechatCloudConfig,readWechatCloudConfig,saveWechatCloudConfig} from './wechatCloudConfig';
+import {checkCloudReadiness,type CloudCheck} from './cloudReadiness';
 
 /** WeChat-only opt-in configuration; no cross-user shared project. */
 export function WechatIntegrationSettings(){
@@ -22,6 +23,8 @@ export function WechatIntegrationSettings(){
  const [url,setUrl]=useState(initial?.url??'');
  const [key,setKey]=useState(initial?.publishableKey??'');
  const [configured,setConfigured]=useState(!!initial);
+ const [cloudChecking,setCloudChecking]=useState(false);
+ const [cloudChecks,setCloudChecks]=useState<CloudCheck[]|null>(null);
  const [notice,setNotice]=useState('');
  const [bindings,setBindings]=useState<Array<{id:string;character_id:string;conversation_id:string;status:string}>|null>(null);
  const [loading,setLoading]=useState(false);
@@ -292,10 +295,10 @@ export function WechatIntegrationSettings(){
   finally{setLoading(false);}
  };
  const save=()=>{
-  try{saveWechatCloudConfig({url,publishableKey:key});setConfigured(true);setNotice('微信专用 Supabase 公共配置已保存在本设备。尚未连接微信或部署云端服务。');}
+  try{saveWechatCloudConfig({url,publishableKey:key});setConfigured(true);setCloudChecks(null);setNotice('微信专用 Supabase 公共配置已保存在本设备。尚未连接微信或部署云端服务。');}
   catch(error){setNotice(error instanceof Error?error.message:'配置保存失败');}
  };
- const clear=()=>{clearWechatCloudConfig();setConfigured(false);setUrl('');setKey('');setNotice('本设备的微信云端配置已清除。云端已有数据不会因此自动删除。');};
+ const clear=()=>{clearWechatCloudConfig();setConfigured(false);setCloudChecks(null);setUrl('');setKey('');setNotice('本设备的微信云端配置已清除。云端已有数据不会因此自动删除。');};
  return <section className="wechat-integration" aria-label="微信接入">
   <div className="wechat-integration__hero"><span className="wechat-integration__eyebrow">PRIVATE CONNECTION</span><h3>微信接入</h3><p>连接自己的微信与云端服务。每位使用者独立配置，不共享聊天或账号。</p></div>
   <button type="button" className="wechat-integration__entry" aria-expanded={section==='cloud'} onClick={()=>{setSection(section==='cloud'?null:'cloud');setNotice('');}}>
@@ -313,6 +316,8 @@ export function WechatIntegrationSettings(){
    </label>
    <button type="button" onClick={save}>保存本设备配置</button>
    {configured&&<button type="button" onClick={clear}>清除本设备配置</button>}
+   {configured&&<button type="button" disabled={cloudChecking} onClick={()=>{setCloudChecking(true);setCloudChecks(null);void checkCloudReadiness().then(setCloudChecks).catch(e=>setCloudChecks([{name:'连接检测',ok:false,detail:e instanceof Error?e.message:'检测失败'}])).finally(()=>setCloudChecking(false));}}>{cloudChecking?'正在检测…':'检测云端是否可用'}</button>}
+   {cloudChecks&&<div role="status" aria-live="polite">{cloudChecks.map(check=><p key={check.name}>{check.ok?'✓':'✕'} {check.name}：{check.detail}</p>)}<p>{cloudChecks.every(check=>check.ok)?'云端基础接口已就绪；仍需验证公共 Railway 绑定和 AI 自动回复。':'当前项目尚未具备完整云端服务。新建的 Supabase 项目需要先安装小手机数据库、Edge Functions 和权限规则，再授权接入公共 Railway。'}</p><p>检测不会自动安装服务，也不需要填写 service_role、数据库密码或其他私密密钥。</p></div>}
    <p>保存配置不代表云端已经部署，也不会自动创建账号或上传本地 API Key。</p>
    <p>勾选主备份的「包含 API 密钥」并设置密码时，微信身份会加密放进同一个 ZIP。微信身份应随主备份一起恢复，不需要在此单独导入。</p>
 

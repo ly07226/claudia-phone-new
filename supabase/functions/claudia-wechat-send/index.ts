@@ -1,3 +1,4 @@
+import {assertOutboundOwnership} from "../_shared/outbound-ownership.mjs";
 // Trusted server-only outbound sender. Invoked by an external scheduler/worker,
 // NEVER by a browser. Each invocation claims at most one generated reply.
 // Unknown outcomes are quarantined, never automatically retried.
@@ -62,6 +63,16 @@ Deno.serve(async request=>{
  try{
   if(!source?.ilink_peer_ciphertext||!source?.ilink_context_ciphertext||!bot?.bot_token_ciphertext)
    throw Error("missing_verified_ilink_route");
+  // Fail closed: the claimed reply, source message and binding must have the same owner.
+  // The service-role client bypasses RLS, so checking binding_id alone is insufficient.
+  const {data:outboundOwner,error:outboundOwnerError}=await db.from("claudia_wechat_messages")
+   .select("id,user_id,binding_id,in_reply_to").eq("id",row.id).eq("binding_id",row.binding_id).maybeSingle();
+  const {data:sourceOwner,error:sourceOwnerError}=await db.from("claudia_wechat_messages")
+   .select("id,user_id,binding_id,direction").eq("id",outboundOwner?.in_reply_to??"").maybeSingle();
+  const {data:bindingOwner,error:bindingOwnerError}=await db.from("claudia_wechat_bindings")
+   .select("id,user_id").eq("id",row.binding_id).maybeSingle();
+  if(outboundOwnerError||sourceOwnerError||bindingOwnerError)throw Error("cross_owner_route_denied");
+  assertOutboundOwnership({outbound:outboundOwner,source:sourceOwner,binding:bindingOwner,expectedBindingId:row.binding_id});
   // Recheck consent after claiming and immediately before network delivery.
   // Disabling or deleting a profile must prevent any new send attempt.
   const {data:permission,error:permissionError}=await db.from("claudia_wechat_ai_profiles")

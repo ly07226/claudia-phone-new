@@ -5,6 +5,8 @@ import http from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { startQrConnect } from '@tencent-connect/qqbot-connector';
 import { startQqGateway } from './gateway.mjs';
+import {TenantRegistry} from './tenant-registry.mjs';
+import {createTenantDispatcher} from './tenant-dispatcher.mjs';
 
 const origin=process.env.QQ_QR_ORIGIN;
 const token=process.env.QQ_QR_ACCESS_TOKEN;
@@ -13,11 +15,42 @@ const sessions=new Map();
 const listeners=new Map();
 const botAccounts=new Map();
 const supabaseUrl=process.env.QQ_SUPABASE_URL;
-function startListener(account){
- botAccounts.set(account.bindingId,{appId:account.appId,appSecret:account.appSecret});
- if(listeners.has(account.appId))listeners.get(account.appId)();
- listeners.set(account.appId,startQqGateway({appId:account.appId,appSecret:account.appSecret,
-  bindingId:account.bindingId,supabaseUrl,bridgeToken:token,onStatus:state=>{console.info('qq_gateway',account.bindingId,state);}}));
+// Optional server-only configuration; disabled by default to preserve existing service.
+const tenantRegistry=new TenantRegistry();
+const tenantBridgeTokens=new Map();
+if(process.env.QQ_MULTITENANT_ENABLED==='true'){
+ const records=JSON.parse(process.env.QQ_TENANTS_JSON||'[]');
+ if(!Array.isArray(records)||records.length>100)throw Error('invalid_tenant_configuration');
+ for(const record of records){
+  if(typeof record.bridgeToken!=='string'||record.bridgeToken.length<32)throw Error('invalid_tenant_bridge_token');
+  tenantRegistry.register(record);
+  tenantBridgeTokens.set(record.tenantId,record.bridgeToken);
+ }
+}
+const dispatchTenant=createTenantDispatcher({registry:tenantRegistry,timeoutMs:120000});
+let tenantAiTickRunning=false;
+async function runTenantAiTick(){
+ if(tenantAiTickRunning||!tenantBridgeTokens.size)return;
+ tenantAiTickRunning=true;
+ try{
+  for(const [tenantId,accessToken] of tenantBridgeTokens){
+   try{
+    const result=await dispatchTenant({tenantId,functionName:'claudia-qq-ai-run',body:{},accessToken});
+    if(result.status!=='idle')console.info('qq_tenant_ai_tick',tenantId,result.status);
+   }catch(error){console.warn('qq_tenant_ai_tick_failed',tenantId,error instanceof Error?error.message:'unknown');}
+  }
+ }finally{tenantAiTickRunning=false;}
+}
+
+function startListener(account,tenantId=null){
+ const project=tenantId?tenantRegistry.get(tenantId):null;
+ if(tenantId&&!project)throw Error('tenant_not_registered');
+ const key=tenantId+':'+account.bindingId;
+ const appKey=tenantId+':'+account.appId;
+ botAccounts.set(key,{appId:account.appId,appSecret:account.appSecret,bindingId:account.bindingId,tenantId});
+ if(listeners.has(appKey))listeners.get(appKey)();
+ listeners.set(appKey,startQqGateway({appId:account.appId,appSecret:account.appSecret,
+  bindingId:account.bindingId,supabaseUrl:project?.projectUrl||supabaseUrl,bridgeToken:tenantId?tenantBridgeTokens.get(tenantId):token,onStatus:state=>{console.info('qq_gateway',tenantId||'legacy',account.bindingId,state);}}));
 }
 async function restoreListeners(){
  if(!supabaseUrl)return;
@@ -28,18 +61,22 @@ async function restoreListeners(){
   const result=await response.json();
   if(!result.ok||!Array.isArray(result.accounts))throw Error('invalid_restore_response');
   for(const account of result.accounts){
-   if(typeof account.bindingId==='string'&&typeof account.appId==='string'&&typeof account.appSecret==='string'&&!listeners.has(account.appId))
+   if(typeof account.bindingId==='string'&&typeof account.appId==='string'&&typeof account.appSecret==='string'&&!listeners.has('null:'+account.appId))
     startListener(account);
   }
   console.info('qq_gateway_restore_count',result.accounts.length);
  }catch(error){console.warn('qq_gateway_restore_failed',error instanceof Error?error.message:'unknown');}
 }
 
-async function confirmBinding(id,credentials){
- if(!supabaseUrl||!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(supabaseUrl))throw Error('supabase_not_configured');
- const endpoint=supabaseUrl+'/functions/v1/claudia-qq-bridge-confirm';
+async function confirmBinding(id,credentials,tenantId=null){
+ const project=tenantId?tenantRegistry.get(tenantId):null;
+ if(tenantId&&!project)throw Error('tenant_not_registered');
+ const destination=project?.projectUrl||supabaseUrl;
+ if(!destination||!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(destination))throw Error('supabase_not_configured');
+ const endpoint=destination+'/functions/v1/claudia-qq-bridge-confirm';
+ const bridgeCredential=tenantId?tenantBridgeTokens.get(tenantId):token;
  for(let attempt=0;attempt<8;attempt++){
-  const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+  const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+bridgeCredential},
    body:JSON.stringify({bridgeAttemptId:id,credentials}),signal:AbortSignal.timeout(12000)});
   if(response.ok){const result=await response.json();if(typeof result.bindingId!=='string')throw Error('missing_binding_id');return result.bindingId;}
   // The QR may complete before the owner's attempt record is committed.
@@ -49,17 +86,22 @@ async function confirmBinding(id,credentials){
  throw Error('confirmation_timeout');
 }
 const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Access-Control-Allow-Origin':origin,'Vary':'Origin'});res.end(JSON.stringify(data));};
-function authorized(req){const supplied=req.headers.authorization?.replace(/^Bearer /,'')||'';const a=Buffer.from(supplied),b=Buffer.from(token);return a.length===b.length&&timingSafeEqual(a,b);}
+function tokenEquals(supplied,expected){if(typeof expected!=='string')return false;const a=Buffer.from(supplied),b=Buffer.from(expected);return a.length===b.length&&timingSafeEqual(a,b);}
+function authorized(req){return tokenEquals(req.headers.authorization?.replace(/^Bearer /,'')||'',token);}
+function authorizedTenant(req,tenantId){return tenantBridgeTokens.has(tenantId)&&tokenEquals(req.headers.authorization?.replace(/^Bearer /,'')||'',tenantBridgeTokens.get(tenantId));}
 function cleanup(){for(const [id,s] of sessions){if(Date.now()>s.until){if(typeof s.stop==='function')s.stop();sessions.delete(id);}}}
 setInterval(cleanup,30000).unref();
 http.createServer(async(req,res)=>{
  if(req.method==='GET'&&req.url==='/health')return json(res,200,{status:'ok'});
  if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Headers':'Authorization, Content-Type','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Vary':'Origin'});return res.end();}
- if(req.headers.origin!==origin||!authorized(req))return json(res,403,{error:'unauthorized'});
  const path=new URL(req.url||'/', 'http://localhost').pathname;
+ const tenantId=req.headers['x-claudia-tenant-id'];
+ const tenantMode=typeof tenantId==='string'&&tenantId.length>0;
+ // The existing global token must never authorize a tenant request.
+ if(req.headers.origin!==origin||!(tenantMode?authorizedTenant(req,tenantId):authorized(req)))return json(res,403,{error:'unauthorized'});
  if(req.method==='POST'&&path==='/qq/qr/start'){
   cleanup();if(sessions.size>=5)return json(res,429,{error:'too_many_sessions'});
-  const id=randomUUID();const s={status:'waiting',url:null,until:Date.now()+10*60*1000,stop:null};sessions.set(id,s);
+  const id=randomUUID();const s={status:'waiting',url:null,until:Date.now()+10*60*1000,stop:null,tenantId:tenantMode?tenantId:null};sessions.set(id,s);
   try{
    const connector=startQrConnect({
     onQrDisplayed(url){if(typeof url==='string'&&/^(https:\/\/|data:image\/png;base64,)/.test(url)){s.url=url;s.status='waiting';}},
@@ -67,10 +109,10 @@ http.createServer(async(req,res)=>{
     onSuccess(credentials){
      if(!Array.isArray(credentials)||credentials.length!==1||credentials.some(c=>!c?.appId||!c?.appSecret)){s.status='failed';return;}
      s.status='confirming';s.url=null;
-     void confirmBinding(id,credentials).then(bindingId=>{
+     void confirmBinding(id,credentials,s.tenantId).then(bindingId=>{
       s.status='connected';
       const account=credentials[0];
-      startListener({appId:account.appId,appSecret:account.appSecret,bindingId});
+      startListener({appId:account.appId,appSecret:account.appSecret,bindingId},s.tenantId);
      }).catch(()=>{s.status='storage_not_configured';});
     },
     onFailure(){s.status='failed';s.url=null;}
@@ -80,7 +122,7 @@ http.createServer(async(req,res)=>{
   }catch{sessions.delete(id);return json(res,502,{error:'qq_connector_failed'});}
  }
  const match=path.match(/^\/qq\/qr\/([0-9a-f-]{36})$/);
- if(req.method==='GET'&&match){const s=sessions.get(match[1]);return s?json(res,200,{status:s.status,qrContent:s.url,expiresAt:new Date(s.until).toISOString()}):json(res,404,{error:'expired'});}
+ if(req.method==='GET'&&match){const s=sessions.get(match[1]);if(s&&s.tenantId!==(tenantMode?tenantId:null))return json(res,404,{error:'expired'});return s?json(res,200,{status:s.status,qrContent:s.url,expiresAt:new Date(s.until).toISOString()}):json(res,404,{error:'expired'});}
  return json(res,404,{error:'not_found'});
 }).listen(Number(process.env.PORT||3000),'0.0.0.0',()=>{void restoreListeners();});
 // Recover automatically if Supabase was temporarily unavailable during startup.
@@ -101,16 +143,20 @@ async function runAiTick(){
  finally{aiTickRunning=false;}
 }
 setInterval(()=>{void runAiTick();},5000).unref();
+setInterval(()=>{void runTenantAiTick();},5000).unref();
 
 let sendTickRunning=false;
 async function sendTick(){
  if(sendTickRunning||!supabaseUrl)return;
  sendTickRunning=true;
  try{
-  for(const [bindingId,account] of botAccounts){
+  for(const [bindingKey,account] of botAccounts){
+   const bindingId=account.bindingId;
+   const project=account.tenantId?tenantRegistry.get(account.tenantId):null;
+   if(account.tenantId&&!project)continue;
    const queue=async body=>{
-    const response=await fetch(supabaseUrl+'/functions/v1/claudia-qq-outbound',{
-     method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    const response=await fetch((project?.projectUrl||supabaseUrl)+'/functions/v1/claudia-qq-outbound',{
+     method:'POST',headers:{Authorization:'Bearer '+(account.tenantId?tenantBridgeTokens.get(account.tenantId):token),'Content-Type':'application/json'},
      body:JSON.stringify({bindingId,...body}),signal:AbortSignal.timeout(20000)});
     if(!response.ok)throw Error('qq_outbound_queue_http_'+response.status);
     return response.json();
