@@ -35,6 +35,18 @@ export function WechatIntegrationSettings(){
  const [qqBindings,setQqBindings]=useState<Array<{id:string;character_id:string;conversation_id:string;status:string}>>([]);
  const loadQq=async()=>{try{setQqBindings(await listQqCloudBindings());}catch(e){setQqNotice(e instanceof Error?e.message:'QQ 绑定查询失败');}};
  useEffect(()=>{if(section==='qq'){void loadQq();void Promise.all([db.conversations.toArray(),db.characters.toArray()]).then(([rows,chars])=>{const names=new Map(chars.map(c=>[c.id,c.name]));const list=rows.filter(c=>c.mode==='daily'&&!c.worldId).map(c=>({id:c.id,characterId:c.characterId,characterName:names.get(c.characterId)||'未命名角色'}));setDaily(list);setQqTarget(current=>list.some(c=>c.id===current)?current:list[0]?.id||'');}).catch(()=>setQqNotice('读取日常角色失败'));}},[section]);
+ // Existing QQ authorization predates the foreground-sync opt-in flag.
+ // Query only while the owner opens QQ settings; never authorize a new key.
+ useEffect(()=>{
+  if(section!=='qq'||!qqBindings.length)return;
+  let alive=true;
+  void Promise.all(qqBindings.filter(b=>b.status==='connected').map(async b=>{
+   try{const status=await getQqAiStatus(b.id);
+    if(alive&&status.enabled){setQqClosedContinuity(b.id,true);void reconcileQqAfterReopen().catch(()=>{});}
+   }catch{/* Offline status can be checked again later. */}
+  }));
+  return()=>{alive=false;};
+ },[section,qqBindings]);
  const [qqAiBinding,setQqAiBinding]=useState('');
  const [qqAiStatus,setQqAiStatus]=useState('');
  const [qqApiId,setQqApiId]=useState('');
