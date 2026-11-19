@@ -25,19 +25,19 @@ function endpointAllowed(value:string){
  */
 function splitQqReply(text:string):string[]{
  const parts:string[]=[];let start=0;let depth=0;let quote:string|null=null;
- const close:Record<string,string>={'（':'）','(':')','“':'”','「':'」','『':'』','"':'"'};
+ const close:Record<string,string>={'“':'”','「':'」','『':'』','"':'"'};
  for(let i=0;i<text.length;i++){
   const c=text[i],next=text[i+1]||'';
-  if(c==='\\\\'){i++;continue;}
+  if(c==='\\'){i++;continue;}
   if(quote){if(c===quote)quote=null;continue;}
-  if(c==='“'||c==='「'||c==='『'||c==='"'){quote=close[c];continue;}
+  if(close[c]){quote=close[c];continue;}
   if(c==='（'||c==='('){depth++;continue;}
   if(c==='）'||c===')'){depth=Math.max(0,depth-1);continue;}
   if(depth)continue;
-  if(c==='\\n'||/[。！？!?]/.test(c)||c==='.'&&(!next||/\\s/.test(next))){
+  if(c==='\n'||/[。！？!?]/.test(c)||c==='.'&&(!next||/\s/.test(next))){
    let end=i+1;
-   if(c==='\\n'){while(end<text.length&&text[end]==='\\n')end++;}
-   else {while(end<text.length&&/[。！？!?]/.test(text[end]))end++;while(end<text.length&&/[ \\t]/.test(text[end]))end++;}
+   if(c==='\n'){while(end<text.length&&text[end]==='\n')end++;}
+   else {while(end<text.length&&/[。！？!?]/.test(text[end]))end++;while(end<text.length&&/[ \t]/.test(text[end]))end++;}
    const part=text.slice(start,end);
    if(part.trim()){parts.push(part);start=end;}
    i=end-1;
@@ -45,17 +45,13 @@ function splitQqReply(text:string):string[]{
  }
  if(start<text.length){const tail=text.slice(start);if(tail.trim())parts.push(tail);else if(parts.length)parts[parts.length-1]+=tail;}
  if(!parts.length)return [text];
- // Cap fragment count and QQ message size without dropping any character.
  const packed:string[]=[];
  for(const p of parts){
-  if(p.length>1200){
-   for(let at=0;at<p.length;at+=1000)packed.push(p.slice(at,at+1000));
-   continue;
-  }
+  if(p.length>1200){for(let at=0;at<p.length;at+=1000)packed.push(p.slice(at,at+1000));continue;}
   if(packed.length>=31){packed[packed.length-1]+=p;continue;}
   packed.push(p);
  }
- if(packed.some(p=>p.length>1200)){
+ if(packed.some(p=>p.length>1200)||packed.length>32){
   const safe:string[]=[];
   for(const part of packed)for(let at=0;at<part.length;at+=1000)safe.push(part.slice(at,at+1000));
   return safe.length<=32&&safe.join('')===text?safe:[text];
