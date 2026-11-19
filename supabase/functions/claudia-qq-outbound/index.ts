@@ -17,6 +17,7 @@ Deno.serve(async req=>{
   const {data,error}=await db.rpc("claudia_qq_claim_outbound",{p_binding_id:body.bindingId,p_lease_seconds:90});
   if(error)return json(500,{error:"claim_failed"});
   const row=data?.[0];if(!row)return json(200,{ok:true,status:"idle"});
+  if(row.binding_id!==body.bindingId)return json(409,{error:"claimed_binding_mismatch"});
   // Reject any outbound whose source, binding, and owner do not agree.
   const {data:outbound,error:outboundError}=await db.from("claudia_qq_messages")
    .select("id,user_id,binding_id,in_reply_to").eq("id",row.id).eq("binding_id",row.binding_id).maybeSingle();
