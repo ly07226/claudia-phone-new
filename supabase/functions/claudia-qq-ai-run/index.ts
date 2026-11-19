@@ -47,16 +47,16 @@ function splitQqReply(text:string):string[]{
  if(!parts.length)return [text];
  const packed:string[]=[];
  for(const p of parts){
-  if(p.length>1200){for(let at=0;at<p.length;at+=1000)packed.push(p.slice(at,at+1000));continue;}
-  if(packed.length>=31){packed[packed.length-1]+=p;continue;}
-  packed.push(p);
+  if(p.length>1200){for(let at=0;at<p.length;at+=1000)packed.push(p.slice(at,at+1000).trim());continue;}
+  if(packed.length>=31){packed[packed.length-1]+=' '+p.trim();continue;}
+  packed.push(p.trim());
  }
  if(packed.some(p=>p.length>1200)||packed.length>32){
   const safe:string[]=[];
-  for(const part of packed)for(let at=0;at<part.length;at+=1000)safe.push(part.slice(at,at+1000));
-  return safe.length<=32&&safe.join('')===text?safe:[text];
+  for(const part of packed)for(let at=0;at<part.length;at+=1000)safe.push(part.slice(at,at+1000).trim());
+  return safe.length<=32&&safe.join('').replace(/\s/g,'')===text.replace(/\s/g,'')?safe:[text.trim()];
  }
- return packed.join('')===text?packed:[text];
+ return packed.join('').replace(/\s/g,'')===text.replace(/\s/g,'')?packed:[text.trim()];
 }
 Deno.serve(async req=>{
  if(req.method!=="POST")return reply(405,{error:"method_not_allowed"});
