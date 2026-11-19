@@ -150,4 +150,4 @@ async function sendTick(){
  }catch(e){console.warn('qq_outbound_tick_failed',e instanceof Error?e.message:'unknown');}
  finally{sendTickRunning=false;}
 }
-setInterval(()=>{void sendTick();},5000).unref();
+setInterval(()=>{void sendTick();},1000).unref();
