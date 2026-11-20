@@ -9,7 +9,7 @@ import {timelineTables,ensureTimelineInTransaction,commitTimelineProjection} fro
 import type {Message,MessageVariant} from './chatTypes';
 type Row={id:string;direction:string;status:string;body:string;received_at:string;local_message_id:string|null};
 const busy=new Set<string>();
-export async function syncQqDailyConversation(conversationId:string,bindingId?:string):Promise<number>{
+export async function syncQqDailyConversation(conversationId:string,bindingId?:string,fullBackfill=false):Promise<number>{
  if(busy.has(conversationId))return 0;
  busy.add(conversationId);
  try{
@@ -27,7 +27,7 @@ export async function syncQqDailyConversation(conversationId:string,bindingId?:s
   const checkpointKey='claudia-qq-sync-checkpoint:'+binding.id+':'+conversationId;
   const stored=localStorage.getItem(checkpointKey);
   let after:{at:string;id:string}|undefined;
-  if(stored){try{const value=JSON.parse(stored);if(typeof value.at==='string'&&typeof value.id==='string')after=value;}catch{/* Restart full recovery on corrupt checkpoint. */}}
+  if(stored&&!fullBackfill){try{const value=JSON.parse(stored);if(typeof value.at==='string'&&typeof value.id==='string')after=value;}catch{/* Restart full recovery on corrupt checkpoint. */}}
   const pages:Row[][]=[];
   let cursor:{at:string;id:string}|undefined;
   let completed=false;
