@@ -2,11 +2,11 @@ import {useEffect,useState,useRef} from 'react';
 import type Dexie from 'dexie';
 import {createPortal} from 'react-dom';
 import {restoreToCurrent,previousRestore} from './restoreService';
-import {prepareImport,defaultImportOptions,type ImportPlan,type ImportOptions,type DataCounts} from './importPlan';
+import {prepareImport,prepareZipImport,defaultImportOptions,type ImportPlan,type ImportOptions,type DataCounts} from './importPlan';
 import {publicBackupError} from './backupFormat';
 import type {IntegrityReport} from './backupService';
 const labels:Record<keyof DataCounts,string>={characters:'角色',conversations:'聊天会话',messages:'消息',worlds:'世界',lorebooks:'世界书',identities:'用户身份（非独立面具）',apiConfigs:'API 配置',timelines:'时间线',assets:'图片资源'};
-export function RestoreActions({files,report,password,disabled=false,database,encrypted=false,archiveVersion}:{files:File[];report?:IntegrityReport|null;password?:string;disabled?:boolean;database?:Dexie;encrypted?:boolean;archiveVersion?:number}) {
+export function RestoreActions({files,zipFile,report,password,disabled=false,database,encrypted=false,archiveVersion}:{files:File[];zipFile?:File|null;report?:IntegrityReport|null;password?:string;disabled?:boolean;database?:Dexie;encrypted?:boolean;archiveVersion?:number}) {
   const [busy,setBusy]=useState(false),[planning,setPlanning]=useState(false),[status,setStatus]=useState(''),[error,setError]=useState(''),[ack,setAck]=useState(false),[done,setDone]=useState(false),[secret,setSecret]=useState('');
   const [options,setOptions]=useState<ImportOptions>({...defaultImportOptions}),[plan,setPlan]=useState<ImportPlan|null>(null),[refresh,setRefresh]=useState(0);
   const committedRef=useRef(false),activePlan=useRef<ImportPlan|null>(null),operation=useRef<AbortController|null>(null);
@@ -15,12 +15,12 @@ export function RestoreActions({files,report,password,disabled=false,database,en
   useEffect(()=>{
     const c=new AbortController();let alive=true;
     const old=activePlan.current;activePlan.current=null;setPlan(null);setAck(false);setError('');
-    if(!report||disabled||!files.length){void old?.dispose();return;}
+    if(!report||disabled||(!files.length&&!zipFile)){void old?.dispose();return;}
     if(report.credentials==='encrypted'&&!password&&!secret){void old?.dispose();setStatus('请输入备份密码并生成导入预览。');return;}
     setPlanning(true);setStatus('正在生成完整导入预览，当前手机未修改…');
-    void(async()=>{try{await old?.dispose();const p=await prepareImport(files,options,{database,password:secret||password,signal:c.signal});if(!alive){await p.dispose();return;}activePlan.current=p;setPlan(p);setStatus('预览已核对。尚未导入到当前手机。');}catch(e){if(alive){setError(publicBackupError(e,'restore-preview'));setStatus('预览失败，当前手机未修改。');}}finally{if(alive)setPlanning(false);}})();
+    void(async()=>{try{await old?.dispose();const p=zipFile?await prepareZipImport(zipFile,options,{database,password:secret||password,signal:c.signal}):await prepareImport(files,options,{database,password:secret||password,signal:c.signal});if(!alive){await p.dispose();return;}activePlan.current=p;setPlan(p);setStatus('预览已核对。尚未导入到当前手机。');}catch(e){if(alive){setError(publicBackupError(e,'restore-preview'));setStatus('预览失败，当前手机未修改。');}}finally{if(alive)setPlanning(false);}})();
     return()=>{alive=false;c.abort();void activePlan.current?.dispose();activePlan.current=null;};
-  },[report?.manifestDigest,signature,disabled,refresh]);
+  },[report?.manifestDigest,signature,disabled,refresh,zipFile]);
   useEffect(()=>{if(!busy)return;const root=document.getElementById('root'),previous=root?.inert;if(root)root.inert=true;const prevent=(e:BeforeUnloadEvent)=>{if(!committedRef.current)e.preventDefault();};window.addEventListener('beforeunload',prevent);return()=>{if(root)root.inert=previous??false;window.removeEventListener('beforeunload',prevent);};},[busy]);
   function change<K extends keyof ImportOptions>(k:K,v:ImportOptions[K]){
     if(operation.current)return;
