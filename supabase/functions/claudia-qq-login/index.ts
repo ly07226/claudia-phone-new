@@ -23,9 +23,19 @@ Deno.serve(async request=>{
  catch{return send(400,{error:"invalid_request"});}
  const action=body.action;
  if(action==="list-bindings"){
-  const {data,error}=await admin.from("claudia_qq_bindings").select("id,character_id,conversation_id,status,created_at,updated_at")
+  const {data,error}=await admin.from("claudia_qq_bindings").select("id,character_id,conversation_id,status,stable_sync_id,created_at,updated_at")
    .eq("user_id",auth.user.id).order("created_at",{ascending:false}).limit(100);
   return error?send(500,{error:"binding_list_failed"}):send(200,{ok:true,bindings:data??[]});
+ }
+ if(action==="set-sync-id"){
+  if(typeof body.bindingId!=="string"||!uuid.test(body.bindingId)||
+     typeof body.syncId!=="string"||!/^[A-Za-z0-9_-]{6,64}$/.test(body.syncId))
+   return send(400,{error:"invalid_sync_id"});
+  const {data,error}=await admin.from("claudia_qq_bindings")
+   .update({stable_sync_id:body.syncId,updated_at:new Date().toISOString()})
+   .eq("id",body.bindingId).eq("user_id",auth.user.id).eq("status","connected")
+   .select("id,stable_sync_id").maybeSingle();
+  return error?send(500,{error:"sync_id_save_failed"}):!data?send(404,{error:"binding_not_found"}):send(200,{ok:true,binding:data});
  }
  if(action==="disconnect"){
   if(typeof body.bindingId!=="string"||!uuid.test(body.bindingId))return send(400,{error:"invalid_binding"});
