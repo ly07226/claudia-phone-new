@@ -2,12 +2,12 @@ import {exportWechatIdentity,importWechatIdentity,inspectWechatIdentity} from '.
 import { BackupError, backupLimits, checkAbort, ensure, withBackupPhase } from "./backupFormat";
 import { createBackup, readBackup, type BackupExport, type BackupProgress } from "./backupService";
 import type { Entry, FileEntry } from "@zip.js/zip.js";
-export const zipLimits = { archiveBytes:256*1024*1024, unpackedBytes:256*1024*1024, entryBytes:8*1024*1024, entries:256, directoryBytes:256*1024, chunkBytes:256*1024, ratio:100 } as const;
+export const zipLimits = { archiveBytes:1024*1024*1024, unpackedBytes:1024*1024*1024, entryBytes:8*1024*1024, entries:256, directoryBytes:256*1024, chunkBytes:256*1024, ratio:100 } as const;
 const infoName="backup-info.json";
 const wechatName="wechat-identity.encrypted.json";
 const options={useWebWorkers:false,useCompressionStream:false,chunkSize:zipLimits.chunkBytes};
 interface ZipInfo { format:"claudia-phone-zip"; version:1|2|3; encryption:"none"|"winzip-aes-256"|"aes-gcm-backup"; payloadFormat:"claudia-phone-backup"; encryptionParameters?: {cipher:string;kdf:string;iterations:number;authentication:string} }
-export function checkZipSize(size:number) {ensure(Number.isSafeInteger(size)&&size>0&&size<=zipLimits.archiveBytes,"单个 ZIP 最大支持256 MiB。较大备份请使用高级选项中的原格式工具；没有生成不完整文件。");}
+export function checkZipSize(size:number) {ensure(Number.isSafeInteger(size)&&size>0&&size<=zipLimits.archiveBytes,"单个 ZIP 最大支持1024 MiB。较大备份请使用高级选项中的原格式工具；没有生成不完整文件。");}
 function safeName(name:string) {return name.length>0&&name.length<=180&&/^[a-zA-Z0-9_.-]+$/.test(name)&&!name.includes("..");}
 /** Bound central directory allocation before invoking a standards-compliant ZIP parser. */
 async function preflight(file:File,signal?:AbortSignal) {
@@ -37,7 +37,7 @@ async function open(file:File,signal?:AbortSignal) {
   await preflight(file,signal);const {ZipReader,BlobReader}=await import('@zip.js/zip.js');
   const reader=new ZipReader(new BlobReader(file),options);const entries:FileEntry[]=[];let total=0;
   try{
-    for await(const e of reader.getEntriesGenerator()){checkAbort(signal);checkEntry(e);ensure(entries.length<zipLimits.entries&&!entries.some(x=>x.filename===e.filename),"ZIP 文件过多或文件名重复。");total+=e.uncompressedSize;ensure(total<=zipLimits.unpackedBytes,"ZIP 解压总量超过256 MiB，已停止。");entries.push(e as FileEntry);}
+    for await(const e of reader.getEntriesGenerator()){checkAbort(signal);checkEntry(e);ensure(entries.length<zipLimits.entries&&!entries.some(x=>x.filename===e.filename),"ZIP 文件过多或文件名重复。");total+=e.uncompressedSize;ensure(total<=zipLimits.unpackedBytes,"ZIP 解压总量超过1024 MiB，已停止。");entries.push(e as FileEntry);}
     const meta=entries.find(e=>e.filename===infoName);ensure(meta&&!meta.encrypted&&meta.uncompressedSize<=4096,"ZIP 缺少有效的备份格式说明。");
     let info:ZipInfo;try{info=JSON.parse(await(await extract(meta,undefined,signal)).text());}catch(e){if(e instanceof BackupError)throw e;throw new BackupError("ZIP 备份格式说明已损坏。");}
     ensure(info.format==='claudia-phone-zip'&&info.payloadFormat==='claudia-phone-backup'&&((info.version===1&&['none','winzip-aes-256'].includes(info.encryption))||([2,3].includes(info.version)&&info.encryption==='aes-gcm-backup')),"ZIP 备份版本暂不支持，未丢弃未知数据。");
@@ -79,7 +79,7 @@ export async function packBackupZip(snapshot:BackupExport,password?:string,signa
   const estimated=manifest.size+snapshot.manifest.parts.reduce((s,p)=>s+p.bytes,0)+(portableWechat?.size??0)+65536;checkZipSize(estimated);checkAbort(signal);
   const {ZipWriter,BlobReader}=await import('@zip.js/zip.js');const chunks:Blob[]=[];let size=0;
   const sink=new WritableStream<Uint8Array>({write(chunk){checkAbort(signal);size+=chunk.byteLength;checkZipSize(size);chunks.push(new Blob([chunk as Uint8Array<ArrayBuffer>]));}});
-  const writer=new ZipWriter(sink,{...options,level:0,zip64:false});
+  const writer=new ZipWriter(sink,{...options,level:6,zip64:false});
   const inner=snapshot.manifest.credentials==='encrypted';
   const info:ZipInfo={format:'claudia-phone-zip',version:portableWechat?3:inner?2:1,encryption:inner?'aes-gcm-backup':password?'winzip-aes-256':'none',payloadFormat:'claudia-phone-backup',...(inner?{encryptionParameters:{cipher:'AES-256-GCM',kdf:'PBKDF2-SHA256',iterations:600000,authentication:'GCM-128 + HMAC-SHA256'}}:password?{encryptionParameters:{cipher:'AES-256-CTR',kdf:'PBKDF2-HMAC-SHA1',iterations:1000,authentication:'HMAC-SHA1-80'}}:{})};
   try{
