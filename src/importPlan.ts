@@ -26,11 +26,11 @@ export async function dataCounts(d:Dexie):Promise<DataCounts>{const t=await d.ta
 async function equal(table:BackupTable,a:any,b:any){if(table==='worlds'&&b){a={...a,storyPreferences:undefined};b={...b,storyPreferences:undefined};}if(table==='storySessions'&&b){a={...a,status:'ready',pending:undefined,error:undefined,actionDraft:undefined,updatedAt:0};b={...b,status:'ready',pending:undefined,error:undefined,actionDraft:undefined,updatedAt:0};}if(table==='apiConfigs'&&b){a={...a,isDefault:false,createdAt:0,updatedAt:0};b={...b,isDefault:false,createdAt:0,updatedAt:0};}return !!b&&await sha(await rowBytes(table,a))===await sha(await rowBytes(table,b));}
 /** Planning writes only a new isolated database. All accepted data and references
  * are revalidated before the existing atomic restore service may commit this plan. */
-export async function prepareImport(files:File[],options:ImportOptions,{database=db,password,signal}: {database?:Dexie;password?:string;signal?:AbortSignal}={}):Promise<ImportPlan>{
+export async function prepareImport(files:File[],options:ImportOptions,{database=db,password,signal,loadPart,partNames}: {database?:Dexie;password?:string;signal?:AbortSignal;loadPart?:(name:string)=>Promise<File>;partNames?:readonly string[]}={}):Promise<ImportPlan>{
   exactSchema(database);const c=new AbortController();if(signal?.aborted)c.abort();const abort=()=>c.abort();signal?.addEventListener('abort',abort,{once:true});
   let cleanup:Awaited<ReturnType<typeof readBackup>>|undefined,target:Dexie|undefined;const name='claudia-import-plan-'+crypto.randomUUID();const timeout=setTimeout(()=>c.abort(),300000),hidden=()=>{if(document.hidden)c.abort();};document.addEventListener('visibilitychange',hidden);
   try{
-  const checked=cleanup=await readBackup(files,{mode:'rehearse',password,signal:c.signal});const source=verifiedCandidate(checked)!;
+  const checked=cleanup=await readBackup(files,{mode:'rehearse',password,signal:c.signal,loadPart,partNames});const source=verifiedCandidate(checked)!;
   if(source.verno===5){source.close();source.version(6).stores({timelines:'id,conversationId,parentTimelineId',pathNodes:'id,conversationId,[conversationId+parentNodeId+fingerprint]'});await source.open();}
   if(source.verno<7){source.close();source.version(7).stores(storySchemas);await source.open();}
 
