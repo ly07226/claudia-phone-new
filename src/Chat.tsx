@@ -12,7 +12,7 @@ import {partKey,type BubblePart} from './messageBubbles';
 import type {MessageSelection} from './MessagePopover';
 import {useGenerationTask, useGenerationFailures, getGenerationTask, retainGenerationFailure, startGenerationTask, stopGenerationTask, runningTask} from "./generationTasks";
 import { AttachmentMenu, StoredImage, useImageDraft } from "./ImageAttachments";
-import {listQqCloudBindings} from "./qqQrLogin";
+import {listQqCloudBindings,newestQqBinding} from "./qqQrLogin";
 import {syncQqDailyConversation} from "./qqDailySync";
 import { FriendRequests } from "./FriendRequests";
 import { isDailyFriend, checkDailyFriendApplications, clearChatHistory, deleteDailyFriend } from "./chatRelationships";
@@ -118,9 +118,10 @@ export function Chat({ worldId }: { worldId?: string }) {
     try{
       const bindings=await listQqCloudBindings();
       const matching=bindings.filter(b=>b.status==='connected'&&b.character_id===target.characterId&&b.stable_sync_id===stableId);
-      if(matching.length!==1)throw Error(matching.length?'检测到多个 QQ 绑定，请先处理重复绑定':'此角色尚未确认 QQ 绑定');
-      const added=await syncQqDailyConversation(target.id,matching[0].id);
-      if(added>0)localStorage.setItem('claudia-qq-context-dirty:'+matching[0].id,'yes');
+      const latest=newestQqBinding(matching);
+      if(!latest)throw Error('此角色尚未确认 QQ 绑定');
+      const added=await syncQqDailyConversation(target.id,latest.id);
+      if(added>0)localStorage.setItem('claudia-qq-context-dirty:'+latest.id,'yes');
       window.alert('QQ 记录同步完成，新增 '+added+' 条消息。');
     }catch(e){setError(e instanceof Error?e.message:'QQ 记录同步失败');}
     finally{setQqManualSyncBusy(false);}
