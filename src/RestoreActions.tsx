@@ -12,6 +12,7 @@ export function RestoreActions({files,zipFile,report,password,disabled=false,dat
   const committedRef=useRef(false),activePlan=useRef<ImportPlan|null>(null),operation=useRef<AbortController|null>(null);
   const saved=previousRestore(database?.name),signature=JSON.stringify(options);
   useEffect(()=>()=>operation.current?.abort(),[]);
+  useEffect(()=>{if(report?.credentials==='included')setOptions(o=>o.keys==='none'?{...o,keys:'missing'}:o);},[report?.manifestDigest,report?.credentials]);
   useEffect(()=>{
     const c=new AbortController();let alive=true;
     const old=activePlan.current;activePlan.current=null;setPlan(null);setAck(false);setError('');
