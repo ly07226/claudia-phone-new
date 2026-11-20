@@ -73,6 +73,15 @@ export async function openStreamingBackupZip(file:File,signal?:AbortSignal) {
     async close(){if(!closed){closed=true;await opened.reader.close();}}
   };
 }
+/** Verify optional encrypted identity attachment without importing or changing local credentials. */
+export async function validateBackupZipIdentity(zip:{version:number;names:string[];read:(name:string,password?:string)=>Promise<File>},password?:string){
+ const hasIdentity=zip.names.includes(wechatName);
+ ensure(zip.version===3?hasIdentity:!hasIdentity,'微信身份附件缺失或与备份版本不匹配。');
+ if(hasIdentity){
+  ensure(!!password,'请填写微信身份备份密码。');
+  await inspectWechatIdentity(await zip.read(wechatName,password),password);
+ }
+}
 export async function readBackupZip(file:File,password?:string,signal?:AbortSignal) {
   try{
     const value=await open(file,signal);
