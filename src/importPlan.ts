@@ -36,7 +36,7 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
   if(source.verno<7){source.close();source.version(7).stores(storySchemas);await source.open();}
 
     ensure(options.story||options.desktop||options.identities||options.api,'请至少选择一项导入范围。');
-    ensure(options.keys==='none'||(options.api&&checked.report.credentials==='encrypted'),'导入密钥必须选择 API 范围且备份确实包含加密凭据。');
+    ensure(options.keys==='none'||(options.api&&checked.report.credentials!=='excluded'),'导入密钥必须选择 API 范围且备份确实包含加密凭据。');
     target=await openRestoreDatabase(name);const result=target;
     let before!:DatabaseDigest;
     await database.transaction('r',database.tables,async tx=>{const view=bound(database,tx);before=await digest(view,c.signal);for(const table of backupTables)await eachBackupRow(view,table,async row=>{await keep(tx,Dexie.ignoreTransaction(()=>result.table(table).add(row)));},c.signal);});
