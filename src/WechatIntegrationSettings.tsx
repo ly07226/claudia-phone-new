@@ -10,7 +10,7 @@ import {setQqClosedContinuity,reconcileQqAfterReopen} from './qqClosedContinuity
 import {authorizeWechatAi,disableWechatAi,deleteWechatAi,getWechatAiStatus} from './wechatAiAuthorization';
 import {db} from './store';
 import {startWechatLogin,pollWechatLogin} from './wechatQrLogin';
-import {startQqQr,pollQqQr,listQqCloudBindings,disconnectQqCloudBinding,type QqQrSession} from './qqQrLogin';
+import {startQqQr,pollQqQr,listQqCloudBindings,disconnectQqCloudBinding,setQqBindingSyncId,type QqQrSession} from './qqQrLogin';
 import {listWechatCloudBindings} from './wechatCloudIdentity';
 import {syncWechatDailyConversation} from './wechatDailySync';
 import {clearWechatCloudConfig,readWechatCloudConfig,saveWechatCloudConfig} from './wechatCloudConfig';
@@ -34,12 +34,22 @@ export function WechatIntegrationSettings(){
  const [qqTarget,setQqTarget]=useState('');
  const [qqSyncId,setQqSyncId]=useState(()=>localStorage.getItem('claudia-qq-stable-sync-id')??'');
  const [qqSyncDraft,setQqSyncDraft]=useState(()=>localStorage.getItem('claudia-qq-stable-sync-id')??'');
- const saveQqSyncId=()=>{
+ const saveQqSyncId=async()=>{
   const id=qqSyncDraft.trim();
   if(!/^[a-zA-Z0-9_-]{6,64}$/.test(id)){setQqNotice('用户 ID 需为 6–64 位字母、数字、下划线或短横线');return;}
   if(qqSyncId&&qqSyncId!==id&&!window.confirm('修改固定用户 ID 会改变 QQ 同步关联标识，确定修改？'))return;
-  localStorage.setItem('claudia-qq-stable-sync-id',id);
-  setQqSyncId(id);setQqNotice('固定用户 ID 已保存在本机；云端绑定仍需完成后端关联。');
+  setQqBusy(true);setQqNotice('');
+  try{
+   const rows=await listQqCloudBindings();
+   for(const binding of rows.filter(b=>b.status==='connected'))
+    await setQqBindingSyncId(binding.id,id);
+   localStorage.setItem('claudia-qq-stable-sync-id',id);
+   setQqSyncId(id);
+   await loadQq();
+   setQqNotice('固定用户 ID 已关联现有 QQ 绑定，无需重新扫码。');
+   void reconcileQqAfterReopen().catch(()=>{});
+  }catch(error){setQqNotice(error instanceof Error?error.message:'固定用户 ID 云端关联失败');}
+  finally{setQqBusy(false);}
  };
  const [qqBindings,setQqBindings]=useState<Array<{id:string;character_id:string;conversation_id:string;status:string}>>([]);
  const loadQq=async()=>{try{setQqBindings(await listQqCloudBindings());}catch(e){setQqNotice(e instanceof Error?e.message:'QQ 绑定查询失败');}};
@@ -412,7 +422,7 @@ export function WechatIntegrationSettings(){
    <p>将通过腾讯官方 QQ Bot 扫码绑定，而不是登录个人 QQ。QQ 与微信使用独立消息通道，角色设定和记忆仍由小手机管理。</p>
    <p>QQ 沿用微信的 Supabase 身份和云端配置，但使用独立的 QQ 绑定、凭据和消息表。先在「微信共享云端后台」填写你的 Supabase 项目。</p>
    <label>固定用户 ID<input value={qqSyncDraft} onChange={e=>setQqSyncDraft(e.target.value)} placeholder="填写长期不变的用户 ID" autoComplete="off"/></label>
-   <button type="button" onClick={saveQqSyncId}>保存用户 ID</button>
+   <button type="button" disabled={qqBusy} onClick={()=>void saveQqSyncId()}>保存并关联 QQ</button>
    {qqSyncId&&<p>当前用户 ID：{qqSyncId}</p>}
    <label>绑定到日常角色<select value={qqTarget} onChange={e=>setQqTarget(e.target.value)}>{daily.map(c=><option key={c.id} value={c.id}>{c.characterName}</option>)}</select></label>
    <button type="button" onClick={()=>void loadQq()}>刷新 QQ 云端绑定</button>
