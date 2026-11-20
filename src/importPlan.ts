@@ -9,6 +9,7 @@ import {readBackup,verifiedCandidate,eachBackupRow,sanitizeConfig,type Integrity
 import {bound,keep,digest,same,validate,openRestoreDatabase,exactSchema,type DatabaseDigest} from './restoreData';
 import {usableApi} from './apiSelection';
 import {messageFingerprint} from './timelines';
+import {openStreamingBackupZip} from './backupZip';
 export interface ImportOptions {
   mode:'overwrite'|'merge';apiReplace:boolean;story:boolean;desktop:boolean;identities:boolean;api:boolean;
   conflicts:'copy'|'skip';apiConflict:'copy'|'keep';identityConflict:'keep'|'replace';keys:'none'|'missing'|'replace';
@@ -26,16 +27,16 @@ export async function dataCounts(d:Dexie):Promise<DataCounts>{const t=await d.ta
 async function equal(table:BackupTable,a:any,b:any){if(table==='worlds'&&b){a={...a,storyPreferences:undefined};b={...b,storyPreferences:undefined};}if(table==='storySessions'&&b){a={...a,status:'ready',pending:undefined,error:undefined,actionDraft:undefined,updatedAt:0};b={...b,status:'ready',pending:undefined,error:undefined,actionDraft:undefined,updatedAt:0};}if(table==='apiConfigs'&&b){a={...a,isDefault:false,createdAt:0,updatedAt:0};b={...b,isDefault:false,createdAt:0,updatedAt:0};}return !!b&&await sha(await rowBytes(table,a))===await sha(await rowBytes(table,b));}
 /** Planning writes only a new isolated database. All accepted data and references
  * are revalidated before the existing atomic restore service may commit this plan. */
-export async function prepareImport(files:File[],options:ImportOptions,{database=db,password,signal}: {database?:Dexie;password?:string;signal?:AbortSignal}={}):Promise<ImportPlan>{
+export async function prepareImport(files:File[],options:ImportOptions,{database=db,password,signal,loadPart,partNames}: {database?:Dexie;password?:string;signal?:AbortSignal;loadPart?:(name:string)=>Promise<File>;partNames?:readonly string[]}={}):Promise<ImportPlan>{
   exactSchema(database);const c=new AbortController();if(signal?.aborted)c.abort();const abort=()=>c.abort();signal?.addEventListener('abort',abort,{once:true});
   let cleanup:Awaited<ReturnType<typeof readBackup>>|undefined,target:Dexie|undefined;const name='claudia-import-plan-'+crypto.randomUUID();const timeout=setTimeout(()=>c.abort(),300000),hidden=()=>{if(document.hidden)c.abort();};document.addEventListener('visibilitychange',hidden);
   try{
-  const checked=cleanup=await readBackup(files,{mode:'rehearse',password,signal:c.signal});const source=verifiedCandidate(checked)!;
+  const checked=cleanup=await readBackup(files,{mode:'rehearse',password,signal:c.signal,loadPart,partNames});const source=verifiedCandidate(checked)!;
   if(source.verno===5){source.close();source.version(6).stores({timelines:'id,conversationId,parentTimelineId',pathNodes:'id,conversationId,[conversationId+parentNodeId+fingerprint]'});await source.open();}
   if(source.verno<7){source.close();source.version(7).stores(storySchemas);await source.open();}
 
     ensure(options.story||options.desktop||options.identities||options.api,'请至少选择一项导入范围。');
-    ensure(options.keys==='none'||(options.api&&checked.report.credentials==='encrypted'),'导入密钥必须选择 API 范围且备份确实包含加密凭据。');
+    ensure(options.keys==='none'||(options.api&&checked.report.credentials!=='excluded'),'导入密钥必须选择 API 范围且备份确实包含加密凭据。');
     target=await openRestoreDatabase(name);const result=target;
     let before!:DatabaseDigest;
     await database.transaction('r',database.tables,async tx=>{const view=bound(database,tx);before=await digest(view,c.signal);for(const table of backupTables)await eachBackupRow(view,table,async row=>{await keep(tx,Dexie.ignoreTransaction(()=>result.table(table).add(row)));},c.signal);});
@@ -164,7 +165,7 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
     }
     async function put(table:BackupTable,row:any){checkAbort(c.signal);const id=row[table==='apiCredentials'?'configId':'id'],existing=await result.table(table).get(id);if(table==='assets'&&existing?.data===row.data){duplicates++;return;}if(await equal(table,row,existing)){duplicates++;return;}
       if(options.mode==='merge'&&existing&&table!=='themes'&&table!=='apiCredentials'&&table!=='apiConfigs')ensure(false,'导入副本已被修改或存在无法安全处理的冲突；请保留当前或改用覆盖模式，不会静默覆盖。');
-      const encoded=await rowBytes(table,row);bytes+=encoded.length;ensure(bytes<=64*1024*1024,'导入变更超过64 MiB安全上限，未写入当前手机。');await result.table(table).put(row);changed++;
+      const encoded=await rowBytes(table,row);bytes+=encoded.length;ensure(bytes<=2*1024*1024*1024,'导入变更超过2048 MiB安全上限，未写入当前手机。');await result.table(table).put(row);changed++;
     }
     if(graph){if(options.mode==='overwrite')for(const table of storyTables)await result.table(table).clear();
       for(const table of storyTables)await eachBackupRow(source,table,async a=>{let r=await transform(table,a);if(options.mode==='merge'&&['worldProfiles','lorebooks','loreEntries'].includes(table)&&r.id===a.id&&!await equal(table,r,await result.table(table).get(r.id))){r.id=await fresh(table,a.id);maps.get(table)!.set(a.id,r.id);}await put(table,r);},c.signal);
@@ -215,4 +216,22 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
     const plan:ImportPlan={preview:{formatVersion:checked.report.formatVersion,schemaVersion:checked.report.schemaVersion,createdAt:checked.report.snapshotCompletedAt,credentials:checked.report.credentials,incoming,current,result:counts,added,duplicates,conflicts,changed,bytes,warnings:[...new Set(warnings)],options:{...options},credentialChanges,manifestDigest:checked.report.manifestDigest},dispose:async()=>{if(plans.has(plan)){plans.delete(plan);result.close();await Dexie.delete(name);}}};
     plans.set(plan,{database:result,targetName:database.name,before,after});target=undefined;return plan;
   }finally{clearTimeout(timeout);document.removeEventListener('visibilitychange',hidden);signal?.removeEventListener('abort',abort);await cleanup?.dispose();if(target){target.close();await Dexie.delete(name);}}
+}
+
+/** Import one ZIP without expanding every member into an in-memory File list.
+ * Historical ZIP versions 1–3 use the same integrity-checked candidate path. */
+export async function prepareZipImport(file:File,options:ImportOptions,{database=db,password,signal}: {database?:Dexie;password?:string;signal?:AbortSignal}={}):Promise<ImportPlan>{
+  const zip=await openStreamingBackupZip(file,signal);
+  try{
+    const manifests=zip.names.filter(n=>n.endsWith('.manifest.json'));
+    ensure(manifests.length===1,'ZIP 缺少唯一的备份清单。');
+    const name=manifests[0];
+    const manifest=await zip.read(name,password);
+    const names=zip.names.filter(n=>n!=='wechat-identity.encrypted.json');
+    const parsed=JSON.parse(await manifest.text());
+    ensure(Array.isArray(parsed.parts),'ZIP 备份清单缺少分块列表。');
+    const expected=[name,...parsed.parts.map((p:{name:string})=>p.name)];
+    ensure(expected.length===names.length&&new Set(expected).size===expected.length&&expected.every(n=>names.includes(n)),'ZIP 备份条目缺失、重复或含有未知文件。');
+    return await prepareImport([manifest],options,{database,password,signal,partNames:names,loadPart:n=>zip.read(n,password)});
+  }finally{await zip.close();}
 }

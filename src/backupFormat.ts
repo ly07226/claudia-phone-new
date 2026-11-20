@@ -333,7 +333,7 @@ export interface BackupManifest {
     digest: string;
     nonce?: string;
   }[];
-  credentials: "excluded" | "encrypted";
+  credentials: "excluded" | "encrypted" | "included";
   redactions: { record: string; fields: string[] }[];
   encryption?: {
     algorithm: "AES-GCM";

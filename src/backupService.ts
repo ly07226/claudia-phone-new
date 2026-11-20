@@ -154,7 +154,7 @@ export async function createBackup(options: {
   );
   ensure(
     !options.includeCredentials || options.credentialConsent,
-    "包含凭据必须经用户主动确认，且只能加密导出。",
+    "包含 API 凭据必须经用户主动确认。",
   );
   const release = acquireBackupGuard();
   const controller = new AbortController();
@@ -222,12 +222,12 @@ export async function createBackup(options: {
       tables: {} as BackupManifest["tables"],
       resources: [],
       parts: [],
-      credentials: options.includeCredentials ? "encrypted" : "excluded",
+      credentials: options.includeCredentials ? (options.password ? "encrypted" : "included") : "excluded",
       redactions: [],
     };
     let key: CryptoKey | undefined;
     let integrityKey: CryptoKey | undefined;
-    if (options.includeCredentials) {
+    if (options.includeCredentials && options.password) {
       phase='export-encrypt';
       const salt = crypto.getRandomValues(new Uint8Array(16));
       key = await deriveKey(options.password || "", salt);
@@ -326,7 +326,7 @@ export async function createBackup(options: {
                   "检测到仍在生成的会话，请关闭其他客户端并等待请求结束或超时后重试；不会清除生成锁。",
                 );
               let row =
-                table === "apiConfigs" && !key
+                table === "apiConfigs" && !options.includeCredentials
                   ? sanitizeConfig(original, m.redactions)
                   : original;
               if(!options.includeCredentials&&(table==='themes'||table==='conversations')&&row.dedicatedSummaryApi){row={...row,dedicatedSummaryApi:{...sanitizeConfig({...row.dedicatedSummaryApi,id:row.id},m.redactions),apiKey:''}};delete row.dedicatedSummaryApi.id;}
@@ -453,7 +453,7 @@ function validateManifest(input: any): asserts input is BackupManifest {
     "备份标识无效。",
   );
   ensure(
-    ["excluded", "encrypted"].includes(input.credentials),
+    ["excluded", "encrypted", "included"].includes(input.credentials),
     "凭据策略无效。",
   );
   ensure(
@@ -576,7 +576,7 @@ export interface IntegrityReport {
   parts: number;
   resources: number;
   warnings: string[];
-  credentials: "excluded" | "encrypted";
+  credentials: "excluded" | "encrypted" | "included";
   redactedConfigs: number;
   recordDigestsMatch: true;
   referencesValid: true;
@@ -599,6 +599,9 @@ export async function readBackup(
     password?: string;
     signal?: AbortSignal;
     onProgress?: Progress;
+    /** Lazy ZIP member resolver; only one part is held in memory at a time. */
+    loadPart?: (name:string)=>Promise<File>;
+    partNames?: readonly string[];
   },
 ): Promise<ReadbackResult> {
   const signal = options.signal;
@@ -627,12 +630,13 @@ export async function readBackup(
   const m = parsed;
   const backupTables=Object.keys(schemasForVersion(m.schemaVersion)) as BackupTable[];
   ensure(
-    files.length === m.parts.length + 1,
+    (options.partNames ? options.partNames.length === m.parts.length + 1 : files.length === m.parts.length + 1),
     "分卷缺失或混入了其他文件，请从文件App选择清单及全部分卷。",
   );
   const byName = new Map(files.map((f) => [f.name, f]));
+  const availableNames = options.partNames ?? files.map(f=>f.name);
   ensure(
-    byName.size === files.length && m.parts.every((p) => byName.has(p.name)),
+    new Set(availableNames).size === availableNames.length && m.parts.every((p) => availableNames.includes(p.name)),
     "存在重名或缺失分卷，请重新选择。",
   );
   let key: CryptoKey | undefined;
@@ -747,7 +751,7 @@ export async function readBackup(
     };
     for (const p of m.parts) {
       checkAbort(signal);
-      const file = byName.get(p.name)!;
+      const file = options.loadPart ? await options.loadPart(p.name) : byName.get(p.name)!;
       ensure(
         file.size === p.bytes && file.size <= backupLimits.partBytes + 16,
         "分卷大小不符或超过安全限制。",
@@ -1128,7 +1132,7 @@ export async function validateReferences(
     "apiCredentials",
     async (x) => {
       if (
-        m.credentials !== "encrypted" ||
+        m.credentials === "excluded" ||
         typeof x.apiKey !== "string" ||
         !(await exists("apiConfigs", x.configId))
       )
