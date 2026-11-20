@@ -109,6 +109,8 @@ export function Chat({ worldId }: { worldId?: string }) {
   const [savingMessage, setSavingMessage] = useState(false);
   const [attachmentOpen,setAttachmentOpen]=useState(false);
   const [qqManualSyncBusy,setQqManualSyncBusy]=useState(false);
+  const [qqAutoSyncError,setQqAutoSyncError]=useState(()=>localStorage.getItem('claudia-qq-auto-sync-error')||'');
+  useEffect(()=>{const onStatus=(event:Event)=>{const detail=(event as CustomEvent<{status:string;reason?:string}>).detail;setQqAutoSyncError(detail?.status==='error'?detail.reason||'自动回填失败':'');};window.addEventListener('claudia-qq-auto-sync-status',onStatus);return()=>window.removeEventListener('claudia-qq-auto-sync-status',onStatus);},[]);
   const manualQqSync=async()=>{
     const target=conversation;
     const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
@@ -671,6 +673,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 onBlur={()=>enterGuard.current.reset()}
                 onKeyDown={e=>{const action=enterGuard.current.key(e.nativeEvent);if(action==='send'||action==='block')e.preventDefault();if(action==='send')void send();}}
               />
+              {qqAutoSyncError&&conversation?.mode==='daily'&&<p role="alert" style={{fontSize:12,color:'#b45309',padding:'4px 8px'}}>QQ 自动回填失败：{qqAutoSyncError}</p>}
               <AttachmentMenu disabled={busy||!imageDraft.ready} processing={imageDraft.processing} scope={imageDraft.scope} onOpenChange={setAttachmentOpen} onChoose={(files,scope)=>void imageDraft.choose(files,text,scope)} onSyncQq={()=>void manualQqSync()} qqSyncEnabled={!!conversation&&conversation.mode==='daily'&&!conversation.worldId&&!!localStorage.getItem('claudia-qq-stable-sync-id')} qqSyncBusy={qqManualSyncBusy}/>
               </div>
               <button
