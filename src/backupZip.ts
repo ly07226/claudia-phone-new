@@ -6,6 +6,9 @@ export const zipLimits = { archiveBytes:1024*1024*1024, unpackedBytes:2*1024*102
 const infoName="backup-info.json";
 const wechatName="wechat-identity.encrypted.json";
 const options={useWebWorkers:false,useCompressionStream:false,chunkSize:zipLimits.chunkBytes};
+// Keep the legacy ZIP reader path available for historical archives while the
+// streaming importer is introduced. Archive format versions 1–3 remain accepted.
+export const supportedBackupZipVersions = [1,2,3] as const;
 interface ZipInfo { format:"claudia-phone-zip"; version:1|2|3; encryption:"none"|"winzip-aes-256"|"aes-gcm-backup"; payloadFormat:"claudia-phone-backup"; encryptionParameters?: {cipher:string;kdf:string;iterations:number;authentication:string} }
 export function checkZipSize(size:number) {ensure(Number.isSafeInteger(size)&&size>0&&size<=zipLimits.archiveBytes,"单个 ZIP 最大支持1024 MiB。较大备份请使用高级选项中的原格式工具；没有生成不完整文件。");}
 function safeName(name:string) {return name.length>0&&name.length<=180&&/^[a-zA-Z0-9_.-]+$/.test(name)&&!name.includes("..");}
