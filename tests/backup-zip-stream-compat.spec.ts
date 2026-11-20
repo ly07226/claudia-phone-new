@@ -39,3 +39,29 @@ test('new backup screen exports one ZIP without a password setup step',async({pa
   await expect(page.getByLabel('加密保护')).toHaveCount(0);
   await expect(page.getByText('单个 ZIP 上限 1024 MiB',{exact:false})).toBeVisible();
 });
+
+
+test('password-free full ZIP retains API credentials and restores into isolated preview',async({page})=>{
+  await page.goto('/');
+  await expect(page.locator('.desktop')).toBeVisible();
+  const result=await page.evaluate(async()=>{
+    const {db}=await import('/src/store.ts');
+    const {createZipBackup,inspectBackupZip,readBackupZip}=await import('/src/backupZip.ts');
+    const {prepareZipImport,defaultImportOptions}=await import('/src/importPlan.ts');
+    const key='fixture-backup-api-key-not-real';
+    await db.apiConfigs.put({id:'backup-key-test',name:'测试 API',provider:'openai-compatible',baseUrl:'https://example.test/v1',model:'test',enabled:true,isDefault:false,createdAt:1,updatedAt:1});
+    await db.apiCredentials.put({configId:'backup-key-test',apiKey:key});
+    const zip=await createZipBackup({closedOtherClients:true,includeCredentials:true,credentialConsent:true});
+    const info=await inspectBackupZip(zip);
+    const files=await readBackupZip(zip);
+    const manifest=JSON.parse(await files.find(f=>f.name.endsWith('.manifest.json'))!.text());
+    const data=(await Promise.all(files.filter(f=>f.name.endsWith('.cphone')).map(f=>f.text()))).join('');
+    const plan=await prepareZipImport(zip,{...defaultImportOptions,keys:'missing'});
+    try{return {encrypted:info.encrypted,credentials:manifest.credentials,hasKey:data.includes(key),status:plan.preview.credentialChanges.added+plan.preview.credentialChanges.kept+plan.preview.credentialChanges.replaced};}
+    finally{await plan.dispose();}
+  });
+  expect(result.encrypted).toBe(false);
+  expect(result.credentials).toBe('included');
+  expect(result.hasKey).toBe(true);
+  expect(result.status).toBeGreaterThanOrEqual(0);
+});
