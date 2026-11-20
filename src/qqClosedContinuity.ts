@@ -48,13 +48,20 @@ export function reconcileQqAfterReopen():Promise<void>{
    .some(key=>key?.startsWith(prefix)&&localStorage.getItem(key)==='yes');
   if(!optedIn)return;
   const bindings=await listQqCloudBindings();
-  for(const binding of bindings){
-   if(!getQqClosedContinuity(binding.id)||binding.status!=='connected')continue;
-   const candidates=bindings.filter(b=>b.status==='connected'&&b.character_id===binding.character_id);
-   const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
+  const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
+  const characterIds=new Set(bindings.filter(b=>b.status==='connected').map(b=>b.character_id));
+  for(const characterId of characterIds){
+   const candidates=bindings.filter(b=>b.status==='connected'&&b.character_id===characterId);
    const confirmed=candidates.filter(b=>!!stableId&&b.stable_sync_id===stableId);
-   const latest=newestQqBinding(confirmed.length?confirmed:candidates);
-   if(latest?.id!==binding.id)continue;
+   // A stale authorized binding must not shadow a newer, active confirmed binding.
+   const binding=newestQqBinding(confirmed.length?confirmed:candidates);
+   if(!binding||localStorage.getItem(prefix+binding.id)==='no')continue;
+   if(!getQqClosedContinuity(binding.id)){
+    try{const status=await getQqAiStatus(binding.id);
+     if(!status.enabled)continue;
+     setQqClosedContinuity(binding.id,true);
+    }catch{continue;}
+   }
    const matched=!!stableId&&binding.stable_sync_id===stableId;
    const conversation=matched
     ?(await db.conversations.where('characterId').equals(binding.character_id).toArray()).find(c=>c.mode==='daily'&&!c.worldId)
