@@ -121,8 +121,8 @@ export function Chat({ worldId }: { worldId?: string }) {
       const latest=newestQqBinding(matching);
       if(!latest)throw Error('此角色尚未确认 QQ 绑定');
       const added=await syncQqDailyConversation(target.id,latest.id);
-      if(added>0)localStorage.setItem('claudia-qq-context-dirty:'+latest.id,'yes');
-      window.alert('QQ 记录同步完成，新增 '+added+' 条消息。');
+      if(added>0){localStorage.setItem('claudia-qq-context-dirty:'+latest.id,'yes');await refresh(target.id,true);}
+      window.alert(added>0?'QQ 记录同步完成，新增 '+added+' 条消息。':'本次没有导入新消息。可能已同步过，或同步断点之后没有新记录；云端历史数量不等于本次新增数量。');
     }catch(e){setError(e instanceof Error?e.message:'QQ 记录同步失败');}
     finally{setQqManualSyncBusy(false);}
   };
