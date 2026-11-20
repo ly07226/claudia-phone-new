@@ -27,8 +27,13 @@ async function bootstrapExistingAuthorization(){
   for(const b of bindings.filter(b=>b.status==='connected')){
    if(localStorage.getItem(prefix+b.id)==='no')continue;
    if(getQqClosedContinuity(b.id))continue;
-   const status=await getQqAiStatus(b.id);
-   if(status.enabled)setQqClosedContinuity(b.id,true);
+   try {
+    const status=await getQqAiStatus(b.id);
+    if(status.enabled)setQqClosedContinuity(b.id,true);
+   } catch(error) {
+    // A stale QQ binding must not prevent healthy bindings from restoring.
+    console.warn('QQ 绑定授权检查失败，继续恢复其他绑定',b.id,error instanceof Error?error.message:'unknown');
+   }
   }
   bootstrapDone=true;
  })().finally(()=>{bootstrap=null;});
