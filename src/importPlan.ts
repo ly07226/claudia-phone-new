@@ -164,7 +164,7 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
     }
     async function put(table:BackupTable,row:any){checkAbort(c.signal);const id=row[table==='apiCredentials'?'configId':'id'],existing=await result.table(table).get(id);if(table==='assets'&&existing?.data===row.data){duplicates++;return;}if(await equal(table,row,existing)){duplicates++;return;}
       if(options.mode==='merge'&&existing&&table!=='themes'&&table!=='apiCredentials'&&table!=='apiConfigs')ensure(false,'导入副本已被修改或存在无法安全处理的冲突；请保留当前或改用覆盖模式，不会静默覆盖。');
-      const encoded=await rowBytes(table,row);bytes+=encoded.length;ensure(bytes<=1024*1024*1024,'导入变更超过1024 MiB安全上限，未写入当前手机。');await result.table(table).put(row);changed++;
+      const encoded=await rowBytes(table,row);bytes+=encoded.length;ensure(bytes<=2*1024*1024*1024,'导入变更超过2048 MiB安全上限，未写入当前手机。');await result.table(table).put(row);changed++;
     }
     if(graph){if(options.mode==='overwrite')for(const table of storyTables)await result.table(table).clear();
       for(const table of storyTables)await eachBackupRow(source,table,async a=>{let r=await transform(table,a);if(options.mode==='merge'&&['worldProfiles','lorebooks','loreEntries'].includes(table)&&r.id===a.id&&!await equal(table,r,await result.table(table).get(r.id))){r.id=await fresh(table,a.id);maps.get(table)!.set(a.id,r.id);}await put(table,r);},c.signal);
