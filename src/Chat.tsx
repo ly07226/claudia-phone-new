@@ -12,6 +12,8 @@ import {partKey,type BubblePart} from './messageBubbles';
 import type {MessageSelection} from './MessagePopover';
 import {useGenerationTask, useGenerationFailures, getGenerationTask, retainGenerationFailure, startGenerationTask, stopGenerationTask, runningTask} from "./generationTasks";
 import { AttachmentMenu, StoredImage, useImageDraft } from "./ImageAttachments";
+import {listQqCloudBindings,newestQqBinding} from "./qqQrLogin";
+import {syncQqDailyConversation} from "./qqDailySync";
 import { FriendRequests } from "./FriendRequests";
 import { isDailyFriend, checkDailyFriendApplications, clearChatHistory, deleteDailyFriend } from "./chatRelationships";
 import { orderChatCharacters, saveChatSettings, searchableMessages } from "./chatPreferences";
@@ -106,6 +108,24 @@ export function Chat({ worldId }: { worldId?: string }) {
   useEffect(()=>{setLeaseClock(Date.now());const until=conversation?.sendingUntil;if(!until)return;const timer=setTimeout(()=>setLeaseClock(Date.now()),Math.max(0,until-Date.now()+1));return()=>clearTimeout(timer);},[conversation?.id,conversation?.sendingToken,conversation?.sendingUntil]);
   const [savingMessage, setSavingMessage] = useState(false);
   const [attachmentOpen,setAttachmentOpen]=useState(false);
+  const [qqManualSyncBusy,setQqManualSyncBusy]=useState(false);
+  const manualQqSync=async()=>{
+    const target=conversation;
+    const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
+    if(!target||target.mode!=='daily'||target.worldId||!stableId){setError('请先在 QQ 设置中确认绑定固定用户 ID');return;}
+    if(qqManualSyncBusy)return;
+    setQqManualSyncBusy(true);setError('');
+    try{
+      const bindings=await listQqCloudBindings();
+      const matching=bindings.filter(b=>b.status==='connected'&&b.character_id===target.characterId&&b.stable_sync_id===stableId);
+      const latest=newestQqBinding(matching);
+      if(!latest)throw Error('此角色尚未确认 QQ 绑定');
+      const added=await syncQqDailyConversation(target.id,latest.id);
+      if(added>0)localStorage.setItem('claudia-qq-context-dirty:'+latest.id,'yes');
+      window.alert('QQ 记录同步完成，新增 '+added+' 条消息。');
+    }catch(e){setError(e instanceof Error?e.message:'QQ 记录同步失败');}
+    finally{setQqManualSyncBusy(false);}
+  };
   const imageDraft=useImageDraft(conversation,text,setText,setError);
   const [replyPresentation,setReplyPresentation]=useState<{sequence:number;conversationId:string;known:Map<string,Message>}|null>(null);
   const [configs, setConfigs] = useState<ApiConfig[]>([]);
@@ -651,7 +671,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 onBlur={()=>enterGuard.current.reset()}
                 onKeyDown={e=>{const action=enterGuard.current.key(e.nativeEvent);if(action==='send'||action==='block')e.preventDefault();if(action==='send')void send();}}
               />
-              <AttachmentMenu disabled={busy||!imageDraft.ready} processing={imageDraft.processing} scope={imageDraft.scope} onOpenChange={setAttachmentOpen} onChoose={(files,scope)=>void imageDraft.choose(files,text,scope)}/>
+              <AttachmentMenu disabled={busy||!imageDraft.ready} processing={imageDraft.processing} scope={imageDraft.scope} onOpenChange={setAttachmentOpen} onChoose={(files,scope)=>void imageDraft.choose(files,text,scope)} onSyncQq={()=>void manualQqSync()} qqSyncEnabled={!!conversation&&conversation.mode==='daily'&&!conversation.worldId&&!!localStorage.getItem('claudia-qq-stable-sync-id')} qqSyncBusy={qqManualSyncBusy}/>
               </div>
               <button
                 className={`primary chat-send ${busy ? "is-cancel" : ""}`}

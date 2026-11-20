@@ -26,11 +26,17 @@ Deno.serve(async req=>{
   .eq("id",body.bindingId).eq("user_id",auth.user.id).maybeSingle();
  if(lookupError)return json(500,{error:"binding_lookup_failed"});
  if(!binding)return json(404,{error:"binding_not_found"});
+ const after=body.after;
+ if(after!==undefined&&(!after||typeof after!=="object"||Array.isArray(after)||typeof after.at!=="string"||Number.isNaN(Date.parse(after.at))||typeof after.id!=="string"||!uuid.test(after.id)))return json(400,{error:"invalid_after"});
  const cursor=body.cursor;
  if(cursor!==undefined&&(!cursor||typeof cursor!=="object"||Array.isArray(cursor)||typeof cursor.at!=="string"||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(cursor.at)||Number.isNaN(Date.parse(cursor.at))||typeof cursor.id!=="string"||!uuid.test(cursor.id)))return json(400,{error:"invalid_cursor"});
  let query=db.from("claudia_qq_messages").select("id,external_message_id,direction,body,status,local_message_id,received_at")
   .eq("user_id",auth.user.id).eq("binding_id",binding.id).order("received_at",{ascending:false}).order("id",{ascending:false}).limit(101);
- if(cursor)query=query.or(`received_at.lt.${cursor.at},and(received_at.eq.${cursor.at},id.lt.${cursor.id})`);
+ // Combine both bounds with AND; chaining .or() would broaden the result set.
+ const bounds=[];
+ if(after)bounds.push(`or(received_at.gt.${after.at},and(received_at.eq.${after.at},id.gt.${after.id}))`);
+ if(cursor)bounds.push(`or(received_at.lt.${cursor.at},and(received_at.eq.${cursor.at},id.lt.${cursor.id}))`);
+ if(bounds.length)query=query.and(bounds.join(","));
  const {data,error}=await query;
  if(error)return json(500,{error:"sync_failed"});
  const rows=(data??[]).slice(0,100);

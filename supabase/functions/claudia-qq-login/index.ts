@@ -23,9 +23,30 @@ Deno.serve(async request=>{
  catch{return send(400,{error:"invalid_request"});}
  const action=body.action;
  if(action==="list-bindings"){
-  const {data,error}=await admin.from("claudia_qq_bindings").select("id,character_id,conversation_id,status,created_at,updated_at")
+  const {data,error}=await admin.from("claudia_qq_bindings").select("id,character_id,conversation_id,status,stable_sync_id,created_at,updated_at")
    .eq("user_id",auth.user.id).order("created_at",{ascending:false}).limit(100);
-  return error?send(500,{error:"binding_list_failed"}):send(200,{ok:true,bindings:data??[]});
+  if(error)return send(500,{error:"binding_list_failed"});
+  const rows=data??[];
+  const latest=await Promise.all(rows.map(async b=>{
+   if(b.status!=="connected")return {...b,last_message_at:null};
+   const {data:message,error:messageError}=await admin.from("claudia_qq_messages")
+    .select("received_at").eq("user_id",auth.user.id).eq("binding_id",b.id)
+    .or("direction.eq.inbound,and(direction.eq.outbound,status.eq.sent)")
+    .order("received_at",{ascending:false}).limit(1).maybeSingle();
+   if(messageError)throw Error("message_lookup_failed");
+   return {...b,last_message_at:message?.received_at??null};
+  })).catch(()=>null);
+  return latest?send(200,{ok:true,bindings:latest}):send(500,{error:"message_lookup_failed"});
+ }
+ if(action==="set-sync-id"){
+  if(typeof body.bindingId!=="string"||!uuid.test(body.bindingId)||
+     typeof body.syncId!=="string"||!/^[A-Za-z0-9_-]{6,64}$/.test(body.syncId))
+   return send(400,{error:"invalid_sync_id"});
+  const {data,error}=await admin.from("claudia_qq_bindings")
+   .update({stable_sync_id:body.syncId,updated_at:new Date().toISOString()})
+   .eq("id",body.bindingId).eq("user_id",auth.user.id).eq("status","connected")
+   .select("id,stable_sync_id").maybeSingle();
+  return error?send(500,{error:"sync_id_save_failed"}):!data?send(404,{error:"binding_not_found"}):send(200,{ok:true,binding:data});
  }
  if(action==="disconnect"){
   if(typeof body.bindingId!=="string"||!uuid.test(body.bindingId))return send(400,{error:"invalid_binding"});
@@ -54,7 +75,7 @@ Deno.serve(async request=>{
    if(typeof conversationId!=="string"||!conversationId||conversationId.length>128||
       typeof characterId!=="string"||!characterId||characterId.length>128)return send(400,{error:"invalid_daily_target"});
    const {data:existing}=await admin.from("claudia_qq_bindings").select("status").eq("user_id",auth.user.id).eq("conversation_id",conversationId).maybeSingle();
-   // Reauthorization is allowed for an existing owner-scoped binding. Keep the\n   // original binding and AI profile active until a fresh QR is confirmed.\n   // A failed or expired attempt must not revoke the previous credentials.
+   if(existing?.status==="connected")return send(409,{error:"already_connected"});
    const qr=await call("/qq/qr/start","POST");
    if(typeof qr.attemptId!=="string"||!uuid.test(qr.attemptId))return send(502,{error:"invalid_bridge_response"});
    const expiry=typeof qr.expiresAt==="string"?Date.parse(qr.expiresAt):NaN;

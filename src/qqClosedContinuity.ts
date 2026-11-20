@@ -2,7 +2,7 @@
  * execution while iOS closes the PWA; no cloud identity creation without opt-in.
  */
 import {db} from './store';
-import {listQqCloudBindings} from './qqQrLogin';
+import {listQqCloudBindings,newestQqBinding} from './qqQrLogin';
 import {syncQqDailyConversation} from './qqDailySync';
 import {buildContext} from './chatContext';
 import {syncQqContext,getQqAiStatus} from './qqAiAuthorization';
@@ -27,8 +27,13 @@ async function bootstrapExistingAuthorization(){
   for(const b of bindings.filter(b=>b.status==='connected')){
    if(localStorage.getItem(prefix+b.id)==='no')continue;
    if(getQqClosedContinuity(b.id))continue;
-   const status=await getQqAiStatus(b.id);
-   if(status.enabled)setQqClosedContinuity(b.id,true);
+   try {
+    const status=await getQqAiStatus(b.id);
+    if(status.enabled)setQqClosedContinuity(b.id,true);
+   } catch(error) {
+    // A stale QQ binding must not prevent healthy bindings from restoring.
+    console.warn('QQ 绑定授权检查失败，继续恢复其他绑定',b.id,error instanceof Error?error.message:'unknown');
+   }
   }
   bootstrapDone=true;
  })().finally(()=>{bootstrap=null;});
@@ -43,13 +48,27 @@ export function reconcileQqAfterReopen():Promise<void>{
    .some(key=>key?.startsWith(prefix)&&localStorage.getItem(key)==='yes');
   if(!optedIn)return;
   const bindings=await listQqCloudBindings();
-  for(const binding of bindings){
-   if(!getQqClosedContinuity(binding.id)||binding.status!=='connected')continue;
-   const conversation=await db.conversations.get(binding.conversation_id);
+  const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
+  const characterIds=new Set(bindings.filter(b=>b.status==='connected').map(b=>b.character_id));
+  for(const characterId of characterIds){
+   const candidates=bindings.filter(b=>b.status==='connected'&&b.character_id===characterId);
+   // Only the most recently messaged binding is eligible, even if an older one is confirmed.
+   const binding=newestQqBinding(candidates);
+   if(!binding||localStorage.getItem(prefix+binding.id)==='no')continue;
+   if(!getQqClosedContinuity(binding.id)){
+    try{const status=await getQqAiStatus(binding.id);
+     if(!status.enabled)continue;
+     setQqClosedContinuity(binding.id,true);
+    }catch{continue;}
+   }
+   const matched=!!stableId&&binding.stable_sync_id===stableId;
+   const conversation=matched
+    ?(await db.conversations.where('characterId').equals(binding.character_id).toArray()).find(c=>c.mode==='daily'&&!c.worldId)
+    :await db.conversations.get(binding.conversation_id);
    if(!conversation||conversation.mode!=='daily'||conversation.worldId||
       conversation.characterId!==binding.character_id)continue;
    try{
-    const added=await syncQqDailyConversation(conversation.id);
+    const added=await syncQqDailyConversation(conversation.id,binding.id);
     const dirtyKey='claudia-qq-context-dirty:'+binding.id;
     if(added>0)localStorage.setItem(dirtyKey,'yes');
     if(localStorage.getItem(dirtyKey)!=='yes')continue;
