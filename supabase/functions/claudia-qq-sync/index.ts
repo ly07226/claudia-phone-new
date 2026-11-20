@@ -32,8 +32,11 @@ Deno.serve(async req=>{
  if(cursor!==undefined&&(!cursor||typeof cursor!=="object"||Array.isArray(cursor)||typeof cursor.at!=="string"||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(cursor.at)||Number.isNaN(Date.parse(cursor.at))||typeof cursor.id!=="string"||!uuid.test(cursor.id)))return json(400,{error:"invalid_cursor"});
  let query=db.from("claudia_qq_messages").select("id,external_message_id,direction,body,status,local_message_id,received_at")
   .eq("user_id",auth.user.id).eq("binding_id",binding.id).order("received_at",{ascending:false}).order("id",{ascending:false}).limit(101);
- if(after)query=query.or(`received_at.gt.${after.at},and(received_at.eq.${after.at},id.gt.${after.id})`);
- if(cursor)query=query.or(`received_at.lt.${cursor.at},and(received_at.eq.${cursor.at},id.lt.${cursor.id})`);
+ // Combine both bounds with AND; chaining .or() would broaden the result set.
+ const bounds=[];
+ if(after)bounds.push(`or(received_at.gt.${after.at},and(received_at.eq.${after.at},id.gt.${after.id}))`);
+ if(cursor)bounds.push(`or(received_at.lt.${cursor.at},and(received_at.eq.${cursor.at},id.lt.${cursor.id}))`);
+ if(bounds.length)query=query.and(bounds.join(","));
  const {data,error}=await query;
  if(error)return json(500,{error:"sync_failed"});
  const rows=(data??[]).slice(0,100);
