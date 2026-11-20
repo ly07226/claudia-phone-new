@@ -22,7 +22,7 @@ export async function pollQqQr(attemptId:string):Promise<QqQrSession>{
 }
 export async function listQqCloudBindings(){
  const body=await request({action:'list-bindings'});
- return Array.isArray(body.bindings)?body.bindings as Array<{id:string;character_id:string;conversation_id:string;status:string;stable_sync_id?:string|null;created_at?:string}>:[];
+ return Array.isArray(body.bindings)?body.bindings as Array<{id:string;character_id:string;conversation_id:string;status:string;stable_sync_id?:string|null;created_at?:string;last_message_at?:string|null}>:[];
 }
 export async function disconnectQqCloudBinding(bindingId:string){
  await request({action:'disconnect',bindingId});
@@ -33,7 +33,7 @@ export async function setQqBindingSyncId(bindingId:string,syncId:string){
  await request({action:'set-sync-id',bindingId,syncId});
 }
 
-/** Latest created connected binding wins; preserve older bindings and their history. */
-export function newestQqBinding<T extends {id:string;created_at?:string}>(bindings:T[]):T|undefined{
- return [...bindings].sort((a,b)=>(b.created_at??'').localeCompare(a.created_at??'')||b.id.localeCompare(a.id))[0];
+/** Prefer the most recently active binding with a real message; fall back to creation time. */
+export function newestQqBinding<T extends {id:string;created_at?:string;last_message_at?:string|null}>(bindings:T[]):T|undefined{
+ return [...bindings].sort((a,b)=>Number(!!b.last_message_at)-Number(!!a.last_message_at)||(b.last_message_at??'').localeCompare(a.last_message_at??'')||(b.created_at??'').localeCompare(a.created_at??'')||b.id.localeCompare(a.id))[0];
 }
