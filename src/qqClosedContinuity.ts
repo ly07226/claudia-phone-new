@@ -66,6 +66,8 @@ export function reconcileQqAfterReopen():Promise<void>{
     const needsBackfill=matched&&localStorage.getItem(backfillKey)!=='done';
     const added=await syncQqDailyConversation(conversation.id,binding.id,needsBackfill);
     if(needsBackfill)localStorage.setItem(backfillKey,'done');
+    localStorage.removeItem('claudia-qq-auto-sync-error');
+    window.dispatchEvent(new CustomEvent('claudia-qq-auto-sync-status',{detail:{status:'ok',added}}));
     const dirtyKey='claudia-qq-context-dirty:'+binding.id;
     if(added>0)localStorage.setItem(dirtyKey,'yes');
     if(localStorage.getItem(dirtyKey)!=='yes')continue;
@@ -79,7 +81,12 @@ export function reconcileQqAfterReopen():Promise<void>{
       throw Error('QQ 有效上下文超过安全容量或缺少系统设定');
     await syncQqContext(binding.id,messages);
     localStorage.removeItem(dirtyKey);
-   }catch(e){console.warn('QQ 离线消息回填或记忆同步待重试',e instanceof Error?e.message:'unknown');}
+   }catch(e){
+    const reason=e instanceof Error?e.message:'unknown';
+    localStorage.setItem('claudia-qq-auto-sync-error',reason);
+    window.dispatchEvent(new CustomEvent('claudia-qq-auto-sync-status',{detail:{status:'error',reason}}));
+    console.warn('QQ 离线消息回填或记忆同步待重试',reason);
+   }
   }
  })().finally(()=>{pending=null;});
  return pending;
