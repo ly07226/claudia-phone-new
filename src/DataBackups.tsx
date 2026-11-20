@@ -44,6 +44,10 @@ export function DataBackups() {
       if(manifests.length!==1)throw new Error('ZIP 缺少唯一的备份清单。');
       const manifest=await zip.read(manifests[0],secret);
       const names=zip.names.filter(n=>n!=='wechat-identity.encrypted.json');
+      const parsed=JSON.parse(await manifest.text());
+      if(!Array.isArray(parsed.parts)||!parsed.parts.every((p:{name?:unknown})=>typeof p.name==='string'))throw new Error('ZIP 备份清单无效。');
+      const expected=[manifests[0],...parsed.parts.map((p:{name:string})=>p.name)];
+      if(expected.length!==names.length||new Set(expected).size!==expected.length||!expected.every(n=>names.includes(n)))throw new Error('ZIP 内存在缺失、重复或未知数据文件。');
       checked=await readBackup([manifest],{mode:'verify',password:secret,signal,onProgress:updateProgress,partNames:names,loadPart:n=>zip.read(n,secret)});
     }catch(e){throw withBackupPhase(e,'zip-verify');}
     finally{await zip.close();}
