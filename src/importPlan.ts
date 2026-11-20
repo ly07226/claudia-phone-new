@@ -9,7 +9,7 @@ import {readBackup,verifiedCandidate,eachBackupRow,sanitizeConfig,type Integrity
 import {bound,keep,digest,same,validate,openRestoreDatabase,exactSchema,type DatabaseDigest} from './restoreData';
 import {usableApi} from './apiSelection';
 import {messageFingerprint} from './timelines';
-import {openStreamingBackupZip} from './backupZip';
+import {openStreamingBackupZip,validateBackupZipIdentity} from './backupZip';
 export interface ImportOptions {
   mode:'overwrite'|'merge';apiReplace:boolean;story:boolean;desktop:boolean;identities:boolean;api:boolean;
   conflicts:'copy'|'skip';apiConflict:'copy'|'keep';identityConflict:'keep'|'replace';keys:'none'|'missing'|'replace';
@@ -223,7 +223,8 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
 export async function prepareZipImport(file:File,options:ImportOptions,{database=db,password,signal}: {database?:Dexie;password?:string;signal?:AbortSignal}={}):Promise<ImportPlan>{
   const zip=await openStreamingBackupZip(file,signal);
   try{
-    const manifests=zip.names.filter(n=>n.endsWith('.manifest.json'));
+    await validateBackupZipIdentity(zip,password);
+  const manifests=zip.names.filter(n=>n.endsWith('.manifest.json'));
     ensure(manifests.length===1,'ZIP 缺少唯一的备份清单。');
     const name=manifests[0];
     const manifest=await zip.read(name,password);
