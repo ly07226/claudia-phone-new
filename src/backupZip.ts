@@ -2,7 +2,7 @@ import {exportWechatIdentity,importWechatIdentity,inspectWechatIdentity} from '.
 import { BackupError, backupLimits, checkAbort, ensure, withBackupPhase } from "./backupFormat";
 import { createBackup, readBackup, type BackupExport, type BackupProgress } from "./backupService";
 import type { Entry, FileEntry } from "@zip.js/zip.js";
-export const zipLimits = { archiveBytes:1024*1024*1024, unpackedBytes:2*1024*1024*1024, entryBytes:8*1024*1024, entries:256, directoryBytes:256*1024, chunkBytes:256*1024, ratio:100 } as const;
+export const zipLimits = { archiveBytes:1024*1024*1024, unpackedBytes:2*1024*1024*1024, entryBytes:8*1024*1024, entries:1024, directoryBytes:1024*1024, chunkBytes:256*1024, ratio:1000 } as const;
 const infoName="backup-info.json";
 const wechatName="wechat-identity.encrypted.json";
 const options={useWebWorkers:false,useCompressionStream:false,chunkSize:zipLimits.chunkBytes};
