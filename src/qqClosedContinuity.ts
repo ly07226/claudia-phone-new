@@ -52,9 +52,8 @@ export function reconcileQqAfterReopen():Promise<void>{
   const characterIds=new Set(bindings.filter(b=>b.status==='connected').map(b=>b.character_id));
   for(const characterId of characterIds){
    const candidates=bindings.filter(b=>b.status==='connected'&&b.character_id===characterId);
-   const confirmed=candidates.filter(b=>!!stableId&&b.stable_sync_id===stableId);
-   // A stale authorized binding must not shadow a newer, active confirmed binding.
-   const binding=newestQqBinding(confirmed.length?confirmed:candidates);
+   // Only the most recently messaged binding is eligible, even if an older one is confirmed.
+   const binding=newestQqBinding(candidates);
    if(!binding||localStorage.getItem(prefix+binding.id)==='no')continue;
    if(!getQqClosedContinuity(binding.id)){
     try{const status=await getQqAiStatus(binding.id);
