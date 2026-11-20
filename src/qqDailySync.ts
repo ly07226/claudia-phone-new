@@ -54,12 +54,12 @@ export async function syncQqDailyConversation(conversationId:string,bindingId?:s
    .filter(m=>m.direction==='inbound'||m.direction==='outbound'&&m.status==='sent');
   if(ready.some(m=>!m.id||typeof m.body!=='string'||!Number.isFinite(Date.parse(m.received_at))))
    throw Error('QQ 消息格式错误');
-  const added=await db.transaction('rw',timelineTables(),async()=>{
+  const result=await db.transaction('rw',timelineTables(),async()=>{
    const c=await db.conversations.get(conversationId);
    if(!c||c.mode!=='daily'||c.worldId||c.characterId!==binding.character_id||
       c.activeTimelineId!==conversation.activeTimelineId||(c.timelineEpoch??0)!==(conversation.timelineEpoch??0))
      throw Error('QQ 回填期间聊天时间线已改变');
-   if(c.sendingToken&&c.sendingUntil&&c.sendingUntil>Date.now())return 0;
+   if(c.sendingToken&&c.sendingUntil&&c.sendingUntil>Date.now())return {added:0,committed:false};
    await ensureTimelineInTransaction(c.id);
    const existing=await activeMessages(c.id);
    const activeIds=new Set(existing.map(m=>m.id));
@@ -79,13 +79,14 @@ export async function syncQqDailyConversation(conversationId:string,bindingId?:s
     }
     additions.push(m);activeIds.add(id);
    }
-   if(!additions.length)return 0;
+   if(!additions.length)return {added:0,committed:true};
    await db.messages.bulkAdd(additions);
    if(variants.length)await db.messageVariants.bulkAdd(variants);
    await commitTimelineProjection(c.id,'append');
    await db.conversations.update(c.id,{updatedAt:Date.now()});
-   return additions.length;
+   return {added:additions.length,committed:true};
   });
+  if(!result.committed)return 0;
   // Do not advance past an unresolved outbound send: it may become sent later.
   // Failed rows are terminal and safe to skip. Checkpoint only after commit.
   const safe=firstPending<0?rows:rows.slice(0,firstPending);
@@ -95,6 +96,6 @@ export async function syncQqDailyConversation(conversationId:string,bindingId?:s
    if(!after||Date.parse(next.at)>Date.parse(after.at)||next.at===after.at&&next.id>after.id)
     localStorage.setItem(checkpointKey,JSON.stringify(next));
   }
-  return added;
+  return result.added;
  }finally{busy.delete(conversationId);}
 }
