@@ -30,7 +30,7 @@ export function DataBackups() {
   const updateProgress=(p:BackupProgress)=>{if(mounted.current)setProgress(`${p.phase} · ${p.records}条 · ${(p.bytes/1048576).toFixed(1)}MiB，请保持前台…`);};
   function exportData(){
     if(!confirm('请先关闭其他 Claudia Phone 标签页及主屏幕应用，只保留当前页面。是否已完成？'))return;
-    run('export-read',async signal=>{resetOutput();setSelected(null);await clearIncoming();usePhone.getState().set({assets:[]});const file=await createZipBackup({closedOtherClients:true,includeCredentials:false,credentialConsent:false,signal,onProgress:updateProgress,onWarning:message=>{if(mounted.current)setWarning(message);}});checkAbort(signal);if(!mounted.current)return;let address:string;try{address=URL.createObjectURL(file);}catch(e){throw withBackupPhase(e,'download');}url.current=address;setOutput({file,url:address});setProgress('备份文件已生成，尚未确认保存。请保存到“文件”，再重新选择该 ZIP 验证。');});
+    run('export-read',async signal=>{resetOutput();setSelected(null);await clearIncoming();usePhone.getState().set({assets:[]});const file=await createZipBackup({closedOtherClients:true,includeCredentials:true,credentialConsent:true,signal,onProgress:updateProgress,onWarning:message=>{if(mounted.current)setWarning(message);}});checkAbort(signal);if(!mounted.current)return;let address:string;try{address=URL.createObjectURL(file);}catch(e){throw withBackupPhase(e,'download');}url.current=address;setOutput({file,url:address});setProgress('备份文件已生成，尚未确认保存。请保存到“文件”，再重新选择该 ZIP 验证。');});
   }
   async function saveFile(){if(!output)return;try{
     if(navigator.canShare?.({files:[output.file]})){await navigator.share({files:[output.file],title:'Claudia Phone 备份'});setProgress('已交给系统处理。请确认保存到“文件”；分享完成不等于备份已验证。');}
@@ -61,7 +61,7 @@ export function DataBackups() {
     <button className="space-back" onClick={()=>{control.current?.abort();navigation.back();}}><ChevronLeft size={18}/>返回{navigation.parentName}</button>
     <div className="page-title"><h1>数据备份与恢复</h1><p>一份文件，妥善保存你的 Claudia Phone。</p></div>
     <section className="card form" aria-label="导出备份设置">
-      <p className="hint">直接导出单个 ZIP，无需设置密码。包含聊天、角色、世界、图片和 API 配置（不包含 API Key 等敏感凭据）。文件仅保存在你选择的位置，请妥善保管。</p>
+      <p className="hint">直接导出单个 ZIP，无需设置密码。包含聊天、角色、世界、图片、API 配置及 API Key。ZIP 不设密码，任何获得文件的人都能读取其中的聊天和密钥，请勿分享或上传至不可信位置。</p>
       <button className="primary" disabled={busy} onClick={()=>output?void saveFile():exportData()}><Download size={18}/>{busy?'正在处理…':output?'保存或分享备份':'导出备份'}</button>
       {output&&<><p className="backup-filename">{output.file.name} · {(output.file.size/1048576).toFixed(1)} MiB</p><a className="text-button backup-download" href={output.url} download={output.file.name}>直接下载 ZIP</a><button className="text-button" disabled={busy} onClick={exportData}>重新生成备份</button></>}
     </section>
