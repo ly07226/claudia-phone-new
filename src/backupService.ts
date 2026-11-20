@@ -154,7 +154,7 @@ export async function createBackup(options: {
   );
   ensure(
     !options.includeCredentials || options.credentialConsent,
-    "包含凭据必须经用户主动确认，且只能加密导出。",
+    "包含 API 凭据必须经用户主动确认。",
   );
   const release = acquireBackupGuard();
   const controller = new AbortController();
@@ -222,12 +222,12 @@ export async function createBackup(options: {
       tables: {} as BackupManifest["tables"],
       resources: [],
       parts: [],
-      credentials: options.includeCredentials ? "encrypted" : "excluded",
+      credentials: options.includeCredentials ? (options.password ? "encrypted" : "included") : "excluded",
       redactions: [],
     };
     let key: CryptoKey | undefined;
     let integrityKey: CryptoKey | undefined;
-    if (options.includeCredentials) {
+    if (options.includeCredentials && options.password) {
       phase='export-encrypt';
       const salt = crypto.getRandomValues(new Uint8Array(16));
       key = await deriveKey(options.password || "", salt);
@@ -326,7 +326,7 @@ export async function createBackup(options: {
                   "检测到仍在生成的会话，请关闭其他客户端并等待请求结束或超时后重试；不会清除生成锁。",
                 );
               let row =
-                table === "apiConfigs" && !key
+                table === "apiConfigs" && !options.includeCredentials
                   ? sanitizeConfig(original, m.redactions)
                   : original;
               if(!options.includeCredentials&&(table==='themes'||table==='conversations')&&row.dedicatedSummaryApi){row={...row,dedicatedSummaryApi:{...sanitizeConfig({...row.dedicatedSummaryApi,id:row.id},m.redactions),apiKey:''}};delete row.dedicatedSummaryApi.id;}
@@ -453,7 +453,7 @@ function validateManifest(input: any): asserts input is BackupManifest {
     "备份标识无效。",
   );
   ensure(
-    ["excluded", "encrypted"].includes(input.credentials),
+    ["excluded", "encrypted", "included"].includes(input.credentials),
     "凭据策略无效。",
   );
   ensure(
