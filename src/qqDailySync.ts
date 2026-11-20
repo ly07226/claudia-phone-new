@@ -66,15 +66,24 @@ export async function syncQqDailyConversation(conversationId:string,bindingId?:s
    const additions:Message[]=[];
    const variants:MessageVariant[]=[];
    for(const row of ready){
-    const id='qq:'+row.id;
+    const canonicalId='qq:'+row.id;
+    // Only a message visible on this active timeline counts as already synced.
+    // A canonical QQ row can exist on another timeline; never overwrite it.
+    if(activeIds.has(canonicalId))continue;
+    if(row.local_message_id&&activeIds.has(row.local_message_id))continue;
+    const canonical=await db.messages.get(canonicalId);
+    const id=canonical
+     ?'qq:'+row.id+':timeline:'+c.activeTimelineId
+     :canonicalId;
     if(activeIds.has(id))continue;
-    if(await db.messages.get(id))throw Error('QQ 消息已在其他聊天分支，暂停回填');
-    if(row.local_message_id&&await db.messages.get(row.local_message_id))continue;
+    // An existing timeline copy may belong to an inactive path: do not
+    // overwrite it or silently report it as visible.
+    if(await db.messages.get(id))throw Error('QQ 消息在当前时间线的其他历史路径中，暂停回填以避免覆盖');
     if(!row.body.trim())continue;
     const createdAt=Date.parse(row.received_at);
     const m:Message={id,conversationId:c.id,role:row.direction==='inbound'?'user':'assistant',content:row.body,createdAt};
     if(m.role==='assistant'){
-     m.activeVariantId='qq-variant:'+row.id;
+     m.activeVariantId='qq-variant:'+id;
      variants.push({id:m.activeVariantId,conversationId:c.id,messageId:id,content:m.content,source:'generated',createdAt});
     }
     additions.push(m);activeIds.add(id);

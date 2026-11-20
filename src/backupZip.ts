@@ -73,6 +73,15 @@ export async function openStreamingBackupZip(file:File,signal?:AbortSignal) {
     async close(){if(!closed){closed=true;await opened.reader.close();}}
   };
 }
+/** Verify optional encrypted identity attachment without importing or changing local credentials. */
+export async function validateBackupZipIdentity(zip:{version:number;names:string[];read:(name:string,password?:string)=>Promise<File>},password?:string){
+ const hasIdentity=zip.names.includes(wechatName);
+ ensure(zip.version===3?hasIdentity:!hasIdentity,'微信身份附件缺失或与备份版本不匹配。');
+ if(hasIdentity){
+  ensure(!!password,'请填写微信身份备份密码。');
+  await inspectWechatIdentity(await zip.read(wechatName,password),password);
+ }
+}
 export async function readBackupZip(file:File,password?:string,signal?:AbortSignal) {
   try{
     const value=await open(file,signal);
@@ -117,7 +126,8 @@ export async function packBackupZip(snapshot:BackupExport,password?:string,signa
 export async function createZipBackup(options:{closedOtherClients:boolean;includeCredentials?:boolean;credentialConsent?:boolean;database?:import("dexie").default;password?:string;signal?:AbortSignal;onProgress?:(p:BackupProgress)=>void;onWarning?:(message:string)=>void}) {
   if(typeof WritableStream!=='function'||typeof File!=='function'||typeof Blob!=='function')throw new BackupError('当前浏览器缺少 ZIP 所需的文件或流能力，请使用支持的 Safari 版本；没有省略任何数据。','CAPABILITY');
   // Never silently omit an existing WeChat cloud identity from a full encrypted backup.
-  const portableWechat=options.includeCredentials?await exportWechatIdentity(options.password||'').catch(e=>{if(e instanceof Error&&e.message==='本机没有微信 Supabase 配置。')return undefined;throw e;}):undefined;
+  const portableWechat=options.includeCredentials&&options.password?await exportWechatIdentity(options.password).catch(e=>{if(e instanceof Error&&e.message==='本机没有微信 Supabase 配置。')return undefined;throw e;}):undefined;
+  if(options.includeCredentials&&!options.password)options.onWarning?.('无密码 ZIP 包含 API Key，但不包含需独立加密的微信登录会话；微信登录身份不会被清除。');
   const snapshot=await createBackup({database:options.database,closedOtherClients:options.closedOtherClients,includeCredentials:options.includeCredentials,credentialConsent:options.credentialConsent,password:options.password,signal:options.signal,onProgress:options.onProgress});
   let completed:File|undefined;
   try{try{completed=await packBackupZip(snapshot,options.password,options.signal,options.onProgress,portableWechat);return completed;}catch(e){throw withBackupPhase(e,'zip-pack');}}

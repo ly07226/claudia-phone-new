@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, Download, FileCheck, ShieldCheck } from "lucide-react";
 import { usePhone } from "./store";
 import { LegacyBackups } from "./LegacyBackups";
-import { createZipBackup, inspectBackupZip, openStreamingBackupZip } from "./backupZip";
+import { createZipBackup, inspectBackupZip, openStreamingBackupZip, validateBackupZipIdentity } from "./backupZip";
 import { readBackup, type BackupProgress, type IntegrityReport } from "./backupService";
 import { checkAbort, publicBackupError, withBackupPhase, type BackupPhase } from "./backupFormat";
 export function DataBackups() {
@@ -40,6 +40,7 @@ export function DataBackups() {
     const zip=await openStreamingBackupZip(file,signal);
     let checked;
     try{
+      await validateBackupZipIdentity(zip,secret);
       const manifests=zip.names.filter(n=>n.endsWith('.manifest.json'));
       if(manifests.length!==1)throw new Error('ZIP 缺少唯一的备份清单。');
       const manifest=await zip.read(manifests[0],secret);
