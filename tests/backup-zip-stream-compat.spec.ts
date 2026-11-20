@@ -26,3 +26,16 @@ test('legacy ZIP v1 and compressed ZIP both rehearse through lazy isolated impor
  expect(result.previews).toHaveLength(2);
  expect(result.unchanged).toBe(true);
 });
+
+
+test('new backup screen exports one ZIP without a password setup step',async({page})=>{
+  await page.goto('/');
+  await expect(page.locator('.desktop')).toBeVisible();
+  await page.getByRole('button',{name:'桌面第2页',exact:true}).click();
+  await page.getByRole('button',{name:'设置',exact:true}).click();
+  await page.getByRole('button',{name:'数据备份与恢复',exact:true}).click();
+  await expect(page.getByRole('button',{name:'导出备份'})).toBeVisible();
+  await expect(page.getByLabel('备份加密密码')).toHaveCount(0);
+  await expect(page.getByLabel('加密保护')).toHaveCount(0);
+  await expect(page.getByText('单个 ZIP 上限 1024 MiB',{exact:false})).toBeVisible();
+});
