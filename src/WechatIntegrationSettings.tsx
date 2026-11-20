@@ -10,7 +10,7 @@ import {setQqClosedContinuity,reconcileQqAfterReopen} from './qqClosedContinuity
 import {authorizeWechatAi,disableWechatAi,deleteWechatAi,getWechatAiStatus} from './wechatAiAuthorization';
 import {db} from './store';
 import {startWechatLogin,pollWechatLogin} from './wechatQrLogin';
-import {startQqQr,pollQqQr,listQqCloudBindings,disconnectQqCloudBinding,setQqBindingSyncId,type QqQrSession} from './qqQrLogin';
+import {startQqQr,pollQqQr,listQqCloudBindings,disconnectQqCloudBinding,setQqBindingSyncId,newestQqBinding,type QqQrSession} from './qqQrLogin';
 import {listWechatCloudBindings} from './wechatCloudIdentity';
 import {syncWechatDailyConversation} from './wechatDailySync';
 import {clearWechatCloudConfig,readWechatCloudConfig,saveWechatCloudConfig} from './wechatCloudConfig';
@@ -51,8 +51,9 @@ export function WechatIntegrationSettings(){
   try{
    const rows=await listQqCloudBindings();
    const connected=rows.filter(b=>b.status==='connected'&&b.character_id===chosen.characterId);
-   if(connected.length!==1)throw Error(connected.length?'该角色存在多个 QQ 绑定，请先处理重复绑定':'该角色尚未连接 QQ，请先扫码');
-   await setQqBindingSyncId(connected[0].id,id);
+   const latest=newestQqBinding(connected);
+   if(!latest)throw Error('该角色尚未连接 QQ，请先扫码');
+   await setQqBindingSyncId(latest.id,id);
    localStorage.setItem('claudia-qq-stable-sync-id',id);
    setQqSyncId(id);setQqConfirmed(true);
    await loadQq();
