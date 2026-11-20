@@ -14,7 +14,7 @@ export async function syncQqDailyConversation(conversationId:string,bindingId?:s
  busy.add(conversationId);
  try{
   const conversation=await db.conversations.get(conversationId);
-  if(!conversation||conversation.mode!=='daily'||conversation.worldId)return 0;
+  if(!conversation||conversation.mode!=='daily'||conversation.worldId)throw Error('当前不是可同步的日常聊天');
   const bindings=await listQqCloudBindings();
   const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
   const candidates=bindings.filter(b=>b.status==='connected'&&b.character_id===conversation.characterId);
@@ -23,7 +23,7 @@ export async function syncQqDailyConversation(conversationId:string,bindingId?:s
   const binding=selected&&(!bindingId||selected.id===bindingId)&&
    (selected.conversation_id===conversationId||
     !!stableId&&selected.stable_sync_id===stableId)?selected:undefined;
-  if(!binding)return 0;
+  if(!binding)throw Error('QQ 绑定与当前聊天不匹配，请核对固定用户 ID 和角色');
   const checkpointKey='claudia-qq-sync-checkpoint:'+binding.id+':'+conversationId;
   const stored=localStorage.getItem(checkpointKey);
   let after:{at:string;id:string}|undefined;
