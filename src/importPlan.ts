@@ -228,6 +228,10 @@ export async function prepareZipImport(file:File,options:ImportOptions,{database
     const name=manifests[0];
     const manifest=await zip.read(name,password);
     const names=zip.names.filter(n=>n!=='wechat-identity.encrypted.json');
+    const parsed=JSON.parse(await manifest.text());
+    ensure(Array.isArray(parsed.parts),'ZIP 备份清单缺少分块列表。');
+    const expected=[name,...parsed.parts.map((p:{name:string})=>p.name)];
+    ensure(expected.length===names.length&&new Set(expected).size===expected.length&&expected.every(n=>names.includes(n)),'ZIP 备份条目缺失、重复或含有未知文件。');
     return await prepareImport([manifest],options,{database,password,signal,partNames:names,loadPart:n=>zip.read(n,password)});
   }finally{await zip.close();}
 }
