@@ -44,9 +44,6 @@ export function reconcileQqAfterReopen():Promise<void>{
  pending=(async()=>{
   if(document.visibilityState!=='visible'||!navigator.onLine)return;
   await bootstrapExistingAuthorization();
-  const optedIn=Array.from({length:localStorage.length},(_,i)=>localStorage.key(i))
-   .some(key=>key?.startsWith(prefix)&&localStorage.getItem(key)==='yes');
-  if(!optedIn)return;
   const bindings=await listQqCloudBindings();
   const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
   const characterIds=new Set(bindings.filter(b=>b.status==='connected').map(b=>b.character_id));
@@ -55,20 +52,20 @@ export function reconcileQqAfterReopen():Promise<void>{
    // Only the most recently messaged binding is eligible, even if an older one is confirmed.
    const binding=newestQqBinding(candidates);
    if(!binding||localStorage.getItem(prefix+binding.id)==='no')continue;
-   if(!getQqClosedContinuity(binding.id)){
-    try{const status=await getQqAiStatus(binding.id);
-     if(!status.enabled)continue;
-     setQqClosedContinuity(binding.id,true);
-    }catch{continue;}
-   }
    const matched=!!stableId&&binding.stable_sync_id===stableId;
+   // Confirmed account identity is sufficient for cloud history recovery.
+   // Cloud AI authorization controls reply generation, not readback.
+   if(!matched&&!getQqClosedContinuity(binding.id))continue;
    const conversation=matched
     ?(await db.conversations.where('characterId').equals(binding.character_id).toArray()).find(c=>c.mode==='daily'&&!c.worldId)
     :await db.conversations.get(binding.conversation_id);
    if(!conversation||conversation.mode!=='daily'||conversation.worldId||
       conversation.characterId!==binding.character_id)continue;
    try{
-    const added=await syncQqDailyConversation(conversation.id,binding.id);
+    const backfillKey='claudia-qq-auto-backfill:'+binding.id+':'+conversation.id;
+    const needsBackfill=matched&&localStorage.getItem(backfillKey)!=='done';
+    const added=await syncQqDailyConversation(conversation.id,binding.id,needsBackfill);
+    if(needsBackfill)localStorage.setItem(backfillKey,'done');
     const dirtyKey='claudia-qq-context-dirty:'+binding.id;
     if(added>0)localStorage.setItem(dirtyKey,'yes');
     if(localStorage.getItem(dirtyKey)!=='yes')continue;
