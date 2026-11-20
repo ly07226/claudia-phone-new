@@ -576,7 +576,7 @@ export interface IntegrityReport {
   parts: number;
   resources: number;
   warnings: string[];
-  credentials: "excluded" | "encrypted";
+  credentials: "excluded" | "encrypted" | "included";
   redactedConfigs: number;
   recordDigestsMatch: true;
   referencesValid: true;
@@ -1132,7 +1132,7 @@ export async function validateReferences(
     "apiCredentials",
     async (x) => {
       if (
-        m.credentials !== "encrypted" ||
+        m.credentials === "excluded" ||
         typeof x.apiKey !== "string" ||
         !(await exists("apiConfigs", x.configId))
       )
