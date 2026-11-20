@@ -41,7 +41,24 @@ export async function validateTimelineDatabase(d:Dexie) {
     await d.table("messages").where("conversationId").equals(c.id).each(m=>{if(!m.archived)projection.push({id:m.id,createdAt:m.createdAt});});
     projection.sort((a,b)=>a.createdAt-b.createdAt||(a.id<b.id?-1:a.id>b.id?1:0));
     if(projection.length!==immutable.length)fail();
-    for(let i=0;i<projection.length;i++){let m=await d.table("messages").get(projection[i].id);if(!m)fail();if(m.role==="assistant"&&m.activeVariantId){const v=await d.table("messageVariants").get(m.activeVariantId);if(!v||v.conversationId!==c.id||v.messageId!==m.id)fail();m={...m,content:v.content,userEdited:v.userEdited};}if(await messageFingerprint(m)!==immutable[i].fingerprint)fail();}
+    // Read message bodies in bounded batches instead of one IndexedDB request per message.
+    // This reduces transaction churn on mobile browsers without loading the whole history.
+    for(let start=0;start<projection.length;start+=64){
+      const batch=projection.slice(start,start+64);
+      const messages=await d.table("messages").bulkGet(batch.map(row=>row.id));
+      const variantIds=messages.filter(m=>m?.role==="assistant"&&m.activeVariantId).map(m=>m.activeVariantId as string);
+      const variants=variantIds.length?await d.table("messageVariants").bulkGet(variantIds):[];
+      const byVariant=new Map(variantIds.map((id,i)=>[id,variants[i]]));
+      for(let j=0;j<batch.length;j++){
+        let m=messages[j];if(!m)fail();
+        if(m.role==="assistant"&&m.activeVariantId){
+          const v=byVariant.get(m.activeVariantId);
+          if(!v||v.conversationId!==c.id||v.messageId!==m.id)fail();
+          m={...m,content:v.content,userEdited:v.userEdited};
+        }
+        if(await messageFingerprint(m)!==immutable[start+j].fingerprint)fail();
+      }
+    }
   }
   await each(d,"conversationSnapshots",async s=>{if(!s.timelineId)return;const t=timelines.get(s.timelineId);if(!t||t.conversationId!==s.conversationId||s.timelineEpoch!==t.epoch)fail();if(s.headNodeId&&!path(t!.headNodeId,s.conversationId).some(n=>n.id===s.headNodeId))fail();const saved=path(s.headNodeId,s.conversationId);if(saved.length!==s.messages.length)fail();for(let i=0;i<saved.length;i++)if(saved[i].fingerprint!==await messageFingerprint(s.messages[i]))fail();});
 }
