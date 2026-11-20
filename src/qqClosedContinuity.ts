@@ -53,7 +53,7 @@ export function reconcileQqAfterReopen():Promise<void>{
    const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
    const matched=!!stableId&&binding.stable_sync_id===stableId;
    const conversation=matched
-    ?await db.conversations.where('scopeKey').equals(JSON.stringify([binding.character_id,'daily',''])).first()
+    ?(await db.conversations.where('characterId').equals(binding.character_id).toArray()).find(c=>c.mode==='daily'&&!c.worldId)
     :await db.conversations.get(binding.conversation_id);
    if(!conversation||conversation.mode!=='daily'||conversation.worldId||
       conversation.characterId!==binding.character_id)continue;
