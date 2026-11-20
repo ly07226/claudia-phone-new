@@ -63,7 +63,7 @@ export function WechatIntegrationSettings(){
   finally{setQqBusy(false);}
  };
 
- const [qqBindings,setQqBindings]=useState<Array<{id:string;character_id:string;conversation_id:string;status:string;stable_sync_id?:string|null}>>([]);
+ const [qqBindings,setQqBindings]=useState<Array<{id:string;character_id:string;conversation_id:string;status:string;stable_sync_id?:string|null;created_at?:string;last_message_at?:string|null}>>([]);
  const loadQq=async()=>{try{setQqBindings(await listQqCloudBindings());}catch(e){setQqNotice(e instanceof Error?e.message:'QQ 绑定查询失败');}};
  useEffect(()=>{if(section==='qq'){void loadQq();void Promise.all([db.conversations.toArray(),db.characters.toArray()]).then(([rows,chars])=>{const names=new Map(chars.map(c=>[c.id,c.name]));const list=rows.filter(c=>c.mode==='daily'&&!c.worldId).map(c=>({id:c.id,characterId:c.characterId,characterName:names.get(c.characterId)||'未命名角色'}));setDaily(list);setQqTarget(current=>list.some(c=>c.id===current)?current:list[0]?.id||'');}).catch(()=>setQqNotice('读取日常角色失败'));}},[section]);
  useEffect(()=>{
