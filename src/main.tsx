@@ -520,6 +520,14 @@ function App() {
                   </button>
                   <button
                     className="list-row"
+                    onClick={() => window.location.assign("/ble-connection-lab.html")}
+                  >
+                    <Wifi />
+                    蓝牙连接（实验功能）
+                    <ArrowRight size={17} />
+                  </button>
+                  <button
+                    className="list-row"
                     onClick={() => openPhoneApp("主题编辑器")}
                   >
                     <Palette />
