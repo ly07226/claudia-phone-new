@@ -55,6 +55,24 @@ function zipError(e:unknown,signal?:AbortSignal):BackupError {
   if(e instanceof Error&&['Invalid password','Invalid signature','Invalid CRC32'].includes(e.message))return new BackupError(e.message==='Invalid CRC32'?'ZIP 内容校验失败，文件可能不完整或已被修改；未执行恢复。':'加密 ZIP 密码校验或认证未通过，无法区分密码错误与文件损坏；未执行恢复。','ZIP_INTEGRITY');
   return withBackupPhase(e,'zip-read');
 }
+/** Lazily extracts one ZIP member at a time. Compatible with historical ZIP versions 1–3.
+ * Call close() in finally; no extracted members are retained by this reader. */
+export async function openStreamingBackupZip(file:File,signal?:AbortSignal) {
+  const opened=await open(file,signal);
+  const entries=new Map(opened.entries.map(e=>[e.filename,e]));
+  let closed=false;
+  return {
+    version:opened.info.version,
+    names:[...entries.keys()],
+    async read(name:string,password?:string) {
+      ensure(!closed,'ZIP 读取器已关闭。');
+      const entry=entries.get(name);
+      ensure(!!entry,'ZIP 内缺少请求的数据文件。');
+      return extract(entry,password,signal);
+    },
+    async close(){if(!closed){closed=true;await opened.reader.close();}}
+  };
+}
 export async function readBackupZip(file:File,password?:string,signal?:AbortSignal) {
   try{
     const value=await open(file,signal);
