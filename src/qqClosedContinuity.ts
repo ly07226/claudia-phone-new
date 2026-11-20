@@ -2,7 +2,7 @@
  * execution while iOS closes the PWA; no cloud identity creation without opt-in.
  */
 import {db} from './store';
-import {listQqCloudBindings} from './qqQrLogin';
+import {listQqCloudBindings,newestQqBinding} from './qqQrLogin';
 import {syncQqDailyConversation} from './qqDailySync';
 import {buildContext} from './chatContext';
 import {syncQqContext,getQqAiStatus} from './qqAiAuthorization';
@@ -50,6 +50,8 @@ export function reconcileQqAfterReopen():Promise<void>{
   const bindings=await listQqCloudBindings();
   for(const binding of bindings){
    if(!getQqClosedContinuity(binding.id)||binding.status!=='connected')continue;
+   const latest=newestQqBinding(bindings.filter(b=>b.status==='connected'&&b.character_id===binding.character_id));
+   if(latest?.id!==binding.id)continue;
    const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
    const matched=!!stableId&&binding.stable_sync_id===stableId;
    const conversation=matched
