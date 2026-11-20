@@ -3,7 +3,7 @@
  */
 import {db} from './store';
 import {wechatCloudFunctionRequest} from './wechatCloudIdentity';
-import {listQqCloudBindings} from './qqQrLogin';
+import {listQqCloudBindings,newestQqBinding} from './qqQrLogin';
 import {activeMessages} from './messagePath';
 import {timelineTables,ensureTimelineInTransaction,commitTimelineProjection} from './timelines';
 import type {Message,MessageVariant} from './chatTypes';
@@ -17,10 +17,12 @@ export async function syncQqDailyConversation(conversationId:string,bindingId?:s
   if(!conversation||conversation.mode!=='daily'||conversation.worldId)return 0;
   const bindings=await listQqCloudBindings();
   const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
-  const binding=bindings.find(b=>b.status==='connected'&&
-   (!bindingId||b.id===bindingId)&&b.character_id===conversation.characterId&&
-   (b.conversation_id===conversationId||
-    !!stableId&&b.stable_sync_id===stableId));
+  const candidates=bindings.filter(b=>b.status==='connected'&&b.character_id===conversation.characterId);
+  const selected=newestQqBinding(candidates);
+  // Never import a stale binding just because it shares the same character.
+  const binding=selected&&(!bindingId||selected.id===bindingId)&&
+   (selected.conversation_id===conversationId||
+    !!stableId&&selected.stable_sync_id===stableId)?selected:undefined;
   if(!binding)return 0;
   const pages:Row[][]=[];
   let cursor:{at:string;id:string}|undefined;
