@@ -25,7 +25,18 @@ Deno.serve(async request=>{
  if(action==="list-bindings"){
   const {data,error}=await admin.from("claudia_qq_bindings").select("id,character_id,conversation_id,status,stable_sync_id,created_at,updated_at")
    .eq("user_id",auth.user.id).order("created_at",{ascending:false}).limit(100);
-  return error?send(500,{error:"binding_list_failed"}):send(200,{ok:true,bindings:data??[]});
+  if(error)return send(500,{error:"binding_list_failed"});
+  const rows=data??[];
+  const latest=await Promise.all(rows.map(async b=>{
+   if(b.status!=="connected")return {...b,last_message_at:null};
+   const {data:message,error:messageError}=await admin.from("claudia_qq_messages")
+    .select("received_at").eq("user_id",auth.user.id).eq("binding_id",b.id)
+    .or("direction.eq.inbound,and(direction.eq.outbound,status.eq.sent)")
+    .order("received_at",{ascending:false}).limit(1).maybeSingle();
+   if(messageError)throw Error("message_lookup_failed");
+   return {...b,last_message_at:message?.received_at??null};
+  })).catch(()=>null);
+  return latest?send(200,{ok:true,bindings:latest}):send(500,{error:"message_lookup_failed"});
  }
  if(action==="set-sync-id"){
   if(typeof body.bindingId!=="string"||!uuid.test(body.bindingId)||
