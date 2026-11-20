@@ -1,4 +1,4 @@
-/** QQ -> existing daily timeline. Fetches latest 100 messages and merges idempotently.
+/** QQ -> existing daily timeline. Backfills once, then reads only messages newer than the committed checkpoint.
  * Never imports a failed or unsent AI reply; never alters a story/world timeline.
  */
 import {db} from './store';
@@ -24,13 +24,17 @@ export async function syncQqDailyConversation(conversationId:string,bindingId?:s
    (selected.conversation_id===conversationId||
     !!stableId&&selected.stable_sync_id===stableId)?selected:undefined;
   if(!binding)return 0;
+  const checkpointKey='claudia-qq-sync-checkpoint:'+binding.id+':'+conversationId;
+  const stored=localStorage.getItem(checkpointKey);
+  let after:{at:string;id:string}|undefined;
+  if(stored){try{const value=JSON.parse(stored);if(typeof value.at==='string'&&typeof value.id==='string')after=value;}catch{/* Restart full recovery on corrupt checkpoint. */}}
   const pages:Row[][]=[];
   let cursor:{at:string;id:string}|undefined;
   let completed=false;
   // Fetch older pages first, then commit all at once. Never partially import a
   // truncated history or advance an implicit cursor past pending sends.
   for(let n=0;n<30;n++){
-   const response=await wechatCloudFunctionRequest('claudia-qq-sync',{bindingId:binding.id,...(cursor?{cursor}:{})});
+   const response=await wechatCloudFunctionRequest('claudia-qq-sync',{bindingId:binding.id,...(after?{after}:{}),...(cursor?{cursor}:{})});
    if(!response.ok)throw Error('QQ 云端消息读取失败：'+response.status);
    const page=await response.json() as {ok?:boolean;binding?:{conversationId:string;characterId:string;status:string};messages?:Row[];hasMore?:boolean;nextCursor?:{at:string;id:string}|null};
    if(!page.ok||page.binding?.conversationId!==binding.conversation_id||page.binding?.characterId!==conversation.characterId||
@@ -50,7 +54,7 @@ export async function syncQqDailyConversation(conversationId:string,bindingId?:s
    .filter(m=>m.direction==='inbound'||m.direction==='outbound'&&m.status==='sent');
   if(ready.some(m=>!m.id||typeof m.body!=='string'||!Number.isFinite(Date.parse(m.received_at))))
    throw Error('QQ 消息格式错误');
-  return db.transaction('rw',timelineTables(),async()=>{
+  const added=await db.transaction('rw',timelineTables(),async()=>{
    const c=await db.conversations.get(conversationId);
    if(!c||c.mode!=='daily'||c.worldId||c.characterId!==binding.character_id||
       c.activeTimelineId!==conversation.activeTimelineId||(c.timelineEpoch??0)!==(conversation.timelineEpoch??0))
@@ -82,5 +86,15 @@ export async function syncQqDailyConversation(conversationId:string,bindingId?:s
    await db.conversations.update(c.id,{updatedAt:Date.now()});
    return additions.length;
   });
+  // Do not advance past an unresolved outbound send: it may become sent later.
+  // Failed rows are terminal and safe to skip. Checkpoint only after commit.
+  const safe=firstPending<0?rows:rows.slice(0,firstPending);
+  const newest=safe.at(-1);
+  if(newest){
+   const next={at:newest.received_at,id:newest.id};
+   if(!after||Date.parse(next.at)>Date.parse(after.at)||next.at===after.at&&next.id>after.id)
+    localStorage.setItem(checkpointKey,JSON.stringify(next));
+  }
+  return added;
  }finally{busy.delete(conversationId);}
 }
