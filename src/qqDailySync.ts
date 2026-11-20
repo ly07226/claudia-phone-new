@@ -9,14 +9,18 @@ import {timelineTables,ensureTimelineInTransaction,commitTimelineProjection} fro
 import type {Message,MessageVariant} from './chatTypes';
 type Row={id:string;direction:string;status:string;body:string;received_at:string;local_message_id:string|null};
 const busy=new Set<string>();
-export async function syncQqDailyConversation(conversationId:string):Promise<number>{
+export async function syncQqDailyConversation(conversationId:string,bindingId?:string):Promise<number>{
  if(busy.has(conversationId))return 0;
  busy.add(conversationId);
  try{
   const conversation=await db.conversations.get(conversationId);
   if(!conversation||conversation.mode!=='daily'||conversation.worldId)return 0;
   const bindings=await listQqCloudBindings();
-  const binding=bindings.find(b=>b.status==='connected'&&b.conversation_id===conversationId&&b.character_id===conversation.characterId);
+  const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
+  const binding=bindings.find(b=>b.status==='connected'&&
+   (!bindingId||b.id===bindingId)&&b.character_id===conversation.characterId&&
+   (b.conversation_id===conversationId||
+    !!stableId&&b.stable_sync_id===stableId));
   if(!binding)return 0;
   const pages:Row[][]=[];
   let cursor:{at:string;id:string}|undefined;
@@ -27,7 +31,7 @@ export async function syncQqDailyConversation(conversationId:string):Promise<num
    const response=await wechatCloudFunctionRequest('claudia-qq-sync',{bindingId:binding.id,...(cursor?{cursor}:{})});
    if(!response.ok)throw Error('QQ 云端消息读取失败：'+response.status);
    const page=await response.json() as {ok?:boolean;binding?:{conversationId:string;characterId:string;status:string};messages?:Row[];hasMore?:boolean;nextCursor?:{at:string;id:string}|null};
-   if(!page.ok||page.binding?.conversationId!==conversationId||page.binding?.characterId!==conversation.characterId||
+   if(!page.ok||page.binding?.conversationId!==binding.conversation_id||page.binding?.characterId!==conversation.characterId||
       page.binding?.status!=='connected'||!Array.isArray(page.messages))throw Error('QQ 云端消息校验失败');
    pages.unshift(page.messages);
    if(!page.hasMore){completed=true;break;}
