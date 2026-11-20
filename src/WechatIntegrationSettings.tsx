@@ -502,8 +502,6 @@ export function WechatIntegrationSettings(){
    <label>固定用户 ID<input value={qqSyncDraft} onChange={e=>setQqSyncDraft(e.target.value)} placeholder="填写长期不变的用户 ID" autoComplete="off"/></label>
    <button type="button" disabled={qqBusy} onClick={saveQqSyncId}>保存用户 ID</button>
    {qqSyncId&&<p>当前用户 ID：{qqSyncId}</p>}
- value={qqTarget} onChange={e=>setQqTarget(e.target.value)}>{daily.map(c=><option key={c.id} value={c.id}>{c.characterName}</option>)}</select></label>
-   <p role="status">绑定状态：{qqConfirmed?'已绑定（持续有效）':'未确认绑定'}</p>
    <label>绑定到日常角色<select value={qqTarget} onChange={e=>setQqTarget(e.target.value)}>{daily.map(c=><option key={c.id} value={c.id}>{c.characterName}</option>)}</select></label>
    <button type="button" disabled={qqBusy||!qqSyncDraft.trim()} onClick={()=>void confirmQqBinding()}>{qqBusy?'确认中…':'确认绑定'}</button>
    <p role="status">绑定状态：{qqConfirmed?'已绑定（持续有效）':'未确认绑定'}</p>
