@@ -94,7 +94,7 @@ export async function readBackupZip(file:File,password?:string,signal?:AbortSign
 }
 export async function packBackupZip(snapshot:BackupExport,password?:string,signal?:AbortSignal,onProgress?:(p:BackupProgress)=>void,portableWechat?:Blob) {
   if(password!==undefined)ensure(password.length>=12&&password.length<=1024,"加密密码需12–1024个字符。");
-  ensure(snapshot.manifest.credentials==='excluded'||(!!password&&!!snapshot.manifest.encryption),"包含 API 密钥必须使用加密备份，拒绝生成明文 ZIP。");
+  ensure(snapshot.manifest.credentials!=='encrypted'||(!!password&&!!snapshot.manifest.encryption),"加密备份缺少必要的解密凭据。");
   const manifest=new Blob([JSON.stringify(snapshot.manifest)],{type:'application/json'});
   ensure(manifest.size<=backupLimits.manifestBytes&&snapshot.manifest.parts.length+2+(portableWechat?1:0)<=zipLimits.entries,"备份信息超过单文件安全限制，请使用原格式工具。");
   // The archive ceiling applies to the compressed output, not the uncompressed input.
