@@ -22,8 +22,13 @@ export async function pollQqQr(attemptId:string):Promise<QqQrSession>{
 }
 export async function listQqCloudBindings(){
  const body=await request({action:'list-bindings'});
- return Array.isArray(body.bindings)?body.bindings as Array<{id:string;character_id:string;conversation_id:string;status:string}>:[];
+ return Array.isArray(body.bindings)?body.bindings as Array<{id:string;character_id:string;conversation_id:string;status:string;stable_sync_id?:string|null}>:[];
 }
 export async function disconnectQqCloudBinding(bindingId:string){
  await request({action:'disconnect',bindingId});
+}
+
+/** Bind a stable display ID to an existing owner-authenticated QQ binding. */
+export async function setQqBindingSyncId(bindingId:string,syncId:string){
+ await request({action:'set-sync-id',bindingId,syncId});
 }
