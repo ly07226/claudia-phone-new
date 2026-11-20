@@ -56,15 +56,20 @@ export async function syncQqDailyConversation(conversationId:string):Promise<num
    const additions:Message[]=[];
    const variants:MessageVariant[]=[];
    for(const row of ready){
-    const id='qq:'+row.id;
+    const canonicalId='qq:'+row.id;
+    // A previously imported QQ row may belong to a different timeline. Keep that
+    // original untouched, and give this active timeline its own stable copy.
+    const id=await db.messages.get(canonicalId)
+     ? 'qq:'+row.id+':timeline:'+c.activeTimelineId
+     : canonicalId;
     if(activeIds.has(id))continue;
-    if(await db.messages.get(id))throw Error('QQ 消息已在其他聊天分支，暂停回填');
+    if(await db.messages.get(id))continue;
     if(row.local_message_id&&await db.messages.get(row.local_message_id))continue;
     if(!row.body.trim())continue;
     const createdAt=Date.parse(row.received_at);
     const m:Message={id,conversationId:c.id,role:row.direction==='inbound'?'user':'assistant',content:row.body,createdAt};
     if(m.role==='assistant'){
-     m.activeVariantId='qq-variant:'+row.id;
+     m.activeVariantId='qq-variant:'+id;
      variants.push({id:m.activeVariantId,conversationId:c.id,messageId:id,content:m.content,source:'generated',createdAt});
     }
     additions.push(m);activeIds.add(id);
