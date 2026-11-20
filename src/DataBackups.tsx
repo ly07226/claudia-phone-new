@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, Download, FileCheck, ShieldCheck } from "lucide-react";
 import { usePhone } from "./store";
 import { LegacyBackups } from "./LegacyBackups";
-import { createZipBackup, inspectBackupZip, readBackupZip } from "./backupZip";
+import { createZipBackup, inspectBackupZip, openStreamingBackupZip } from "./backupZip";
 import { readBackup, type BackupProgress, type IntegrityReport } from "./backupService";
 import { checkAbort, publicBackupError, withBackupPhase, type BackupPhase } from "./backupFormat";
 export function DataBackups() {
@@ -38,7 +38,21 @@ export function DataBackups() {
     if(navigator.canShare?.({files:[output.file]})){await navigator.share({files:[output.file],title:'Claudia Phone 备份'});setProgress('已交给系统处理。请确认保存到“文件”；分享完成不等于备份已验证。');}
     else {const a=document.createElement('a');a.href=output.url;a.download=output.file.name;document.body.append(a);a.click();a.remove();setProgress('已请求系统下载。请确认文件实际保存，并重新选择 ZIP 验证。');}
   }catch(e){setError(publicBackupError(e,'share')+' 可再次保存或使用“直接下载 ZIP”；不会重新生成备份。');}}
-  async function verify(file:File,secret:string|undefined,signal:AbortSignal){const files=await readBackupZip(file,secret,signal);let checked;try{checked=await readBackup(files,{mode:'verify',password:secret,signal,onProgress:updateProgress});}catch(e){throw withBackupPhase(e,'zip-verify');}await checked.dispose();checkAbort(signal);if(!mounted.current)return;verifiedFiles.current=files;innerPassword.current=checked.report.credentials==='encrypted'?(secret??''):'';setReport(checked.report);setProgress('备份验证成功，尚未恢复到当前手机。');}
+  async function verify(file:File,secret:string|undefined,signal:AbortSignal){
+    const zip=await openStreamingBackupZip(file,signal);
+    let checked;
+    try{
+      const manifests=zip.names.filter(n=>n.endsWith('.manifest.json'));
+      if(manifests.length!==1)throw new Error('ZIP 缺少唯一的备份清单。');
+      const manifest=await zip.read(manifests[0],secret);
+      const names=zip.names.filter(n=>n!=='wechat-identity.encrypted.json');
+      checked=await readBackup([manifest],{mode:'verify',password:secret,signal,onProgress:updateProgress,partNames:names,loadPart:n=>zip.read(n,secret)});
+    }catch(e){throw withBackupPhase(e,'zip-verify');}
+    finally{await zip.close();}
+    await checked.dispose();checkAbort(signal);if(!mounted.current)return;
+    verifiedFiles.current=[];innerPassword.current=checked.report.credentials==='encrypted'?(secret??''):'';
+    setReport(checked.report);setProgress('备份验证成功，尚未恢复到当前手机。');
+  }
   function selectFile(file:File){run('zip-read',async signal=>{resetOutput();setSelected(file);setLocked(false);await clearIncoming();const header=await inspectBackupZip(file,signal);checkAbort(signal);if(!mounted.current)return;setLocked(header.encrypted);setArchiveVersion(header.version);if(header.encrypted)setProgress('这份备份已加密，请输入密码验证。');else await verify(file,undefined,signal);});}
   if(legacy)return <LegacyBackups onBack={()=>{setLegacy(false);setProgress('');setError('');}}/>;
   return <main className="space-selection"><div className="space-select-shell backup-page backup-simple">
@@ -60,7 +74,7 @@ export function DataBackups() {
     {busy&&<button className="text-button" onClick={()=>control.current?.abort()}>取消当前操作</button>}
     {warning&&<p role="note" className="space-notice">{warning}</p>}{progress&&<p role="status" className="space-notice">{progress}</p>}{error&&<p role="alert" className="space-notice">{error}</p>}
     {report&&<section className="card backup-report" aria-label="校验报告"><h2><ShieldCheck size={18}/>备份已验证</h2><p>备份日期：{new Date(report.snapshotCompletedAt).toLocaleString()}</p><p>已核对 {report.totalRecords} 条记录、{report.resources} 个图片资源。角色 {report.counts.characters??0}，日常可见好友 {report.dailyVisibleCharacters??0}，会话 {report.counts.conversations??0}，消息 {report.counts.messages??0}，世界 {report.counts.worlds??0}，世界书 {report.counts.lorebooks??0}，用户身份 {report.identities??0}，API 配置 {report.counts.apiConfigs??0}，时间线 {report.counts.timelines??0}。</p><p>数据范围：聊天与版本、角色、世界、世界书、桌面、用户资料及备份支持的时间线数据。当前手机数据未修改。</p><button disabled={busy} onClick={()=>setProgress('备份验证成功，尚未恢复到当前手机。')}>仅验证备份</button></section>}
-    <RestoreActions files={verifiedFiles.current} report={report} password={innerPassword.current} encrypted={locked} archiveVersion={archiveVersion} disabled={busy}/>
+    <RestoreActions zipFile={selected} files={verifiedFiles.current} report={report} password={innerPassword.current} encrypted={locked} archiveVersion={archiveVersion} disabled={busy}/>
     <details className="backup-advanced"><summary>高级选项</summary><p className="hint">单个 ZIP 上限32 MiB，采用分块处理。更大数据可使用原格式工具逐个保存，所有数据仍会完整保留。</p><button disabled={busy} onClick={()=>{resetOutput();void clearIncoming().then(()=>{setSelected(null);setLegacy(true);}).catch(()=>setError('旧备份工具暂时无法打开，请重试。'));}}>旧格式备份工具</button><p className="hint">支持旧清单和数据文件、旧加密密码格式，以及大文件备份。</p></details>
   </div></main>;
 }
