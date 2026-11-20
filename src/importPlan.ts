@@ -9,6 +9,7 @@ import {readBackup,verifiedCandidate,eachBackupRow,sanitizeConfig,type Integrity
 import {bound,keep,digest,same,validate,openRestoreDatabase,exactSchema,type DatabaseDigest} from './restoreData';
 import {usableApi} from './apiSelection';
 import {messageFingerprint} from './timelines';
+import {openStreamingBackupZip} from './backupZip';
 export interface ImportOptions {
   mode:'overwrite'|'merge';apiReplace:boolean;story:boolean;desktop:boolean;identities:boolean;api:boolean;
   conflicts:'copy'|'skip';apiConflict:'copy'|'keep';identityConflict:'keep'|'replace';keys:'none'|'missing'|'replace';
@@ -215,4 +216,18 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
     const plan:ImportPlan={preview:{formatVersion:checked.report.formatVersion,schemaVersion:checked.report.schemaVersion,createdAt:checked.report.snapshotCompletedAt,credentials:checked.report.credentials,incoming,current,result:counts,added,duplicates,conflicts,changed,bytes,warnings:[...new Set(warnings)],options:{...options},credentialChanges,manifestDigest:checked.report.manifestDigest},dispose:async()=>{if(plans.has(plan)){plans.delete(plan);result.close();await Dexie.delete(name);}}};
     plans.set(plan,{database:result,targetName:database.name,before,after});target=undefined;return plan;
   }finally{clearTimeout(timeout);document.removeEventListener('visibilitychange',hidden);signal?.removeEventListener('abort',abort);await cleanup?.dispose();if(target){target.close();await Dexie.delete(name);}}
+}
+
+/** Import one ZIP without expanding every member into an in-memory File list.
+ * Historical ZIP versions 1–3 use the same integrity-checked candidate path. */
+export async function prepareZipImport(file:File,options:ImportOptions,{database=db,password,signal}: {database?:Dexie;password?:string;signal?:AbortSignal}={}):Promise<ImportPlan>{
+  const zip=await openStreamingBackupZip(file,signal);
+  try{
+    const manifests=zip.names.filter(n=>n.endsWith('.manifest.json'));
+    ensure(manifests.length===1,'ZIP 缺少唯一的备份清单。');
+    const name=manifests[0];
+    const manifest=await zip.read(name,password);
+    const names=zip.names.filter(n=>n!=='wechat-identity.encrypted.json');
+    return await prepareImport([manifest],options,{database,password,signal,partNames:names,loadPart:n=>zip.read(n,password)});
+  }finally{await zip.close();}
 }
