@@ -2,7 +2,7 @@ import {exportWechatIdentity,importWechatIdentity,inspectWechatIdentity} from '.
 import { BackupError, backupLimits, checkAbort, ensure, withBackupPhase } from "./backupFormat";
 import { createBackup, readBackup, type BackupExport, type BackupProgress } from "./backupService";
 import type { Entry, FileEntry } from "@zip.js/zip.js";
-export const zipLimits = { archiveBytes:1024*1024*1024, unpackedBytes:1024*1024*1024, entryBytes:8*1024*1024, entries:256, directoryBytes:256*1024, chunkBytes:256*1024, ratio:100 } as const;
+export const zipLimits = { archiveBytes:1024*1024*1024, unpackedBytes:2*1024*1024*1024, entryBytes:8*1024*1024, entries:256, directoryBytes:256*1024, chunkBytes:256*1024, ratio:100 } as const;
 const infoName="backup-info.json";
 const wechatName="wechat-identity.encrypted.json";
 const options={useWebWorkers:false,useCompressionStream:false,chunkSize:zipLimits.chunkBytes};
@@ -37,7 +37,7 @@ async function open(file:File,signal?:AbortSignal) {
   await preflight(file,signal);const {ZipReader,BlobReader}=await import('@zip.js/zip.js');
   const reader=new ZipReader(new BlobReader(file),options);const entries:FileEntry[]=[];let total=0;
   try{
-    for await(const e of reader.getEntriesGenerator()){checkAbort(signal);checkEntry(e);ensure(entries.length<zipLimits.entries&&!entries.some(x=>x.filename===e.filename),"ZIP 文件过多或文件名重复。");total+=e.uncompressedSize;ensure(total<=zipLimits.unpackedBytes,"ZIP 解压总量超过1024 MiB，已停止。");entries.push(e as FileEntry);}
+    for await(const e of reader.getEntriesGenerator()){checkAbort(signal);checkEntry(e);ensure(entries.length<zipLimits.entries&&!entries.some(x=>x.filename===e.filename),"ZIP 文件过多或文件名重复。");total+=e.uncompressedSize;ensure(total<=zipLimits.unpackedBytes,"ZIP 解压总量超过2048 MiB，已停止。");entries.push(e as FileEntry);}
     const meta=entries.find(e=>e.filename===infoName);ensure(meta&&!meta.encrypted&&meta.uncompressedSize<=4096,"ZIP 缺少有效的备份格式说明。");
     let info:ZipInfo;try{info=JSON.parse(await(await extract(meta,undefined,signal)).text());}catch(e){if(e instanceof BackupError)throw e;throw new BackupError("ZIP 备份格式说明已损坏。");}
     ensure(info.format==='claudia-phone-zip'&&info.payloadFormat==='claudia-phone-backup'&&((info.version===1&&['none','winzip-aes-256'].includes(info.encryption))||([2,3].includes(info.version)&&info.encryption==='aes-gcm-backup')),"ZIP 备份版本暂不支持，未丢弃未知数据。");
@@ -76,7 +76,9 @@ export async function packBackupZip(snapshot:BackupExport,password?:string,signa
   ensure(snapshot.manifest.credentials==='excluded'||(!!password&&!!snapshot.manifest.encryption),"包含 API 密钥必须使用加密备份，拒绝生成明文 ZIP。");
   const manifest=new Blob([JSON.stringify(snapshot.manifest)],{type:'application/json'});
   ensure(manifest.size<=backupLimits.manifestBytes&&snapshot.manifest.parts.length+2+(portableWechat?1:0)<=zipLimits.entries,"备份信息超过单文件安全限制，请使用原格式工具。");
-  const estimated=manifest.size+snapshot.manifest.parts.reduce((s,p)=>s+p.bytes,0)+(portableWechat?.size??0)+65536;checkZipSize(estimated);checkAbort(signal);
+  // The archive ceiling applies to the compressed output, not the uncompressed input.
+  // Enforce it incrementally in the ZIP sink below, allowing compressible backups.
+  checkAbort(signal);
   const {ZipWriter,BlobReader}=await import('@zip.js/zip.js');const chunks:Blob[]=[];let size=0;
   const sink=new WritableStream<Uint8Array>({write(chunk){checkAbort(signal);size+=chunk.byteLength;checkZipSize(size);chunks.push(new Blob([chunk as Uint8Array<ArrayBuffer>]));}});
   const writer=new ZipWriter(sink,{...options,level:6,zip64:false});
