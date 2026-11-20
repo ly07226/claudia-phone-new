@@ -10,8 +10,8 @@ import { checkAbort, publicBackupError, withBackupPhase, type BackupPhase } from
 export function DataBackups() {
   const s=usePhone();
   const navigation=usePhonePageNavigation();
-  const [legacy,setLegacy]=useState(false),[encrypt,setEncrypt]=useState(false),[includeKeys,setIncludeKeys]=useState(false);
-  const [password,setPassword]=useState(''),[repeat,setRepeat]=useState(''),[restorePassword,setRestorePassword]=useState('');
+  const [legacy,setLegacy]=useState(false);
+  const [restorePassword,setRestorePassword]=useState('');
   const [busy,setBusy]=useState(false),[progress,setProgress]=useState(''),[error,setError]=useState(''),[warning,setWarning]=useState('');
   const [output,setOutput]=useState<{file:File;url:string}|null>(null),[selected,setSelected]=useState<File|null>(null),[locked,setLocked]=useState(false),[archiveVersion,setArchiveVersion]=useState<number|undefined>();
   const [report,setReport]=useState<IntegrityReport|null>(null);
@@ -24,15 +24,13 @@ export function DataBackups() {
   },[]);
   function resetOutput(){if(url.current)URL.revokeObjectURL(url.current);url.current='';setOutput(null);}
   function run(phase:BackupPhase,work:(signal:AbortSignal)=>Promise<void>){if(control.current)return;const c=new AbortController();control.current=c;setBusy(true);setError('');setWarning('');setProgress('正在准备…');const timer=setTimeout(()=>c.abort(),300000);
-    task.current=(async()=>{try{await work(c.signal);}catch(e){if(mounted.current){setError(publicBackupError(e,phase));setProgress('');}}finally{clearTimeout(timer);control.current=null;if(mounted.current){setBusy(false);setPassword('');setRepeat('');setRestorePassword('');}}})();
+    task.current=(async()=>{try{await work(c.signal);}catch(e){if(mounted.current){setError(publicBackupError(e,phase));setProgress('');}}finally{clearTimeout(timer);control.current=null;if(mounted.current){setBusy(false);setRestorePassword('');}}})();
   }
   async function clearIncoming(){innerPassword.current='';verifiedFiles.current=[];setReport(null);}
   const updateProgress=(p:BackupProgress)=>{if(mounted.current)setProgress(`${p.phase} · ${p.records}条 · ${(p.bytes/1048576).toFixed(1)}MiB，请保持前台…`);};
   function exportData(){
-    if(encrypt&&(password.length<12||password.length>1024||password!==repeat)){setError('请设置12–1024个字符的密码，并确保两次输入一致。');return;}
     if(!confirm('请先关闭其他 Claudia Phone 标签页及主屏幕应用，只保留当前页面。是否已完成？'))return;
-    const secret=encrypt?password:undefined;
-    run('export-read',async signal=>{resetOutput();setSelected(null);await clearIncoming();usePhone.getState().set({assets:[]});const file=await createZipBackup({closedOtherClients:true,password:secret,includeCredentials:includeKeys,credentialConsent:includeKeys,signal,onProgress:updateProgress,onWarning:message=>{if(mounted.current)setWarning(message);}});checkAbort(signal);if(!mounted.current)return;let address:string;try{address=URL.createObjectURL(file);}catch(e){throw withBackupPhase(e,'download');}url.current=address;setOutput({file,url:address});setProgress('备份文件已生成，尚未确认保存。请保存到“文件”，再重新选择该 ZIP 验证。');});
+    run('export-read',async signal=>{resetOutput();setSelected(null);await clearIncoming();usePhone.getState().set({assets:[]});const file=await createZipBackup({closedOtherClients:true,includeCredentials:false,credentialConsent:false,signal,onProgress:updateProgress,onWarning:message=>{if(mounted.current)setWarning(message);}});checkAbort(signal);if(!mounted.current)return;let address:string;try{address=URL.createObjectURL(file);}catch(e){throw withBackupPhase(e,'download');}url.current=address;setOutput({file,url:address});setProgress('备份文件已生成，尚未确认保存。请保存到“文件”，再重新选择该 ZIP 验证。');});
   }
   async function saveFile(){if(!output)return;try{
     if(navigator.canShare?.({files:[output.file]})){await navigator.share({files:[output.file],title:'Claudia Phone 备份'});setProgress('已交给系统处理。请确认保存到“文件”；分享完成不等于备份已验证。');}
@@ -59,10 +57,7 @@ export function DataBackups() {
     <button className="space-back" onClick={()=>{control.current?.abort();navigation.back();}}><ChevronLeft size={18}/>返回{navigation.parentName}</button>
     <div className="page-title"><h1>数据备份与恢复</h1><p>一份文件，妥善保存你的 Claudia Phone。</p></div>
     <section className="card form" aria-label="导出备份设置">
-      <label className="backup-check"><input type="checkbox" role="switch" aria-label="加密保护" checked={encrypt} disabled={busy||includeKeys} onChange={e=>{setEncrypt(e.target.checked);resetOutput();setPassword('');setRepeat('');}}/>加密保护</label>
-      <label className="backup-check"><input type="checkbox" role="switch" aria-label="包含 API 密钥（需要加密备份）" checked={includeKeys} disabled={busy} onChange={e=>{setIncludeKeys(e.target.checked);if(e.target.checked)setEncrypt(true);resetOutput();}}/>包含 API 密钥（需要加密备份）</label>
-      {encrypt&&<><label>设置备份密码<input type="password" aria-label="备份加密密码" autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)}/></label><label>确认密码<input type="password" aria-label="再次输入密码" autoComplete="new-password" value={repeat} onChange={e=>setRepeat(e.target.value)}/></label><p className="hint">{includeKeys?'数据使用 AES-256-GCM + PBKDF2-SHA256（60万次）加密；ZIP 清单结构可见。':'使用 WinZip AES-256 加密。'}密码不会保存，忘记后无法找回；请使用至少12个字符的独立长密码。请在本应用中输入密码并验证、恢复数据。</p></>}
-      <p className="hint">{includeKeys?'包含 API Key，必须加密，请勿公开分享。':'默认不包含 API Key。API 配置、模型参数和绑定仍包含。'}{encrypt?'加密后仍请妥善保管文件。':'未加密 ZIP 可能包含私人聊天、角色和图片，请勿公开分享。'}文件不会自动上传；选择云盘或分享目标由你决定。</p>
+      <p className="hint">直接导出单个 ZIP，无需设置密码。包含聊天、角色、世界、图片和 API 配置（不包含 API Key 等敏感凭据）。文件仅保存在你选择的位置，请妥善保管。</p>
       <button className="primary" disabled={busy} onClick={()=>output?void saveFile():exportData()}><Download size={18}/>{busy?'正在处理…':output?'保存或分享备份':'导出备份'}</button>
       {output&&<><p className="backup-filename">{output.file.name} · {(output.file.size/1048576).toFixed(1)} MiB</p><a className="text-button backup-download" href={output.url} download={output.file.name}>直接下载 ZIP</a><button className="text-button" disabled={busy} onClick={exportData}>重新生成备份</button></>}
     </section>
