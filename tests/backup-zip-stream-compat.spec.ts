@@ -7,7 +7,7 @@ test('legacy ZIP v1 and compressed ZIP both rehearse through lazy isolated impor
    const {db}=await import('/src/store.ts');
    const {createZipBackup,readBackupZip}=await import('/src/backupZip.ts');
    const {prepareZipImport,defaultImportOptions}=await import('/src/importPlan.ts');
-   const {ZipWriter,BlobWriter,BlobReader}=await import('@zip.js/zip.js');
+   const {ZipWriter,BlobWriter,BlobReader}=await import('/tests/zipFixture.ts');
    const original=await createZipBackup({closedOtherClients:true});
    const files=await readBackupZip(original);
    const info=new File([JSON.stringify({format:'claudia-phone-zip',version:1,encryption:'none',payloadFormat:'claudia-phone-backup'})],'backup-info.json');
@@ -64,4 +64,30 @@ test('password-free full ZIP retains API credentials and restores into isolated 
   expect(result.credentials).toBe('included');
   expect(result.hasKey).toBe(true);
   expect(result.status).toBeGreaterThanOrEqual(0);
+});
+
+
+test('legacy ZIP v1 AES and v2 encrypted backups can enter the new staged importer',async({page})=>{
+ await page.goto('/');
+ await expect(page.locator('.desktop')).toBeVisible();
+ const result=await page.evaluate(async()=>{
+   const {db}=await import('/src/store.ts');
+   const {createZipBackup,readBackupZip,inspectBackupZip}=await import('/src/backupZip.ts');
+   const {prepareZipImport,defaultImportOptions}=await import('/src/importPlan.ts');
+   const password='legacy-compatibility-fixture-password';
+   const before=await db.messages.count();
+   const oldV1=await createZipBackup({closedOtherClients:true,password});
+   const modernV2=await createZipBackup({closedOtherClients:true,password,includeCredentials:true,credentialConsent:true});
+   const versions=[];
+   for(const file of [oldV1,modernV2]){
+     const header=await inspectBackupZip(file);
+     const plan=await prepareZipImport(file,defaultImportOptions,{password});
+     try{versions.push({version:header.version,encrypted:header.encrypted,preview:plan.preview.formatVersion});}
+     finally{await plan.dispose();}
+   }
+   return {versions,unchanged:before===await db.messages.count()};
+ });
+ expect(result.versions.map(v=>v.version)).toEqual([1,2]);
+ expect(result.versions.every(v=>v.encrypted)).toBe(true);
+ expect(result.unchanged).toBe(true);
 });
