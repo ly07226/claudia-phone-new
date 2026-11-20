@@ -50,11 +50,15 @@ export function reconcileQqAfterReopen():Promise<void>{
   const bindings=await listQqCloudBindings();
   for(const binding of bindings){
    if(!getQqClosedContinuity(binding.id)||binding.status!=='connected')continue;
-   const conversation=await db.conversations.get(binding.conversation_id);
+   const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
+   const matched=!!stableId&&binding.stable_sync_id===stableId;
+   const conversation=matched
+    ?await db.conversations.where('scopeKey').equals(JSON.stringify([binding.character_id,'daily',''])).first()
+    :await db.conversations.get(binding.conversation_id);
    if(!conversation||conversation.mode!=='daily'||conversation.worldId||
       conversation.characterId!==binding.character_id)continue;
    try{
-    const added=await syncQqDailyConversation(conversation.id);
+    const added=await syncQqDailyConversation(conversation.id,binding.id);
     const dirtyKey='claudia-qq-context-dirty:'+binding.id;
     if(added>0)localStorage.setItem(dirtyKey,'yes');
     if(localStorage.getItem(dirtyKey)!=='yes')continue;
