@@ -36,7 +36,8 @@ Deno.serve(async req=>{
  const bounds=[];
  if(after)bounds.push(`or(received_at.gt.${after.at},and(received_at.eq.${after.at},id.gt.${after.id}))`);
  if(cursor)bounds.push(`or(received_at.lt.${cursor.at},and(received_at.eq.${cursor.at},id.lt.${cursor.id}))`);
- if(bounds.length)query=query.and(bounds.join(","));
+ if(bounds.length===1)query=query.or(bounds[0].slice(3,-1));
+ else if(bounds.length>1)query=query.or(`and(${bounds.join(",")})`);
  const {data,error}=await query;
  if(error)return json(500,{error:"sync_failed"});
  const rows=(data??[]).slice(0,100);
