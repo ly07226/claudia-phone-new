@@ -98,12 +98,33 @@ Deno.serve(async req=>{
    const prior=(h.data||[]).reverse().filter(m=>m.direction==="inbound"||(m.direction==="outbound"&&m.status==="sent"))
     .map(m=>({role:m.direction==="inbound"?"user":"assistant",content:m.body.slice(0,8000)}));
    const apiKey=await decrypt(profile.api_key_ciphertext,encryption);
-   const response=await fetch(profile.endpoint,{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+apiKey},
-    body:JSON.stringify({model:profile.model,messages:[...effective,...prior,{role:"user",content:row.body}],stream:false}),
-    signal:AbortSignal.timeout(120000)});
-   if(!response.ok)throw Error("model_http_"+response.status);
-   const result=await response.json(),value=result?.choices?.[0]?.message?.content;
-   if(typeof value!=="string"||!value.trim()||value.length>8000||result?.choices?.[0]?.finish_reason!=="stop")throw Error("invalid_model_reply");
+   // Each binding uses its own saved endpoint/model/key; never substitute a shared provider.
+   const payload=JSON.stringify({model:profile.model,messages:[...effective,...prior,{role:"user",content:row.body}],stream:false});
+   let response:Response|null=null;
+   for(let attempt=0;attempt<3;attempt++){
+    try{
+     response=await fetch(profile.endpoint,{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+apiKey},
+      body:payload,signal:AbortSignal.timeout(45000)});
+    }catch(error){
+     if(attempt===2)throw error;
+     await new Promise(resolve=>setTimeout(resolve,750*(attempt+1)));
+     continue;
+    }
+    if(![429,502,503,504].includes(response.status)||attempt===2)break;
+    await response.body?.cancel();
+    await new Promise(resolve=>setTimeout(resolve,750*(attempt+1)));
+   }
+   if(!response)throw Error("generation_failed");
+   if(!response.ok){
+    // Store only a safe error code, never provider response bodies or credentials.
+    throw Error("model_http_"+response.status);
+   }
+   const result=await response.json(),choice=result?.choices?.[0];
+   const rawContent=choice?.message?.content;
+   const value=typeof rawContent==="string"?rawContent:
+    Array.isArray(rawContent)?rawContent.filter((part:any)=>part?.type==="text"&&typeof part.text==="string").map((part:any)=>part.text).join(""):"";
+   // OpenAI-compatible providers do not all return finish_reason; reject explicit truncation only.
+   if(!value.trim()||value.length>8000||["length","content_filter"].includes(choice?.finish_reason))throw Error("invalid_model_reply");
    generated=value.trim();
   }catch(error){
    const raw=error instanceof Error?error.message:"generation_failed";
