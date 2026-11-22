@@ -54,7 +54,8 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
   const cleaned=result.trim().replace(/^\x60\x60\x60(?:json)?\s*/i,'').replace(/\s*\x60\x60\x60$/,'');
   let parsed:{title?:unknown;body?:unknown};
   try{parsed=JSON.parse(cleaned)}catch{throw Error('记录格式解析失败，请重试')}
-  if(typeof parsed.title!=='string'||typeof parsed.body!=='string'||parsed.body.trim().length<40)throw Error('生成内容过短或格式错误，请重试');
+  const minimum=kind==='日记'?180:kind==='梦境'?120:30;
+  if(typeof parsed.title!=='string'||typeof parsed.body!=='string'||[...parsed.body.trim()].length<minimum)throw Error('记录内容不完整，未保存；请重试');
   const note:GeneratedNote={id:crypto.randomUUID(),characterId,kind,createdAt:Date.now(),title:parsed.title.slice(0,80),body:parsed.body.slice(0,5000),comments:[],sourceLastMessageAt:lastAt};
   await saveNotes(characterId,[note,...existing]);
   return note;
