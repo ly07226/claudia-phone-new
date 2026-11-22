@@ -1,9 +1,11 @@
+import {generatePrivateNote,loadNotes,saveNotes,type GeneratedNote} from './privateNotesGeneration';
+import {usePhone} from './store';
 import React,{useEffect,useState} from 'react';
-import {ArrowLeft,BookOpen,CloudMoon,ImagePlus,Menu,MessageCircle,Moon,NotebookPen,Send,SlidersHorizontal,Sparkles} from 'lucide-react';
+import {ArrowLeft,BookOpen,CloudMoon,ImagePlus,Menu,MessageCircle,Moon,NotebookPen,Send,Sparkles} from 'lucide-react';
 import './PrivateNotes.css';
 
 type Kind='日记'|'备忘'|'梦境';
-type Note={id:string;kind:Kind;createdAt:number;title:string;body:string;comments:string[]};
+
 type Appearance={theme:number;opacity:number;background:string};
 const palettes=[
  ['经典白','#f4f3f0','#8995a3','#344152'],
@@ -14,12 +16,17 @@ const palettes=[
  ['奶油紫','#f8f5f0','#b6a0c9','#5e536c'],
  ['焦糖棕','#f4e9db','#b78e69','#654b39']
 ] as const;
-const key='claudia-private-notes-v1';
+
 const appearanceKey='claudia-private-notes-appearance-v1';
 function read<T>(k:string,fallback:T):T{try{return JSON.parse(localStorage.getItem(k)||'null')??fallback}catch{return fallback}}
 function relativeDate(ts:number){const today=new Date(),date=new Date(ts);const day=(d:Date)=>new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();const delta=Math.round((day(today)-day(date))/86400000);return delta===0?'今天':delta===1?'昨天':(date.getMonth()+1)+'月'+date.getDate()+'日'}
 export function PrivateNotes(){
- const [notes,setNotes]=useState<Note[]>(()=>read(key,[]));
+ const characters=usePhone(state=>state.characters);
+ const [characterId,setCharacterId]=useState('');
+ const [notes,setNotes]=useState<GeneratedNote[]>([]);
+ useEffect(()=>{if(!characterId&&characters.length)setCharacterId(characters[0].id)},[characters,characterId]);
+ useEffect(()=>{setNotes(characterId?loadNotes(characterId):[])},[characterId]);
+ useEffect(()=>{if(!characterId)return;let cancelled=false;void generatePrivateNote(characterId).then(n=>{if(n&&!cancelled)setNotes(loadNotes(characterId))}).catch(()=>{});return()=>{cancelled=true}},[characterId]);
  const [appearance,setAppearance]=useState<Appearance>(()=>read(appearanceKey,{theme:4,opacity:36,background:''}));
  const [page,setPage]=useState<'home'|'settings'>('home');
  const [tab,setTab]=useState<'总览'|Kind>('总览');
@@ -27,18 +34,19 @@ export function PrivateNotes(){
  const [draft,setDraft]=useState<Record<string,string>>({});
  const [status,setStatus]=useState('');
  const [busy,setBusy]=useState(false);
- useEffect(()=>{localStorage.setItem(key,JSON.stringify(notes))},[notes]);
+ 
  useEffect(()=>{try{localStorage.setItem(appearanceKey,JSON.stringify(appearance))}catch{setStatus('背景图片太大，无法保存。请换一张较小的图片。')}},[appearance]);
  const colors=palettes[appearance.theme]||palettes[4];
  const update=(patch:Partial<Appearance>)=>setAppearance(old=>({...old,...patch}));
  const visible=notes.filter(n=>tab==='总览'||tab===n.kind).sort((a,b)=>b.createdAt-a.createdAt);
- const addComment=(id:string)=>{const value=(draft[id]||'').trim();if(!value)return;setNotes(old=>old.map(n=>n.id===id?{...n,comments:[...n.comments,value]}:n));setDraft(old=>({...old,[id]:''}))};
+ const addComment=(id:string)=>{const value=(draft[id]||'').trim();if(!value)return;setNotes(old=>{const next=old.map(n=>n.id===id?{...n,comments:[...n.comments,value]}:n);if(characterId)saveNotes(characterId,next);return next});setDraft(old=>({...old,[id]:''}))};
  const onImage=(file?:File)=>{if(!file)return;if(!file.type.startsWith('image/')){setStatus('请选择图片文件');return}if(file.size>3*1024*1024){setStatus('当前版本请使用小于 3MB 的图片');return}const reader=new FileReader();reader.onload=()=>{update({background:String(reader.result)});setStatus('背景已更换')};reader.onerror=()=>setStatus('图片读取失败');reader.readAsDataURL(file)};
- const generate=()=>{setBusy(true);setStatus('尚未接入全局 API：不会伪造角色日记，也不会产生扣费。');setBusy(false)};
+ const generate=async()=>{if(!characterId){setStatus('请先创建角色');return}setBusy(true);setStatus('正在书写…');try{const note=await generatePrivateNote(characterId,true);if(note){setNotes(loadNotes(characterId));setStatus('已写入一篇'+note.kind);setPage('home');setTab('总览');setOpen(note.id)}}catch(error){setStatus(error instanceof Error?error.message:'生成失败，请重试')}finally{setBusy(false)}};
  return <div className="private-notes" style={{'--pn-bg':colors[1],'--pn-accent':colors[2],'--pn-ink':colors[3],'--pn-alpha':appearance.opacity/100,backgroundImage:appearance.background||'none'} as React.CSSProperties}>
   <div className="pn-shade"/>
   {page==='home'?<main className="pn-content">
    <header className="pn-header"><div><h2>私人记录</h2><small>Private Notes</small></div><button aria-label="外观设置" onClick={()=>setPage('settings')}><Menu size={21}/></button></header>
+   <div className="pn-character"><label htmlFor="pn-character">当前角色</label><select id="pn-character" value={characterId} onChange={e=>setCharacterId(e.target.value)}>{characters.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
    <nav className="pn-tabs">{(['总览','日记','备忘','梦境'] as const).map((name,i)=>{const Icon=[BookOpen,NotebookPen,NotebookPen,Moon][i];return <button key={name} className={tab===name?'active':''} onClick={()=>setTab(name)}><Icon size={20}/><span>{name}</span></button>})}</nav>
    {visible.length===0?<div className="pn-empty">还没有角色写下的{tab==='总览'?'私人记录':tab}。<br/>开启自动生成后，记录会出现在这里。</div>:visible.map(n=><article className="pn-card" key={n.id}>
     <button className="pn-note-top" onClick={()=>setOpen(open===n.id?null:n.id)}><span className="pn-note-icon">{n.kind==='梦境'?<CloudMoon/>:n.kind==='日记'?<BookOpen/>:<NotebookPen/>}</span><span><strong>{n.kind}</strong><small>{relativeDate(n.createdAt)} · {new Date(n.createdAt).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}</small></span><span className="pn-expand">{open===n.id?'⌃':'⌄'}</span></button>
