@@ -38,15 +38,20 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
  const memoryText=memory.text.slice(0,2400);
  const transcript=rows.map(m=>(m.role==='user'?'玩家':'角色')+'：'+m.content.slice(0,500)).join('\n').slice(-10500);
  if(!transcript.trim())throw Error('没有可供书写的聊天内容');
- const kinds:NoteKind[]=['日记','梦境','备忘'];
- const kind=manual?kinds[Math.floor(Math.random()*kinds.length)]:kinds[(existing.length%3)];
+ // Diaries are the default; dreams are occasional and independent of today's events.
+ // A memo is preferred only when a new, concrete plan or commitment appears.
+ const newContent=rows.filter(m=>m.createdAt>(existing[0]?.sourceLastMessageAt||0)).map(m=>m.content).join('\n');
+ const hasPlan=/((明天|后天|周[一二三四五六日天]|下周|下个月|今晚|待会|记得|别忘|提醒|约好|约定).{0,28}(见面|去|做|买|带|打电话|联系|准备|拿|送|接|提醒|记住))|((要|准备|计划).{0,20}(去|买|做|见|联系|搬|送))/.test(newContent);
+ const roll=Math.random();
+ const kind:NoteKind=hasPlan&&roll<0.55?'备忘':roll<0.13?'梦境':'日记';
  const lengths=kind==='日记'?'300–600':kind==='梦境'?'200–450':'60–180';
  const system=[
  '你正在以角色「'+character.name+'」的第一人称撰写私人记录，而不是回复玩家。',
  '角色设定：'+character.persona.slice(0,2600),
  '语言习惯：'+(character.speakingStyle||'自然、贴合人物').slice(0,1200),
  '文笔要求：成熟、克制、有辨识度；使用具体的动作、物件、感官和细微心理转折承载情绪，避免空泛抒情、流水账、鸡汤、套话、矫饰比喻、重复排比和过度描写眼睛。',
- '日记的核心是今天真实发生的互动：玩家告诉角色的事情、角色听到后的感受、他没有说出口的念头与心境变化。普通的一句话也可以触动角色，不必虚构重大事件。优先写今日新增的互动，不把旧记忆当作今日事件；角色的内心可以复杂、矛盾、克制，不必一味温柔。梦境要有独立意象与叙事，不把梦当现实；备忘简洁实用。',
+ '日记的核心是今天真实发生的互动：玩家告诉角色的事情、角色听到后的感受、角色自己在聊天里确实做过的行动、未说出口的念头与心境变化。普通的一句话也可以触动角色，不必虚构重大事件。优先写今日新增的互动，不把旧记忆当作今日事件；角色的内心可以复杂、矛盾、克制，不必一味温柔。',
+ '备忘录只记录已明确的约定、计划、待办或角色自己的想法，不把猜测当承诺。梦境允许随机、荒诞、浪漫或压抑的虚构情节，不要求对应当天事件，也不暗示梦境真实发生；梦中的玩家言行不能变成现实设定。',
  '只能使用给出的真实对话及已核实记忆作为已发生事实；记忆是背景，不得将旧事件写成今天刚发生。不得擅自决定玩家行为、情绪、经历或承诺。猜测必须明确为猜测。缺乏事实时不要补造剧情。',
  '请写一篇'+kind+'，正文目标'+lengths+'个汉字。若今日互动平淡，写真实的细节与感触，不凑事件。标题简短有余味。输出严格 JSON：{"title":"...","body":"..."}，不要 Markdown 代码块。'
  ].join('\n');
