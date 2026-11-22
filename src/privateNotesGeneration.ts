@@ -26,10 +26,11 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
    const interval=Math.max(60,schedule.intervalMinutes||60)*60000;
    const due=!latest||Date.now()-latest.createdAt>=interval;
    const recent=!!lastAt&&Date.now()-lastAt<3*86400000;
-   const meaningful=rows.slice(-8).some(m=>/约定|答应|决定|分手|和好|道歉|见面|生病|医院|生日|离开|回来|喜欢你|爱你|结婚|辞职|搬家/.test(m.content));
+   const newRows=rows.filter(m=>m.createdAt>(latest?.sourceLastMessageAt||0));
+   const meaningful=newRows.some(m=>/约定|答应|决定|分手|和好|道歉|见面|生病|医院|生日|离开|回来|喜欢你|爱你|结婚|辞职|搬家/.test(m.content));
    const important=recent&&meaningful&&(!latest||latest.sourceLastMessageAt<lastAt);
    const eligible=schedule.mode==='interval'?due:schedule.mode==='important'?important:due||important;
-   if(!eligible||!recent||latest?.sourceLastMessageAt===lastAt)return null;
+   if(!eligible||!recent||newRows.length===0||latest?.sourceLastMessageAt===lastAt)return null;
    if(rows.length<4)return null;
  }
  const transcript=rows.map(m=>(m.role==='user'?'玩家':'角色')+'：'+m.content.slice(0,500)).join('\n').slice(-10500);
