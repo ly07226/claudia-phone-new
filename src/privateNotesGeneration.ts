@@ -10,7 +10,7 @@ const PREFIX='claudia-private-notes-v2-';
 const pending=new Set<string>();
 export async function loadNotes(characterId:string):Promise<GeneratedNote[]>{const archived=(await readPrivateNotesArchive()).notes[characterId];if(archived)return archived;try{return JSON.parse(localStorage.getItem(PREFIX+characterId)||'[]')}catch{return []}}
 export async function saveNotes(characterId:string,notes:GeneratedNote[]){await archiveNotes(characterId,notes);try{localStorage.setItem(PREFIX+characterId,JSON.stringify(notes))}catch{/* IndexedDB remains authoritative */}}
-export async function generatePrivateNote(characterId:string,manual=false):Promise<GeneratedNote|null>{
+export async function generatePrivateNote(characterId:string,manual=false,requestedKind?:NoteKind):Promise<GeneratedNote|null>{
  if(pending.has(characterId))return null;
  pending.add(characterId);
  try{
@@ -42,12 +42,9 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
  // A memo is preferred only when a new, concrete plan or commitment appears.
  const newContent=rows.filter(m=>m.createdAt>(existing[0]?.sourceLastMessageAt||0)).map(m=>m.content).join('\n');
  const hasPlan=/((明天|后天|周[一二三四五六日天]|下周|下个月|今晚|待会|记得|别忘|提醒|约好|约定).{0,28}(见面|去|做|买|带|打电话|联系|准备|拿|送|接|提醒|记住))|((要|准备|计划).{0,20}(去|买|做|见|联系|搬|送))/.test(newContent);
- // Dreams have their own low-frequency opportunity; never replace a diary or memo.
- // A dream uses the same single-request path, and only when the latest main note is already up to date.
- const latestMain=existing.find(n=>n.kind!=='梦境');
- const latestDream=existing.find(n=>n.kind==='梦境');
- const dreamDue=!manual&&!!latestMain&&latestMain.sourceLastMessageAt>=lastAt&&(!latestDream||Date.now()-latestDream.createdAt>=3*86400000)&&Math.random()<0.13;
- const kind:NoteKind=dreamDue?'梦境':hasPlan&&Math.random()<0.55?'备忘':'日记';
+ // Ordinary automatic writing never sacrifices a diary to a random dream.
+ // Dreams are generated independently on explicit request, avoiding surprise API charges.
+ const kind:NoteKind=requestedKind|| (hasPlan&&Math.random()<0.55?'备忘':'日记');
  const lengths=kind==='日记'?'300–600':kind==='梦境'?'200–450':'60–180';
  const system=[
  '你正在以角色「'+character.name+'」的第一人称撰写私人记录，而不是回复玩家。',
