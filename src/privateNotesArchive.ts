@@ -21,6 +21,18 @@ async function updateArchive(mutator:(archive:Archive)=>void){
 export async function archiveNotes(characterId:string,notes:GeneratedNote[]){
  await updateArchive(archive=>{archive.notes[characterId]=notes});
 }
+export async function appendPrivateNote(characterId:string,note:GeneratedNote){
+ await updateArchive(archive=>{const rows=archive.notes[characterId]||[];if(!rows.some(row=>row.id===note.id))archive.notes[characterId]=[note,...rows]});
+}
+export async function appendPrivateNoteComment(characterId:string,noteId:string,comment:string){
+ let found=false;
+ await updateArchive(archive=>{
+  const note=archive.notes[characterId]?.find(row=>row.id===noteId);
+  if(!note)return;
+  note.comments=[...(note.comments||[]),comment];found=true;
+ });
+ if(!found)throw Error('记录已不存在，请刷新后重试');
+}
 export async function archiveAppearance(appearance:Archive['appearance']){
  await updateArchive(archive=>{archive.appearance=appearance});
 }
