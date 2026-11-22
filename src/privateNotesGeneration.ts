@@ -1,11 +1,11 @@
-import {archiveNotes,appendPrivateNote,readPrivateNotesArchive} from './privateNotesArchive';
+import {archiveNotes,appendPrivateNote,appendPrivateNoteReply,readPrivateNotesArchive} from './privateNotesArchive';
 import {db} from './store';
 import {resolveApi} from './chatService';
 import {requestReply} from './chatProvider';
 import {activeMessages} from './messagePath';
 import {memoryContext} from './memoryContext';
 export type NoteKind='日记'|'备忘'|'梦境';
-export type GeneratedNote={id:string;characterId:string;kind:NoteKind;createdAt:number;title:string;body:string;comments:string[];sourceLastMessageAt:number};
+export type GeneratedNote={id:string;characterId:string;kind:NoteKind;createdAt:number;title:string;body:string;comments:(string|{author:'character';text:string})[];sourceLastMessageAt:number};
 const PREFIX='claudia-private-notes-v2-';
 const pending=new Set<string>();
 export async function loadNotes(characterId:string):Promise<GeneratedNote[]>{const archived=(await readPrivateNotesArchive()).notes[characterId];if(archived)return archived;try{return JSON.parse(localStorage.getItem(PREFIX+characterId)||'[]')}catch{return []}}
@@ -69,4 +69,26 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
   return note;
  }finally{clearTimeout(timer)}
  }finally{pending.delete(characterId)}
+}
+
+/** A comment reply is an explicit user-triggered request, never an automatic extra charge. */
+export async function replyToPrivateNoteComment(characterId:string,noteId:string,comment:string){
+ const character=await db.characters.get(characterId);
+ if(!character)throw Error('角色不存在');
+ const conversation=await db.conversations.where('scopeKey').equals(JSON.stringify([characterId,'daily',''])).first();
+ if(!conversation)throw Error('日常聊天不存在');
+ const note=(await loadNotes(characterId)).find(n=>n.id===noteId);
+ if(!note)throw Error('记录已不存在');
+ const {config,key}=await resolveApi(conversation);
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),60000);
+ try{
+  const answer=(await requestReply(config,key,[
+   {role:'system',content:'你是'+character.name+'。人物设定：'+character.persona.slice(0,1600)+'。说话风格：'+(character.speakingStyle||'自然').slice(0,500)+'。你正在回复玩家对你私人'+note.kind+'的评论。用角色本人语气简短自然回复，1到3句话，不写新日记，不替玩家发言，不编造已发生的事件。'},
+   {role:'user',content:'你的私人记录《'+note.title+'》：'+note.body.slice(0,1800)+'\\n玩家评论：'+comment.slice(0,800)}
+  ],controller.signal)).trim();
+  if(!answer)throw Error('角色没有生成有效回复');
+  const reply=answer.slice(0,800);
+  await appendPrivateNoteReply(characterId,noteId,reply);
+  return reply;
+ }finally{clearTimeout(timer)}
 }
