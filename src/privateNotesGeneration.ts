@@ -28,15 +28,31 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
    const due=!!latest&&Date.now()-latest.createdAt>=interval;
    const recent=!!lastAt&&Date.now()-lastAt<3*86400000;
    const newRows=rows.filter(m=>m.createdAt>(latest?.sourceLastMessageAt||0));
-   const meaningful=newRows.some(m=>m.role==='user'&&/我(答应|决定|承诺|辞职|搬家|生病|住院|离开|回来|喜欢你|爱你)|我们(约好|约定|见面|和好|分手)|已经(见面|和好|分手|搬家|辞职)|生日快乐|对不起|原谅你/.test(m.content));
-   const important=recent&&meaningful&&(!latest||latest.sourceLastMessageAt<lastAt);
+   // A lightweight signal, not a claim that a keyword proves an important event.
+   // Require a real exchange and avoid speculative or quoted scenarios.
+   const newUser=newRows.filter(m=>m.role==='user');
+   const newAssistant=newRows.filter(m=>m.role==='assistant');
+   const meaningful=newUser.some(m=>{
+     const content=m.content.trim();
+     if(/^(如果|假如|假设|比如|举个例子|要是有一天)/.test(content))return false;
+     return /我(答应|决定|承诺|辞职|搬家|生病|住院|离开|回来|喜欢你|爱你|害怕|难过|想你|担心|开心|委屈)|我们(约好|约定|见面|和好|分手)|已经(见面|和好|分手|搬家|辞职)|生日快乐|对不起|原谅你/.test(content);
+   });
+   const exchange=newUser.length>0&&newAssistant.length>0;
+   const cooldown=!latest||Date.now()-latest.createdAt>=30*60000;
+   const important=recent&&exchange&&meaningful&&cooldown;
    const eligible=schedule.mode==='interval'?(due||!latest):schedule.mode==='important'?important:due||important||(!latest&&newRows.length>=6);
    if(!eligible||!recent||newRows.length===0||latest?.sourceLastMessageAt===lastAt)return null;
    if(rows.length<4)return null;
  }
  const memory=await memoryContext(conversation,rows,2400).catch(()=>({text:''}));
  const memoryText=memory.text.slice(0,2400);
- const transcript=rows.map(m=>(m.role==='user'?'玩家':'角色')+'：'+m.content.slice(0,500)).join('\n').slice(-10500);
+ const today=new Date(),startOfToday=new Date(today.getFullYear(),today.getMonth(),today.getDate()).getTime();
+ const latestSource=existing[0]?.sourceLastMessageAt||0;
+ const transcript=rows.map(m=>{
+   const when=m.createdAt>=startOfToday?'今天':new Date(m.createdAt).toLocaleDateString('zh-CN');
+   const freshness=m.createdAt>latestSource?'本次新增':'既有上下文';
+   return '['+when+' / '+freshness+'] '+(m.role==='user'?'玩家':'角色')+'：'+m.content.slice(0,500);
+ }).join('\n').slice(-10500);
  if(!transcript.trim())throw Error('没有可供书写的聊天内容');
  // Diaries are the default; dreams are occasional and independent of today's events.
  // A memo is preferred only when a new, concrete plan or commitment appears.
