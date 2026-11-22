@@ -33,6 +33,11 @@ export async function appendPrivateNoteComment(characterId:string,noteId:string,
  });
  if(!found)throw Error('记录已不存在，请刷新后重试');
 }
+export async function appendPrivateNoteReply(characterId:string,noteId:string,reply:string){
+ let found=false;
+ await updateArchive(archive=>{const note=archive.notes[characterId]?.find(row=>row.id===noteId);if(!note)return;note.comments=[...(note.comments||[]),{author:'character',text:reply}];found=true});
+ if(!found)throw Error('记录已不存在');
+}
 export async function archiveAppearance(appearance:Archive['appearance']){
  await updateArchive(archive=>{archive.appearance=appearance});
 }
