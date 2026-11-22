@@ -1,4 +1,4 @@
-import {archiveNotes,readPrivateNotesArchive} from './privateNotesArchive';
+import {archiveNotes,appendPrivateNote,readPrivateNotesArchive} from './privateNotesArchive';
 import {db} from './store';
 import {resolveApi} from './chatService';
 import {requestReply} from './chatProvider';
@@ -65,7 +65,7 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
   const minimum=kind==='日记'?180:kind==='梦境'?120:30;
   if(typeof parsed.title!=='string'||typeof parsed.body!=='string'||[...parsed.body.trim()].length<minimum)throw Error('记录内容不完整，未保存；请重试');
   const note:GeneratedNote={id:crypto.randomUUID(),characterId,kind,createdAt:Date.now(),title:parsed.title.slice(0,80),body:parsed.body.slice(0,5000),comments:[],sourceLastMessageAt:lastAt};
-  await saveNotes(characterId,[note,...existing]);
+  await appendPrivateNote(characterId,note);
   return note;
  }finally{clearTimeout(timer)}
  }finally{pending.delete(characterId)}
