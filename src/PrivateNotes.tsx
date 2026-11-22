@@ -46,6 +46,14 @@ export function PrivateNotes(){
  const update=(patch:Partial<Appearance>)=>setAppearance(old=>{const next={...old,...patch};void archiveAppearance(next).catch(()=>setStatus('外观保存失败，请重试'));return next});
  const visible=notes.filter(n=>tab==='总览'||tab===n.kind).sort((a,b)=>b.createdAt-a.createdAt);
  const addComment=(id:string)=>{const value=(draft[id]||'').trim(),owner=characterId;if(!value||!owner||replyBusy===id)return;setReplyBusy(id);setDraft(old=>({...old,[id]:''}));void appendPrivateNoteComment(owner,id,value).then(async()=>{if(owner===characterId)setNotes(await loadNotes(owner));try{await replyToPrivateNoteComment(owner,id,value)}catch{setStatus('评论已保存，角色回复失败；不会自动重复扣费')}if(owner===characterId)setNotes(await loadNotes(owner))}).catch(()=>{setStatus('评论保存失败，请重试');setDraft(old=>({...old,[id]:value}))}).finally(()=>setReplyBusy(current=>current===id?null:current))};
+ const retryReply=(id:string)=>{
+  const owner=characterId,note=notes.find(n=>n.id===id);
+  if(!owner||!note||replyBusy===id)return;
+  const last=note.comments.at(-1);
+  if(typeof last!=='string')return;
+  setReplyBusy(id);
+  void replyToPrivateNoteComment(owner,id,last).then(()=>loadNotes(owner)).then(rows=>{if(owner===characterId)setNotes(rows)}).catch(()=>setStatus('角色回复失败，请稍后手动重试')).finally(()=>setReplyBusy(current=>current===id?null:current));
+ };
  const onImage=(file?:File)=>{if(!file)return;if(!file.type.startsWith('image/')){setStatus('请选择图片文件');return}if(file.size>3*1024*1024){setStatus('当前版本请使用小于 3MB 的图片');return}const reader=new FileReader();reader.onload=()=>{update({background:String(reader.result)});setStatus('背景已更换')};reader.onerror=()=>setStatus('图片读取失败');reader.readAsDataURL(file)};
  const generate=async(kind?:Kind)=>{if(!characterId){setStatus('请先创建角色');return}setBusy(true);setStatus('正在书写…');try{const note=await generatePrivateNote(characterId,true,kind);if(note){setNotes(await loadNotes(characterId));setStatus('已写入一篇'+note.kind);setPage('home');setTab('总览');setOpen(note.id)}}catch(error){setStatus(error instanceof Error?error.message:'生成失败，请重试')}finally{setBusy(false)}};
  return <div className="private-notes" style={{'--pn-bg':colors[1],'--pn-accent':colors[2],'--pn-ink':colors[3],'--pn-alpha':appearance.opacity/100,backgroundImage:appearance.background.startsWith('data:image/')?`url("${appearance.background}")`:appearance.background||'none'} as React.CSSProperties}>
@@ -58,7 +66,7 @@ export function PrivateNotes(){
     <button className="pn-note-top" onClick={()=>setOpen(open===n.id?null:n.id)}><span className="pn-note-icon">{n.kind==='梦境'?<CloudMoon/>:n.kind==='日记'?<BookOpen/>:<NotebookPen/>}</span><span><strong>{n.kind}</strong><small>{relativeDate(n.createdAt)} · {new Date(n.createdAt).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}</small></span><span className="pn-expand">{open===n.id?'⌃':'⌄'}</span></button>
     <h3>{n.title}</h3><p className={open===n.id?'pn-full':'pn-preview'}>{n.body}</p>
     <button className="pn-comment-toggle" onClick={()=>setOpen(open===n.id?null:n.id)}><MessageCircle size={16}/> {n.comments.length} 条评论</button>
-    {open===n.id&&<div className="pn-comments">{n.comments.map((c,i)=><p key={i}>{typeof c==='string'?'你：'+c:(c.author==='character'?'角色：':'你：')+c.text}</p>)}{replyBusy===n.id&&<p>角色正在回复…</p>}<div className="pn-comment-entry"><input value={draft[n.id]||''} onChange={e=>setDraft(old=>({...old,[n.id]:e.target.value}))} placeholder="评论他的记录…"/><button aria-label="发送评论" disabled={replyBusy===n.id} onClick={()=>addComment(n.id)}><Send size={17}/></button></div></div>}
+    {open===n.id&&<div className="pn-comments">{n.comments.map((c,i)=><p key={i}>{typeof c==='string'?'你：'+c:(c.author==='character'?'角色：':'你：')+c.text}</p>)}{replyBusy===n.id?<p>角色正在回复…</p>:typeof n.comments.at(-1)==='string'&&<button className="pn-comment-toggle" onClick={()=>retryReply(n.id)}>重新请求角色回复</button>}<div className="pn-comment-entry"><input value={draft[n.id]||''} onChange={e=>setDraft(old=>({...old,[n.id]:e.target.value}))} placeholder="评论他的记录…"/><button aria-label="发送评论" disabled={replyBusy===n.id} onClick={()=>addComment(n.id)}><Send size={17}/></button></div></div>}
    </article>)}
    <div className="pn-bottom">全部记录</div>
   </main>:<main className="pn-content">
