@@ -1,3 +1,4 @@
+import {PrivateNotes} from './PrivateNotes';
 import {ChatBannerSettings} from './ChatBannerSettings';
 import {WechatIntegrationSettings} from './WechatIntegrationSettings';
 import {reconcileWechatAfterReopen} from './wechatClosedContinuity';
@@ -702,6 +703,8 @@ function App() {
                 <Worlds />
               ) : s.activeApp === "剧本" ? (
                 canStory&&space?.worldId?<StoryApp key={space.worldId} worldId={space.worldId}/>:<p>当前空间没有剧情模式主线入口。</p>
+              ) : s.activeApp === "手记" ? (
+                <PrivateNotes />
               ) : s.activeApp === "记忆" ? (
                 <MemoryApp />
               ) : s.activeApp === "角色管理" ? (
