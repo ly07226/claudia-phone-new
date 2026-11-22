@@ -6,11 +6,13 @@ import {activeMessages} from './messagePath';
 export type NoteKind='日记'|'备忘'|'梦境';
 export type GeneratedNote={id:string;characterId:string;kind:NoteKind;createdAt:number;title:string;body:string;comments:string[];sourceLastMessageAt:number};
 const PREFIX='claudia-private-notes-v2-';
-const MIN_INTERVAL=6*60*60*1000;
-const attempted=new Map<string,number>();
+const pending=new Set<string>();
 export async function loadNotes(characterId:string):Promise<GeneratedNote[]>{const archived=(await readPrivateNotesArchive()).notes[characterId];if(archived)return archived;try{return JSON.parse(localStorage.getItem(PREFIX+characterId)||'[]')}catch{return []}}
 export async function saveNotes(characterId:string,notes:GeneratedNote[]){await archiveNotes(characterId,notes);try{localStorage.setItem(PREFIX+characterId,JSON.stringify(notes))}catch{/* IndexedDB remains authoritative */}}
 export async function generatePrivateNote(characterId:string,manual=false):Promise<GeneratedNote|null>{
+ if(pending.has(characterId))return null;
+ pending.add(characterId);
+ try{
  const character=await db.characters.get(characterId);
  if(!character)throw Error('角色不存在');
  const conversation=await db.conversations.where('scopeKey').equals(JSON.stringify([characterId,'daily',''])).first();
@@ -19,10 +21,15 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
  const lastAt=rows.at(-1)?.createdAt||0;
  const existing=await loadNotes(characterId);
  if(!manual){
-   const previous=attempted.get(characterId)||0;
-   if(Date.now()-previous<MIN_INTERVAL)return null;
+   const schedule=(await readPrivateNotesArchive()).schedule||{mode:'both',intervalMinutes:60};
    const latest=existing[0];
-   if(!lastAt||Date.now()-lastAt>3*86400000||latest&&(Date.now()-latest.createdAt<MIN_INTERVAL||latest.sourceLastMessageAt>=lastAt))return null;
+   const interval=Math.max(60,schedule.intervalMinutes||60)*60000;
+   const due=!latest||Date.now()-latest.createdAt>=interval;
+   const recent=!!lastAt&&Date.now()-lastAt<3*86400000;
+   const meaningful=rows.slice(-8).some(m=>/约定|答应|决定|分手|和好|道歉|见面|生病|医院|生日|离开|回来|喜欢你|爱你|结婚|辞职|搬家/.test(m.content));
+   const important=recent&&meaningful&&(!latest||latest.sourceLastMessageAt<lastAt);
+   const eligible=schedule.mode==='interval'?due:schedule.mode==='important'?important:due||important;
+   if(!eligible||!recent||latest?.sourceLastMessageAt===lastAt)return null;
    if(rows.length<4)return null;
  }
  const transcript=rows.map(m=>(m.role==='user'?'玩家':'角色')+'：'+m.content.slice(0,500)).join('\n').slice(-10500);
@@ -40,7 +47,6 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
  '请写一篇'+kind+'，正文目标'+lengths+'个汉字。标题简短有余味。输出严格 JSON：{"title":"...","body":"..."}，不要 Markdown 代码块。'
  ].join('\n');
  const {config,key}=await resolveApi(conversation);
- if(!manual)attempted.set(characterId,Date.now());
  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),90000);
  try{
   const result=await requestReply(config,key,[{role:'system',content:system},{role:'user',content:'当前时间：'+new Date().toLocaleString('zh-CN')+'\n以下是近期真实聊天节选：\n'+transcript}],controller.signal);
@@ -52,4 +58,5 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
   await saveNotes(characterId,[note,...existing]);
   return note;
  }finally{clearTimeout(timer)}
+ }finally{pending.delete(characterId)}
 }
