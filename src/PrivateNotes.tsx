@@ -1,3 +1,4 @@
+import {readPrivateNotesArchive,archiveAppearance} from './privateNotesArchive';
 import {generatePrivateNote,loadNotes,saveNotes,type GeneratedNote} from './privateNotesGeneration';
 import {usePhone} from './store';
 import React,{useEffect,useState} from 'react';
@@ -25,8 +26,8 @@ export function PrivateNotes(){
  const [characterId,setCharacterId]=useState('');
  const [notes,setNotes]=useState<GeneratedNote[]>([]);
  useEffect(()=>{if(!characterId&&characters.length)setCharacterId(characters[0].id)},[characters,characterId]);
- useEffect(()=>{setNotes(characterId?loadNotes(characterId):[])},[characterId]);
- useEffect(()=>{if(!characterId)return;let cancelled=false;void generatePrivateNote(characterId).then(n=>{if(n&&!cancelled)setNotes(loadNotes(characterId))}).catch(()=>{});return()=>{cancelled=true}},[characterId]);
+ useEffect(()=>{let active=true;if(characterId)void loadNotes(characterId).then(rows=>{if(active)setNotes(rows)}).catch(()=>{});else setNotes([]);return()=>{active=false}},[characterId]);
+ useEffect(()=>{if(!characterId)return;let cancelled=false;void generatePrivateNote(characterId).then(n=>{if(n&&!cancelled)void loadNotes(characterId).then(setNotes)}).catch(()=>{});return()=>{cancelled=true}},[characterId]);
  const [appearance,setAppearance]=useState<Appearance>(()=>read(appearanceKey,{theme:4,opacity:36,background:''}));
  const [page,setPage]=useState<'home'|'settings'>('home');
  const [tab,setTab]=useState<'总览'|Kind>('总览');
@@ -35,13 +36,14 @@ export function PrivateNotes(){
  const [status,setStatus]=useState('');
  const [busy,setBusy]=useState(false);
  
- useEffect(()=>{try{localStorage.setItem(appearanceKey,JSON.stringify(appearance))}catch{setStatus('背景图片太大，无法保存。请换一张较小的图片。')}},[appearance]);
+ useEffect(()=>{let active=true;void readPrivateNotesArchive().then(a=>{if(active&&a.appearance)setAppearance(a.appearance)}).catch(()=>{});return()=>{active=false}},[]);
+ useEffect(()=>{try{localStorage.setItem(appearanceKey,JSON.stringify(appearance))}catch{}},[appearance]);
  const colors=palettes[appearance.theme]||palettes[4];
- const update=(patch:Partial<Appearance>)=>setAppearance(old=>({...old,...patch}));
+ const update=(patch:Partial<Appearance>)=>setAppearance(old=>{const next={...old,...patch};void archiveAppearance(next).catch(()=>setStatus('外观保存失败，请重试'));return next});
  const visible=notes.filter(n=>tab==='总览'||tab===n.kind).sort((a,b)=>b.createdAt-a.createdAt);
- const addComment=(id:string)=>{const value=(draft[id]||'').trim();if(!value)return;setNotes(old=>{const next=old.map(n=>n.id===id?{...n,comments:[...n.comments,value]}:n);if(characterId)saveNotes(characterId,next);return next});setDraft(old=>({...old,[id]:''}))};
+ const addComment=(id:string)=>{const value=(draft[id]||'').trim();if(!value)return;setNotes(old=>{const next=old.map(n=>n.id===id?{...n,comments:[...n.comments,value]}:n);if(characterId)void saveNotes(characterId,next).catch(()=>setStatus('评论保存失败，请重试'));return next});setDraft(old=>({...old,[id]:''}))};
  const onImage=(file?:File)=>{if(!file)return;if(!file.type.startsWith('image/')){setStatus('请选择图片文件');return}if(file.size>3*1024*1024){setStatus('当前版本请使用小于 3MB 的图片');return}const reader=new FileReader();reader.onload=()=>{update({background:String(reader.result)});setStatus('背景已更换')};reader.onerror=()=>setStatus('图片读取失败');reader.readAsDataURL(file)};
- const generate=async()=>{if(!characterId){setStatus('请先创建角色');return}setBusy(true);setStatus('正在书写…');try{const note=await generatePrivateNote(characterId,true);if(note){setNotes(loadNotes(characterId));setStatus('已写入一篇'+note.kind);setPage('home');setTab('总览');setOpen(note.id)}}catch(error){setStatus(error instanceof Error?error.message:'生成失败，请重试')}finally{setBusy(false)}};
+ const generate=async()=>{if(!characterId){setStatus('请先创建角色');return}setBusy(true);setStatus('正在书写…');try{const note=await generatePrivateNote(characterId,true);if(note){setNotes(await loadNotes(characterId));setStatus('已写入一篇'+note.kind);setPage('home');setTab('总览');setOpen(note.id)}}catch(error){setStatus(error instanceof Error?error.message:'生成失败，请重试')}finally{setBusy(false)}};
  return <div className="private-notes" style={{'--pn-bg':colors[1],'--pn-accent':colors[2],'--pn-ink':colors[3],'--pn-alpha':appearance.opacity/100,backgroundImage:appearance.background.startsWith('data:image/')?`url("${appearance.background}")`:appearance.background||'none'} as React.CSSProperties}>
   <div className="pn-shade"/>
   {page==='home'?<main className="pn-content">
