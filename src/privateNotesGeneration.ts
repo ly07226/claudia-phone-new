@@ -45,7 +45,7 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
    if(rows.length<4)return null;
  }
  const memory=await memoryContext(conversation,rows,2400).catch(()=>({text:''}));
- const memoryText=memory.text.slice(0,2400);
+ const memoryText=(typeof memory==='string'?memory:memory.text).slice(0,2400);
  const today=new Date(),startOfToday=new Date(today.getFullYear(),today.getMonth(),today.getDate()).getTime();
  const latestSource=existing.find(n=>n.kind!=='梦境')?.sourceLastMessageAt||0;
  const transcript=rows.map(m=>{
