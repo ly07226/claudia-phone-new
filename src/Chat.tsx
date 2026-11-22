@@ -397,6 +397,9 @@ export function Chat({ worldId }: { worldId?: string }) {
         });
         pending.current=task.controller;
         await task.done;
+        if(conversation.mode==='daily'&&!conversation.worldId){
+          void import('./privateNotesGeneration').then(({generatePrivateNote})=>generatePrivateNote(conversation.characterId)).catch(()=>{/* Private notes must never block chat replies. */});
+        }
       }
       if(retry)recordKeyboardDebug('reply-returned',{success:true});
     } catch (e) {
