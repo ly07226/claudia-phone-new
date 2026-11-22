@@ -22,3 +22,5 @@ export async function archiveAppearance(appearance:Archive['appearance']){
  const existing=await db.themes.get(ID);
  await db.themes.put({...existing,id:ID,color:'#8995a3',font:'sans',iconStyle:'rounded',opacity:.36,blur:18,privateNotesArchive:archive} as any);
 }
+
+export type NoteSchedule={mode:'interval'|'important'|'both';intervalMinutes:number};
