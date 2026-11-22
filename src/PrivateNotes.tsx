@@ -1,5 +1,5 @@
-import {readPrivateNotesArchive,archiveAppearance,saveNoteSchedule,type NoteSchedule} from './privateNotesArchive';
-import {generatePrivateNote,loadNotes,saveNotes,type GeneratedNote} from './privateNotesGeneration';
+import {readPrivateNotesArchive,archiveAppearance,appendPrivateNoteComment,saveNoteSchedule,type NoteSchedule} from './privateNotesArchive';
+import {generatePrivateNote,loadNotes,type GeneratedNote} from './privateNotesGeneration';
 import {usePhone} from './store';
 import React,{useEffect,useState} from 'react';
 import {ArrowLeft,BookOpen,CloudMoon,ImagePlus,Menu,MessageCircle,Moon,NotebookPen,Send,Sparkles} from 'lucide-react';
@@ -44,7 +44,7 @@ export function PrivateNotes(){
  const colors=palettes[appearance.theme]||palettes[4];
  const update=(patch:Partial<Appearance>)=>setAppearance(old=>{const next={...old,...patch};void archiveAppearance(next).catch(()=>setStatus('外观保存失败，请重试'));return next});
  const visible=notes.filter(n=>tab==='总览'||tab===n.kind).sort((a,b)=>b.createdAt-a.createdAt);
- const addComment=(id:string)=>{const value=(draft[id]||'').trim();if(!value)return;setNotes(old=>{const next=old.map(n=>n.id===id?{...n,comments:[...n.comments,value]}:n);if(characterId)void saveNotes(characterId,next).catch(()=>setStatus('评论保存失败，请重试'));return next});setDraft(old=>({...old,[id]:''}))};
+ const addComment=(id:string)=>{const value=(draft[id]||'').trim(),owner=characterId;if(!value||!owner)return;setDraft(old=>({...old,[id]:''}));void appendPrivateNoteComment(owner,id,value).then(()=>loadNotes(owner)).then(rows=>{if(owner===characterId)setNotes(rows)}).catch(()=>{setStatus('评论保存失败，请重试');setDraft(old=>({...old,[id]:value}))})};
  const onImage=(file?:File)=>{if(!file)return;if(!file.type.startsWith('image/')){setStatus('请选择图片文件');return}if(file.size>3*1024*1024){setStatus('当前版本请使用小于 3MB 的图片');return}const reader=new FileReader();reader.onload=()=>{update({background:String(reader.result)});setStatus('背景已更换')};reader.onerror=()=>setStatus('图片读取失败');reader.readAsDataURL(file)};
  const generate=async()=>{if(!characterId){setStatus('请先创建角色');return}setBusy(true);setStatus('正在书写…');try{const note=await generatePrivateNote(characterId,true);if(note){setNotes(await loadNotes(characterId));setStatus('已写入一篇'+note.kind);setPage('home');setTab('总览');setOpen(note.id)}}catch(error){setStatus(error instanceof Error?error.message:'生成失败，请重试')}finally{setBusy(false)}};
  return <div className="private-notes" style={{'--pn-bg':colors[1],'--pn-accent':colors[2],'--pn-ink':colors[3],'--pn-alpha':appearance.opacity/100,backgroundImage:appearance.background.startsWith('data:image/')?`url("${appearance.background}")`:appearance.background||'none'} as React.CSSProperties}>
