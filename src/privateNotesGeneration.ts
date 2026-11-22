@@ -7,6 +7,7 @@ export type NoteKind='日记'|'备忘'|'梦境';
 export type GeneratedNote={id:string;characterId:string;kind:NoteKind;createdAt:number;title:string;body:string;comments:string[];sourceLastMessageAt:number};
 const PREFIX='claudia-private-notes-v2-';
 const MIN_INTERVAL=6*60*60*1000;
+const attempted=new Map<string,number>();
 export async function loadNotes(characterId:string):Promise<GeneratedNote[]>{const archived=(await readPrivateNotesArchive()).notes[characterId];if(archived)return archived;try{return JSON.parse(localStorage.getItem(PREFIX+characterId)||'[]')}catch{return []}}
 export async function saveNotes(characterId:string,notes:GeneratedNote[]){await archiveNotes(characterId,notes);try{localStorage.setItem(PREFIX+characterId,JSON.stringify(notes))}catch{/* IndexedDB remains authoritative */}}
 export async function generatePrivateNote(characterId:string,manual=false):Promise<GeneratedNote|null>{
@@ -18,6 +19,8 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
  const lastAt=rows.at(-1)?.createdAt||0;
  const existing=await loadNotes(characterId);
  if(!manual){
+   const previous=attempted.get(characterId)||0;
+   if(Date.now()-previous<MIN_INTERVAL)return null;
    const latest=existing[0];
    if(!lastAt||Date.now()-lastAt>3*86400000||latest&&(Date.now()-latest.createdAt<MIN_INTERVAL||latest.sourceLastMessageAt>=lastAt))return null;
    if(rows.length<4)return null;
@@ -37,6 +40,7 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
  '请写一篇'+kind+'，正文目标'+lengths+'个汉字。标题简短有余味。输出严格 JSON：{"title":"...","body":"..."}，不要 Markdown 代码块。'
  ].join('\n');
  const {config,key}=await resolveApi(conversation);
+ if(!manual)attempted.set(characterId,Date.now());
  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),90000);
  try{
   const result=await requestReply(config,key,[{role:'system',content:system},{role:'user',content:'当前时间：'+new Date().toLocaleString('zh-CN')+'\n以下是近期真实聊天节选：\n'+transcript}],controller.signal);
