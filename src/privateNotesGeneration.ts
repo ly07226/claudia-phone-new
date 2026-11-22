@@ -24,12 +24,12 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
    const schedule=(await readPrivateNotesArchive()).schedule||{mode:'both',intervalMinutes:60};
    const latest=existing[0];
    const interval=Math.max(60,schedule.intervalMinutes||60)*60000;
-   const due=!latest||Date.now()-latest.createdAt>=interval;
+   const due=!!latest&&Date.now()-latest.createdAt>=interval;
    const recent=!!lastAt&&Date.now()-lastAt<3*86400000;
    const newRows=rows.filter(m=>m.createdAt>(latest?.sourceLastMessageAt||0));
-   const meaningful=newRows.some(m=>/约定|答应|决定|分手|和好|道歉|见面|生病|医院|生日|离开|回来|喜欢你|爱你|结婚|辞职|搬家/.test(m.content));
+   const meaningful=newRows.some(m=>/我(答应|决定|承诺|辞职|搬家|生病|住院|离开|回来|喜欢你|爱你)|我们(约好|约定|见面|和好|分手)|已经(见面|和好|分手|搬家|辞职)|生日快乐|对不起|原谅你/.test(m.content));
    const important=recent&&meaningful&&(!latest||latest.sourceLastMessageAt<lastAt);
-   const eligible=schedule.mode==='interval'?due:schedule.mode==='important'?important:due||important;
+   const eligible=schedule.mode==='interval'?(due||!latest):schedule.mode==='important'?important:due||important||(!latest&&newRows.length>=6);
    if(!eligible||!recent||newRows.length===0||latest?.sourceLastMessageAt===lastAt)return null;
    if(rows.length<4)return null;
  }
