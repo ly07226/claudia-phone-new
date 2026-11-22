@@ -23,9 +23,9 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
  const existing=await loadNotes(characterId);
  if(!manual){
    const schedule=(await readPrivateNotesArchive()).schedule||{mode:'both',intervalMinutes:60};
-   const latest=existing.find(n=>n.kind!=='梦境');
+   const latest=existing.filter(n=>n.kind!=='梦境').sort((a,b)=>b.sourceLastMessageAt-a.sourceLastMessageAt||b.createdAt-a.createdAt)[0];
    const interval=Math.max(60,schedule.intervalMinutes||60)*60000;
-   const due=!!latest&&Date.now()-latest.createdAt>=interval;
+   const due=!!latest&&Date.now()-Math.max(...existing.filter(n=>n.kind!=='梦境').map(n=>n.createdAt))>=interval;
    const recent=!!lastAt&&Date.now()-lastAt<3*86400000;
    const newRows=rows.filter(m=>m.createdAt>(latest?.sourceLastMessageAt||0));
    // A lightweight signal, not a claim that a keyword proves an important event.
@@ -47,7 +47,7 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
  const memory=await memoryContext(conversation,rows,2400).catch(()=>({text:''}));
  const memoryText=(typeof memory==='string'?memory:memory.text).slice(0,2400);
  const today=new Date(),startOfToday=new Date(today.getFullYear(),today.getMonth(),today.getDate()).getTime();
- const latestSource=existing.find(n=>n.kind!=='梦境')?.sourceLastMessageAt||0;
+ const latestSource=Math.max(0,...existing.filter(n=>n.kind!=='梦境').map(n=>n.sourceLastMessageAt||0));
  const transcript=rows.map(m=>{
    const when=m.createdAt>=startOfToday?'今天':new Date(m.createdAt).toLocaleDateString('zh-CN');
    const freshness=m.createdAt>latestSource?'本次新增':'既有上下文';
