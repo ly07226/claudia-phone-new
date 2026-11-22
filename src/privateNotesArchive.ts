@@ -10,19 +10,21 @@ export async function readPrivateNotesArchive():Promise<Archive>{
  if(data?.version===1&&data.notes&&typeof data.notes==='object')return data as Archive;
  return {version:1,notes:{}};
 }
+async function updateArchive(mutator:(archive:Archive)=>void){
+ await db.transaction('rw',db.themes,async()=>{
+  const archive=await readPrivateNotesArchive();
+  mutator(archive);
+  const existing=await db.themes.get(ID);
+  await db.themes.put({...existing,id:ID,color:'#8995a3',font:'sans',iconStyle:'rounded',opacity:.36,blur:18,privateNotesArchive:archive} as any);
+ });
+}
 export async function archiveNotes(characterId:string,notes:GeneratedNote[]){
- const archive=await readPrivateNotesArchive();
- archive.notes[characterId]=notes;
- const existing=await db.themes.get(ID);
- await db.themes.put({...existing,id:ID,color:'#8995a3',font:'sans',iconStyle:'rounded',opacity:.36,blur:18,privateNotesArchive:archive} as any);
+ await updateArchive(archive=>{archive.notes[characterId]=notes});
 }
 export async function archiveAppearance(appearance:Archive['appearance']){
- const archive=await readPrivateNotesArchive();
- archive.appearance=appearance;
- const existing=await db.themes.get(ID);
- await db.themes.put({...existing,id:ID,color:'#8995a3',font:'sans',iconStyle:'rounded',opacity:.36,blur:18,privateNotesArchive:archive} as any);
+ await updateArchive(archive=>{archive.appearance=appearance});
 }
 
 export type NoteSchedule={mode:'interval'|'important'|'both';intervalMinutes:number};
 
-export async function saveNoteSchedule(schedule:NoteSchedule){const archive=await readPrivateNotesArchive();const row=await db.themes.get(ID);await db.themes.put({...row,id:ID,color:'#8995a3',font:'sans',iconStyle:'rounded',opacity:.36,blur:18,privateNotesArchive:{...archive,schedule}} as any)}
+export async function saveNoteSchedule(schedule:NoteSchedule){await updateArchive(archive=>{archive.schedule=schedule})}
