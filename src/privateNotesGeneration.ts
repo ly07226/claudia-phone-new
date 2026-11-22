@@ -1,3 +1,4 @@
+import {archiveNotes,readPrivateNotesArchive} from './privateNotesArchive';
 import {db} from './store';
 import {resolveApi} from './chatService';
 import {requestReply} from './chatProvider';
@@ -6,8 +7,8 @@ export type NoteKind='日记'|'备忘'|'梦境';
 export type GeneratedNote={id:string;characterId:string;kind:NoteKind;createdAt:number;title:string;body:string;comments:string[];sourceLastMessageAt:number};
 const PREFIX='claudia-private-notes-v2-';
 const MIN_INTERVAL=6*60*60*1000;
-export function loadNotes(characterId:string):GeneratedNote[]{try{return JSON.parse(localStorage.getItem(PREFIX+characterId)||'[]')}catch{return []}}
-export function saveNotes(characterId:string,notes:GeneratedNote[]){localStorage.setItem(PREFIX+characterId,JSON.stringify(notes))}
+export async function loadNotes(characterId:string):Promise<GeneratedNote[]>{const archived=(await readPrivateNotesArchive()).notes[characterId];if(archived)return archived;try{return JSON.parse(localStorage.getItem(PREFIX+characterId)||'[]')}catch{return []}}
+export async function saveNotes(characterId:string,notes:GeneratedNote[]){await archiveNotes(characterId,notes);try{localStorage.setItem(PREFIX+characterId,JSON.stringify(notes))}catch{/* IndexedDB remains authoritative */}}
 export async function generatePrivateNote(characterId:string,manual=false):Promise<GeneratedNote|null>{
  const character=await db.characters.get(characterId);
  if(!character)throw Error('角色不存在');
@@ -15,7 +16,7 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
  if(!conversation)throw Error('还没有该角色的日常聊天记录');
  const rows=(await activeMessages(conversation.id)).slice(-35).filter(m=>m.role==='user'||m.role==='assistant');
  const lastAt=rows.at(-1)?.createdAt||0;
- const existing=loadNotes(characterId);
+ const existing=await loadNotes(characterId);
  if(!manual){
    const latest=existing[0];
    if(!lastAt||Date.now()-lastAt>3*86400000||latest&&(Date.now()-latest.createdAt<MIN_INTERVAL||latest.sourceLastMessageAt>=lastAt))return null;
@@ -44,7 +45,7 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
   try{parsed=JSON.parse(cleaned)}catch{throw Error('记录格式解析失败，请重试')}
   if(typeof parsed.title!=='string'||typeof parsed.body!=='string'||parsed.body.trim().length<40)throw Error('生成内容过短或格式错误，请重试');
   const note:GeneratedNote={id:crypto.randomUUID(),characterId,kind,createdAt:Date.now(),title:parsed.title.slice(0,80),body:parsed.body.slice(0,5000),comments:[],sourceLastMessageAt:lastAt};
-  saveNotes(characterId,[note,...existing]);
+  await saveNotes(characterId,[note,...existing]);
   return note;
  }finally{clearTimeout(timer)}
 }
