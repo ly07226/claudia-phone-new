@@ -27,7 +27,7 @@ export function PrivateNotes(){
  const [notes,setNotes]=useState<GeneratedNote[]>([]);
  useEffect(()=>{if(!characterId&&characters.length)setCharacterId(characters[0].id)},[characters,characterId]);
  useEffect(()=>{let active=true;if(characterId)void loadNotes(characterId).then(rows=>{if(active)setNotes(rows)}).catch(()=>{});else setNotes([]);return()=>{active=false}},[characterId]);
- useEffect(()=>{if(!characterId)return;let cancelled=false;void generatePrivateNote(characterId).then(n=>{if(n&&!cancelled)void loadNotes(characterId).then(setNotes)}).catch(()=>{});return()=>{cancelled=true}},[characterId]);
+ useEffect(()=>{if(!characterId)return;let cancelled=false;void generatePrivateNote(characterId).then(async n=>{if(!n||cancelled)return;const rows=await loadNotes(characterId);if(!cancelled)setNotes(rows)}).catch(()=>{});return()=>{cancelled=true}},[characterId]);
  const [appearance,setAppearance]=useState<Appearance>(()=>read(appearanceKey,{theme:4,opacity:36,background:''}));
  const [page,setPage]=useState<'home'|'settings'>('home');
  const [tab,setTab]=useState<'总览'|Kind>('总览');
