@@ -23,7 +23,7 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
  const existing=await loadNotes(characterId);
  if(!manual){
    const schedule=(await readPrivateNotesArchive()).schedule||{mode:'both',intervalMinutes:60};
-   const latest=existing[0];
+   const latest=existing.find(n=>n.kind!=='梦境');
    const interval=Math.max(60,schedule.intervalMinutes||60)*60000;
    const due=!!latest&&Date.now()-latest.createdAt>=interval;
    const recent=!!lastAt&&Date.now()-lastAt<3*86400000;
@@ -47,7 +47,7 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
  const memory=await memoryContext(conversation,rows,2400).catch(()=>({text:''}));
  const memoryText=memory.text.slice(0,2400);
  const today=new Date(),startOfToday=new Date(today.getFullYear(),today.getMonth(),today.getDate()).getTime();
- const latestSource=existing[0]?.sourceLastMessageAt||0;
+ const latestSource=existing.find(n=>n.kind!=='梦境')?.sourceLastMessageAt||0;
  const transcript=rows.map(m=>{
    const when=m.createdAt>=startOfToday?'今天':new Date(m.createdAt).toLocaleDateString('zh-CN');
    const freshness=m.createdAt>latestSource?'本次新增':'既有上下文';
@@ -56,7 +56,7 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
  if(!transcript.trim())throw Error('没有可供书写的聊天内容');
  // Diaries are the default; dreams are occasional and independent of today's events.
  // A memo is preferred only when a new, concrete plan or commitment appears.
- const newContent=rows.filter(m=>m.createdAt>(existing[0]?.sourceLastMessageAt||0)).map(m=>m.content).join('\n');
+ const newContent=rows.filter(m=>m.createdAt>latestSource).map(m=>m.content).join('\n');
  const hasPlan=/((明天|后天|周[一二三四五六日天]|下周|下个月|今晚|待会|记得|别忘|提醒|约好|约定).{0,28}(见面|去|做|买|带|打电话|联系|准备|拿|送|接|提醒|记住))|((要|准备|计划).{0,20}(去|买|做|见|联系|搬|送))/.test(newContent);
  // Ordinary automatic writing never sacrifices a diary to a random dream.
  // Dreams are generated independently on explicit request, avoiding surprise API charges.
