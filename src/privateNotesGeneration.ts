@@ -28,7 +28,7 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
    const due=!!latest&&Date.now()-latest.createdAt>=interval;
    const recent=!!lastAt&&Date.now()-lastAt<3*86400000;
    const newRows=rows.filter(m=>m.createdAt>(latest?.sourceLastMessageAt||0));
-   const meaningful=newRows.some(m=>/我(答应|决定|承诺|辞职|搬家|生病|住院|离开|回来|喜欢你|爱你)|我们(约好|约定|见面|和好|分手)|已经(见面|和好|分手|搬家|辞职)|生日快乐|对不起|原谅你/.test(m.content));
+   const meaningful=newRows.some(m=>m.role==='user'&&/我(答应|决定|承诺|辞职|搬家|生病|住院|离开|回来|喜欢你|爱你)|我们(约好|约定|见面|和好|分手)|已经(见面|和好|分手|搬家|辞职)|生日快乐|对不起|原谅你/.test(m.content));
    const important=recent&&meaningful&&(!latest||latest.sourceLastMessageAt<lastAt);
    const eligible=schedule.mode==='interval'?(due||!latest):schedule.mode==='important'?important:due||important||(!latest&&newRows.length>=6);
    if(!eligible||!recent||newRows.length===0||latest?.sourceLastMessageAt===lastAt)return null;
@@ -46,9 +46,9 @@ export async function generatePrivateNote(characterId:string,manual=false):Promi
  '角色设定：'+character.persona.slice(0,2600),
  '语言习惯：'+(character.speakingStyle||'自然、贴合人物').slice(0,1200),
  '文笔要求：成熟、克制、有辨识度；使用具体的动作、物件、感官和细微心理转折承载情绪，避免空泛抒情、流水账、鸡汤、套话、矫饰比喻、重复排比和过度描写眼睛。',
- '日记应有事件的起承转合与未说出口的内心；梦境要有独立的意象、空间与叙事，不把梦当现实；备忘简洁实用。',
+ '日记的核心是今天真实发生的互动：玩家告诉角色的事情、角色听到后的感受、他没有说出口的念头与心境变化。普通的一句话也可以触动角色，不必虚构重大事件。优先写今日新增的互动，不把旧记忆当作今日事件；角色的内心可以复杂、矛盾、克制，不必一味温柔。梦境要有独立意象与叙事，不把梦当现实；备忘简洁实用。',
  '只能使用给出的真实对话及已核实记忆作为已发生事实；记忆是背景，不得将旧事件写成今天刚发生。不得擅自决定玩家行为、情绪、经历或承诺。猜测必须明确为猜测。缺乏事实时不要补造剧情。',
- '请写一篇'+kind+'，正文目标'+lengths+'个汉字。标题简短有余味。输出严格 JSON：{"title":"...","body":"..."}，不要 Markdown 代码块。'
+ '请写一篇'+kind+'，正文目标'+lengths+'个汉字。若今日互动平淡，写真实的细节与感触，不凑事件。标题简短有余味。输出严格 JSON：{"title":"...","body":"..."}，不要 Markdown 代码块。'
  ].join('\n');
  const {config,key}=await resolveApi(conversation);
  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),90000);
