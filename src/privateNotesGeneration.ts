@@ -84,7 +84,7 @@ export async function replyToPrivateNoteComment(characterId:string,noteId:string
  try{
   const answer=(await requestReply(config,key,[
    {role:'system',content:'你是'+character.name+'。人物设定：'+character.persona.slice(0,1600)+'。说话风格：'+(character.speakingStyle||'自然').slice(0,500)+'。你正在回复玩家对你私人'+note.kind+'的评论。用角色本人语气简短自然回复，1到3句话，不写新日记，不替玩家发言，不编造已发生的事件。'},
-   {role:'user',content:'你的私人记录《'+note.title+'》：'+note.body.slice(0,1800)+'\\n玩家评论：'+comment.slice(0,800)}
+   {role:'user',content:'你的私人记录《'+note.title+'》：'+note.body.slice(0,1800)+'\n玩家评论：'+comment.slice(0,800)}
   ],controller.signal)).trim();
   if(!answer)throw Error('角色没有生成有效回复');
   const reply=answer.slice(0,800);
