@@ -2,7 +2,7 @@ import {db} from './store';
 import type {GeneratedNote} from './privateNotesGeneration';
 /** Private records live in the existing themes table so v7/v8 ZIP snapshot and restore
  * include them without changing the strict backup schema or breaking legacy archives. */
-type Archive={version:1;notes:Record<string,GeneratedNote[]>;appearance?:{theme:number;opacity:number;background:string}};
+type Archive={version:1;notes:Record<string,GeneratedNote[]>;appearance?:{theme:number;opacity:number;background:string};schedule?:NoteSchedule};
 const ID='private-notes-archive';
 export async function readPrivateNotesArchive():Promise<Archive>{
  const row=await db.themes.get(ID) as (typeof db.themes extends never?never:any);
@@ -24,3 +24,5 @@ export async function archiveAppearance(appearance:Archive['appearance']){
 }
 
 export type NoteSchedule={mode:'interval'|'important'|'both';intervalMinutes:number};
+
+export async function saveNoteSchedule(schedule:NoteSchedule){const archive=await readPrivateNotesArchive();const row=await db.themes.get(ID);await db.themes.put({...row,id:ID,color:'#8995a3',font:'sans',iconStyle:'rounded',opacity:.36,blur:18,privateNotesArchive:{...archive,schedule}} as any)}
