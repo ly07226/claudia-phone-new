@@ -1,4 +1,4 @@
-import {readPrivateNotesArchive,archiveAppearance} from './privateNotesArchive';
+import {readPrivateNotesArchive,archiveAppearance,saveNoteSchedule,type NoteSchedule} from './privateNotesArchive';
 import {generatePrivateNote,loadNotes,saveNotes,type GeneratedNote} from './privateNotesGeneration';
 import {usePhone} from './store';
 import React,{useEffect,useState} from 'react';
@@ -35,8 +35,11 @@ export function PrivateNotes(){
  const [draft,setDraft]=useState<Record<string,string>>({});
  const [status,setStatus]=useState('');
  const [busy,setBusy]=useState(false);
+ const [schedule,setSchedule]=useState<NoteSchedule>({mode:'both',intervalMinutes:60});
+ const [custom,setCustom]=useState('');
+ const changeSchedule=(next:NoteSchedule)=>{setSchedule(next);void saveNoteSchedule(next).catch(()=>setStatus('书写设置保存失败，请重试'))};
  
- useEffect(()=>{let active=true;void readPrivateNotesArchive().then(a=>{if(active&&a.appearance)setAppearance(a.appearance)}).catch(()=>{});return()=>{active=false}},[]);
+ useEffect(()=>{let active=true;void readPrivateNotesArchive().then(a=>{if(active){if(a.appearance)setAppearance(a.appearance);if(a.schedule)setSchedule(a.schedule)}}).catch(()=>{});return()=>{active=false}},[]);
  useEffect(()=>{try{localStorage.setItem(appearanceKey,JSON.stringify(appearance))}catch{}},[appearance]);
  const colors=palettes[appearance.theme]||palettes[4];
  const update=(patch:Partial<Appearance>)=>setAppearance(old=>{const next={...old,...patch};void archiveAppearance(next).catch(()=>setStatus('外观保存失败，请重试'));return next});
@@ -47,7 +50,7 @@ export function PrivateNotes(){
  return <div className="private-notes" style={{'--pn-bg':colors[1],'--pn-accent':colors[2],'--pn-ink':colors[3],'--pn-alpha':appearance.opacity/100,backgroundImage:appearance.background.startsWith('data:image/')?`url("${appearance.background}")`:appearance.background||'none'} as React.CSSProperties}>
   <div className="pn-shade"/>
   {page==='home'?<main className="pn-content">
-   <header className="pn-header"><div><h2>私人记录</h2><small>Private Notes</small></div><button aria-label="外观设置" onClick={()=>setPage('settings')}><Menu size={21}/></button></header>
+   <header className="pn-header"><div><h2>私人记录</h2><small>Private Notes</small></div><button aria-label="私人记录设置" onClick={()=>setPage('settings')}><Menu size={21}/></button></header>
    <div className="pn-character"><label htmlFor="pn-character">当前角色</label><select id="pn-character" value={characterId} onChange={e=>setCharacterId(e.target.value)}>{characters.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
    <nav className="pn-tabs">{(['总览','日记','备忘','梦境'] as const).map((name,i)=>{const Icon=[BookOpen,NotebookPen,NotebookPen,Moon][i];return <button key={name} className={tab===name?'active':''} onClick={()=>setTab(name)}><Icon size={20}/><span>{name}</span></button>})}</nav>
    {visible.length===0?<div className="pn-empty">还没有角色写下的{tab==='总览'?'私人记录':tab}。<br/>开启自动生成后，记录会出现在这里。</div>:visible.map(n=><article className="pn-card" key={n.id}>
@@ -58,8 +61,9 @@ export function PrivateNotes(){
    </article>)}
    <div className="pn-bottom">全部记录</div>
   </main>:<main className="pn-content">
-   <header className="pn-header"><button aria-label="返回" onClick={()=>setPage('home')}><ArrowLeft/></button><h2>外观设置</h2><span/></header>
+   <header className="pn-header"><button aria-label="返回" onClick={()=>setPage('home')}><ArrowLeft/></button><h2>私人记录设置</h2><span/></header>
    <section className="pn-card"><h3>让他写点什么</h3><p>默认自动写。这里可手动触发一次生成。</p><button className="pn-action" disabled={busy} onClick={generate}><Sparkles size={16}/> {busy?'正在书写…':'立即生成'}</button></section>
+   <section className="pn-card"><h3>自动书写方式</h3><p>角色可按时间书写，也可在重要事件发生后主动记录。</p><div className="pn-character"><select aria-label="自动书写方式" value={schedule.mode} onChange={e=>changeSchedule({...schedule,mode:e.target.value as NoteSchedule['mode']})}><option value="both">定时与重要事件同时开启</option><option value="interval">仅按时间间隔</option><option value="important">仅重要事件</option></select></div>{schedule.mode!=='important'&&<><h3>书写时间间隔</h3><div className="pn-character"><select aria-label="书写时间间隔" value={[60,180].includes(schedule.intervalMinutes)?String(schedule.intervalMinutes):'custom'} onChange={e=>{if(e.target.value!=='custom')changeSchedule({...schedule,intervalMinutes:Number(e.target.value)});else changeSchedule({...schedule,intervalMinutes:240})}}><option value="60">每 1 小时</option><option value="180">每 3 小时</option><option value="custom">自定义</option></select></div>{![60,180].includes(schedule.intervalMinutes)&&<div className="pn-character"><label>自定义分钟数（至少 60 分钟）</label><input type="number" min="60" step="1" value={custom||String(schedule.intervalMinutes)} onChange={e=>setCustom(e.target.value)} onBlur={()=>{const n=Number(custom);if(Number.isFinite(n)&&n>=60)changeSchedule({...schedule,intervalMinutes:Math.floor(n)});else setStatus('请输入至少 60 分钟的间隔');setCustom('')}}/></div>}</>}</section>
    <h3 className="pn-section">七种主题</h3><div className="pn-palette">{palettes.map((p,i)=><button key={p[0]} onClick={()=>update({theme:i})} className={appearance.theme===i?'chosen':''}><span style={{background:p[1],boxShadow:'inset 0 -16px '+p[2]}}/>{p[0]}</button>)}</div>
    <h3 className="pn-section">页面背景</h3><label className="pn-upload"><ImagePlus size={26}/><strong>从相册选择背景图片</strong><small>整页铺满 · 不是顶部照片</small><input type="file" accept="image/*" onChange={e=>onImage(e.target.files?.[0])}/></label>
    <div className="pn-presets">{[['主题纯色',''],['晨雾','linear-gradient(135deg,#8496a9,#c5d1d6,#eef0f1)'],['深夜','radial-gradient(circle at 70% 20%,#61799d,#293a55 65%,#121b2d)']].map(([label,value])=><button key={label} style={{background:value||colors[1]}} onClick={()=>update({background:value})}>{label}</button>)}</div>
