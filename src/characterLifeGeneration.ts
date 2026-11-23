@@ -4,7 +4,7 @@ import { resolveApi } from './chatService';
 import { requestReply } from './chatProvider';
 import { memoryContext } from './memoryContext';
 import { lifeSource, assertLifeSource } from './characterLifeSource';
-import { readCharacterLife, changeCharacterLife, archiveCompletedLifeEvents, appendLifeProgress, lifePrompt, assertLifeAffection, majorLifeEvent, type LifeEvent } from './characterLife';
+import { readCharacterLife, changeCharacterLife, archiveCompletedLifeEvents, appendLifeProgress, lifePrompt, majorLifeEvent, type LifeEvent } from './characterLife';
 export const lifeInterval = 6 * 60 * 60 * 1000;
 export const affectionRule = '对玩家的感情底色保持喜欢、珍惜和在意；保留人设、嘴硬、嫉妒、欲望、复杂情绪，不强迫温柔、顺从、表白或和好。禁止厌恶、嫌弃、鄙视、后悔认识、想抛弃玩家或无故降低感情。不得决定玩家的言行、心理、同意或关系。';
 export async function runCharacterLife(owner: string, manual = false, now = Date.now()) {
@@ -18,7 +18,7 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
         if (writing?.until > now) return;
         if (!s.ordinaryAllowed && s.ordinaryAllowed !== undefined)
             return;
-        if (!manual && (!s.enabled || s.attempt?.status === 'failed' || s.attempt?.status === 'running' || now - s.lastAdvancedAt < lifeInterval))
+        if (!manual && (!s.enabled || s.attempt?.status === 'running' && now - s.attempt.at < 180000 || s.attempt?.status === 'failed' && now - s.attempt.at < lifeInterval || now - s.lastAdvancedAt < lifeInterval))
             return;
         if (s.attempt?.status === 'running' && now - s.attempt.at < 180000)
             return;
@@ -56,16 +56,14 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
         const result = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
         if (!result || typeof result.focus !== 'string' || typeof result.mood !== 'string' || !Array.isArray(result.updates) || !Array.isArray(result.events) || result.updates.length > 3 || result.events.length > 2 || result.focus.length > 300 || result.mood.length > 200)
             throw Error('生活推进格式无效');
-        assertLifeAffection(JSON.stringify(result));
-        if (/(?:玩家|用户|你)(?:已经|决定|答应|同意|承诺|搬家|辞职|爱上)/u.test(result.focus + result.mood))
-            throw Error('生活状态不能决定玩家行为');
+        // Preserve the model's nuanced relationship language; do not discard the entire life update for keyword matches.
+
         await db.transaction('rw', [db.themes, db.characters, db.conversations, db.messages, db.messageVariants, db.timelines, db.pathNodes], async () => {
             await assertLifeSource(source);
             await changeCharacterLife(owner, async next => {
                 if (next.attempt?.token !== token || next.revision !== s.revision || !manual && !next.enabled)
                     throw Error('生活状态已变化，未保存过期结果');
-                if (majorLifeEvent(result.focus + result.mood))
-                    throw Error('生活重心包含未经确认的重大变化');
+
                 next.focus = result.focus;
                 if (result.mood !== next.mood && result.mood.trim()) {
                     next.moodHistory = [...(next.moodHistory ?? []), { at: now, mood: result.mood }].slice(-120);
@@ -73,7 +71,7 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
                 next.mood = result.mood;
                 for (const u of result.updates) {
                     const e = next.events.find(e => e.id === u.id);
-                    if (!e || e.status !== 'ongoing' || !['ongoing', 'paused', 'done'].includes(u.status) || typeof u.detail !== 'string' || u.detail.length > 500 || majorLifeEvent(u.detail) || /玩家|用户/u.test(u.detail))
+                    if (!e || e.status !== 'ongoing' || !['ongoing', 'paused', 'done'].includes(u.status) || typeof u.detail !== 'string' || u.detail.length > 500 || majorLifeEvent(u.detail))
                         throw Error('事件进展不匹配或需要确认');
                     const previousProgress = e.progress?.length ? e.progress : [{ at: e.updatedAt, text: e.detail, status: 'ongoing' as const }];
                     e.status = u.status;
@@ -85,7 +83,7 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
                     await appendLifeProgress(owner, e, { at: now, text: u.detail, status: u.status });
                 }
                 for (const input of result.events) {
-                    if (input.actor !== 'self' || typeof input.title !== 'string' || !input.title.trim() || input.title.length > 120 || typeof input.detail !== 'string' || input.detail.length > 500 || !['ordinary', 'continuing', 'major'].includes(input.level) || /玩家|用户|你(?:已经|决定|答应|同意)/u.test(input.title + input.detail))
+                    if (input.actor !== 'self' || typeof input.title !== 'string' || !input.title.trim() || input.title.length > 120 || typeof input.detail !== 'string' || input.detail.length > 500 || !['ordinary', 'continuing', 'major'].includes(input.level))
                         throw Error('事件必须只涉及角色本人');
                     if ([...next.events, ...next.proposals ?? []].some(e => e.title === input.title))
                         continue;
