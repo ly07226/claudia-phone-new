@@ -53,7 +53,7 @@ export async function archiveCompletedLifeEvents(owner: string, minimumFree = 1)
         const count = Math.max(0, state.events.length + minimumFree - 40);
         if (!count) return 0;
         const completed = state.events.filter(e => e.status === 'done').sort((a, b) => a.updatedAt - b.updatedAt).slice(0, count);
-        if (completed.length < count) throw Error('进行中事件较多，请先完成部分事件后再创建新事件');
+        if (!completed.length) return 0;
         for (const event of completed) {
             const id = lifeArchiveKey(owner, event.id);
             await db.themes.put({ id, color: '#8995a3', font: 'sans', iconStyle: 'rounded', opacity: .36, blur: 18, archivedLifeEvent: event } as any);
