@@ -3,6 +3,7 @@ import {usePhone} from './store';
 import {listGroupRooms,listGroupMessages,saveGroupRoom} from './groupChatStore';
 import {sendGroupTurn} from './groupChatService';
 import type {GroupRoom,GroupMessage} from './groupChatCore';
+import {MessageAvatar} from './MessageUI';
 import './GroupChat.css';
 export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;onCreated?:(room:GroupRoom)=>void}){
  const characters=usePhone(s=>s.characters);
@@ -12,6 +13,7 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
  const [title,setTitle]=useState('');
  const [members,setMembers]=useState<string[]>([]);
  const [draft,setDraft]=useState('');
+ const assets=usePhone(s=>s.assets);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
  useEffect(()=>{void listGroupRooms().then(setRooms).catch(e=>setError(String(e)))},[]);
@@ -34,7 +36,7 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
  return <main className="group-chat">
   <header><h2>群聊</h2><p>独立群聊 · 角色之间友好互动</p></header>
   <nav className="gc-rooms">{rooms.map(r=><button key={r.id} className={roomId===r.id?'selected':''} onClick={()=>setRoomId(r.id)}>{r.title}</button>)}</nav>
-  {!room?<section className="gc-create"><h3>创建群聊</h3><input aria-label="群名称" placeholder="群名称" value={title} onChange={e=>setTitle(e.target.value)}/><div className="gc-members">{characters.map(c=><label key={c.id}><input type="checkbox" checked={members.includes(c.id)} onChange={e=>setMembers(old=>e.target.checked?[...old,c.id]:old.filter(x=>x!==c.id))}/>{c.name}</label>)}</div><button onClick={()=>void create()}>创建群聊</button></section>:<><section className="gc-members-line">{room.memberIds.map(name).join(' · ')}</section><section className="gc-history">{messages.map(m=><article key={m.id} className={m.authorId==='player'?'mine':''}><strong>{name(m.authorId)}</strong><p>{m.text}</p></article>)}{busy&&<p>角色正在回复…</p>}</section><div className="gc-compose"><input aria-label="群聊消息" placeholder="发消息到群聊…" value={draft} disabled={busy} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')void send()}}/><button disabled={busy||!draft.trim()} onClick={()=>void send()}>发送</button></div></>}
+  {!room?<section className="gc-create"><h3>选择群成员</h3><p className="gc-selection-note">已选择 {members.length} 位角色（至少 2 位）</p><input aria-label="群名称" placeholder="群名称" value={title} onChange={e=>setTitle(e.target.value)}/><div className="gc-members">{characters.map(c=><label key={c.id} className="gc-member-option"><MessageAvatar src={assets.find(a=>a.id===c.avatar)?.data} name={c.name}/><span>{c.name}</span><input type="checkbox" checked={members.includes(c.id)} onChange={e=>{const checked=e.target.checked;setMembers(old=>checked?[...old,c.id]:old.filter(x=>x!==c.id))}}/></label>)}</div><button disabled={members.length<2} onClick={()=>void create()}>创建群聊（{members.length}）</button></section>:<><section className="gc-members-line">{room.memberIds.map(name).join(' · ')}</section><section className="gc-history">{messages.map(m=><article key={m.id} className={m.authorId==='player'?'mine':''}><strong>{name(m.authorId)}</strong><p>{m.text}</p></article>)}{busy&&<p>角色正在回复…</p>}</section><div className="gc-compose"><input aria-label="群聊消息" placeholder="发消息到群聊…" value={draft} disabled={busy} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')void send()}}/><button disabled={busy||!draft.trim()} onClick={()=>void send()}>发送</button></div></>}
   {error&&<p role="alert" className="gc-error">{error}</p>}
  </main>;
 }
