@@ -10,7 +10,7 @@ export const affectionRule = '对玩家的感情底色保持喜欢、珍惜和�
 export async function runCharacterLife(owner: string, manual = false, now = Date.now()) {
     const token = crypto.randomUUID();
     // Move only completed events; archive and active state update commit atomically.
-    if ((await readCharacterLife(owner)).events.length >= 40) await archiveCompletedLifeEvents(owner, 2);
+    if ((await readCharacterLife(owner)).events.length >= 39) await archiveCompletedLifeEvents(owner, 2);
     let claimed = false;
     await db.transaction('rw', db.themes, async () => {
         const s = await readCharacterLife(owner);
