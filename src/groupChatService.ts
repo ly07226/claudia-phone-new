@@ -5,18 +5,27 @@ import {buildGroupTurnPrompt,parseGroupReplies,type GroupRoom,type GroupMessage}
 import {appendGroupMessages,listGroupMessages} from './groupChatStore';
 const running=new Set<string>();
 export async function sendGroupTurn(room:GroupRoom,text:string):Promise<GroupMessage[]>{
+ return generateGroupTurn(room,text,false);
+}
+/** Retry a failed reply without adding the player's message a second time. */
+export async function retryGroupTurn(room:GroupRoom):Promise<GroupMessage[]>{
+ return generateGroupTurn(room,'',true);
+}
+async function generateGroupTurn(room:GroupRoom,text:string,retry:boolean):Promise<GroupMessage[]>{
  const message=text.trim();
- if(!message||message.length>8000)throw Error('请输入 1–8000 字符');
+ if(!retry&&(!message||message.length>8000))throw Error('请输入 1–8000 字符');
  if(running.has(room.id))throw Error('群聊正在回复，请稍候');
  running.add(room.id);
  try{
   const characters=await Promise.all(room.memberIds.map(id=>db.characters.get(id)));
   if(characters.some(c=>!c))throw Error('群聊中有角色已删除');
   const speakers=characters.map(c=>({id:c!.id,name:c!.name,persona:c!.persona,speakingStyle:c!.speakingStyle}));
-  const now=Date.now();
-  const player:GroupMessage={id:crypto.randomUUID(),groupId:room.id,authorId:'player',text:message,createdAt:now};
-  await appendGroupMessages(room.id,[player]);
+  if(!retry){
+   const player:GroupMessage={id:crypto.randomUUID(),groupId:room.id,authorId:'player',text:message,createdAt:Date.now()};
+   await appendGroupMessages(room.id,[player]);
+  }
   const history=await listGroupMessages(room.id);
+  if(retry&&history.at(-1)?.authorId!=='player')throw Error('没有待回复的玩家消息');
   // One shared enabled provider per group turn; never expose private conversation history.
   const selected=(await reconcileApiDefault()).config;
   if(!selected?.enabled)throw Error('请先启用默认 API');
