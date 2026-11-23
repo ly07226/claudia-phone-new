@@ -4,7 +4,7 @@ import {readCharacterNotes,privateNotesMetadata,privateNotesTaskStatus,archiveAp
 import {generatePrivateNote,replyToPrivateNoteComment,loadNotes,type GeneratedNote} from './privateNotesGeneration';
 import {usePhone} from './store';
 import React,{useEffect,useState} from 'react';
-import {ArrowLeft,BookOpen,CloudMoon,ImagePlus,Menu,MessageCircle,Moon,NotebookPen,Send,Sparkles} from 'lucide-react';
+import {ArrowLeft,BookOpen,CloudMoon,ImagePlus,MessageCircle,Moon,NotebookPen,Send,Sparkles,Clock3,Coffee,ChevronRight,SlidersHorizontal} from 'lucide-react';
 import './PrivateNotes.css';
 
 type Kind='日记'|'备忘'|'梦境';
@@ -84,17 +84,19 @@ export function PrivateNotes(){
   <div className="pn-shade"/>
   {page==='home'?<main className="pn-content">
 
+   <div className="pn-intro"><div><span className="pn-eyebrow">A LITTLE WORLD OF HIS OWN</span><h2>他的私人角落</h2><p>留住那些没有说出口的日常。</p></div><span className="pn-intro-symbol">✦</span></div>
    <div className="pn-character"><label htmlFor="pn-character">当前角色</label><select id="pn-character" value={characterId} onChange={e=>{setCharacterId(e.target.value);setStatus('');setOpen(null)}}>{characters.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
    <nav className="pn-tabs">{(['总览','日记','备忘','梦境','生活'] as const).map((name,i)=>{const Icon=[BookOpen,NotebookPen,NotebookPen,Moon,Sparkles][i];return <button key={name} className={tab===name?'active':''} onClick={()=>setTab(name)}><Icon size={20}/><span>{name}</span></button>})}</nav>
+   {tab==='总览'&&loadedOwner===characterId&&!loadError&&<section className="pn-today pn-card"><div className="pn-today-heading"><span className="pn-today-icon"><Coffee size={19}/></span><div><strong>他的今天</strong><small>{new Date().toLocaleDateString('zh-CN',{month:'long',day:'numeric',weekday:'long'})}</small></div><span className="pn-today-star">✳</span></div><p>有些时刻不必说出口，也值得被好好收藏。</p><div className="pn-today-links"><button onClick={()=>setTab('日记')}><BookOpen size={15}/> 日记 <ChevronRight size={14}/></button><button onClick={()=>setTab('生活')}><Clock3 size={15}/> 生活 <ChevronRight size={14}/></button></div></section>}
    {tab==='生活'?<CharacterLifePanel key={characterId} owner={characterId}/>:loadError?<div role="alert" className="pn-empty">{loadError}</div>:loadedOwner!==characterId&&characterId?<div className="pn-empty">正在读取记录…</div>:visible.length===0?<div className="pn-empty">还没有角色写下的{tab==='总览'?'私人记录':tab}。<br/>开启自动生成后，记录会出现在这里。</div>:visible.map(n=><article className="pn-card" key={n.id}>
     <button className="pn-note-top" onClick={()=>setOpen(open===n.id?null:n.id)}><span className="pn-note-icon">{n.kind==='梦境'?<CloudMoon/>:n.kind==='日记'?<BookOpen/>:<NotebookPen/>}</span><span><strong>{n.kind}</strong><small>{relativeDate(n.createdAt)} · {new Date(n.createdAt).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}</small></span><span className="pn-expand">{open===n.id?'⌃':'⌄'}</span></button>
     <h3>{n.title}</h3><p className={open===n.id?'pn-full':'pn-preview'}>{n.body}</p>
     <button className="pn-comment-toggle" onClick={()=>setOpen(open===n.id?null:n.id)}><MessageCircle size={16}/> {n.comments.length} 条评论</button>
     {open===n.id&&<div className="pn-comments">{n.comments.map((c,i)=><p key={i}>{typeof c==='string'?'你：'+c:(c.author==='character'?'角色：':'你：')+c.text}</p>)}{replyBusy===commentKey(characterId,n.id)?<p>角色正在回复…</p>:typeof n.comments.at(-1)==='string'&&<button className="pn-comment-toggle" onClick={()=>retryReply(n.id)}>重新请求角色回复</button>}<div className="pn-comment-entry"><input value={draft[commentKey(characterId,n.id)]||''} onChange={e=>setDraft(old=>({...old,[commentKey(characterId,n.id)]:e.target.value}))} placeholder="评论他的记录…"/><button aria-label="发送评论" disabled={replyBusy===commentKey(characterId,n.id)} onClick={()=>addComment(n.id)}><Send size={17}/></button></div></div>}
    </article>)}
-   <div className="pn-bottom">全部记录</div>
+   {tab!=='生活'&&<div className="pn-bottom">— 记录仍在继续 —</div>}
   </main>:<main className="pn-content">
-   <div className="pn-settings-nav"><button type="button" onClick={()=>setPage('home')}><ArrowLeft size={17}/> 返回记录</button><strong>私人记录设置</strong></div>
+   <div className="pn-settings-nav"><button type="button" onClick={()=>setPage('home')}><ArrowLeft size={17}/> 返回记录</button><strong>私人记录设置</strong><SlidersHorizontal size={17}/></div>
    {automaticFailed&&<p role="alert">自动书写曾失败，已停止自动请求；原记录保留。可点击立即生成手动恢复。</p>}
    <section className="pn-card"><h3>让他写点什么</h3><p>自动书写及角色回复会使用当前 API 额度，仅在应用可执行时检查，不补发离线记录。失败可手动重试。</p><button className="pn-action" disabled={busy} onClick={()=>generate()}><Sparkles size={16}/> {busy?'正在书写…':'立即生成日记或备忘录'}</button><button className="pn-action" disabled={busy} onClick={()=>generate('梦境')}><CloudMoon size={16}/> 单独生成梦境</button></section>
    <section className="pn-card"><h3>自动书写方式</h3><p>角色可按时间书写，也可在重要事件发生后主动记录。</p><div className="pn-character"><select aria-label="自动书写方式" value={schedule.mode} onChange={e=>changeSchedule({...schedule,mode:e.target.value as NoteSchedule['mode']})}><option value="both">定时与重要事件同时开启</option><option value="interval">仅按时间间隔</option><option value="important">仅重要事件</option></select></div>{schedule.mode!=='important'&&<><h3>书写时间间隔</h3><div className="pn-character"><select aria-label="书写时间间隔" value={[60,180].includes(schedule.intervalMinutes)?String(schedule.intervalMinutes):'custom'} onChange={e=>{if(e.target.value!=='custom')changeSchedule({...schedule,intervalMinutes:Number(e.target.value)});else changeSchedule({...schedule,intervalMinutes:240})}}><option value="60">每 1 小时</option><option value="180">每 3 小时</option><option value="custom">自定义</option></select></div>{![60,180].includes(schedule.intervalMinutes)&&<div className="pn-character"><label>自定义分钟数（至少 60 分钟）</label><input type="number" min="60" step="1" value={custom||String(schedule.intervalMinutes)} onChange={e=>setCustom(e.target.value)} onBlur={()=>{const n=Number(custom);if(Number.isFinite(n)&&n>=60)changeSchedule({...schedule,intervalMinutes:Math.floor(n)});else setStatus('请输入至少 60 分钟的间隔');setCustom('')}}/></div>}</>}</section>

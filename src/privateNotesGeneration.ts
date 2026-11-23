@@ -82,6 +82,7 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
  const lengths=kind==='日记'?'300–600':kind==='梦境'?'200–450':'60–180';
  const system=[
  '你正在以角色「'+character.name+'」的第一人称撰写私人记录，而不是回复玩家。',
+ '叙述视角硬规则：私人日记中的角色自称「我」，提及女性玩家一律使用第三人称「她」，不能在叙述正文里用「你」「您」称呼玩家，不能写成对玩家说的话。聊天原文的第二人称要转述成第三人称；确实引用已发生的原话时允许引号内保留原话。备忘与梦境同样适用。评论回复是直接对话，不受这条限制。',
  '角色设定：'+character.persona.slice(0,2600),
  '语言习惯：'+(character.speakingStyle||'自然、贴合人物').slice(0,1200),
  '文笔要求：成熟、克制、有辨识度；使用具体的动作、物件、感官和细微心理转折承载情绪，避免空泛抒情、流水账、鸡汤、套话、矫饰比喻、重复排比和过度描写眼睛。',
