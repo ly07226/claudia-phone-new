@@ -1,7 +1,7 @@
 /** Independent group conversations. No private-chat transcript is implicitly shared. */
 export type GroupSpeaker = {id:string; name:string; persona:string; speakingStyle?:string};
 export type GroupMessage = {id:string; groupId:string; authorId:string|'player'; text:string; createdAt:number; imageIds?:string[]};
-export type GroupRoom = {id:string; title:string; memberIds:string[]; createdAt:number; updatedAt:number};
+export type GroupRoom = {id:string; title:string; memberIds:string[]; createdAt:number; updatedAt:number; lastMessage?:{authorId:string;text:string;imageCount:number;createdAt:number}};
 export type GroupMemoryFact = {groupId:string; sourceMessageIds:string[]; text:string; participantIds:string[]; createdAt:number};
 
 /** Different opinions are allowed; abuse, hostility, jealousy and manufactured rivalry are not. */
