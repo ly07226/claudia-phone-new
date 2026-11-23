@@ -6,7 +6,6 @@ import {GlobalChatNotifications} from './GlobalChatNotifications';
 import {installMemorySummaryScheduler} from './memorySummaryScheduler';
 import {PhasePlayApp} from './phasePlay/PhasePlayApp';
 import {ChatHubScheduler} from './ChatHubScheduler';
-import {GroupChat} from './GroupChat';
 import {ProactiveScheduler} from './ProactiveScheduler';
 import {MemoryCalendarScheduler} from './MemoryCalendarScheduler';
 import {BackgroundReplyReconciler} from './BackgroundReplyReconciler';
@@ -355,7 +354,6 @@ function App() {
   const displayItems=s.items.filter(i=>i.app!=='剧本'||canStory);
   if(canStory&&!displayItems.some(i=>i.app==='剧本')&&firstPage)displayItems.push({id:'virtual-story-app',kind:'app',app:'剧本',pageId:firstPage,position:Math.max(0,...displayItems.filter(i=>i.pageId===firstPage).map(i=>i.position))+1,size:1});
   // Existing users retain their customized desktop; expose the new app without resetting their layout.
-  if(!displayItems.some(i=>i.app==='群聊')&&firstPage)displayItems.push({id:'virtual-group-chat-app',kind:'app',app:'群聊',pageId:firstPage,position:Math.max(0,...displayItems.filter(i=>i.pageId===firstPage).map(i=>i.position))+2,size:1});
   if(!displayItems.some(i=>i.kind==='app'&&i.app==='忍一下嘛')&&firstPage)displayItems.push({id:'virtual-phase-play-app',kind:'app',app:'忍一下嘛',pageId:firstPage,position:Math.max(0,...displayItems.filter(i=>i.pageId===firstPage).map(i=>i.position))+1,size:1});
   const pageItems = displayItems
     .filter((i) => i.pageId === s.pageId)
@@ -704,8 +702,6 @@ function App() {
                 <Worlds />
               ) : s.activeApp === "剧本" ? (
                 canStory&&space?.worldId?<StoryApp key={space.worldId} worldId={space.worldId}/>:<p>当前空间没有剧情模式主线入口。</p>
-              ) : s.activeApp === "群聊" ? (
-                <GroupChat />
               ) : s.activeApp === "记忆" ? (
                 <MemoryApp />
               ) : s.activeApp === "角色管理" ? (
@@ -833,7 +829,7 @@ function App() {
             )}
             <div className={`grid desktop-page desktop-page--${swipeDirection}`} key={s.pageId}>
               {pageItems.map((item) => {
-                const Icon = item.app==='剧本'?BookOpen:item.app==='群聊'?Users:item.app==='忍一下嘛'?Flower2:icons[apps.indexOf(item.app || "")] || Flower2;
+                const Icon = item.app==='剧本'?BookOpen:item.app==='忍一下嘛'?Flower2:icons[apps.indexOf(item.app || "")] || Flower2;
                 return (
                   <div
                     key={item.id}
@@ -966,7 +962,7 @@ function App() {
             {drag && dragPoint && (() => {
               const item=displayItems.find(i=>i.id===drag);
               if(!item)return null;
-              const Icon=item.app==='群聊'?Users:item.app==='忍一下嘛'?Flower2:icons[apps.indexOf(item.app||"")]||Flower2;
+              const Icon=item.app==='忍一下嘛'?Flower2:icons[apps.indexOf(item.app||"")]||Flower2;
               return createPortal(<div className="desktop-drag-ghost" style={{left:dragPoint.x-dragAnchor.x,top:dragPoint.y-dragAnchor.y}} aria-hidden="true">
                 {item.kind==="app"?<><span className="app-icon glass">{asset(item.icon)?<img src={asset(item.icon)} alt=""/>:<Icon size={29}/>}</span><span className="app-label">{item.app}</span></>:widget(item)}
               </div>,document.body);
