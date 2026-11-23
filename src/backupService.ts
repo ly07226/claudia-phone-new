@@ -920,6 +920,23 @@ export async function validateReferences(
     d,
     "themes",
     async (x) => {
+      if(typeof x.id==='string'&&x.id.startsWith('group-room:room:')){
+        const room=x.groupRoom;
+        if(!room||room.id!==x.id.slice('group-room:room:'.length)||typeof room.title!=='string'||!Array.isArray(room.memberIds)||room.memberIds.length<2||room.memberIds.length>12||new Set(room.memberIds).size!==room.memberIds.length)bad('themes.groupRoom');
+        for(const id of room.memberIds)if(!(await exists('characters',id)))bad('themes.groupRoom.member');
+      }
+      if(typeof x.id==='string'&&(x.id.startsWith('group-room:message:')||x.id.startsWith('group-room:message-v2:'))){
+        const msg=x.groupMessage;
+        if(!msg||typeof msg.id!=='string'||typeof msg.groupId!=='string'||typeof msg.authorId!=='string'||typeof msg.text!=='string'||!Number.isFinite(msg.createdAt))bad('themes.groupMessage');
+        const prefix=x.id.startsWith('group-room:message-v2:')?'group-room:message-v2:':'group-room:message:';
+        if(!x.id.startsWith(prefix+msg.groupId+':'))bad('themes.groupMessage.key');
+        if(!(await exists('themes','group-room:room:'+msg.groupId)))bad('themes.groupMessage.room');
+        if(msg.authorId!=='player'&&!(await exists('characters',msg.authorId)))bad('themes.groupMessage.author');
+        if(msg.imageIds!==undefined){
+          if(!Array.isArray(msg.imageIds)||msg.imageIds.length>3)bad('themes.groupMessage.images');
+          for(const id of msg.imageIds)if(!(await exists('assets',id)))bad('themes.groupMessage.image');
+        }
+      }
       await optional("assets", x.wallpaper, "themes.wallpaper");
       if(x.chatMessageBanners!==undefined&&typeof x.chatMessageBanners!=='boolean')bad('themes.chatMessageBanners');
       if(x.phaseChatLink!==undefined&&!validPhaseChatSettings(x.phaseChatLink))bad('themes.phaseChatLink');
