@@ -65,6 +65,9 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
                 if (majorLifeEvent(result.focus + result.mood))
                     throw Error('生活重心包含未经确认的重大变化');
                 next.focus = result.focus;
+                if (result.mood !== next.mood && result.mood.trim()) {
+                    next.moodHistory = [...(next.moodHistory ?? []), { at: now, mood: result.mood }].slice(-120);
+                }
                 next.mood = result.mood;
                 for (const u of result.updates) {
                     const e = next.events.find(e => e.id === u.id);
