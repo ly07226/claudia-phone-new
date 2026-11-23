@@ -1,5 +1,7 @@
 # Character independent life engine — branch acceptance
 
+> The original development notes below are historical. PR #103 integration is explicitly authorized main → feature only; the final integration section supersedes the old branch-lag/conflict status.
+
 Branch: feature/diary-independent-inner-life. Starting commit: 788ff1b48d7d66191e48827404d4caddfe092272. This task does not merge main, change a production configuration, deploy production, invoke a paid model, or edit another worktree.
 
 ## Existing implementation and confirmed gaps
@@ -73,3 +75,75 @@ Life is per-character, real-time simulated continuity, not an automatic replay o
 Semantic safeguards are conservative and principally tested with Chinese examples; they are not a universal language/meaning classifier. A model can mislabel a major event or paraphrase unsupported claims. Real-model review is still necessary. Very large role counts and cold full-path reads have not been benchmarked; no claim that this feature solves every pre-existing iPhone performance issue.
 
 Delivery is an independent feature commit and Draft PR. No main merge, production deployment, environment change, shared-backend upload or production-user data operation is part of this task.
+
+## PR #103 final integration — 2026-11-23
+
+Remote feature HEAD was 93facf8a959bb306e3d2a2aee31da2d88f29c36d; worktree was clean. Both user fixes 5e281c1e and 93facf8a were fast-forwarded before merging main 6d263633d7e40242cea5c30ced582d6537b4d87f into the feature branch. No main ref/worktree was modified, no other feature branch was merged, and no existing work was reset or removed.
+
+### Conflict resolution and defects
+
+- PrivateNotes.tsx: keep five-tab Life type, CharacterLifePanel, automatic failure status, all original note/comment operations, and main's settings event listener/navigation. Remove the duplicate internal home header in favor of the shell header.
+- PrivateNotes.css: preserve life-only controls and five-column tabs, plus main's full-width flex viewport, sole inner scroll area, fixed shell header, narrow-screen padding and safe-area variables. No scale, height offset, negative margin or new viewport calculation.
+- main.tsx auto-merged: retain both the global life scheduler and main's private-note shell title/settings button.
+- A real navigation bug reproduced at 390/430 widths and 568/844 heights: opening settings after scrolling a long life list left the Return control outside the viewport (ratio 0). The existing private-note scroll container now starts at zero when its internal page changes. This is explicit local-page navigation, not a document scroll or viewport-height workaround. All four unchanged in-viewport assertions then passed.
+- One original private-note test still targeted the obsolete exact label “返回”; untouched current main failed the same test. Updated only that selector to the published “返回记录”, preserving async ownership, saved-note, dream and API-count assertions.
+- Affection review reproduced nine real-entry failures: explicit denial of hatred and concern about an established player behavior were rejected by the old guard. Validation now distinguishes narrow explicit negation/behavior complaints in a temporary copy; the original AI text is never rewritten. Life, diary and comment paths all preserve exact wording. Four negative controls still reject personal rejection, sarcastic negation and mixed hostility. Evidence, actor/role, major-event, scope and transaction checks were not removed.
+
+### Actual final commands/results
+
+| Group | Actual result |
+| --- | --- |
+| npm run typecheck | final exit 0 |
+| npm run build | final exit 0; existing large-bundle warning |
+| Life + private notes + initial integration | 77 passed / 0 failed, exit 0 |
+| npm run test:memory-regression -- --workers=2 | 233 passed / 21 failed, exit 1 |
+| npm run test:chat-regression -- --workers=1 | 284 passed / 0 failed, exit 0 |
+| Final life + private notes + expanded integration/affection + lore atomic injection + grounded character generation | 95 passed / 0 failed, exit 0 |
+
+The final 95-case run followed the affection fix and a final typecheck/build. The broader memory/chat runs preceded that isolated guard change; memory sources, source validators, request budgets and chat generation were unchanged by it. Groups overlap; do not sum them as unique cases. Actual logs were retained under /tmp/pr103-*. No paid model, real user database, real iPhone Safari, or real standalone-PWA test was performed.
+
+### Baseline failures are not ignored
+
+An untouched git archive of the exact current main was tested against the same 21 red memory/backup cases plus the stale private-note selector: **22 failed, exit 1**. The feature's full memory suite has the exact same 21 failing case identifiers; automatic set comparison returned identical=true and new_failures=[]. The selector failure was separately fixed as described above. This establishes no new memory regression, not correctness of those baseline behaviors.
+
+Categories: five ZIP early-limit/UI/encryption-UI cases; three magnetic concurrency/outgoing-request cases; seven summary format/parameter/diagnostic cases; two summary quality cases; one receipt-to-prompt case; two scheduler cases; one memory-management short-summary case. Some are obsolete expectations, others are unresolved behavior/compatibility defects. No tests were deleted, skipped locally or weakened. They remain separate work rather than silently broadening this integration into another memory-system redesign.
+
+Exact unchanged red cases:
+
+```text
+tests/backup-zip.spec.ts:16:1 › 打包超限在读取数据前停止，中断不返回半份ZIP，密码错误不能降级成未加密
+tests/backup-zip.spec.ts:17:34 › ZIP手机流程 375px：单次保存、读回预览、确认前不替换数据及分享状态准确
+tests/backup-zip.spec.ts:17:34 › ZIP手机流程 390px：单次保存、读回预览、确认前不替换数据及分享状态准确
+tests/backup-zip.spec.ts:17:34 › ZIP手机流程 430px：单次保存、读回预览、确认前不替换数据及分享状态准确
+tests/backup-zip.spec.ts:18:1 › 加密开关只保护数据不选择Key，密码确认必需，主界面支持加密ZIP读回
+tests/memory-magnet-concurrency.spec.ts:23:1 › interrupted claim never auto-retries; explicit recovery requires failed status
+tests/memory-magnet-outgoing-request.spec.ts:7:54 › message-level recall reaches actual model request and removing tag stops return: gemini
+tests/memory-magnet-outgoing-request.spec.ts:7:54 › message-level recall reaches actual model request and removing tag stops return: openai-compatible
+tests/memory-summary-format.spec.ts:10:1 › 58轮格式失败可见诊断、无私密原文，主动重试后只推进本次区间
+tests/memory-summary-format.spec.ts:12:1 › 接口拒绝结构化参数无自动回退，非法诊断字段拒绝进入备份
+tests/memory-summary-format.spec.ts:7:1 › 复现旧解析器拒绝说明包装，兼容完整JSON/围栏但保持严格逐条校验
+tests/memory-summary-format.spec.ts:8:54 › 总结专用JSON参数及实际响应包装兼容 gemini
+tests/memory-summary-format.spec.ts:8:54 › 总结专用JSON参数及实际响应包装兼容 openai-compatible
+tests/memory-summary-format.spec.ts:9:54 › API明确截断即使JSON完整也不写入、不推进进度 gemini
+tests/memory-summary-format.spec.ts:9:54 › API明确截断即使JSON完整也不写入、不推进进度 openai-compatible
+tests/memory-summary-quality.spec.ts:11:54 › 合法空结果正常推进；普通事件筛掉后零条也不反复请求 gemini
+tests/memory-summary-quality.spec.ts:11:54 › 合法空结果正常推进；普通事件筛掉后零条也不反复请求 openai-compatible
+tests/memory-summary-receipt-return.spec.ts:7:1 › verified first-pass summary reaches prompt; edited source invalidates it
+tests/memory-summary-scheduler.spec.ts:32:1 › automatic summary: provider 503 ends immediately, then waits another interval
+tests/memory-summary-scheduler.spec.ts:61:1 › automatic summary: authentication error stops after one attempt and defers
+tests/memory-v2-management.spec.ts:9:1 › 20轮自动总结真实路径更新短期UI且只调用一次，手动核心原样保护
+```
+
+### Layout, persistence and policy evidence
+
+The four layout cases record actual getBoundingClientRect and scroll positions. For 430×844, shell header is y=0..48, notes and app-scroll are y=48..844 with width430/height796. app-scroll overflow is hidden, notes overflow-y is auto; long content scrolls internally from0 to8005 while document scroll remains0 and header position stays unchanged. All five tabs remain visible with no horizontal overflow. Screenshots: /tmp/pr103-integrated-{390,430}-{568,844}.png. This proves Chromium layout only, not real Safari rendering or keyboard behavior.
+
+A joint real-entry fixture creates40 chat rounds, runs the main summary pipeline with simulated API, writes/reads confirmed memory and progress, and validates an isolated ZIP restore containing both life and memory. The life-only marker is absent from summary requests and confirmed memory, while the restored life row retains it and all80 source messages remain. Existing life/private-note suites also cover encrypted ZIP, owner remapping, legacy data, concurrent tasks, failures and manual recovery.
+
+Role affection rules remain in life progression, diary, comment replies and the bounded Daily life context. Complex moods remain possible; no actor card, user message, world book, relationship record or canonical memory is rewritten. Ordinary life does not require player audit; major proposals still require explicit authorization. Semantic safeguards remain heuristic and Chinese-focused, not a proof of perfect model compliance.
+
+### Delivery and remaining gates
+
+Only the authorized feature branch is pushed, once after verification; PR #103 stays Draft. The existing Vercel per-branch deploymentEnabled map now disables feature/diary-independent-inner-life only, retaining all other entries and main's production behavior, to avoid an unnecessary Preview build. No service environment, domain, credential, database schema or Production deployment is changed.
+
+Code integration should be evaluated against the documented current-main baseline: no new failures and no unresolved merge markers. It is NOT an all-green full-repository claim. Existing21 red cases remain, and real iPhone Safari/PWA keyboard/safe-area/background behavior plus genuine provider/personality quality require further acceptance. No Production merge is authorized by this task.

@@ -117,8 +117,12 @@ export async function fetchModels(
         )
           continue;
         const name = gemini ? row.displayName : row.name;
+        const context=gemini?row.inputTokenLimit:row.context_length??row.context_window;
+        const output=gemini?row.outputTokenLimit:row.top_provider?.max_completion_tokens??row.max_output_tokens;
         models.set(id, {
           id,
+          ...(Number.isSafeInteger(context)&&context>=1024&&context<=100000000?{contextWindowTokens:context}:{}),
+          ...(Number.isSafeInteger(output)&&output>0&&output<=1000000?{modelOutputTokens:output}:{}),
           name:
             typeof name === "string"
               ? name.split(key).join("[凭据已隐藏]").slice(0, 200)

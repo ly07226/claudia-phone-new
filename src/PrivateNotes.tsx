@@ -50,6 +50,9 @@ export function PrivateNotes(){
  useEffect(()=>{if(!characterId)return;let cancelled=false;const check=()=>{if(document.visibilityState==='hidden')return;void generatePrivateNote(characterId).then(async n=>{if(!n||cancelled)return;const rows=await loadNotes(characterId);if(!cancelled){setNotes(rows);setLoadedOwner(characterId)}}).catch(()=>{if(!cancelled)setStatus('自动书写未完成；可在设置中手动重试，不会自动重复请求')})};check();const timer=setInterval(check,60000);return()=>{cancelled=true;clearInterval(timer)}},[characterId]);
  const [appearance,setAppearance]=useState<Appearance>(()=>read(appearanceKey,{theme:4,opacity:36,background:''}));
  const [page,setPage]=useState<'home'|'settings'>('home');
+ const scrollRef=React.useRef<HTMLDivElement>(null);
+ // Explicit internal-page navigation starts at the top; never scroll the phone/document.
+ React.useLayoutEffect(()=>{if(scrollRef.current)scrollRef.current.scrollTop=0},[page]);
  useEffect(()=>{const openSettings=()=>setPage(current=>current==='settings'?'home':'settings');window.addEventListener('private-notes-open-settings',openSettings);return()=>window.removeEventListener('private-notes-open-settings',openSettings)},[]);
  const [tab,setTab]=useState<'总览'|'生活'|Kind>('总览');
  const [open,setOpen]=useState<string|null>(null);
@@ -77,10 +80,10 @@ export function PrivateNotes(){
  };
  const onImage=(file?:File)=>{if(!file)return;if(!file.type.startsWith('image/')){setStatus('请选择图片文件');return}if(file.size>3*1024*1024){setStatus('当前版本请使用小于 3MB 的图片');return}const reader=new FileReader();reader.onload=()=>{update({background:String(reader.result)});setStatus('背景已更换')};reader.onerror=()=>setStatus('图片读取失败');reader.readAsDataURL(file)};
  const generate=async(kind?:Kind)=>{const owner=characterId;if(!characterId){setStatus('请先创建角色');return}setBusy(true);setStatus('正在书写…');try{const note=await generatePrivateNote(owner,true,kind);if(!note&&selectedCharacterRef.current===owner)setStatus('该角色正在书写，请稍候');if(note){const rows=await loadNotes(owner);if(selectedCharacterRef.current!==owner)return;setNotes(rows);setStatus('已写入一篇'+note.kind);setPage('home');setTab('总览');setOpen(note.id)}}catch(error){if(selectedCharacterRef.current===owner)setStatus(error instanceof Error?error.message:'生成失败，请重试')}finally{setBusy(false)}};
- return <div className="private-notes" style={{'--pn-bg':colors[1],'--pn-accent':colors[2],'--pn-ink':colors[3],'--pn-alpha':appearance.opacity/100,backgroundImage:appearance.background.startsWith('data:image/')?`url("${appearance.background}")`:appearance.background||'none'} as React.CSSProperties}>
+ return <div ref={scrollRef} className="private-notes" style={{'--pn-bg':colors[1],'--pn-accent':colors[2],'--pn-ink':colors[3],'--pn-alpha':appearance.opacity/100,backgroundImage:appearance.background.startsWith('data:image/')?`url("${appearance.background}")`:appearance.background||'none'} as React.CSSProperties}>
   <div className="pn-shade"/>
   {page==='home'?<main className="pn-content">
-   <header className="pn-header"><div><h2>私人记录</h2><small>Private Notes</small></div><button aria-label="私人记录设置" onClick={()=>setPage('settings')}><Menu size={21}/></button></header>
+
    <div className="pn-character"><label htmlFor="pn-character">当前角色</label><select id="pn-character" value={characterId} onChange={e=>{setCharacterId(e.target.value);setStatus('');setOpen(null)}}>{characters.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
    <nav className="pn-tabs">{(['总览','日记','备忘','梦境','生活'] as const).map((name,i)=>{const Icon=[BookOpen,NotebookPen,NotebookPen,Moon,Sparkles][i];return <button key={name} className={tab===name?'active':''} onClick={()=>setTab(name)}><Icon size={20}/><span>{name}</span></button>})}</nav>
    {tab==='生活'?<CharacterLifePanel key={characterId} owner={characterId}/>:loadError?<div role="alert" className="pn-empty">{loadError}</div>:loadedOwner!==characterId&&characterId?<div className="pn-empty">正在读取记录…</div>:visible.length===0?<div className="pn-empty">还没有角色写下的{tab==='总览'?'私人记录':tab}。<br/>开启自动生成后，记录会出现在这里。</div>:visible.map(n=><article className="pn-card" key={n.id}>

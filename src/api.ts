@@ -8,6 +8,9 @@ export interface ApiConfig {
   model: string;
   temperature: number;
   maxTokens: number;
+  /** Optional explicitly supplied model metadata; never inferred from its name. */
+  contextWindowTokens?: number;
+  modelOutputTokens?: number;
   enabled: boolean;
   isDefault: boolean;
   protocol?: "openai-chat" | "gemini" | "unsupported";
@@ -19,6 +22,8 @@ export interface ApiCredential {
   apiKey: string;
 }
 export interface ModelOption {
+  contextWindowTokens?:number;
+  modelOutputTokens?:number;
   id: string;
   name?: string;
 }

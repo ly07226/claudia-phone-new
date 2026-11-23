@@ -1,3 +1,5 @@
+import {chatYield} from './chatCooperative';
+import {summaryRequestBudget,splitSummaryInput,reviewIntervalSummary,mergeIntervalSummary} from './memorySummaryPlan';
 import {summaryCapacityKey,summaryCapacityRecovered,summaryCapacityFull} from './summaryCapacity';
 import {memoryScopeKey} from './memoryScopeKey';
 import {withSummaryLock} from './summaryLock';
@@ -6,16 +8,16 @@ import {classifySummaryError} from './memorySummaryErrors';
 import {describeReplyFailure} from './replyFailure';
 import {activeMessages} from './messagePath';
 import {db} from './store';
-import {getMemoryScope,listMemories,listMemoryRevisions,createMemory,sealMemorySummaryForks,visibleSummaryReceipts} from './memoryStore';
+import {getMemoryScope,listMemories,listMemoryRevisions,createMemories,sealMemorySummaryForks,visibleSummaryReceipts} from './memoryStore';
 import {timelineTables,ensureTimelineInTransaction,nodesForHead} from './timelines';
 import {visibleMessage} from './messageBubbles';
 import {summaryDuplicateIndex} from './memorySummaryQuality';
 import {requestSummary,SummaryResponseError} from './memorySummaryRequest';
 import {maybeBuildCoreMemory} from './memoryCoreBuilder';
-import {SummaryFormatError,parseSimpleSummary,summaryPrompt} from './memorySummaryFormat';
+import {SummaryFormatError,summaryPrompt} from './memorySummaryFormat';
 export {parseSummary} from './memorySummaryFormat';
 import {memoryTokenCost} from './memoryContext';
-import {buildSummaryInputs} from './memorySummaryChunks';
+import {buildSummaryInputsCooperative} from './memorySummaryChunks';
 import {taggedSummaryFingerprint as summarySourceFingerprint,summaryVerifier} from './summarySourceFingerprint';
 import {memoryLimits,type MemoryScope} from './memoryTypes';
 import {emptySummaryState,summaryLimits,summaryRejectionText,type SummaryFact,type SummaryTurn,type SummaryFailure,type MemorySummaryJob,type SummaryDiagnostic} from './memorySummaryTypes';
@@ -27,15 +29,24 @@ const labels={fact:'已发生事实',belief:'人物主观判断',speculation:'�
 const system=summaryPrompt;
 
 export async function saveSummarySettings(scope:MemoryScope,enabled:boolean,interval:number){
- if(typeof enabled!=='boolean'||!Number.isInteger(interval)||interval<20||interval>100||interval%10)throw Error('总结间隔须为20～100轮，每10轮一级。');
+ if(typeof enabled!=='boolean'||!Number.isInteger(interval)||interval<1||interval>summaryLimits.maxInterval)throw Error('总结间隔须为1～1000轮整数。');
  await db.transaction('rw',tables(),async()=>{await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=structuredClone(c.memorySummary??emptySummaryState());state.enabled=enabled;state.interval=interval;await db.conversations.update(c.id,{memorySummary:state});});
 }
+type SourceMessage={role:string;content:string;images:number};
+type ParsedSource={nodes:readonly {id:string;message:import('./chatTypes').Message}[];turns:{ref:SummaryTurn;nodeId:string;messages:SourceMessage[]}[];users:string[];messages:SourceMessage[];characters:number};
+// Two bounded, immutable-source caches. Appending continues from the old tail;
+// edits, restore and branch changes have different verified node identities.
+const sourceCache=new Map<string,ParsedSource>();
 async function snapshot(scope:MemoryScope,initialize=false){
  let c,t,nodes;try{c=(await db.conversations.get(scope.conversationId))!;
  t=initialize?await ensureTimelineInTransaction(c.id):c.activeTimelineId?await db.timelines.get(c.activeTimelineId):undefined;
- nodes=t?await nodesForHead(c.id,t.headNodeId):(await activeMessages(c.id)).map(message=>({id:'',message}));}catch{throw new SummaryReadError();}
- const turns:{ref:SummaryTurn;nodeId:string;messages:{role:string;content:string;images:number}[]}[]=[];let users:string[]=[],messages:{role:string;content:string;images:number}[]=[];
- for(const n of nodes){const m=visibleMessage(n.message);if(m.role==='user'){users.push(m.id);messages.push({role:'user',content:m.content,images:m.attachments?.length??0});}else if(m.role==='assistant'&&!m.replyInterruption&&users.length){messages.push({role:'assistant',content:m.content,images:0});turns.push({ref:{userIds:users,assistantId:m.id},nodeId:n.id,messages});users=[];messages=[];}}
+ nodes=t?await nodesForHead(c.id,t.headNodeId,true):(await activeMessages(c.id)).map(message=>({id:'',message}));}catch{throw new SummaryReadError();}
+ const previous=sourceCache.get(c.id);
+ const cached=previous&&previous.nodes.length<=nodes.length&&(!previous.nodes.length||nodes[previous.nodes.length-1]===previous.nodes.at(-1))?previous:undefined;
+ const turns:ParsedSource['turns']=cached?[...cached.turns]:[];let users:string[]=cached?[...cached.users]:[],messages:SourceMessage[]=cached?[...cached.messages]:[];
+ let readChars=cached?.characters??0,deadline=performance.now()+6;
+ for(let i=cached?.nodes.length??0;i<nodes.length;i++){const n=nodes[i];if(performance.now()>deadline){await chatYield();deadline=performance.now()+6;}const m=visibleMessage(n.message);readChars+=m.content.length;if(m.role==='user'){users.push(m.id);messages.push({role:'user',content:m.content,images:m.attachments?.length??0});}else if(m.role==='assistant'&&!m.replyInterruption&&users.length){messages.push({role:'assistant',content:m.content,images:0});turns.push({ref:{userIds:users,assistantId:m.id},nodeId:n.id,messages});users=[];messages=[];}}
+ sourceCache.delete(c.id);sourceCache.set(c.id,{nodes,turns,users,messages,characters:readChars});if(sourceCache.size>2)sourceCache.delete(sourceCache.keys().next().value!);
  const done=new Set<string>();let unverified=0,changed=0;const coveredAssistantIds=new Set<string>();const verify=summaryVerifier(nodes.map(n=>n.message));
  const receipts=await visibleSummaryReceipts(scope);const validityById=new Map<string,Awaited<ReturnType<typeof verify>>>();
  for(let i=0;i<receipts.length;i+=64){const batch=receipts.slice(i,i+64);if(batch.every(r=>r.sourceFingerprint?.startsWith('s3:'))){const values=batch.map(verify);const results=values.every(v=>typeof v==='string')?values:await Promise.all(values);batch.forEach((r,j)=>validityById.set(r.id,results[j] as Awaited<ReturnType<typeof verify>>));}else for(const r of batch){const value=verify(r);validityById.set(r.id,typeof value==='string'?value:await value);}}
@@ -47,7 +58,7 @@ async function snapshot(scope:MemoryScope,initialize=false){
   else if(validity==='changed'){changed++;continue;}
   for(const turn of receipt.turns)done.add(key(turn));
  }
- const read={messages:nodes.length,characters:nodes.reduce((n,row)=>n+visibleMessage(row.message).content.length,0),rounds:turns.length,unanswered:users.length};
+ const read={messages:nodes.length,characters:readChars,rounds:turns.length,unanswered:users.length};
  return {read,t,nodes,unverified,changed,coveredAssistantIds,turns:turns.filter(turn=>!done.has(key(turn.ref)))};
 }
 export async function summaryStatus(scope:MemoryScope){
@@ -57,10 +68,11 @@ export async function summaryStatus(scope:MemoryScope){
 }
 async function assertSummarySource(job:MemorySummaryJob,manual:boolean){
  const c=await db.conversations.get(job.scope.conversationId);if(!c||c.activeTimelineId!==job.timelineId||(c.timelineEpoch??0)!==job.epoch||c.memorySummary?.job?.id!==job.id||c.memorySummary.job.status!=='running'||(!manual&&!c.memorySummary.enabled)||Date.now()>job.leaseUntil)throw Error('stale-path');
- const t=await db.timelines.get(job.timelineId);const nodes=await nodesForHead(c.id,t?.headNodeId);if(await summarySourceFingerprint({turns:(c.memorySummary.checkpoint?.turns??[])},nodes.map(n=>n.message))!==job.sourceFingerprint)throw Error('stale-path');
+ const t=await db.timelines.get(job.timelineId);const nodes=await nodesForHead(c.id,t?.headNodeId,true);if(await summarySourceFingerprint({turns:(c.memorySummary.checkpoint?.turns??[])},nodes.map(n=>n.message))!==job.sourceFingerprint)throw Error('stale-path');
 }
 interface Claim {job:MemorySummaryJob;turns:SummaryTurn[];inputs:string[];reviewTurns:{messages:{role:string;content:string}[]}[]}
 async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
+ const budget=summaryRequestBudget((await getSummaryApi(scope).catch(()=>({config:{maxTokens:3000}}))).config);
  return db.transaction('rw',tables(),async()=>{
   await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=structuredClone(c.memorySummary??emptySummaryState());
   if(summaryCapacityRecovered(c)&&state.job?.chunks===0&&!state.checkpoint?.completed.length){state.capacityBlocked=undefined;state.deferUntilPending=undefined;state.autoAttempt=undefined;state.requiresManualResume=undefined;}
@@ -79,37 +91,27 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   if(!data.turns.length||(!manual&&data.turns.length<state.interval))return;
   await sealMemorySummaryForks(scope);
   const full=summaryCapacityFull(c);if(full)state.capacityBlocked=summaryCapacityKey(c);
-  // Commit one API-sized, complete-turn group at a time. A later failed
-  // request cannot roll back an earlier successful receipt or its progress.
-  // The configured interval is an upper bound, not an all-or-nothing batch.
+  // The user interval is a task, never an API-size cap. Resume the exact old
+  // source prefix before starting a new interval, including legacy checkpoints.
   let group=full?[]:data.turns.slice(0,state.interval);
-  if(group.length>1){
-   let low=1,high=group.length,best=0;
-   while(low<=high){
-    const mid=Math.floor((low+high)/2);
-    try{
-     if(buildSummaryInputs(group.slice(0,mid),system,summaryLimits.inputTokens).length===1){best=mid;low=mid+1;}
-     else high=mid-1;
-    }catch{high=mid-1;}
-   }
-   if(best>0)group=group.slice(0,best);
-  }
+  const previous=state.checkpoint;
+  if(previous&&state.job?.status!=='succeeded'&&scopeKey(previous.scope)===scopeKey(scope)&&previous.timelineId===data.t.id&&previous.turns.length&&JSON.stringify(data.turns.slice(0,previous.turns.length).map(x=>x.ref))===JSON.stringify(previous.turns))group=data.turns.slice(0,previous.turns.length);
   let inputs:string[]=[];let attemptedTokens=memoryTokenCost(system),oversized=false;
   if(group.length){
    attemptedTokens=memoryTokenCost(system)+memoryTokenCost(JSON.stringify(group.map(x=>x.messages)));
-   try{inputs=buildSummaryInputs(group,system,summaryLimits.inputTokens);}
+   try{inputs=await buildSummaryInputsCooperative(group,system,budget.input);}
    catch{oversized=true;}
   }
   // Preserve the full configured turn group; oversized turns are split into resumable bounded chunks.
   // Never silently discard raw turns to fit the budget.
-  if(inputs.length>100)oversized=true;
+  if(inputs.length>summaryLimits.maxChunks||inputs.reduce((n,s)=>n+memoryTokenCost(s),0)>8*1024*1024)oversized=true;
   const fits=group.length>0&&!oversized;
   const claimedSourceFingerprint=group.length?await summarySourceFingerprint({turns:group.map(x=>x.ref)},data.nodes.map(n=>n.message)):undefined;
-  const previous=state.checkpoint;
-  const resume=previous&&scopeKey(previous.scope)===scopeKey(scope)&&previous.timelineId===data.t.id&&previous.throughNodeId===group.at(-1)?.nodeId&&JSON.stringify(previous.turns)===JSON.stringify(group.map(x=>x.ref))&&JSON.stringify(previous.inputs)===JSON.stringify(inputs)&&state.job?.sourceFingerprint===claimedSourceFingerprint;
+  const resume=previous&&scopeKey(previous.scope)===scopeKey(scope)&&previous.timelineId===data.t.id&&previous.throughNodeId===group.at(-1)?.nodeId&&JSON.stringify(previous.turns)===JSON.stringify(group.map(x=>x.ref))&&state.job?.sourceFingerprint===claimedSourceFingerprint;
+  if(resume){inputs=previous!.inputs;if(manual){previous!.recoveries=0;previous!.attempts=inputs.map((_,i)=>i<previous!.completed.length?previous!.attempts?.[i]??0:0);}}
   if(fits&&!resume&&previous?.completed.length){if((state.checkpointArchive?.length??0)>=3)throw Error('历史检查点保留容量已满，未丢弃原结果，也未请求模型。');state.checkpointArchive=[...(state.checkpointArchive??[]),previous];}
-  if(fits&&!resume)state.checkpoint={scope:structuredClone(scope),timelineId:data.t.id,throughNodeId:group.at(-1)!.nodeId,turns:group.map(x=>x.ref),inputs,completed:[]};
-  const job:MemorySummaryJob={read:data.read,chunks:inputs.length,completedChunks:resume?previous!.completed.length:0,...(claimedSourceFingerprint?{sourceFingerprint:claimedSourceFingerprint}:{}),id:crypto.randomUUID(),scope:structuredClone(scope),epoch:c.timelineEpoch??0,timelineId:data.t.id,snapshotHeadId:data.t.headNodeId!,throughNodeId:group.at(-1)?.nodeId??data.t.headNodeId!,status:fits?'running':'failed',startedAt:Date.now(),leaseUntil:Date.now()+Math.max(summaryLimits.leaseMs,inputs.length*210000+90000),...(!fits?{...(!full?{diagnostic:{version:1 as const,stage:'input' as const,code:'input-budget' as const,inputRounds:inputs.length,pendingRounds:data.turns.length,inputTokenEstimate:attemptedTokens}}:{}),error:full?'capacity' as const:'input-too-large' as const,finishedAt:Date.now()}:{})};
+  if(fits&&!resume)state.checkpoint={planVersion:2,attempts:inputs.map(()=>0),recoveries:0,scope:structuredClone(scope),timelineId:data.t.id,throughNodeId:group.at(-1)!.nodeId,turns:group.map(x=>x.ref),inputs,completed:[]};
+  const job:MemorySummaryJob={rounds:group.length,failedChunks:0,recoveries:0,read:data.read,chunks:inputs.length,completedChunks:resume?previous!.completed.length:0,...(claimedSourceFingerprint?{sourceFingerprint:claimedSourceFingerprint}:{}),id:crypto.randomUUID(),scope:structuredClone(scope),epoch:c.timelineEpoch??0,timelineId:data.t.id,snapshotHeadId:data.t.headNodeId!,throughNodeId:group.at(-1)?.nodeId??data.t.headNodeId!,status:fits?'running':'failed',startedAt:Date.now(),leaseUntil:Date.now()+summaryLimits.leaseMs,...(!fits?{...(!full?{diagnostic:{version:1 as const,stage:'input' as const,code:'input-budget' as const,inputRounds:group.length,pendingRounds:data.turns.length,inputTokenEstimate:attemptedTokens}}:{}),error:full?'capacity' as const:'input-too-large' as const,finishedAt:Date.now()}:{})};
   if(!manual&&fits){
    const previous=state.autoAttempt;
    const count=previous?.throughNodeId===job.throughNodeId?previous.count+1:1;
@@ -122,67 +124,81 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
    state.deferUntilPending=undefined;
    state.autoAttempt=undefined;
   }
+  if(memoryTokenCost(JSON.stringify({...c,memorySummary:state}))>14*1024*1024)throw Error('capacity');
   state.job=job;await db.conversations.update(c.id,{memorySummary:state});
   return fits?{job,turns:group.map(x=>x.ref),inputs,reviewTurns:group}:undefined;
  });
 }
 async function fail(job:MemorySummaryJob,error:SummaryFailure,diagnostic?:SummaryDiagnostic,decision?:ReturnType<typeof classifySummaryError>,manual=false){
  await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(job.scope.conversationId);if(c?.memorySummary?.job?.id!==job.id)return;const state=structuredClone(c.memorySummary);// Failed automatic jobs pause for explicit recovery, not additional chat turns.
-  state.requiresManualResume=true;state.deferUntilPending=undefined;if(error==='capacity')state.capacityBlocked=summaryCapacityKey(c);state.job={...state.job!,status:'failed',error,...(decision?{retryable:decision.retry,failureKind:decision.kind}:{}),...(job.failureHttpStatus?{failureHttpStatus:job.failureHttpStatus}:{}),...(job.failureReason?{failureReason:job.failureReason}:{}),...(job.failureServiceCode?{failureServiceCode:job.failureServiceCode}:{}),...(diagnostic?{diagnostic}:{}),finishedAt:Date.now()};
+  state.requiresManualResume=true;state.deferUntilPending=undefined;if(error==='capacity')state.capacityBlocked=summaryCapacityKey(c);state.job={...state.job!,status:'failed',failedChunks:1,error,...(decision?{retryable:decision.retry,failureKind:decision.kind}:{}),...(job.failureHttpStatus?{failureHttpStatus:job.failureHttpStatus}:{}),...(job.failureReason?{failureReason:job.failureReason}:{}),...(job.failureServiceCode?{failureServiceCode:job.failureServiceCode}:{}),...(diagnostic?{diagnostic}:{}),finishedAt:Date.now()};
   if(state.autoAttempt?.throughNodeId===job.throughNodeId)state.autoAttempt=undefined;
   await db.conversations.update(c.id,{memorySummary:state});});
 }
 async function execute(scope:MemoryScope,manual:boolean){
  let claimed:Claim|undefined;try{claimed=await claim(scope,manual);}catch(e){if(manual)throw e;return;}if(!claimed)return;
- const {job}=claimed;let failure:SummaryFailure='provider',diagnostic:SummaryDiagnostic|undefined;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.max(60000,claimed.inputs.length*200000+90000));
+ const {job}=claimed;let suspended=false;let failure:SummaryFailure='provider',diagnostic:SummaryDiagnostic|undefined;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.max(60000,claimed.inputs.length*200000+90000));
+ const onHide=()=>{if(document.hidden){suspended=true;controller.abort();}},onLeave=()=>{suspended=true;controller.abort();};document.addEventListener('visibilitychange',onHide);window.addEventListener('pagehide',onLeave);
  try{
   const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('stale-path');
   const {config,key:apiKey}=await getSummaryApi(scope);
 
-  failure='format';const facts:SummaryFact[]=[],events:string[]=[];const inputForFact=new Map<SummaryFact,number>();
+  failure='format';const facts:SummaryFact[]=[];const inputForFact=new Map<SummaryFact,number>();
   const stats={candidates:0,accepted:0,rejected:0,reasons:{} as Record<string,number>};
   for(let index=0;index<claimed.inputs.length;index++){
    failure='stale-path';await db.transaction('r',tables(),()=>assertSummarySource(job,manual));
    const input=claimed.inputs[index];
    const saved=(await db.conversations.get(scope.conversationId))?.memorySummary?.checkpoint;
    if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]){
-    try{const part=saved.completed[index],reviewed=parseSimpleSummary(JSON.stringify({memories:part.facts}));
-    for(const f of reviewed.facts)inputForFact.set(f,index);facts.push(...reviewed.facts);const event=reviewed.facts.map(f=>`【${labels[f.type]}】${f.content}`).join('\n');if(event)events.push(event);
+    try{const part=saved.completed[index],reviewed=reviewIntervalSummary(JSON.stringify({memories:part.facts}),input);
+    for(const f of reviewed.facts)inputForFact.set(f,index);facts.push(...reviewed.facts);
     const countsValid=[part.candidates,part.accepted,part.rejected].every(n=>Number.isSafeInteger(n)&&n>=0)&&part.accepted===part.facts.length&&part.candidates===part.accepted+part.rejected&&part.reasons&&Object.entries(part.reasons).every(([k,n])=>Object.hasOwn(summaryRejectionText,k)&&Number.isSafeInteger(n)&&n>=0)&&Object.values(part.reasons).reduce((a,b)=>a+b,0)===part.rejected;
     stats.candidates+=countsValid?part.candidates:part.facts.length;stats.accepted+=reviewed.facts.length;stats.rejected+=(countsValid?part.rejected:0);for(const [reason,count] of Object.entries(countsValid?part.reasons:{}))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;
     }catch(e){if(!manual||!(e instanceof SummaryFormatError))throw e;/* Explicit recovery may regenerate an invalid old fragment, never a verified one. */}
    }
    const before=facts.length;
-   failure='provider';const raw=await requestSummary(config,apiKey,input,controller.signal);
+   // Persist intent before a paid call. A crashed/closed page can only replay
+   // that unknown attempt after explicit manual recovery, never a wake event.
+   await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(scope.conversationId);const state=structuredClone(c?.memorySummary);if(!state?.checkpoint||state.job?.id!==job.id)throw Error('stale-path');state.checkpoint.inflight=index;state.job.leaseUntil=Date.now()+summaryLimits.leaseMs;job.leaseUntil=state.job.leaseUntil;await db.conversations.update(scope.conversationId,{memorySummary:state});});
+   let raw:string,batch!:ReturnType<typeof reviewIntervalSummary>;
+   try{failure='provider';raw=await requestSummary(config,apiKey,input,controller.signal);failure='format';batch=reviewIntervalSummary(raw,input);}
+   catch(error){
+    if(error instanceof SummaryFormatError)diagnostic={...error.diagnostic,outputTokenLimit:summaryRequestBudget(config).output};
+    const code=error instanceof SummaryResponseError||error instanceof SummaryFormatError?error.diagnostic.code:undefined;
+    if(['truncated','json-syntax','root-shape','input-budget'].includes(code??'')){
+     let recovered=false;
+     await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,manual);const c=await db.conversations.get(scope.conversationId);const state=structuredClone(c!.memorySummary!);const cp=state.checkpoint!;const tries=cp.attempts?.[index]??0;
+      if((cp.recoveries??0)>=summaryLimits.maxRecoveries||tries>=2)return;
+      const parts=code==='truncated'||code==='input-budget'?splitSummaryInput(input):[input];if(!parts.length||cp.inputs.length+parts.length-1>summaryLimits.maxChunks)return;
+      cp.attempts??=cp.inputs.map(()=>0);cp.inputs.splice(index,1,...parts);cp.attempts.splice(index,1,...parts.map(()=>tries+1));cp.recoveries=(cp.recoveries??0)+1;delete cp.inflight;
+      state.job!.chunks=cp.inputs.length;state.job!.recoveries=cp.recoveries;job.chunks=cp.inputs.length;job.recoveries=cp.recoveries;claimed!.inputs=cp.inputs;await db.conversations.update(scope.conversationId,{memorySummary:state});recovered=true;
+     });
+     if(recovered){index--;continue;}
+    }
+    throw error;
+   }
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
    failure='format';try{
-    // Semantic extraction is model-owned; no citation or keyword gate.
-    const batch=parseSimpleSummary(raw);
-    const selected={accepted:batch.facts,rejected:[] as {index:number;reason:string}[]};
-    const eventSummary=selected.accepted.map(f=>`【${labels[f.type]}】${f.content}`).join('\n').slice(0,2500);
-    if(eventSummary)events.push(eventSummary);
+    // Keep only source-recoverable candidates; optional metadata is not a batch gate.
+    const selected={accepted:batch.facts,rejected:batch.rejected};
+    const eventSummary=selected.accepted.map(f=>`【${labels[f.type]}】${f.content}`).join('\n');
     for(const f of selected.accepted)inputForFact.set(f,index);facts.push(...selected.accepted);stats.candidates+=batch.candidates;stats.accepted+=selected.accepted.length;
-    stats.rejected+=batch.rejected;if(batch.rejected)stats.reasons['invalid-candidate']=(stats.reasons['invalid-candidate']??0)+batch.rejected;
-    const reasons:Record<string,number>=batch.rejected?{'invalid-candidate':batch.rejected}:{};
+    stats.rejected+=batch.rejected.length;const reasons:Record<string,number>={};for(const r of batch.rejected){stats.reasons[r.reason]=(stats.reasons[r.reason]??0)+1;reasons[r.reason]=(reasons[r.reason]??0)+1;}
 
-    failure='stale-path';await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,manual);const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);if(next.job)next.job.completedChunks=index+1;next.checkpoint!.completed[index]={facts:facts.slice(before),eventSummary,candidates:batch.candidates,accepted:selected.accepted.length,rejected:batch.rejected,reasons};await db.conversations.update(scope.conversationId,{memorySummary:next});});
+    failure='stale-path';await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,true);const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);if(next.job){next.job.completedChunks=index+1;next.job.failedChunks=0;next.job.leaseUntil=Date.now()+summaryLimits.leaseMs;job.leaseUntil=next.job.leaseUntil;}delete next.checkpoint!.inflight;next.checkpoint!.completed[index]={facts:facts.slice(before),eventSummary,candidates:batch.candidates,accepted:selected.accepted.length,rejected:batch.rejected.length,reasons};if(memoryTokenCost(JSON.stringify({...latest,memorySummary:next}))>14*1024*1024){failure='capacity';throw Error('capacity');}await db.conversations.update(scope.conversationId,{memorySummary:next});});
    }catch(e){if((e as Error).message==='empty')failure='empty';if(e instanceof SummaryFormatError)diagnostic={...e.diagnostic,receivedChars:raw.length,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)};throw e;}
   }
+  const sourcePosition=(fact:SummaryFact)=>{const input=JSON.parse(claimed!.inputs[inputForFact.get(fact)!]);return Math.max(0,...(fact.quality?.evidence??[]).map(e=>input[e.turn-1]?.find((m:any)=>m.role===e.role&&m.content.includes(e.quote))?.turnIndex??0));};
+  const positions=new Map(facts.map(f=>[f,sourcePosition(f)]));facts.sort((a,b)=>positions.get(a)!-positions.get(b)!);
   job.completedChunks=claimed.inputs.length;job.selection=stats;
   // A single bounded, chronological event digest belongs to the whole configured
   // interval, never to an individual API chunk. It is separate from raw messages.
-  const uniqueEvents=events.filter(Boolean);
-  let groupSummary=uniqueEvents[0]??'';
-  if(claimed.inputs.length>1){
-   // Merge already-paid-for chunk summaries locally. Secondary/core synthesis
-   // runs independently and must never block first-pass persistence.
-   groupSummary=uniqueEvents.join('\n').slice(0,2500);
-  }
+  const groupSummary=mergeIntervalSummary(facts,facts.map(f=>{const i=inputForFact.get(f)!;const parsed=JSON.parse(claimed!.inputs[i]);return parsed[(f.quality?.evidence[0]?.turn??1)-1]?.[0]?.turnIndex??0;}));
 
   failure='stale-path';
   await db.transaction('rw',tables(),async()=>{
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
-   const current=(await db.conversations.get(scope.conversationId));if(!current||current.memorySummary?.job?.id!==job.id||current.memorySummary.job.status!=='running'||current.activeTimelineId!==job.timelineId||(current.timelineEpoch??0)!==job.epoch)throw Error('stale-path');
+   const current=(await db.conversations.get(scope.conversationId));if(!current||(!manual&&!current.memorySummary?.enabled)||current.memorySummary?.job?.id!==job.id||current.memorySummary.job.status!=='running'||current.activeTimelineId!==job.timelineId||(current.timelineEpoch??0)!==job.epoch)throw Error('stale-path');
    const nodes=await nodesForHead(current.id,(await db.timelines.get(job.timelineId))?.headNodeId);if(!nodes.some(n=>n.id===job.snapshotHeadId))throw Error('stale-path');
    await sealMemorySummaryForks(scope);
    const state=structuredClone((await db.conversations.get(current.id))!.memorySummary!);if(state.receipts.length>=summaryLimits.receipts){failure='capacity';throw Error('capacity');}
@@ -200,7 +216,8 @@ async function execute(scope:MemoryScope,manual:boolean){
    const all=await listMemoryRevisions(scope);
    const known=summaryDuplicateIndex(all.map(e=>e.content));
    const pending:SummaryFact[]=[];
-   for(const fact of facts){if(known.has(fact)){continue;}known.add(fact);pending.push(fact);}
+   let compareDeadline=performance.now()+6;
+   for(const fact of facts){if(performance.now()>compareDeadline){await chatYield();compareDeadline=performance.now()+6;}if(known.has(fact)){continue;}known.add(fact);pending.push(fact);}
    // Capacity is checked for the whole batch, before the first memory write.
    // Never leave a partially committed group when storage fills up.
    const memoryState=(await db.conversations.get(current.id))?.memoryStore;
@@ -208,8 +225,9 @@ async function execute(scope:MemoryScope,manual:boolean){
    const chars=(memoryState?.entries??[]).reduce((n,e)=>n+e.content.length,0);
    const requiredChars=pending.reduce((n,f)=>n+`【${labels[f.type]}】${f.content}`.length,0);
    if(used+pending.length>memoryLimits.events||chars+requiredChars>memoryLimits.totalChars||pending.some(f=>`【${labels[f.type]}】${f.content}`.length>memoryLimits.entryChars)){failure='capacity';throw Error('capacity');}
-   let added=0,duplicates=facts.length-pending.length;
-   for(const fact of pending){failure='state';const input=JSON.parse(claimed!.inputs[inputForFact.get(fact)!]) as {role:string;content:string;turnIndex?:number}[][];const quality=fact.quality?{...fact.quality,evidence:fact.quality.evidence.map(e=>{const part=input[e.turn-1]?.find(m=>m.role===e.role&&m.content.includes(e.quote));const turn=part?.turnIndex??claimed!.reviewTurns.findIndex(t=>t.messages.some(m=>m.role===e.role&&m.content===part?.content));if(turn<0){failure='stale-path';throw Error('stale-path');}return {...e,turn:turn+1};})}:undefined;await createMemory(scope,{type:fact.type,quality,kind:fact.kind??(fact.quality?.importance==='high'&&['major-event','relationship','identity','boundary','ongoing-conflict','continuity'].includes(fact.quality.category)?'core':'long'),source:'auto',sourceReceiptId:job.id,content:`【${labels[fact.type]}】${fact.content}`});added++;}
+   let added=0,duplicates=facts.length-pending.length;const memoryInputs:import('./memoryTypes').MemoryInput[]=[];
+   for(const fact of pending){failure='state';const input=JSON.parse(claimed!.inputs[inputForFact.get(fact)!]) as {role:string;content:string;turnIndex?:number}[][];const quality=fact.quality?{...fact.quality,evidence:fact.quality.evidence.map(e=>{const part=input[e.turn-1]?.find(m=>m.role===e.role&&m.content.includes(e.quote));const turn=part?.turnIndex??claimed!.reviewTurns.findIndex(t=>t.messages.some(m=>m.role===e.role&&m.content.includes(e.quote)));if(turn<0||!claimed!.reviewTurns[turn]?.messages.some(m=>m.role===e.role&&m.content.includes(e.quote))){failure='stale-path';throw Error('stale-path');}return {...e,turn:turn+1};})}:undefined;memoryInputs.push({type:fact.type,quality,kind:fact.kind??(fact.quality?.importance==='high'&&['major-event','relationship','identity','boundary','ongoing-conflict','continuity'].includes(fact.quality.category)?'core':'long'),source:'auto',sourceReceiptId:job.id,content:`【${labels[fact.type]}】${fact.content}`});added++;}
+   if(memoryInputs.length)await createMemories(scope,memoryInputs);
    state.capacityBlocked=undefined;state.checkpoint=undefined;state.autoAttempt=undefined;state.deferUntilPending=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,sourceFingerprint,shortSummary:groupSummary,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
   });
   // Second pass is best-effort and never changes a successful primary receipt.
@@ -220,10 +238,10 @@ async function execute(scope:MemoryScope,manual:boolean){
    // Persist only a fixed diagnostic category and numeric HTTP status, never provider body or credentials.
    if(providerDetail.httpStatus)job.failureHttpStatus=providerDetail.httpStatus;
     if(providerDetail.serviceCode)job.failureServiceCode=providerDetail.serviceCode;
-   job.failureReason=controller.signal.aborted?'timeout':decision.reason==='unknown'?'unknown':decision.reason;
+   job.failureReason=suspended?'state':controller.signal.aborted?'timeout':decision.reason==='unknown'?'unknown':decision.reason;
    // An aborted request is a timeout/interruption, not an unspecified provider error.
    if(controller.signal.aborted||error instanceof Error&&/abort|timeout|timed out|超时/i.test(error.message)){
-    failure='timeout';
+    failure=suspended?'interrupted':'timeout';
    }
    // Preserve the actual failure category. A stale timeline/checkpoint or local
    // state error must not be reported as a provider failure after switching APIs.
@@ -233,18 +251,18 @@ async function execute(scope:MemoryScope,manual:boolean){
     // Do not overwrite the stage recorded immediately before the failing operation.
     // The previous catch collapsed capacity, interruption, checkpoint and source
     // validation failures into a misleading generic stale-path status.
-    if(!['capacity','stale-path','interrupted','input-too-large','format','empty','timeout','state'].includes(failure))failure='stale-path';
+    if(decision.reason==='state'&&!['capacity','stale-path','interrupted','input-too-large','format','empty','timeout','state'].includes(failure))failure='stale-path';
    }
    else if(decision.kind==='format')failure='format';
    else if(!['capacity','stale-path','interrupted','input-too-large','format','empty','state'].includes(failure))failure='provider';
    if(diagnostic)diagnostic={...diagnostic,inputRounds:claimed.turns.length,inputTokenEstimate:memoryTokenCost(system)+Math.max(...claimed.inputs.map(memoryTokenCost))};
    await fail(job,failure,diagnostic,{...decision,retry:manual&&decision.retry},manual).catch(()=>{});
-  }finally{clearTimeout(timer);}
+  }finally{clearTimeout(timer);document.removeEventListener('visibilitychange',onHide);window.removeEventListener('pagehide',onLeave);}
 }
 const running=new Map<string,Promise<void>>();
 export function runMemorySummary(scope:MemoryScope,manual=true){
  const old=running.get(scope.conversationId);if(old)return old;
- const task=Promise.resolve().then(()=>withSummaryLock('claudia-primary-summary:'+scope.conversationId,()=>execute(scope,manual))).finally(()=>{if(running.get(scope.conversationId)===task)running.delete(scope.conversationId);});running.set(scope.conversationId,task);return task;
+ const task=Promise.resolve().then(()=>withSummaryLock('claudia-primary-summary:'+scope.conversationId,()=>execute(scope,manual),summaryLimits.leaseMs)).finally(()=>{if(running.get(scope.conversationId)===task)running.delete(scope.conversationId);});running.set(scope.conversationId,task);return task;
 }
 /** One automatic attempt per due group.
  * Paid failures remain paused for explicit recovery.

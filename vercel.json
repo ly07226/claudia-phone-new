@@ -18,7 +18,8 @@
   ],
   "git": {
     "deploymentEnabled": {
-      "feature/private-notes-glass": false
+      "feature/private-notes-glass": false,
+      "feature/diary-independent-inner-life": false
     }
   }
 }

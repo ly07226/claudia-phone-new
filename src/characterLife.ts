@@ -93,6 +93,14 @@ export function lifePrompt(s: CharacterLife, budget = 5000, preferred = ''): str
     return render();
 }
 /** Deterministic guard, not a proof of all semantic safety. No generated rewrite. */
-export function assertLifeAffection(text: string) { if (/(?:厌恶|嫌弃|鄙视|讨厌|厌倦|抛弃|看不起|不再爱|不爱|不喜欢|不值得爱).{0,10}(?:玩家|用户|你)|(?:玩家|用户).{0,12}(?:愚蠢|恶意|不值得|令人厌恶)|后悔认识(?:玩家|用户|你)|对(?:玩家|用户).{0,8}(?:感情降低|失去感情)/u.test(text))
-    throw Error('内容未通过感情底色校验，未保存；请手动重试'); }
+export function assertLifeAffection(text: string) {
+    // Inspect a copy only. Keep the saved AI wording unchanged. Explicit denial
+    // of hostility and complaints about an identified behavior are not rejection
+    // of the person. Any other hostile clause must still fail independently.
+    const inspected = text
+        .replace(/(?:并不|从不|不会|绝不|不是|没有|不)(?:厌恶|嫌弃|鄙视|讨厌|厌倦|抛弃|看不起|不爱|不喜欢)(?:玩家|用户|你)(?!才怪|是假的|只是骗)/gu, '[否定敌意]')
+        .replace(/(?:不喜欢|讨厌|嫌弃)(?:玩家|用户|你)(?:总是|总|又|老是|一再)?(?:这样做|这么做|的?(?:行为|做法|这句话|语气|选择|安排|熬夜|逞强|迟到|不吃饭|隐瞒伤势|一个人硬撑|拿自己冒险|说的话))/gu, '[针对具体行为的不满]');
+    if (/(?:厌恶|嫌弃|鄙视|讨厌|厌倦|抛弃|看不起|不再爱|不爱|不喜欢|不值得爱).{0,10}(?:玩家|用户|你)|(?:玩家|用户).{0,12}(?:愚蠢|恶意|不值得|令人厌恶)|后悔认识(?:玩家|用户|你)|对(?:玩家|用户).{0,8}(?:感情降低|失去感情)/u.test(inspected))
+        throw Error('内容未通过感情底色校验，未保存；请手动重试');
+}
 export function majorLifeEvent(text: string) { return /死亡|去世|重伤|重病|癌症|住院|失业|辞职|转行|离婚|结婚|出轨|背叛|重大事故|新增亲属|怀孕|分手/u.test(text); }
