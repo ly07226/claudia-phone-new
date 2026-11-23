@@ -29,6 +29,7 @@ export type CharacterLife = {
     lastAdvancedAt: number;
     focus: string;
     mood: string;
+    moodHistory?: { at: number; mood: string }[];
     events: LifeEvent[];
     revision?: number;
     enabled?: boolean;
@@ -56,6 +57,7 @@ export function validateCharacterLife(value: unknown, owner: string): asserts va
         if (e.source !== undefined && !['manual', 'simulation'].includes(e.source) || e.confidence !== undefined && !['confirmed', 'simulated'].includes(e.confidence) || e.progress?.some(p => !Number.isFinite(p.at) || typeof p.text !== 'string' || p.text.length > 500 || p.status !== undefined && !['ongoing', 'paused', 'done'].includes(p.status)))
             throw Error('生活事件来源或进展格式异常');
     }
+    if (s.moodHistory && (!Array.isArray(s.moodHistory) || s.moodHistory.length > 120 || s.moodHistory.some(item => !item || !Number.isFinite(item.at) || typeof item.mood !== 'string' || item.mood.length > 200))) throw Error('历史心情格式异常');
     if (s.dayReviews && (typeof s.dayReviews !== 'object' || Array.isArray(s.dayReviews) || Object.keys(s.dayReviews).length > 45 || Object.entries(s.dayReviews).some(([day, r]) => !/^\d{4}-\d{2}-\d{2}$/.test(day) || !r || typeof r.text !== 'string' || r.text.length > 500 || !Array.isArray(r.usedIds) || r.usedIds.length > 16 || r.usedIds.some(id => typeof id !== 'string') || !Number.isFinite(r.generatedAt) || !Number.isSafeInteger(r.sourceRevision)))) throw Error('每日回顾格式异常');
     if (s.attempt && (!['running', 'failed', 'succeeded'].includes(s.attempt.status) || typeof s.attempt.token !== 'string' || !Number.isFinite(s.attempt.at)))
         throw Error('生活任务格式异常');
