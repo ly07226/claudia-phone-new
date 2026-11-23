@@ -1,6 +1,6 @@
 /** Independent group conversations. No private-chat transcript is implicitly shared. */
 export type GroupSpeaker = {id:string; name:string; persona:string; speakingStyle?:string};
-export type GroupMessage = {id:string; groupId:string; authorId:string|'player'; text:string; createdAt:number};
+export type GroupMessage = {id:string; groupId:string; authorId:string|'player'; text:string; createdAt:number; imageIds?:string[]};
 export type GroupRoom = {id:string; title:string; memberIds:string[]; createdAt:number; updatedAt:number};
 export type GroupMemoryFact = {groupId:string; sourceMessageIds:string[]; text:string; participantIds:string[]; createdAt:number};
 
@@ -35,7 +35,8 @@ export function buildGroupTurnPrompt(room:GroupRoom,speakers:readonly GroupSpeak
  if(members.length!==room.memberIds.length)throw Error('群聊角色资料不完整');
  const recent=groupVisibleMessages(room.id,history).slice(-35).map(m=>({
   author:m.authorId==='player'?'玩家':members.find(s=>s.id===m.authorId)?.name??'未知成员',
-  text:m.text.slice(0,1000)
+  text:m.text.slice(0,1000),
+  imageCount:m.imageIds?.length??0
  }));
  return JSON.stringify({
   task:'为独立群聊生成下一轮自然互动，不读取或泄露任何成员私聊内容。',
