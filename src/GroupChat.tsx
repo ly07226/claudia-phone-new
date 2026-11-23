@@ -34,9 +34,28 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
  }
  async function send(){
   if(!room||(!draft.trim()&&!imageIds.length)||busy||processingImages)return;
-  const text=draft.trim(),selectedImages=[...imageIds];setBusy(true);setError('');setRetryAvailable(false);
-  try{await sendGroupTurn(room,text,selectedImages,()=>{setDraft('');setImageIds([]);void listGroupMessages(room.id).then(setMessages)});setRetryAvailable(false)}catch(e){const saved=(await listGroupMessages(room.id)).at(-1)?.authorId==='player';if(saved){setDraft('');setImageIds([]);setRetryAvailable(true)}setError((e instanceof Error?e.message:'生成失败')+(saved?'；消息已保存，可重试回复':''))}finally{
-   try{setMessages(await listGroupMessages(room.id))}catch{}
+  const text=draft.trim(),selectedImages=[...imageIds],targetRoomId=room.id;
+  let savedThisTurn=false;
+  setBusy(true);setError('');setRetryAvailable(false);
+  try{
+   await sendGroupTurn(room,text,selectedImages,()=>{
+    savedThisTurn=true;
+    setDraft('');setImageIds([]);
+    void listGroupMessages(targetRoomId).then(setMessages).catch(()=>{});
+   });
+  }catch(e){
+   if(savedThisTurn){
+    setRetryAvailable(true);
+    setError((e instanceof Error?e.message:'生成失败')+'；消息已保存，可重试角色回复');
+   }else{
+    setError(e instanceof Error?e.message:'发送失败，消息未确认保存');
+   }
+  }finally{
+   try{
+    const latest=await listGroupMessages(targetRoomId);
+    setMessages(latest);
+    setRetryAvailable(latest.at(-1)?.authorId==='player');
+   }catch(e){setError(e instanceof Error?e.message:'读取群聊记录失败')}
    setBusy(false);
   }
  }
