@@ -1,3 +1,4 @@
+import {installCharacterLifeScheduler} from './characterLifeScheduler';
 import {PrivateNotes} from './PrivateNotes';
 import {ChatBannerSettings} from './ChatBannerSettings';
 import {WechatIntegrationSettings} from './WechatIntegrationSettings';
@@ -88,6 +89,7 @@ const icons = [
 function App() {
   const environment = useDisplayEnvironment();
   const s = usePhone();
+  useEffect(()=>{if(s.ready)return installCharacterLifeScheduler()},[s.ready]);
   // Opt-in WeChat recovery only: no project configuration means no cloud request.
   // iOS cannot run this while the PWA is closed; reconcile on reopen/foreground.
   useEffect(() => {
