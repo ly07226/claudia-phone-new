@@ -45,7 +45,7 @@ export function selectMemoryContext(entries:EffectiveMemory[],query:string,remai
   return {entry,score,hits:hits.length};
  });
  const ranked=scored.filter(({entry,score})=>entry.kind==='core'||score>0)
-  .sort((a,b)=>Number(b.entry.kind==='core')-Number(a.entry.kind==='core')||b.score-a.score||b.hits-a.hits||b.entry.createdAt-a.entry.createdAt||a.entry.id.localeCompare(b.entry.id));
+  .sort((a,b)=>Number(b.entry.kind==='core')-Number(a.entry.kind==='core')||b.score-a.score||b.hits-a.hits||b.entry.createdAt-a.entry.createdAt||b.entry.revision-a.entry.revision||a.entry.id.localeCompare(b.entry.id));
  const facts:{kind:string;source:string;fact:string}[]=[];
  const render=()=>intro+json(facts)+outro;
  let skippedBudget=0;

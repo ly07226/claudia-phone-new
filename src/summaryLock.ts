@@ -8,7 +8,7 @@ const HEARTBEAT_MS=20000;
  * Dexie transactions serialize the compare-and-set on the same key.
  * A lost lease stops new work, but cannot prove a remote API request was not billed.
  */
-export async function withSummaryLock(name:string,work:()=>Promise<void>):Promise<void>{
+export async function withSummaryLock(name:string,work:()=>Promise<void>,leaseMs=LEASE_MS):Promise<void>{
  if(typeof navigator!=='undefined'&&navigator.locks?.request){
   await navigator.locks.request(name,{mode:'exclusive',ifAvailable:true},async lock=>{if(lock)await work();});
   return;
@@ -17,7 +17,7 @@ export async function withSummaryLock(name:string,work:()=>Promise<void>):Promis
  const acquired=await db.transaction('rw',db.summaryLeases,async()=>{
   const previous=await db.summaryLeases.get(name),now=Date.now();
   if(previous&&previous.expiresAt>now)return false;
-  await db.summaryLeases.put({name,owner,expiresAt:now+LEASE_MS,updatedAt:now});
+  await db.summaryLeases.put({name,owner,expiresAt:now+leaseMs,updatedAt:now});
   return true;
  });
  if(!acquired)return;
@@ -25,7 +25,7 @@ export async function withSummaryLock(name:string,work:()=>Promise<void>):Promis
  const beat=setInterval(()=>{void db.transaction('rw',db.summaryLeases,async()=>{
   const current=await db.summaryLeases.get(name);
   if(current?.owner!==owner){lost=true;return;}
-  await db.summaryLeases.put({...current,expiresAt:Date.now()+LEASE_MS,updatedAt:Date.now()});
+  await db.summaryLeases.put({...current,expiresAt:Date.now()+leaseMs,updatedAt:Date.now()});
  }).catch(()=>{lost=true;});},HEARTBEAT_MS);
  try{
   if(lost)throw Error('总结任务锁已失效');

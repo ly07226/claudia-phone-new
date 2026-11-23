@@ -10,6 +10,11 @@ import {getMemoryScope,listMemories,readShortMemory,createMemory,updateMemory,de
 import {memoryLimits,type MemoryScope,type EffectiveMemory,type MemoryEntry,type StoredMemoryKind,type ShortMemory} from './memoryTypes';
 import './memoryApp.css';
 const errorText=(e:unknown)=>e instanceof Error?e.message:'记忆读取失败，请重试。';
+/** Preview only: the complete interval digest stays in IndexedDB and backup. */
+function IntervalSummaryText({text}:{text:string}){
+ const [expanded,setExpanded]=useState(false);const large=text.length>4000;
+ return <><p>{large&&!expanded?text.slice(0,4000):text}</p>{large&&<button type="button" onClick={()=>setExpanded(v=>!v)}>{expanded?'收起完整摘要':`展开完整区间摘要（${text.length}字，当前仅预览）`}</button>}</>;
+}
 export function MemoryApp(){
  const s=usePhone();const [world,setWorld]=useState(''),[character,setCharacter]=useState(''),[scope,setScope]=useState<MemoryScope>(),[error,setError]=useState(''),[loading,setLoading]=useState(false),[retry,setRetry]=useState(0);
  const characters=s.characters.filter(c=>!world||s.worldProfiles.some(p=>p.worldId===world&&p.characterId===c.id));
@@ -68,7 +73,7 @@ function MemoryPanel({scope}:{scope:MemoryScope}){
  <p className="memory-scope">展示已完成总结中最近的重要事件。不会因打开页面额外调用模型；原始聊天始终保留。清空只停止当前范围的短期摘要展示与注入。</p>
  {!loading&&!short?.summaries?.length&&<p className="memory-empty">暂无已完成的事件摘要。可在自动总结设置中查看进度或主动总结。</p>}
  {short?.summaries?.map(item=><article className="memory-card" key={item.id}>
- <div className="memory-meta"><span>自动总结 · {new Date(item.createdAt).toLocaleString()}</span></div><p>{item.text}</p>
+ <div className="memory-meta"><span>自动总结 · {new Date(item.createdAt).toLocaleString()}</span></div><IntervalSummaryText text={item.text}/>
  <details><summary>查看来源 · {item.turns.length} 轮对话</summary><p>当前角色与记忆空间；来源节点：{item.throughNodeId}</p><small>来源消息：{item.turns.flatMap(t=>[...t.userIds,t.assistantId]).join('、')}</small></details>
  </article>)}
  <button onClick={()=>setView('summary')}>自动总结设置与进度</button>

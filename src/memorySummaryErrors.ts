@@ -9,8 +9,9 @@ export function classifySummaryError(error:unknown,online=true):SummaryErrorDeci
  if(!online)return {kind:'offline',retry:false,reason:'offline'};
  if(error instanceof SummaryResponseError){
   const code=error.diagnostic.code;
-  return {kind:'format',retry:false,reason:code};
+  return {kind:code==='blocked'?'safety':'format',retry:false,reason:code};
  }
+ if(error instanceof Error&&/summary request timeout|timed out|超时/i.test(error.message))return {kind:'transient',retry:true,reason:'timeout'};
  const detail=describeReplyFailure(error);
  if(detail.kind==='network'||detail.kind==='server'||detail.kind==='rate')return {kind:'transient',retry:true,reason:detail.kind};
  if(detail.kind==='quota')return {kind:'quota',retry:false,reason:'quota'};

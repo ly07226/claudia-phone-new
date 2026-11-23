@@ -82,6 +82,21 @@ async function write(scope:MemoryScope,input:MemoryInput|undefined,id?:string,ex
   state.entries.push(entry);state.revision++;await validateMemoryStore(db,{...c,memoryStore:state},head=>nodesForHead(c.id,head,true));await db.conversations.update(c.id,{memoryStore:state});return entry;
  });
 }
+/** Append a checked interval's facts in ONE existing transaction. Unlike repeated
+ * createMemory calls, validation and revision serialization run once per group. */
+export async function createMemories(scope:MemoryScope,inputs:MemoryInput[]){
+ return db.transaction('rw',tables(),async()=>{
+  const c=await checked(scope),state=await reconciled(c);
+  if(state.entries.length+inputs.length>memoryLimits.events)throw Error('capacity');
+  let chars=state.entries.reduce((n,e)=>n+e.content.length,0);
+  for(const input of inputs){if(!['core','long'].includes(input.kind)||!['manual','auto'].includes(input.source??'manual')||!input.content.trim()||input.content.trim().length>memoryLimits.entryChars)throw Error('记忆内容或来源无效');chars+=input.content.trim().length;}
+  if(chars>memoryLimits.totalChars)throw Error('capacity');
+  const timeline=scope.mode==='world'?await db.timelines.get(scope.timelineId):undefined;
+  const now=Date.now(),entries:MemoryEntry[]=[];
+  for(const input of inputs){const e:MemoryEntry={id:crypto.randomUUID(),revision:++state.revision,scope:structuredClone(scope),kind:input.kind,source:input.source??'manual',content:input.content.trim(),deleted:false,createdAt:now,updatedAt:now,...(input.sourceReceiptId?{sourceReceiptId:input.sourceReceiptId}:{}),...(input.type?{type:input.type}:{}),...(input.quality?{quality:structuredClone(input.quality)}:{}),...(timeline?.headNodeId?{anchorNodeId:timeline.headNodeId}:{})};state.entries.push(e);entries.push(e);}
+  await validateMemoryStore(db,{...c,memoryStore:state},head=>nodesForHead(c.id,head,true));await db.conversations.update(c.id,{memoryStore:state});return entries;
+ });
+}
 export const createMemory=(scope:MemoryScope,input:MemoryInput,expectedStoreRevision?:number)=>write(scope,input,undefined,undefined,expectedStoreRevision);
 export const updateMemory=(scope:MemoryScope,id:string,input:MemoryInput,expectedRevision:number)=>write(scope,input,id,expectedRevision);
 export const deleteMemory=(scope:MemoryScope,id:string,expectedRevision:number)=>write(scope,undefined,id,expectedRevision);
