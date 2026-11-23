@@ -46,7 +46,7 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
    await sendGroupTurn(room,text,selectedImages,()=>{
     savedThisTurn=true;
     setDraft('');setImageIds([]);
-    void listGroupMessages(targetRoomId).then(rows=>{if(activeRoomRef.current===targetRoomId)setMessages(rows)}).catch(()=>{});
+    void listGroupMessages(targetRoomId).then(rows=>{if(activeRoomRef.current===targetRoomId)setMessages(old=>[...old.filter(m=>!rows.some(n=>n.id===m.id)),...rows].sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id)))}).catch(()=>{});
    });
   }catch(e){
    if(savedThisTurn){
@@ -57,7 +57,7 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
   }finally{
    try{
     const latest=await listGroupMessages(targetRoomId);
-    if(activeRoomRef.current===targetRoomId){setMessages(latest);setRetryAvailable(latest.at(-1)?.authorId==='player')}
+    if(activeRoomRef.current===targetRoomId){setMessages(old=>[...old.filter(m=>!latest.some(n=>n.id===m.id)),...latest].sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id)));setRetryAvailable(latest.at(-1)?.authorId==='player')}
    }catch(e){if(activeRoomRef.current===targetRoomId)setError(e instanceof Error?e.message:'读取群聊记录失败')}
    setBusy(false);
   }
@@ -73,14 +73,14 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
    try{
     const latest=await listGroupMessages(targetRoomId);
     if(activeRoomRef.current===targetRoomId){
-     setMessages(latest);
+     setMessages(old=>[...old.filter(m=>!latest.some(n=>n.id===m.id)),...latest].sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id)));
      setRetryAvailable(latest.at(-1)?.authorId==='player');
     }
    }catch(e){if(activeRoomRef.current===targetRoomId)setError(e instanceof Error?e.message:'读取群聊记录失败')}
    setBusy(false);
   }
  }
- async function loadOlder(){if(!roomId||loadingOlder||!messages.length)return;const target=roomId;setLoadingOlder(true);try{const older=await listGroupMessages(target,101,messages[0].createdAt);if(activeRoomRef.current===target){setHasOlder(older.length>100);setMessages(current=>[...older.slice(-100).filter(m=>!current.some(x=>x.id===m.id)),...current])}}catch(e){if(activeRoomRef.current===target)setError(e instanceof Error?e.message:'加载历史消息失败')}finally{setLoadingOlder(false)}}
+ async function loadOlder(){if(!roomId||loadingOlder||!messages.length)return;const target=roomId;setLoadingOlder(true);try{const older=await listGroupMessages(target,101,{createdAt:messages[0].createdAt,id:messages[0].id});if(activeRoomRef.current===target){setHasOlder(older.length>100);setMessages(current=>[...older.slice(-100).filter(m=>!current.some(x=>x.id===m.id)),...current])}}catch(e){if(activeRoomRef.current===target)setError(e instanceof Error?e.message:'加载历史消息失败')}finally{setLoadingOlder(false)}}
  const name=(id:string)=>id==='player'?'我':characters.find(c=>c.id===id)?.name||'已移除角色';
  return <main className="group-chat">
   <header className="gc-title"><h2>{room?room.title:'创建群聊'}</h2>{room?<p>{room.memberIds.length} 位角色 · 独立聊天记录</p>:<p>选择参与群聊的角色</p>}</header>
