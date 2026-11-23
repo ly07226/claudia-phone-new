@@ -21,3 +21,12 @@
 .group-chat .gc-member-option{width:100%;min-width:0}
 .group-chat .gc-member-option .chat-avatar{width:42px;height:42px}
 .group-chat .gc-member-option>span:nth-child(2){flex:1}
+
+.group-chat .gc-compose-area{display:flex;flex-direction:column;gap:8px;flex:none;min-width:0}
+.group-chat .gc-image-draft{display:flex;gap:8px;overflow-x:auto}
+.group-chat .gc-image-draft>div{position:relative;width:76px;height:76px;flex:none;border-radius:12px;overflow:hidden;background:#ffffff80}
+.group-chat .gc-image-draft .chat-attachment-thumb{width:100%;height:100%;object-fit:cover}
+.group-chat .gc-image-draft button{position:absolute;right:2px;top:2px;border:0;border-radius:50%;width:24px;height:24px;background:#222a;color:#fff}
+.group-chat .gc-compose .chat-attachment-control{flex:none}
+.group-chat .gc-message-body .chat-message-images{margin-top:8px;max-width:100%}
+.group-chat .gc-message-body .chat-attachment-thumb{max-width:210px;max-height:240px;object-fit:cover}
