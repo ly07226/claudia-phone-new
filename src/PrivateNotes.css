@@ -28,3 +28,61 @@
 .private-notes .pn-settings-nav button{display:flex;align-items:center;gap:4px;background:transparent;border:0;color:inherit;padding:8px 0}
 .private-notes .pn-settings-nav strong{font-size:14px;font-weight:600}
 @media(max-width:390px){.private-notes .pn-content{padding-left:12px;padding-right:12px}.private-notes .pn-tabs{gap:6px}.private-notes .pn-tabs button{min-height:60px}}
+
+
+/* Private Notes editorial glass redesign — scoped to the existing phone viewport. */
+.private-notes{--pn-paper:color-mix(in srgb,#fff 84%,var(--pn-bg));--pn-muted:color-mix(in srgb,var(--pn-ink) 63%,#98aabd);background-image:radial-gradient(ellipse at 90% 0%,rgba(255,255,255,.43),transparent 52%),linear-gradient(155deg,rgba(242,247,252,.30),rgba(220,230,242,.16)),var(--pn-user-background,none);scrollbar-width:thin}
+.private-notes .pn-content{padding:18px max(16px,var(--safe-left,16px)) 44px;max-width:760px;margin:0 auto}
+.private-notes .pn-intro{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:4px 0 20px;padding:3px 2px}
+.private-notes .pn-eyebrow{font:500 9px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:2.3px;opacity:.53}
+.private-notes .pn-intro h2{font:600 24px/1.3 Georgia,"Noto Serif SC",serif;letter-spacing:1.1px;margin:7px 0 5px}
+.private-notes .pn-intro p{font-size:12px;line-height:1.5;margin:0;opacity:.62}
+.private-notes .pn-intro-symbol{font-size:29px;color:var(--pn-accent);opacity:.75}
+.private-notes .pn-character{padding:0 3px;margin:0 0 17px;gap:8px;color:var(--pn-muted)}
+.private-notes .pn-character select{max-width:68%;min-height:36px;background:rgba(255,255,255,.50);border:1px solid color-mix(in srgb,var(--pn-accent) 65%,white);border-radius:22px;padding:6px 14px;box-shadow:0 2px 10px rgba(60,85,120,.04)}
+.private-notes .pn-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;margin:0 0 19px}
+.private-notes .pn-tabs button{min-width:0;min-height:43px;padding:8px 2px;gap:0;border:0;border-radius:13px;background:rgba(255,255,255,.36);box-shadow:none;font-size:12px;font-weight:500;transition:background .18s,transform .18s,color .18s}
+.private-notes .pn-tabs button svg{display:none}
+.private-notes .pn-tabs button.active{background:color-mix(in srgb,var(--pn-accent) 73%,#748da8);color:white;outline:none;box-shadow:0 4px 12px rgba(72,98,129,.13)}
+.private-notes .pn-tabs button:active{transform:scale(.96)}
+.private-notes .pn-card{background:rgba(255,255,255,clamp(.48,var(--pn-alpha),.92));border:1px solid rgba(255,255,255,.68);box-shadow:0 8px 26px rgba(61,82,108,.07),inset 0 1px rgba(255,255,255,.62);border-radius:22px;padding:19px;margin-bottom:13px;backdrop-filter:blur(22px) saturate(135%);-webkit-backdrop-filter:blur(22px) saturate(135%)}
+.private-notes .pn-card h3{font:600 17px/1.5 Georgia,"Noto Serif SC",serif;letter-spacing:.4px;margin:12px 0}
+.private-notes .pn-card p{font-size:13px;line-height:1.95;letter-spacing:.12px}
+.private-notes .pn-note-top{gap:11px}
+.private-notes .pn-note-icon{width:35px;height:35px;border-radius:12px;background:color-mix(in srgb,var(--pn-accent) 20%,white)}
+.private-notes .pn-note-icon svg{width:18px;height:18px}
+.private-notes .pn-note-top strong{font-size:12px;font-weight:600}
+.private-notes .pn-note-top small{font-size:10px;opacity:.55}
+.private-notes .pn-expand{color:var(--pn-muted)}
+.private-notes .pn-preview{line-height:1.8;-webkit-line-clamp:3}
+.private-notes .pn-today{padding:19px 19px 15px}
+.private-notes .pn-today-heading{display:flex;align-items:center;gap:10px}
+.private-notes .pn-today-icon{display:grid;place-items:center;width:36px;height:36px;border-radius:12px;background:color-mix(in srgb,var(--pn-accent) 20%,white)}
+.private-notes .pn-today-heading strong{display:block;font-size:14px}
+.private-notes .pn-today-heading small{display:block;margin-top:3px;font-size:10px;opacity:.55}
+.private-notes .pn-today-star{margin-left:auto;color:var(--pn-accent);font-size:20px}
+.private-notes .pn-today p{font-size:12px;opacity:.76;margin:14px 0}
+.private-notes .pn-today-links{display:flex;gap:8px}
+.private-notes .pn-today-links button{display:flex;align-items:center;justify-content:center;gap:6px;flex:1;padding:10px 8px;background:color-mix(in srgb,var(--pn-accent) 13%,white);color:var(--pn-ink);border:0;border-radius:11px;font-size:12px}
+.private-notes .pn-today-links button svg:last-child{margin-left:auto;opacity:.55}
+.private-notes .pn-bottom{font-size:11px;letter-spacing:2px;opacity:.46;background:none;border:0;box-shadow:none}
+.private-notes .pn-life>section:first-child{display:flex;flex-direction:column}
+.private-notes .pn-life>section:first-child>h3{font-size:19px;margin:2px 0 3px}
+.private-notes .pn-life>section:first-child>p:first-of-type{opacity:.62;margin:0 0 12px;font-size:12px}
+.private-notes .pn-life-setting{padding:11px 0;margin:0;border-bottom:1px solid rgba(112,137,168,.17);font-size:13px}
+.private-notes .pn-life-setting input{accent-color:var(--pn-accent)}
+.private-notes .pn-life .pn-section{font-size:12px;letter-spacing:1.2px;opacity:.73;margin:22px 3px 10px}
+.private-notes .pn-life article.pn-card{padding:17px}
+.private-notes .pn-life article.pn-card h3{font-size:15px;margin:0 0 8px}
+.private-notes .pn-life article.pn-card p{margin:8px 0;font-size:12px}
+.private-notes .pn-life article.pn-card small{font-size:10px;opacity:.6;line-height:1.7}
+.private-notes .pn-life details{font-size:12px}
+.private-notes .pn-life details summary{cursor:pointer;padding:9px 0;color:var(--pn-muted)}
+.private-notes .pn-life-actions{gap:7px}
+.private-notes .pn-life button:not(.pn-action){padding:8px 11px;border-radius:10px}
+.private-notes .pn-action{border-radius:13px;min-height:42px}
+.private-notes .pn-settings-nav{justify-content:space-between;margin-bottom:20px}
+.private-notes .pn-settings-nav strong{font-size:15px}
+.private-notes .pn-comments{border-top:1px solid rgba(112,137,168,.20)}
+.private-notes .pn-comment-entry button{min-width:42px;border-radius:12px}
+@media(max-width:390px){.private-notes .pn-tabs{gap:4px}.private-notes .pn-tabs button{min-height:40px;font-size:11px}.private-notes .pn-content{padding-left:13px;padding-right:13px}.private-notes .pn-card{padding:16px}}
