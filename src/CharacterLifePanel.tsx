@@ -44,7 +44,7 @@ export function CharacterLifePanel({ owner }: {
     const dayStamp = (at: number) => { const d = new Date(at); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-'); };
     const dayEvents = useMemo(() => (state?.events ?? []).flatMap(e => {
         const points = (e.progress?.length ? e.progress : [{ at: e.createdAt, text: e.detail }]).filter(p => dayStamp(p.at) === selectedDay);
-        return points.map(p => ({ event: e, point: p, historicalStatus: p.status ?? (e.status === 'done' && dayStamp(e.updatedAt) !== selectedDay ? 'ongoing' : e.status) }));
+        return points.map(p => ({ event: e, point: p, historicalStatus: p.status ?? (e.status === 'done' && p.at < e.updatedAt ? 'ongoing' : e.status) }));
     }).sort((a, b) => a.point.at - b.point.at), [state, selectedDay]);
     const filtered = dayEvents.filter(({ historicalStatus }) => filter === 'all' || (filter === 'done' ? historicalStatus === 'done' : historicalStatus === 'ongoing' || historicalStatus === 'paused'));
     const review = (() => {
