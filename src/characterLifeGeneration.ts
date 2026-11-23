@@ -70,20 +70,20 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
                     const e = next.events.find(e => e.id === u.id);
                     if (!e || e.status !== 'ongoing' || !['ongoing', 'paused', 'done'].includes(u.status) || typeof u.detail !== 'string' || u.detail.length > 500 || majorLifeEvent(u.detail) || /玩家|用户/u.test(u.detail))
                         throw Error('事件进展不匹配或需要确认');
-                    const previousProgress = e.progress?.length ? e.progress : [{ at: e.updatedAt, text: e.detail }];
+                    const previousProgress = e.progress?.length ? e.progress : [{ at: e.updatedAt, text: e.detail, status: 'ongoing' as const }];
                     e.status = u.status;
                     e.detail = u.detail;
                     e.updatedAt = now;
                     e.source = 'simulation';
                     e.confidence = 'simulated';
-                    e.progress = [...previousProgress, { at: now, text: u.detail }].slice(-20);
+                    e.progress = [...previousProgress, { at: now, text: u.detail, status: u.status }].slice(-20);
                 }
                 for (const input of result.events) {
                     if (input.actor !== 'self' || typeof input.title !== 'string' || !input.title.trim() || input.title.length > 120 || typeof input.detail !== 'string' || input.detail.length > 500 || !['ordinary', 'continuing', 'major'].includes(input.level) || /玩家|用户|你(?:已经|决定|答应|同意)/u.test(input.title + input.detail))
                         throw Error('事件必须只涉及角色本人');
                     if ([...next.events, ...next.proposals ?? []].some(e => e.title === input.title))
                         continue;
-                    const major = input.level === 'major' || majorLifeEvent(input.title + input.detail), event: LifeEvent = { id: crypto.randomUUID(), title: input.title, detail: input.detail, level: major ? 'major' : input.level, status: 'ongoing', createdAt: now, updatedAt: now, source: 'simulation', confidence: 'simulated', progress: [{ at: now, text: input.detail }] };
+                    const major = input.level === 'major' || majorLifeEvent(input.title + input.detail), event: LifeEvent = { id: crypto.randomUUID(), title: input.title, detail: input.detail, level: major ? 'major' : input.level, status: 'ongoing', createdAt: now, updatedAt: now, source: 'simulation', confidence: 'simulated', progress: [{ at: now, text: input.detail, status: 'ongoing' }] };
                     if (major) {
                         next.proposals ??= [];
                         if (next.proposals.length >= 5)
