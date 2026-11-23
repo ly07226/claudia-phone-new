@@ -41,6 +41,27 @@ export type CharacterLife = {
     attempt?: LifeAttempt;
 };
 export const characterLifePrefix = 'character-life-v1:';
+export const lifeArchivePrefix = 'character-life-archive-v1:';
+export const lifeArchiveKey = (owner: string, eventId: string) => lifeArchivePrefix + encodeURIComponent(owner) + ':' + encodeURIComponent(eventId);
+export async function readLifeArchive(owner: string): Promise<LifeEvent[]> {
+    const rows = await db.themes.where('id').startsWith(lifeArchivePrefix + encodeURIComponent(owner) + ':').toArray();
+    return rows.map(row => (row as any).archivedLifeEvent as LifeEvent).filter(Boolean);
+}
+export async function archiveCompletedLifeEvents(owner: string, minimumFree = 1) {
+    return db.transaction('rw', db.themes, async () => {
+        const state = await readCharacterLife(owner);
+        const count = Math.max(0, state.events.length + minimumFree - 40);
+        if (!count) return 0;
+        const completed = state.events.filter(e => e.status === 'done').sort((a, b) => a.updatedAt - b.updatedAt).slice(0, count);
+        if (completed.length < count) throw Error('进行中事件较多，请先完成部分事件后再创建新事件');
+        for (const event of completed) {
+            const id = lifeArchiveKey(owner, event.id);
+            await db.themes.put({ id, color: '#8995a3', font: 'sans', iconStyle: 'rounded', opacity: .36, blur: 18, archivedLifeEvent: event } as any);
+        }
+        await changeCharacterLife(owner, next => { next.events = next.events.filter(e => !completed.some(old => old.id === e.id)); }, state.revision ?? 0);
+        return completed.length;
+    });
+}
 export const lifeKey = (id: string) => characterLifePrefix + encodeURIComponent(id);
 export const lifeRow = (state: CharacterLife) => ({ id: lifeKey(state.characterId), color: '#8995a3', font: 'sans', iconStyle: 'rounded', opacity: .36, blur: 18, characterLife: state });
 function initial(characterId: string): CharacterLife { return { version: 1, characterId, lastAdvancedAt: 0, focus: '', mood: '', events: [], revision: 0, enabled: false, ordinaryAllowed: true, proposals: [] }; }
