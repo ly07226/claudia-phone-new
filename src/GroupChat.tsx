@@ -25,7 +25,7 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
  useEffect(()=>{void listGroupRooms().then(setRooms).catch(e=>setError(String(e)))},[]);
  useEffect(()=>setRoomId(initialRoomId),[initialRoomId]);
  useEffect(()=>{setRetryAvailable(false);setImageIds([])},[roomId]);
- useEffect(()=>{let alive=true;if(!roomId){setMessages([]);return;}void listGroupMessages(roomId).then(rows=>{if(alive)setMessages(rows)}).catch(e=>{if(alive)setError(String(e))});return()=>{alive=false}},[roomId]);
+ useEffect(()=>{let alive=true;if(!roomId){setMessages([]);return;}void listGroupMessages(roomId).then(rows=>{if(alive){setMessages(rows);setRetryAvailable(rows.at(-1)?.authorId==='player')}}).catch(e=>{if(alive)setError(String(e))});return()=>{alive=false}},[roomId]);
  const room=rooms.find(r=>r.id===roomId);
  async function create(){
   if(members.length<2){setError('请至少选择两个角色');return}
@@ -35,7 +35,7 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
  async function send(){
   if(!room||(!draft.trim()&&!imageIds.length)||busy||processingImages)return;
   const text=draft.trim(),selectedImages=[...imageIds];setBusy(true);setError('');setRetryAvailable(false);
-  try{await sendGroupTurn(room,text,selectedImages);setDraft('');setImageIds([])}catch(e){const saved=(await listGroupMessages(room.id)).at(-1)?.authorId==='player';if(saved){setDraft('');setImageIds([]);setRetryAvailable(true)}setError((e instanceof Error?e.message:'生成失败')+(saved?'；消息已保存，可重试回复':''))}finally{
+  try{await sendGroupTurn(room,text,selectedImages,()=>{setDraft('');setImageIds([]);void listGroupMessages(room.id).then(setMessages)});setRetryAvailable(false)}catch(e){const saved=(await listGroupMessages(room.id)).at(-1)?.authorId==='player';if(saved){setDraft('');setImageIds([]);setRetryAvailable(true)}setError((e instanceof Error?e.message:'生成失败')+(saved?'；消息已保存，可重试回复':''))}finally{
    try{setMessages(await listGroupMessages(room.id))}catch{}
    setBusy(false);
   }
