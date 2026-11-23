@@ -4,10 +4,10 @@ import {listGroupRooms,listGroupMessages,saveGroupRoom} from './groupChatStore';
 import {sendGroupTurn} from './groupChatService';
 import type {GroupRoom,GroupMessage} from './groupChatCore';
 import './GroupChat.css';
-export function GroupChat(){
+export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;onCreated?:(room:GroupRoom)=>void}){
  const characters=usePhone(s=>s.characters);
  const [rooms,setRooms]=useState<GroupRoom[]>([]);
- const [roomId,setRoomId]=useState('');
+ const [roomId,setRoomId]=useState(initialRoomId);
  const [messages,setMessages]=useState<GroupMessage[]>([]);
  const [title,setTitle]=useState('');
  const [members,setMembers]=useState<string[]>([]);
@@ -20,7 +20,7 @@ export function GroupChat(){
  async function create(){
   if(members.length<2){setError('请至少选择两个角色');return}
   const now=Date.now(),newRoom:GroupRoom={id:crypto.randomUUID(),title:title.trim()||'新群聊',memberIds:members,createdAt:now,updatedAt:now};
-  try{await saveGroupRoom(newRoom);setRooms(old=>[newRoom,...old]);setRoomId(newRoom.id);setTitle('');setMembers([]);setError('')}catch(e){setError(e instanceof Error?e.message:'创建失败')}
+  try{await saveGroupRoom(newRoom);setRooms(old=>[newRoom,...old]);setRoomId(newRoom.id);onCreated?.(newRoom);setTitle('');setMembers([]);setError('')}catch(e){setError(e instanceof Error?e.message:'创建失败')}
  }
  async function send(){
   if(!room||!draft.trim()||busy)return;
