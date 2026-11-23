@@ -1,3 +1,4 @@
+import './groupChatHub.css';
 import {GroupChat} from './GroupChat';
 import {openPhoneApp} from './phonePageNavigation';
 import {SocialFailureNotice} from './SocialFailureUI';
