@@ -29,6 +29,8 @@ export async function appendGroupMessages(groupId:string,messages:GroupMessage[]
   const allowed=new Set(roomRow.groupRoom.memberIds);
   if(messages.some(m=>m.authorId!=='player'&&!allowed.has(m.authorId)))throw Error('消息作者不属于群聊');
   await db.themes.bulkPut(messages.map(m=>({...themeFields,id:PREFIX+'message:'+groupId+':'+m.id,groupMessage:m})) as any);
-  await db.themes.put({...roomRow,groupRoom:{...roomRow.groupRoom,updatedAt:Date.now()}} as any);
+  const latest=messages.reduce((a,m)=>m.createdAt>a.createdAt?m:a,messages[0]);
+  const lastMessage={authorId:latest.authorId,text:latest.text.slice(0,120),imageCount:latest.imageIds?.length??0,createdAt:latest.createdAt};
+  await db.themes.put({...roomRow,groupRoom:{...roomRow.groupRoom,updatedAt:Date.now(),lastMessage}} as any);
  });
 }
