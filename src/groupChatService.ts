@@ -1,19 +1,21 @@
 import {db} from './store';
+import {attachmentImages} from './imageAttachments';
 import {reconcileApiDefault,usableApi} from './apiSelection';
 import {requestReply} from './chatProvider';
 import {buildGroupTurnPrompt,parseGroupReplies,type GroupRoom,type GroupMessage} from './groupChatCore';
 import {appendGroupMessages,listGroupMessages} from './groupChatStore';
 const running=new Set<string>();
-export async function sendGroupTurn(room:GroupRoom,text:string):Promise<GroupMessage[]>{
- return generateGroupTurn(room,text,false);
+export async function sendGroupTurn(room:GroupRoom,text:string,imageIds:string[]=[]):Promise<GroupMessage[]>{
+ return generateGroupTurn(room,text,false,imageIds);
 }
 /** Retry a failed reply without adding the player's message a second time. */
 export async function retryGroupTurn(room:GroupRoom):Promise<GroupMessage[]>{
  return generateGroupTurn(room,'',true);
 }
-async function generateGroupTurn(room:GroupRoom,text:string,retry:boolean):Promise<GroupMessage[]>{
+async function generateGroupTurn(room:GroupRoom,text:string,retry:boolean,imageIds:string[]=[]):Promise<GroupMessage[]>{
  const message=text.trim();
- if(!retry&&(!message||message.length>8000))throw Error('请输入 1–8000 字符');
+ if(!retry&&(!message&&!imageIds.length||message.length>8000))throw Error('请输入文字或图片（文字不超过8000字）');
+ if(imageIds.length>3||new Set(imageIds).size!==imageIds.length)throw Error('每条消息最多3张不同图片');
  if(running.has(room.id))throw Error('群聊正在回复，请稍候');
  running.add(room.id);
  try{
@@ -21,7 +23,7 @@ async function generateGroupTurn(room:GroupRoom,text:string,retry:boolean):Promi
   if(characters.some(c=>!c))throw Error('群聊中有角色已删除');
   const speakers=characters.map(c=>({id:c!.id,name:c!.name,persona:c!.persona,speakingStyle:c!.speakingStyle}));
   if(!retry){
-   const player:GroupMessage={id:crypto.randomUUID(),groupId:room.id,authorId:'player',text:message,createdAt:Date.now()};
+   const player:GroupMessage={id:crypto.randomUUID(),groupId:room.id,authorId:'player',text:message,imageIds:imageIds.length?imageIds:undefined,createdAt:Date.now()};
    await appendGroupMessages(room.id,[player]);
   }
   const history=await listGroupMessages(room.id);
@@ -35,7 +37,9 @@ async function generateGroupTurn(room:GroupRoom,text:string,retry:boolean):Promi
   const timer=setTimeout(()=>controller.abort(),90000);
   try{
    const prompt=buildGroupTurnPrompt(room,speakers,history);
-   const raw=await requestReply(selected,credential.apiKey,[{role:'system',content:'你负责一个独立的多人群聊。只按给定的成员身份输出 JSON 回复，禁止角色争吵或透露私聊内容。'},{role:'user',content:prompt}],controller.signal);
+   const last=history.at(-1);
+   const images=last?.authorId==='player'&&last.imageIds?.length?await attachmentImages(db,{attachments:last.imageIds.map(assetId=>({assetId}))}):[];
+   const raw=await requestReply(selected,credential.apiKey,[{role:'system',content:'你负责一个独立的多人群聊。只按给定的成员身份输出 JSON 回复，禁止角色争吵或透露私聊内容。'},{role:'user',content:prompt,...(images.length?{images}: {})}],controller.signal);
    const replies=parseGroupReplies(raw,room).map((r,i):GroupMessage=>({id:crypto.randomUUID(),groupId:room.id,authorId:r.characterId,text:r.text,createdAt:Date.now()+i}));
    await appendGroupMessages(room.id,replies);
    return replies;
