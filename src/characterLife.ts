@@ -41,6 +41,24 @@ export type CharacterLife = {
     attempt?: LifeAttempt;
 };
 export const characterLifePrefix = 'character-life-v1:';
+export const lifeProgressArchivePrefix = 'character-life-progress-v1:';
+export async function readLifeProgressArchive(owner: string): Promise<Record<string, LifeProgress[]>> {
+    const rows = await db.themes.where('id').startsWith(lifeProgressArchivePrefix + encodeURIComponent(owner) + ':').toArray();
+    const grouped: Record<string, LifeProgress[]> = {};
+    for (const row of rows) { const item = (row as any).archivedLifeProgress as { eventId: string; point: LifeProgress } | undefined; if (!item) continue; (grouped[item.eventId] ??= []).push(item.point); }
+    return grouped;
+}
+export async function appendLifeProgress(owner: string, event: LifeEvent, point: LifeProgress) {
+    const progress = [...(event.progress ?? []), point];
+    if (progress.length > 20) {
+        const overflow = progress.slice(0, progress.length - 20);
+        for (const old of overflow) {
+            const id = lifeProgressArchivePrefix + encodeURIComponent(owner) + ':' + encodeURIComponent(event.id) + ':' + crypto.randomUUID();
+            await db.themes.put({ id, color: '#8995a3', font: 'sans', iconStyle: 'rounded', opacity: .36, blur: 18, archivedLifeProgress: { eventId: event.id, point: old } } as any);
+        }
+    }
+    event.progress = progress.slice(-20);
+}
 export const lifeArchivePrefix = 'character-life-archive-v1:';
 export const lifeArchiveKey = (owner: string, eventId: string) => lifeArchivePrefix + encodeURIComponent(owner) + ':' + encodeURIComponent(eventId);
 export async function readLifeArchive(owner: string): Promise<LifeEvent[]> {
@@ -95,9 +113,9 @@ export async function readCharacterLife(owner: string): Promise<CharacterLife> {
     }
     return initial(owner);
 }
-export async function changeCharacterLife(owner: string, edit: (s: CharacterLife) => void, expected?: number) {
+export async function changeCharacterLife(owner: string, edit: (s: CharacterLife) => void | Promise<void>, expected?: number) {
     return db.transaction('rw', db.themes, async () => { const s = await readCharacterLife(owner); if (expected !== undefined && (s.revision ?? 0) !== expected)
-        throw Error('生活状态已变化，请刷新后重试'); edit(s); s.revision = (s.revision ?? 0) + 1; validateCharacterLife(s, owner); await db.themes.put(lifeRow(s) as any); return s; });
+        throw Error('生活状态已变化，请刷新后重试'); await edit(s); s.revision = (s.revision ?? 0) + 1; validateCharacterLife(s, owner); await db.themes.put(lifeRow(s) as any); return s; });
 }
 /** Legacy reader must not claim elapsed time constitutes completed progression. */
 export const advanceCharacterLife = (owner: string, _now = Date.now()) => readCharacterLife(owner);
