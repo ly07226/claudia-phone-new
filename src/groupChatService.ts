@@ -27,7 +27,7 @@ async function generateGroupTurn(room:GroupRoom,text:string,retry:boolean,imageI
    await appendGroupMessages(room.id,[player]);
    onSaved?.();
   }
-  const history=await listGroupMessages(room.id);
+  const history=await listGroupMessages(room.id,40);
   if(retry&&history.at(-1)?.authorId!=='player')throw Error('没有待回复的玩家消息');
   // One shared enabled provider per group turn; never expose private conversation history.
   const selected=(await reconcileApiDefault()).config;
