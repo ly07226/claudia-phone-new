@@ -1,4 +1,4 @@
-import React,{useEffect,useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
 import {usePhone} from './store';
 import {listGroupRooms,listGroupMessages,saveGroupRoom} from './groupChatStore';
 import {sendGroupTurn,retryGroupTurn} from './groupChatService';
@@ -12,6 +12,8 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
  const characters=usePhone(s=>s.characters);
  const [rooms,setRooms]=useState<GroupRoom[]>([]);
  const [roomId,setRoomId]=useState(initialRoomId);
+ const activeRoomRef=useRef(roomId);
+ activeRoomRef.current=roomId;
  const [messages,setMessages]=useState<GroupMessage[]>([]);
  const [title,setTitle]=useState('');
  const [members,setMembers]=useState<string[]>([]);
@@ -34,6 +36,7 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
  }
  async function send(){
   if(!room||(!draft.trim()&&!imageIds.length)||busy||processingImages)return;
+  if(retryAvailable){setError('上一条消息尚未获得回复，请先重试角色回复');return;}
   const text=draft.trim(),selectedImages=[...imageIds],targetRoomId=room.id;
   let savedThisTurn=false;
   setBusy(true);setError('');setRetryAvailable(false);
@@ -41,26 +44,40 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
    await sendGroupTurn(room,text,selectedImages,()=>{
     savedThisTurn=true;
     setDraft('');setImageIds([]);
-    void listGroupMessages(targetRoomId).then(setMessages).catch(()=>{});
+    void listGroupMessages(targetRoomId).then(rows=>{if(activeRoomRef.current===targetRoomId)setMessages(rows)}).catch(()=>{});
    });
   }catch(e){
    if(savedThisTurn){
-    setRetryAvailable(true);
-    setError((e instanceof Error?e.message:'生成失败')+'；消息已保存，可重试角色回复');
+    if(activeRoomRef.current===targetRoomId){setRetryAvailable(true);setError((e instanceof Error?e.message:'生成失败')+'；消息已保存，可重试角色回复')}
    }else{
-    setError(e instanceof Error?e.message:'发送失败，消息未确认保存');
+    if(activeRoomRef.current===targetRoomId)setError(e instanceof Error?e.message:'发送失败，消息未确认保存');
    }
   }finally{
    try{
     const latest=await listGroupMessages(targetRoomId);
-    setMessages(latest);
-    setRetryAvailable(latest.at(-1)?.authorId==='player');
-   }catch(e){setError(e instanceof Error?e.message:'读取群聊记录失败')}
+    if(activeRoomRef.current===targetRoomId){setMessages(latest);setRetryAvailable(latest.at(-1)?.authorId==='player')}
+   }catch(e){if(activeRoomRef.current===targetRoomId)setError(e instanceof Error?e.message:'读取群聊记录失败')}
    setBusy(false);
   }
  }
  async function chooseImages(files:FileList|null,scope:string){if(!files?.length||processingImages)return;if(scope!==roomId){setError('群聊已切换，请重新选择图片');return}if(imageIds.length+files.length>imageLimits.count){setError('每条消息最多3张图片');return}setProcessingImages(true);setError('');try{const prepared:Awaited<ReturnType<typeof prepareImage>>[]=[];for(const file of Array.from(files))prepared.push(await prepareImage(file));if(scope!==roomId)throw Error('群聊已切换，请重新选择图片');await db.assets.bulkAdd(prepared.map(({notice,...asset})=>asset));setImageIds(old=>[...old,...prepared.map(a=>a.id)]);const notices=prepared.map(a=>a.notice).filter(Boolean);if(notices.length)setError(notices.join(' '))}catch(e){setError(attachmentError(e))}finally{setProcessingImages(false)}}
- async function retry(){if(!room||busy||!retryAvailable)return;setBusy(true);setError('');try{await retryGroupTurn(room);setRetryAvailable(false)}catch(e){setError(e instanceof Error?e.message:'重试失败')}finally{try{setMessages(await listGroupMessages(room.id))}catch{}setBusy(false)}}
+ async function retry(){
+  if(!room||busy||!retryAvailable)return;
+  const targetRoomId=room.id;
+  setBusy(true);setError('');
+  try{await retryGroupTurn(room)}
+  catch(e){if(activeRoomRef.current===targetRoomId)setError(e instanceof Error?e.message:'重试失败')}
+  finally{
+   try{
+    const latest=await listGroupMessages(targetRoomId);
+    if(activeRoomRef.current===targetRoomId){
+     setMessages(latest);
+     setRetryAvailable(latest.at(-1)?.authorId==='player');
+    }
+   }catch(e){if(activeRoomRef.current===targetRoomId)setError(e instanceof Error?e.message:'读取群聊记录失败')}
+   setBusy(false);
+  }
+ }
  const name=(id:string)=>id==='player'?'我':characters.find(c=>c.id===id)?.name||'已移除角色';
  return <main className="group-chat">
   <header className="gc-title"><h2>{room?room.title:'创建群聊'}</h2>{room?<p>{room.memberIds.length} 位角色 · 独立聊天记录</p>:<p>选择参与群聊的角色</p>}</header>
