@@ -4,7 +4,7 @@ import { resolveApi } from './chatService';
 import { requestReply } from './chatProvider';
 import { memoryContext } from './memoryContext';
 import { lifeSource, assertLifeSource } from './characterLifeSource';
-import { readCharacterLife, changeCharacterLife, archiveCompletedLifeEvents, lifePrompt, assertLifeAffection, majorLifeEvent, type LifeEvent } from './characterLife';
+import { readCharacterLife, changeCharacterLife, archiveCompletedLifeEvents, appendLifeProgress, lifePrompt, assertLifeAffection, majorLifeEvent, type LifeEvent } from './characterLife';
 export const lifeInterval = 6 * 60 * 60 * 1000;
 export const affectionRule = '对玩家的感情底色保持喜欢、珍惜和在意；保留人设、嘴硬、嫉妒、欲望、复杂情绪，不强迫温柔、顺从、表白或和好。禁止厌恶、嫌弃、鄙视、后悔认识、想抛弃玩家或无故降低感情。不得决定玩家的言行、心理、同意或关系。';
 export async function runCharacterLife(owner: string, manual = false, now = Date.now()) {
@@ -61,7 +61,7 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
             throw Error('生活状态不能决定玩家行为');
         await db.transaction('rw', [db.themes, db.characters, db.conversations, db.messages, db.messageVariants, db.timelines, db.pathNodes], async () => {
             await assertLifeSource(source);
-            await changeCharacterLife(owner, next => {
+            await changeCharacterLife(owner, async next => {
                 if (next.attempt?.token !== token || next.revision !== s.revision || !manual && !next.enabled)
                     throw Error('生活状态已变化，未保存过期结果');
                 if (majorLifeEvent(result.focus + result.mood))
@@ -81,7 +81,8 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
                     e.updatedAt = now;
                     e.source = 'simulation';
                     e.confidence = 'simulated';
-                    e.progress = [...previousProgress, { at: now, text: u.detail, status: u.status }].slice(-20);
+                    e.progress = previousProgress;
+                    await appendLifeProgress(owner, e, { at: now, text: u.detail, status: u.status });
                 }
                 for (const input of result.events) {
                     if (input.actor !== 'self' || typeof input.title !== 'string' || !input.title.trim() || input.title.length > 120 || typeof input.detail !== 'string' || input.detail.length > 500 || !['ordinary', 'continuing', 'major'].includes(input.level) || /玩家|用户|你(?:已经|决定|答应|同意)/u.test(input.title + input.detail))
