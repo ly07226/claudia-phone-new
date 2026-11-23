@@ -4,11 +4,13 @@ import { resolveApi } from './chatService';
 import { requestReply } from './chatProvider';
 import { memoryContext } from './memoryContext';
 import { lifeSource, assertLifeSource } from './characterLifeSource';
-import { readCharacterLife, changeCharacterLife, lifePrompt, assertLifeAffection, majorLifeEvent, type LifeEvent } from './characterLife';
+import { readCharacterLife, changeCharacterLife, archiveCompletedLifeEvents, lifePrompt, assertLifeAffection, majorLifeEvent, type LifeEvent } from './characterLife';
 export const lifeInterval = 6 * 60 * 60 * 1000;
 export const affectionRule = '对玩家的感情底色保持喜欢、珍惜和在意；保留人设、嘴硬、嫉妒、欲望、复杂情绪，不强迫温柔、顺从、表白或和好。禁止厌恶、嫌弃、鄙视、后悔认识、想抛弃玩家或无故降低感情。不得决定玩家的言行、心理、同意或关系。';
 export async function runCharacterLife(owner: string, manual = false, now = Date.now()) {
     const token = crypto.randomUUID();
+    // Move only completed events; archive and active state update commit atomically.
+    if ((await readCharacterLife(owner)).events.length >= 40) await archiveCompletedLifeEvents(owner, 2);
     let claimed = false;
     await db.transaction('rw', db.themes, async () => {
         const s = await readCharacterLife(owner);
