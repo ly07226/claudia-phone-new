@@ -5,14 +5,14 @@ import {requestReply} from './chatProvider';
 import {buildGroupTurnPrompt,parseGroupReplies,type GroupRoom,type GroupMessage} from './groupChatCore';
 import {appendGroupMessages,listGroupMessages} from './groupChatStore';
 const running=new Set<string>();
-export async function sendGroupTurn(room:GroupRoom,text:string,imageIds:string[]=[]):Promise<GroupMessage[]>{
- return generateGroupTurn(room,text,false,imageIds);
+export async function sendGroupTurn(room:GroupRoom,text:string,imageIds:string[]=[],onSaved?:()=>void):Promise<GroupMessage[]>{
+ return generateGroupTurn(room,text,false,imageIds,onSaved);
 }
 /** Retry a failed reply without adding the player's message a second time. */
 export async function retryGroupTurn(room:GroupRoom):Promise<GroupMessage[]>{
  return generateGroupTurn(room,'',true);
 }
-async function generateGroupTurn(room:GroupRoom,text:string,retry:boolean,imageIds:string[]=[]):Promise<GroupMessage[]>{
+async function generateGroupTurn(room:GroupRoom,text:string,retry:boolean,imageIds:string[]=[],onSaved?:()=>void):Promise<GroupMessage[]>{
  const message=text.trim();
  if(!retry&&(!message&&!imageIds.length||message.length>8000))throw Error('请输入文字或图片（文字不超过8000字）');
  if(imageIds.length>3||new Set(imageIds).size!==imageIds.length)throw Error('每条消息最多3张不同图片');
@@ -25,6 +25,7 @@ async function generateGroupTurn(room:GroupRoom,text:string,retry:boolean,imageI
   if(!retry){
    const player:GroupMessage={id:crypto.randomUUID(),groupId:room.id,authorId:'player',text:message,imageIds:imageIds.length?imageIds:undefined,createdAt:Date.now()};
    await appendGroupMessages(room.id,[player]);
+   onSaved?.();
   }
   const history=await listGroupMessages(room.id);
   if(retry&&history.at(-1)?.authorId!=='player')throw Error('没有待回复的玩家消息');
