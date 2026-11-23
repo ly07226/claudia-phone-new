@@ -13,6 +13,7 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
  const [rooms,setRooms]=useState<GroupRoom[]>([]);
  const [roomId,setRoomId]=useState(initialRoomId);
  const activeRoomRef=useRef(roomId);
+ const imageSelectionGeneration=useRef(0);
  activeRoomRef.current=roomId;
  const [messages,setMessages]=useState<GroupMessage[]>([]);
  const [hasOlder,setHasOlder]=useState(false);
@@ -28,7 +29,7 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
  const [processingImages,setProcessingImages]=useState(false);
  useEffect(()=>{void listGroupRooms().then(setRooms).catch(e=>setError(String(e)))},[]);
  useEffect(()=>setRoomId(initialRoomId),[initialRoomId]);
- useEffect(()=>{setRetryAvailable(false);setImageIds([])},[roomId]);
+ useEffect(()=>{imageSelectionGeneration.current++;setRetryAvailable(false);setImageIds([])},[roomId]);
  useEffect(()=>{let alive=true;if(!roomId){setMessages([]);setHasOlder(false);return;}void listGroupMessages(roomId,101).then(rows=>{if(alive){setHasOlder(rows.length>100);setMessages(rows.slice(-100));setRetryAvailable(rows.at(-1)?.authorId==='player')}}).catch(e=>{if(alive)setError(String(e))});return()=>{alive=false}},[roomId]);
  const room=rooms.find(r=>r.id===roomId);
  async function create(){
@@ -62,7 +63,7 @@ export function GroupChat({initialRoomId='',onCreated}:{initialRoomId?:string;on
    setBusy(false);
   }
  }
- async function chooseImages(files:FileList|null,scope:string){if(!files?.length||processingImages)return;if(scope!==roomId){setError('群聊已切换，请重新选择图片');return}if(imageIds.length+files.length>imageLimits.count){setError('每条消息最多3张图片');return}setProcessingImages(true);setError('');try{const prepared:Awaited<ReturnType<typeof prepareImage>>[]=[];for(const file of Array.from(files))prepared.push(await prepareImage(file));if(scope!==roomId)throw Error('群聊已切换，请重新选择图片');await db.assets.bulkAdd(prepared.map(({notice,...asset})=>asset));setImageIds(old=>[...old,...prepared.map(a=>a.id)]);const notices=prepared.map(a=>a.notice).filter(Boolean);if(notices.length)setError(notices.join(' '))}catch(e){setError(attachmentError(e))}finally{setProcessingImages(false)}}
+ async function chooseImages(files:FileList|null,scope:string){if(!files?.length||processingImages)return;const generation=imageSelectionGeneration.current;if(scope!==roomId){setError('群聊已切换，请重新选择图片');return}if(imageIds.length+files.length>imageLimits.count){setError('每条消息最多3张图片');return}setProcessingImages(true);setError('');try{const prepared:Awaited<ReturnType<typeof prepareImage>>[]=[];for(const file of Array.from(files))prepared.push(await prepareImage(file));if(scope!==activeRoomRef.current||generation!==imageSelectionGeneration.current)throw Error('群聊已切换，请重新选择图片');await db.assets.bulkAdd(prepared.map(({notice,...asset})=>asset));if(scope===activeRoomRef.current&&generation===imageSelectionGeneration.current)setImageIds(old=>[...old,...prepared.map(a=>a.id)]);const notices=prepared.map(a=>a.notice).filter(Boolean);if(notices.length)setError(notices.join(' '))}catch(e){if(scope===activeRoomRef.current)setError(attachmentError(e))}finally{setProcessingImages(false)}}
  async function retry(){
   if(!room||busy||!retryAvailable)return;
   const targetRoomId=room.id;
