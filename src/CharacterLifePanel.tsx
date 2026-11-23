@@ -51,7 +51,7 @@ export function CharacterLifePanel({ owner }: {
     const moveDay = (step: number) => { const d = new Date(selectedDay + 'T12:00:00'); d.setDate(d.getDate() + step); setSelectedDay(dayStamp(d.getTime())); setOpenEvent(null); };
     if (!state)
         return <section className="pn-card" role="status">{error || '正在读取生活状态…'}</section>;
-    return <div className="pn-life"><section className="pn-card"><h3>角色自主生活</h3><p>角色独立生活，与聊天记忆分开保存。</p><details><summary>运行与费用说明</summary><p>启用后仅在前台低频检查，离线只补算一次。推进及自动日记可能分别消耗现有 API 额度，不会在关闭应用后后台请求。最多40个事件，每个事件保留最近20条进展。</p></details>
+    return <div className="pn-life"><details className="pn-card pn-life-controls"><summary>生活引擎设置与手动推进</summary><p>角色独立生活，与聊天记忆分开保存。</p><details><summary>运行与费用说明</summary><p>启用后仅在前台低频检查，离线只补算一次。推进及自动日记可能分别消耗现有 API 额度，不会在关闭应用后后台请求。最多40个事件，每个事件保留最近20条进展。</p></details>
  <label className="pn-life-setting">自主生活推进<input type="checkbox" checked={!!state.enabled} onChange={e => {
             const enabled = e.target.checked;
             if (enabled && !window.confirm('开启后，前台会按需调用现有角色 API 推进生活并按书写设置生成日记，可能消耗额度。是否开启？'))
@@ -65,7 +65,7 @@ export function CharacterLifePanel({ owner }: {
                 setDraft({ focus: state.focus, mood: state.mood, occupations: state.occupations ?? '', interests: state.interests ?? '' });
         }}><summary>管理生活重心与已确立资料</summary>{(['focus', 'mood', 'occupations', 'interests'] as const).map((field, i) => <label className="pn-life-field" key={field}>{['生活重心', '当前心境', '已确立职业', '已确立兴趣'][i]}<input maxLength={field === 'mood' ? 200 : 300} value={draft[field]} onChange={e => setDraft(d => ({ ...d, [field]: e.target.value }))}/></label>)}<button className="pn-action" onClick={() => change(s => Object.assign(s, draft))}>保存生活资料</button></details>
  <button className="pn-action" disabled={busy || state.ordinaryAllowed === false || state.attempt?.status === 'running' && Date.now() - state.attempt.at < 180000} onClick={() => void advance()}>{busy ? '正在推进…' : '推进一次 / 手动恢复'}</button>
- {state.attempt && <p role="status">推进状态：{state.attempt.status === 'failed' ? '失败，等待手动恢复' : state.attempt.status === 'running' ? '请求处理中；若页面曾关闭，请稍后手动恢复' : '已完成'}{state.attempt.error && ' · ' + state.attempt.error}</p>}{error && <p role="alert">{error}</p>}</section>
+ {state.attempt && <p role="status">推进状态：{state.attempt.status === 'failed' ? '失败，等待手动恢复' : state.attempt.status === 'running' ? '请求处理中；若页面曾关闭，请稍后手动恢复' : '已完成'}{state.attempt.error && ' · ' + state.attempt.error}</p>}{error && <p role="alert">{error}</p>}</details>
 
  <section className="pn-life-timeline" aria-label="生活时间轴">
   <header className="pn-life-timeline-head"><h3>他的生活</h3><span className="pn-mood-chip" title={state.mood || '尚未记录心情'}>{state.mood ? '☁ ' + state.mood.slice(0, 12) : '☁ 心情未记录'}</span></header>
