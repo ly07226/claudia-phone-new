@@ -32,6 +32,7 @@ import { createPortal } from "react-dom";
 import {
   Brain,
   MessageCircle,
+  Menu,
   NotebookPen,
   Music2,
   CalendarDays,
@@ -476,8 +477,8 @@ function App() {
                 <ChevronLeft />
                 {phoneNavigation.parentName}
               </button>
-              <span>{s.activeApp}</span>
-              <Flower2 size={20} />
+              <span>{s.activeApp === "手记" ? "私人记录" : s.activeApp}</span>
+              {s.activeApp === "手记" ? <button type="button" aria-label="私人记录设置" onClick={() => window.dispatchEvent(new Event("private-notes-open-settings"))}><Menu size={20}/></button> : <Flower2 size={20} />}
             </header>
             <div className={`app-scroll${s.activeApp==='剧本'?' story-scroll':''}`}>
               {s.activeApp === "设置" ? (

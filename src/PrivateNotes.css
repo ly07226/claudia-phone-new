@@ -11,3 +11,16 @@
 /* Keep long pasted text and native iOS inputs within the existing card layout. */
 .private-notes .pn-card{min-width:0;overflow-wrap:anywhere}
 .private-notes .pn-comment-entry input,.private-notes .pn-character input{font-size:16px}
+
+/* The phone shell owns the only page header and the only viewport scroll. */
+.phone > .app-panel:has(> .app-scroll > .private-notes){display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.phone > .app-panel:has(> .app-scroll > .private-notes) > header{flex:0 0 48px}
+.phone > .app-panel > .app-scroll:has(> .private-notes){flex:1;height:auto;min-height:0;padding:0;overflow:hidden;display:flex;flex-direction:column}
+.phone > .app-panel > .app-scroll > .private-notes{flex:1;min-height:0;width:100%;height:100%;overflow-y:auto;overscroll-behavior:contain}
+.private-notes .pn-content{max-width:none;width:100%;padding:18px max(16px,var(--safe-left,16px)) 32px;min-height:100%;margin:0}
+.private-notes .pn-tabs{gap:8px}
+.private-notes .pn-card{width:100%}
+.private-notes .pn-settings-nav{display:flex;align-items:center;gap:12px;margin:0 0 20px;font-size:14px}
+.private-notes .pn-settings-nav button{display:flex;align-items:center;gap:4px;background:transparent;border:0;color:inherit;padding:8px 0}
+.private-notes .pn-settings-nav strong{font-size:14px;font-weight:600}
+@media(max-width:390px){.private-notes .pn-content{padding-left:12px;padding-right:12px}.private-notes .pn-tabs{gap:6px}.private-notes .pn-tabs button{min-height:60px}}
