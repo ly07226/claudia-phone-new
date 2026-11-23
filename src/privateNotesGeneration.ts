@@ -4,6 +4,7 @@ import {resolveApi} from './chatService';
 import {requestReply} from './chatProvider';
 import {activeMessages} from './messagePath';
 import {memoryContext} from './memoryContext';
+import {advanceCharacterLife,lifePrompt} from './characterLife';
 export type NoteKind='日记'|'备忘'|'梦境';
 export type GeneratedNote={id:string;characterId:string;kind:NoteKind;createdAt:number;title:string;body:string;comments:(string|{author:'character';text:string})[];sourceLastMessageAt:number};
 const PREFIX='claudia-private-notes-v2-';
@@ -57,6 +58,7 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
    if(rows.length<4)return null;
  }
  return await withPrivateNotesTask(characterId+':automatic',!manual,source,async()=>{
+ const life=await advanceCharacterLife(characterId);
  const memory=await memoryContext(conversation,rows,2400).catch(()=>({text:''}));
  const memoryText=(typeof memory==='string'?memory:memory.text).slice(0,2400);
  const today=new Date(),startOfToday=new Date(today.getFullYear(),today.getMonth(),today.getDate()).getTime();
@@ -93,7 +95,7 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),90000);
  try{
   let interrupted=false;
-  const result=await requestReply(config,key,[{role:'system',content:system},{role:'user',content:'当前时间：'+new Date().toLocaleString('zh-CN')+'\n以下是当前会话可用的记忆背景：\n'+memoryText+'\n以下是近期真实聊天节选：\n'+transcript}],controller.signal,undefined,false,reason=>{interrupted=!!reason});
+  const result=await requestReply(config,key,[{role:'system',content:system},{role:'user',content:'当前时间：'+new Date().toLocaleString('zh-CN')+'\n以下是当前会话可用的记忆背景：\n'+memoryText+'\n以下是角色独立生活状态：\n'+lifePrompt(life)+'\n以下是近期真实聊天节选：\n'+transcript}],controller.signal,undefined,false,reason=>{interrupted=!!reason});
   if(interrupted)throw Error('记录生成中断或达到输出限制，未保存；请手动重试');
   const cleaned=result.trim().replace(/^\x60\x60\x60(?:json)?\s*/i,'').replace(/\s*\x60\x60\x60$/,'');
   let parsed:{title?:unknown;body?:unknown};
