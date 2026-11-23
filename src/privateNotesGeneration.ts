@@ -1,4 +1,4 @@
-import {archiveNotes,appendPrivateNote,appendPrivateNoteReply,readPrivateNotesArchive} from './privateNotesArchive';
+import {archiveNotes,appendPrivateNote,appendPrivateNoteReply,privateNotesMetadata,readCharacterNotes,withPrivateNotesTask} from './privateNotesArchive';
 import {db} from './store';
 import {resolveApi} from './chatService';
 import {requestReply} from './chatProvider';
@@ -8,8 +8,14 @@ export type NoteKind='日记'|'备忘'|'梦境';
 export type GeneratedNote={id:string;characterId:string;kind:NoteKind;createdAt:number;title:string;body:string;comments:(string|{author:'character';text:string})[];sourceLastMessageAt:number};
 const PREFIX='claudia-private-notes-v2-';
 const pending=new Set<string>();
-export async function loadNotes(characterId:string):Promise<GeneratedNote[]>{const archived=(await readPrivateNotesArchive()).notes[characterId];if(archived)return archived;try{return JSON.parse(localStorage.getItem(PREFIX+characterId)||'[]')}catch{return []}}
-export async function saveNotes(characterId:string,notes:GeneratedNote[]){await archiveNotes(characterId,notes);try{localStorage.setItem(PREFIX+characterId,JSON.stringify(notes))}catch{/* IndexedDB remains authoritative */}}
+export async function loadNotes(characterId:string):Promise<GeneratedNote[]>{
+ const archived=await readCharacterNotes(characterId);if(archived.length){try{localStorage.removeItem(PREFIX+characterId)}catch{}return archived;}
+ let legacy:GeneratedNote[]=[];try{legacy=JSON.parse(localStorage.getItem(PREFIX+characterId)||'[]')}catch{return []}
+ if(!Array.isArray(legacy))return [];
+ legacy=legacy.filter(n=>n.characterId===characterId&&n.id&&Array.isArray(n.comments));
+ if(legacy.length){await archiveNotes(characterId,legacy);localStorage.removeItem(PREFIX+characterId)}return legacy;
+}
+export async function saveNotes(characterId:string,notes:GeneratedNote[]){await archiveNotes(characterId,notes);try{localStorage.removeItem(PREFIX+characterId)}catch{/* IndexedDB remains authoritative */}}
 export async function generatePrivateNote(characterId:string,manual=false,requestedKind?:NoteKind):Promise<GeneratedNote|null>{
  if(pending.has(characterId))return null;
  pending.add(characterId);
@@ -18,11 +24,17 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
  if(!character)throw Error('角色不存在');
  const conversation=await db.conversations.where('scopeKey').equals(JSON.stringify([characterId,'daily',''])).first();
  if(!conversation)throw Error('还没有该角色的日常聊天记录');
- const rows=(await activeMessages(conversation.id)).slice(-35).filter(m=>m.role==='user'||m.role==='assistant');
+ const snapshot=await activeMessages(conversation.id);
+ const sourceText=JSON.stringify([conversation.activeTimelineId,conversation.timelineEpoch,snapshot.slice(-35).map(m=>[m.id,m.activeVariantId,m.content])]);
+ const source=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(sourceText)))).map(n=>n.toString(16).padStart(2,'0')).join('');
+ const rows=snapshot.slice(-35).filter(m=>m.role==='user'||m.role==='assistant');
  const lastAt=rows.at(-1)?.createdAt||0;
+ return await withPrivateNotesTask(characterId,false,'',async()=>{
+ const latestConversation=await db.conversations.get(conversation.id);
+ if(!latestConversation)throw Error('会话已不存在');
  const existing=await loadNotes(characterId);
  if(!manual){
-   const schedule=(await readPrivateNotesArchive()).schedule||{mode:'both',intervalMinutes:60};
+   const schedule=(await privateNotesMetadata()).schedule||{mode:'both',intervalMinutes:60};
    const latest=existing.filter(n=>n.kind!=='梦境').sort((a,b)=>b.sourceLastMessageAt-a.sourceLastMessageAt||b.createdAt-a.createdAt)[0];
    const interval=Math.max(60,schedule.intervalMinutes||60)*60000;
    const due=!!latest&&Date.now()-Math.max(...existing.filter(n=>n.kind!=='梦境').map(n=>n.createdAt))>=interval;
@@ -44,6 +56,7 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
    if(!eligible||!recent||newRows.length===0||latest?.sourceLastMessageAt===lastAt)return null;
    if(rows.length<4)return null;
  }
+ return await withPrivateNotesTask(characterId+':automatic',!manual,source,async()=>{
  const memory=await memoryContext(conversation,rows,2400).catch(()=>({text:''}));
  const memoryText=(typeof memory==='string'?memory:memory.text).slice(0,2400);
  const today=new Date(),startOfToday=new Date(today.getFullYear(),today.getMonth(),today.getDate()).getTime();
@@ -75,37 +88,55 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
  const {config,key}=await resolveApi(conversation);
  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),90000);
  try{
-  const result=await requestReply(config,key,[{role:'system',content:system},{role:'user',content:'当前时间：'+new Date().toLocaleString('zh-CN')+'\n以下是当前会话可用的记忆背景：\n'+memoryText+'\n以下是近期真实聊天节选：\n'+transcript}],controller.signal);
+  let interrupted=false;
+  const result=await requestReply(config,key,[{role:'system',content:system},{role:'user',content:'当前时间：'+new Date().toLocaleString('zh-CN')+'\n以下是当前会话可用的记忆背景：\n'+memoryText+'\n以下是近期真实聊天节选：\n'+transcript}],controller.signal,undefined,false,reason=>{interrupted=!!reason});
+  if(interrupted)throw Error('记录生成中断或达到输出限制，未保存；请手动重试');
   const cleaned=result.trim().replace(/^\x60\x60\x60(?:json)?\s*/i,'').replace(/\s*\x60\x60\x60$/,'');
   let parsed:{title?:unknown;body?:unknown};
   try{parsed=JSON.parse(cleaned)}catch{throw Error('记录格式解析失败，请重试')}
   const minimum=kind==='日记'?180:kind==='梦境'?120:30;
-  if(typeof parsed.title!=='string'||typeof parsed.body!=='string'||[...parsed.body.trim()].length<minimum)throw Error('记录内容不完整，未保存；请重试');
+  if(!parsed||typeof parsed.title!=='string'||typeof parsed.body!=='string'||[...parsed.body.trim()].length<minimum||parsed.body.length>5000)throw Error('记录内容不完整，未保存；请重试');
   const note:GeneratedNote={id:crypto.randomUUID(),characterId,kind,createdAt:Date.now(),title:parsed.title.slice(0,80),body:parsed.body.slice(0,5000),comments:[],sourceLastMessageAt:lastAt};
-  await appendPrivateNote(characterId,note);
+  await db.transaction('rw',[db.themes,db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{
+   const current=await db.conversations.get(conversation.id),currentRows=await activeMessages(conversation.id);
+   // Appending a new exchange does not invalidate an unchanged source prefix. Edits,
+   // regeneration and branch switches do; validate and save under the same transaction.
+   const prefix=currentRows.slice(Math.max(0,snapshot.length-35),snapshot.length);
+   if(!current||currentRows.length<snapshot.length||JSON.stringify([current.activeTimelineId,current.timelineEpoch,prefix.map(m=>[m.id,m.activeVariantId,m.content])])!==sourceText)throw Error('聊天路径已变化，未保存过期记录；请手动重试');
+   await appendPrivateNote(characterId,note);
+  });
   return note;
  }finally{clearTimeout(timer)}
+ });
+ });
  }finally{pending.delete(characterId)}
 }
 
 /** A comment reply is an explicit user-triggered request, never an automatic extra charge. */
 export async function replyToPrivateNoteComment(characterId:string,noteId:string,comment:string){
+ return withPrivateNotesTask('reply:'+characterId+':'+noteId,false,'',async()=>{
  const character=await db.characters.get(characterId);
  if(!character)throw Error('角色不存在');
  const conversation=await db.conversations.where('scopeKey').equals(JSON.stringify([characterId,'daily',''])).first();
  if(!conversation)throw Error('日常聊天不存在');
  const note=(await loadNotes(characterId)).find(n=>n.id===noteId);
- if(!note)throw Error('记录已不存在');
+ if(!note||note.characterId!==characterId)throw Error('记录已不存在');
+ const index=note.comments.length-1;
+ if(note.comments[index]!==comment)return null;
  const {config,key}=await resolveApi(conversation);
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),60000);
  try{
+  let interrupted=false;
   const answer=(await requestReply(config,key,[
    {role:'system',content:'你是'+character.name+'。人物设定：'+character.persona.slice(0,1600)+'。说话风格：'+(character.speakingStyle||'自然').slice(0,500)+'。你正在回复玩家对你私人'+note.kind+'的评论。用角色本人语气简短自然回复，1到3句话，不写新日记，不替玩家发言，不编造已发生的事件。'},
    {role:'user',content:'你的私人记录《'+note.title+'》：'+note.body.slice(0,1800)+'\n玩家评论：'+comment.slice(0,800)}
-  ],controller.signal)).trim();
+  ],controller.signal,undefined,false,reason=>{interrupted=!!reason})).trim();
+  if(interrupted)throw Error('角色回复生成中断，请手动重试');
   if(!answer)throw Error('角色没有生成有效回复');
-  const reply=answer.slice(0,800);
-  await appendPrivateNoteReply(characterId,noteId,reply);
+  if(answer.length>800)throw Error('角色回复过长，未保存；请手动重试');
+  const reply=answer;
+  await appendPrivateNoteReply(characterId,noteId,reply,index,comment);
   return reply;
  }finally{clearTimeout(timer)}
+ });
 }
