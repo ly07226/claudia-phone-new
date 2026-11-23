@@ -45,6 +45,8 @@ export function CharacterLifePanel({ owner }: {
         }
     };
     const dayStamp = (at: number) => { const d = new Date(at); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-'); };
+    const dayMood = (state?.moodHistory ?? []).filter(m => dayStamp(m.at) <= selectedDay).at(-1)?.mood
+        ?? (selectedDay === dayStamp(Date.now()) ? state?.mood : undefined);
     const dayEvents = useMemo(() => (state?.events ?? []).flatMap(e => {
         const points = (e.progress?.length ? e.progress : [{ at: e.createdAt, text: e.detail }]).filter(p => dayStamp(p.at) === selectedDay);
         return points.map(p => ({ event: e, point: p, historicalStatus: p.status ?? (e.status === 'done' && p.at < e.updatedAt ? 'ongoing' : e.status) }));
@@ -84,12 +86,12 @@ export function CharacterLifePanel({ owner }: {
  <details onToggle={e => {
             if (e.currentTarget.open)
                 setDraft({ focus: state.focus, mood: state.mood, occupations: state.occupations ?? '', interests: state.interests ?? '' });
-        }}><summary>管理生活重心与已确立资料</summary>{(['focus', 'mood', 'occupations', 'interests'] as const).map((field, i) => <label className="pn-life-field" key={field}>{['生活重心', '当前心境', '已确立职业', '已确立兴趣'][i]}<input maxLength={field === 'mood' ? 200 : 300} value={draft[field]} onChange={e => setDraft(d => ({ ...d, [field]: e.target.value }))}/></label>)}<button className="pn-action" onClick={() => change(s => Object.assign(s, draft))}>保存生活资料</button></details>
+        }}><summary>管理生活重心与已确立资料</summary>{(['focus', 'mood', 'occupations', 'interests'] as const).map((field, i) => <label className="pn-life-field" key={field}>{['生活重心', '当前心境', '已确立职业', '已确立兴趣'][i]}<input maxLength={field === 'mood' ? 200 : 300} value={draft[field]} onChange={e => setDraft(d => ({ ...d, [field]: e.target.value }))}/></label>)}<button className="pn-action" onClick={() => change(s => { if (draft.mood.trim() && draft.mood !== s.mood) s.moodHistory = [...(s.moodHistory ?? []), { at: Date.now(), mood: draft.mood }].slice(-120); Object.assign(s, draft); })}>保存生活资料</button></details>
  <button className="pn-action" disabled={busy || state.ordinaryAllowed === false || state.attempt?.status === 'running' && Date.now() - state.attempt.at < 180000} onClick={() => void advance()}>{busy ? '正在推进…' : '推进一次 / 手动恢复'}</button>
  {state.attempt && <p role="status">推进状态：{state.attempt.status === 'failed' ? '失败，等待手动恢复' : state.attempt.status === 'running' ? '请求处理中；若页面曾关闭，请稍后手动恢复' : '已完成'}{state.attempt.error && ' · ' + state.attempt.error}</p>}{error && <p role="alert">{error}</p>}</details>
 
  <section className="pn-life-timeline" aria-label="生活时间轴">
-  <header className="pn-life-timeline-head"><h3>他的生活</h3><span className="pn-mood-chip" title={state.mood || '尚未记录心情'}>{state.mood ? '☁ ' + state.mood.slice(0, 12) : '☁ 心情未记录'}</span></header>
+  <header className="pn-life-timeline-head"><h3>他的生活</h3><span className="pn-mood-chip" title={dayMood || '当天没有可确认的心情记录'}>{dayMood ? '☁ ' + dayMood.slice(0, 12) : '☁ 心情未记录'}</span></header>
   <div className="pn-life-day"><button aria-label="前一天" onClick={() => moveDay(-1)}>‹</button><strong>{new Date(selectedDay + 'T12:00:00').toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })}</strong><button aria-label="后一天" onClick={() => moveDay(1)} disabled={selectedDay >= dayStamp(Date.now())}>›</button></div>
   <div className="pn-life-review"><div className="pn-life-review-title">☼ 当日回顾 <small>DAY NOTES</small></div><p>{(reviewValid ? storedReview!.text : review)}</p>{dayEvents.length > 0 && <button type="button" className="pn-life-review-generate" disabled={reviewBusy} onClick={() => void writeReview()}>{reviewBusy ? '正在整理…' : state.dayReviews?.[selectedDay] ? '重新整理当日回顾 · 使用 API' : 'AI 整理当日回顾 · 使用 API'}</button>}{reviewError && <p role="alert">{reviewError}</p>}<div className="pn-life-counts"><span>✓ 已结束 {dayLatest.filter(({ historicalStatus }) => historicalStatus === 'done').length}</span><span>◉ 未结束 {dayLatest.filter(({ historicalStatus }) => historicalStatus !== 'done').length}</span></div><small>AI 回顾仅基于已保存事件生成，仍可能出现不准确表达；重新整理会消耗 API 额度。</small></div>
   <div className="pn-life-timeline-title"><h3>生活时间轴</h3><small>{filtered.length} 条记录</small></div>
