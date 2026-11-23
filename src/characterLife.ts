@@ -4,7 +4,6 @@ import {db} from './store';
 export type LifeEvent={id:string;title:string;status:'ongoing'|'paused'|'done';createdAt:number;updatedAt:number;detail:string};
 export type CharacterLife={version:1;characterId:string;lastAdvancedAt:number;focus:string;mood:string;events:LifeEvent[]};
 const PREFIX='character-life-v1:';
-const MAX_GAP=30*86400000;
 const key=(id:string)=>PREFIX+encodeURIComponent(id);
 const row=(id:string,state:CharacterLife)=>({id:key(id),color:'#8995a3',font:'sans',iconStyle:'rounded',opacity:.36,blur:18,characterLife:state});
 function initial(characterId:string,now:number):CharacterLife{return {version:1,characterId,lastAdvancedAt:now,focus:'',mood:'',events:[]}}
@@ -17,9 +16,8 @@ export async function advanceCharacterLife(characterId:string,now=Date.now()):Pr
   const state:CharacterLife=valid(stored,characterId)?stored:initial(characterId,now);
   const safeNow=Number.isFinite(now)?Math.max(0,now):Date.now();
   if(safeNow>state.lastAdvancedAt){
-   // Long absences are not simulated minute-by-minute; only mark elapsed time.
-   state.lastAdvancedAt=Math.min(safeNow,state.lastAdvancedAt+MAX_GAP);
-   if(safeNow-state.lastAdvancedAt>0)state.lastAdvancedAt=safeNow;
+   // Record elapsed time without inventing intermediate events or spending API credits.
+   state.lastAdvancedAt=safeNow;
   }
   await db.themes.put(row(characterId,state) as any);
   return state;
