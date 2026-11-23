@@ -7,6 +7,7 @@ const MESSAGE_PREFIX=PREFIX+'message:';
 const MESSAGE_V2_PREFIX=PREFIX+'message-v2:';
 const RECENT_LIMIT=100;
 const messageKey=(groupId:string,m:GroupMessage)=>MESSAGE_V2_PREFIX+groupId+':'+String(m.createdAt).padStart(15,'0')+':'+m.id;
+export type GroupMessageCursor=Pick<GroupMessage,'createdAt'|'id'>;
 /** Migrate legacy random-key rows once so recent reads can use the primary-key index. */
 async function migrateGroupMessages(groupId:string):Promise<void>{
  const legacyPrefix=MESSAGE_PREFIX+groupId+':';
@@ -33,11 +34,11 @@ export async function saveGroupRoom(room:GroupRoom):Promise<void>{
  const safe=validateGroupRoom(room,ids);
  await db.themes.put({...themeFields,id:ROOM_PREFIX+safe.id,groupRoom:safe} as any);
 }
-export async function listGroupMessages(groupId:string,limit=RECENT_LIMIT,before?:number):Promise<GroupMessage[]>{
+export async function listGroupMessages(groupId:string,limit=RECENT_LIMIT,before?:GroupMessageCursor):Promise<GroupMessage[]>{
  await migrateGroupMessages(groupId);
  const prefix=MESSAGE_V2_PREFIX+groupId+':';
  const lower=prefix;
- const upper=before===undefined?prefix+'\uffff':prefix+String(before).padStart(15,'0')+':';
+ const upper=before===undefined?prefix+'\uffff':prefix+String(before.createdAt).padStart(15,'0')+':'+before.id;
  const rows=await db.themes.where('id').between(lower,upper,false,false).reverse().limit(Math.max(1,Math.min(limit,500))).toArray();
  return rows.map(r=>(r as unknown as MessageRow).groupMessage).filter(m=>m?.groupId===groupId).reverse();
 }
@@ -47,6 +48,9 @@ export async function appendGroupMessages(groupId:string,messages:GroupMessage[]
   const roomRow=await db.themes.get(ROOM_PREFIX+groupId) as unknown as GroupRow|undefined;
   if(!roomRow?.groupRoom)throw Error('群聊不存在');
   const allowed=new Set(roomRow.groupRoom.memberIds);
+  const latestRows=await db.themes.where('id').between(MESSAGE_V2_PREFIX+groupId+':',MESSAGE_V2_PREFIX+groupId+':\uffff',false,false).reverse().limit(1).toArray();
+  const last=(latestRows[0] as unknown as MessageRow|undefined)?.groupMessage;
+  if(messages[0]?.authorId==='player'&&last?.authorId==='player')throw Error('上一条玩家消息尚未获得回复，请先重试');
   if(messages.some(m=>m.authorId!=='player'&&!allowed.has(m.authorId)))throw Error('消息作者不属于群聊');
   await db.themes.bulkPut(messages.map(m=>({...themeFields,id:messageKey(groupId,m),groupMessage:m})) as any);
   const latest=messages.reduce((a,m)=>m.createdAt>a.createdAt?m:a,messages[0]);
