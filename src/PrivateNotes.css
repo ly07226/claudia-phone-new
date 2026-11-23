@@ -64,3 +64,13 @@
 .pn-life-trail-detail .pn-life-actions{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
 .pn-life-trail-detail .pn-life-actions button{font-size:11px;border-radius:9px;padding:7px 9px}
 .pn-life-empty{font-size:12px;opacity:.7}
+
+/* Override the legacy generic life-button rule for timeline controls. */
+.private-notes .pn-life .pn-life-day button,
+.private-notes .pn-life .pn-life-trail-heading{border:0;background:transparent;border-radius:0;padding:0}
+.private-notes .pn-life .pn-life-day button{min-width:30px;min-height:35px;font-size:24px;color:var(--pn-accent)}
+.private-notes .pn-life .pn-life-filters button{border:0;border-radius:99px;padding:8px 12px}
+.private-notes .pn-life .pn-life-filters button.active{background:var(--pn-accent);color:#fff}
+.private-notes .pn-life .pn-life-review-generate{margin:2px 0 12px;border:1px solid var(--pn-accent);border-radius:10px;padding:8px 10px;font-size:11px}
+.private-notes .pn-life .pn-life-trail-heading{text-align:left;width:100%;display:block}
+.private-notes .pn-life .pn-life-trail-detail .pn-life-actions button{padding:7px 9px;font-size:11px}
