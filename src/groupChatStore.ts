@@ -11,16 +11,21 @@ export type GroupMessageCursor=Pick<GroupMessage,'createdAt'|'id'>;
 /** Migrate legacy random-key rows once so recent reads can use the primary-key index. */
 async function migrateGroupMessages(groupId:string):Promise<void>{
  const legacyPrefix=MESSAGE_PREFIX+groupId+':';
- const exists=await db.themes.where('id').startsWith(legacyPrefix).first();
- if(!exists)return;
- await db.transaction('rw',db.themes,async()=>{
-  const old=await db.themes.where('id').startsWith(legacyPrefix).toArray();
-  if(!old.length)return;
-  const valid=old.map(row=>(row as unknown as MessageRow).groupMessage).filter((m):m is GroupMessage=>!!m&&m.groupId===groupId);
-  if(valid.length!==old.length)throw Error('旧群聊记录不完整，已停止迁移以保护数据');
-  await db.themes.bulkPut(valid.map(m=>({...themeFields,id:messageKey(groupId,m),groupMessage:m})) as any);
-  await db.themes.bulkDelete(old.map(row=>row.id));
- });
+ // Bounded batches prevent the first opening of a long-lived group from loading
+ // its entire history into memory. Each batch is committed atomically.
+ for(;;){
+  const migrated=await db.transaction('rw',db.themes,async()=>{
+   const old=await db.themes.where('id').startsWith(legacyPrefix).limit(100).toArray();
+   if(!old.length)return 0;
+   const valid=old.map(row=>(row as unknown as MessageRow).groupMessage).filter((m):m is GroupMessage=>!!m&&m.groupId===groupId);
+   if(valid.length!==old.length)throw Error('旧群聊记录不完整，已停止迁移以保护数据');
+   await db.themes.bulkPut(valid.map(m=>({...themeFields,id:messageKey(groupId,m),groupMessage:m})) as any);
+   await db.themes.bulkDelete(old.map(row=>row.id));
+   return old.length;
+  });
+  if(!migrated)return;
+  if(migrated<100)return;
+ }
 }
 type GroupRow={id:string;color:string;font:string;iconStyle:'rounded';opacity:number;blur:number;groupRoom:GroupRoom};
 type MessageRow={id:string;color:string;font:string;iconStyle:'rounded';opacity:number;blur:number;groupMessage:GroupMessage};
