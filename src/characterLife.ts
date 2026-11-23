@@ -3,6 +3,7 @@ import { db } from './store';
 export type LifeProgress = {
     at: number;
     text: string;
+    status?: 'ongoing' | 'paused' | 'done';
 };
 export type LifeEvent = {
     id: string;
@@ -28,6 +29,7 @@ export type CharacterLife = {
     lastAdvancedAt: number;
     focus: string;
     mood: string;
+    moodHistory?: { at: number; mood: string }[];
     events: LifeEvent[];
     revision?: number;
     enabled?: boolean;
@@ -35,9 +37,49 @@ export type CharacterLife = {
     occupations?: string;
     interests?: string;
     proposals?: LifeEvent[];
+    dayReviews?: Record<string, { text: string; usedIds: string[]; generatedAt: number; sourceRevision: number }>;
     attempt?: LifeAttempt;
 };
 export const characterLifePrefix = 'character-life-v1:';
+export const lifeProgressArchivePrefix = 'character-life-progress-v1:';
+export async function readLifeProgressArchive(owner: string): Promise<Record<string, LifeProgress[]>> {
+    const rows = await db.themes.where('id').startsWith(lifeProgressArchivePrefix + encodeURIComponent(owner) + ':').toArray();
+    const grouped: Record<string, LifeProgress[]> = {};
+    for (const row of rows) { const item = (row as any).archivedLifeProgress as { eventId: string; point: LifeProgress } | undefined; if (!item) continue; (grouped[item.eventId] ??= []).push(item.point); }
+    return grouped;
+}
+export async function appendLifeProgress(owner: string, event: LifeEvent, point: LifeProgress) {
+    const progress = [...(event.progress ?? []), point];
+    if (progress.length > 20) {
+        const overflow = progress.slice(0, progress.length - 20);
+        for (const old of overflow) {
+            const id = lifeProgressArchivePrefix + encodeURIComponent(owner) + ':' + encodeURIComponent(event.id) + ':' + crypto.randomUUID();
+            await db.themes.put({ id, color: '#8995a3', font: 'sans', iconStyle: 'rounded', opacity: .36, blur: 18, archivedLifeProgress: { eventId: event.id, point: old } } as any);
+        }
+    }
+    event.progress = progress.slice(-20);
+}
+export const lifeArchivePrefix = 'character-life-archive-v1:';
+export const lifeArchiveKey = (owner: string, eventId: string) => lifeArchivePrefix + encodeURIComponent(owner) + ':' + encodeURIComponent(eventId);
+export async function readLifeArchive(owner: string): Promise<LifeEvent[]> {
+    const rows = await db.themes.where('id').startsWith(lifeArchivePrefix + encodeURIComponent(owner) + ':').toArray();
+    return rows.map(row => (row as any).archivedLifeEvent as LifeEvent).filter(Boolean);
+}
+export async function archiveCompletedLifeEvents(owner: string, minimumFree = 1) {
+    return db.transaction('rw', db.themes, async () => {
+        const state = await readCharacterLife(owner);
+        const count = Math.max(0, state.events.length + minimumFree - 40);
+        if (!count) return 0;
+        const completed = state.events.filter(e => e.status === 'done').sort((a, b) => a.updatedAt - b.updatedAt).slice(0, count);
+        if (!completed.length) return 0;
+        for (const event of completed) {
+            const id = lifeArchiveKey(owner, event.id);
+            await db.themes.put({ id, color: '#8995a3', font: 'sans', iconStyle: 'rounded', opacity: .36, blur: 18, archivedLifeEvent: event } as any);
+        }
+        await changeCharacterLife(owner, next => { next.events = next.events.filter(e => !completed.some(old => old.id === e.id)); }, state.revision ?? 0);
+        return completed.length;
+    });
+}
 export const lifeKey = (id: string) => characterLifePrefix + encodeURIComponent(id);
 export const lifeRow = (state: CharacterLife) => ({ id: lifeKey(state.characterId), color: '#8995a3', font: 'sans', iconStyle: 'rounded', opacity: .36, blur: 18, characterLife: state });
 function initial(characterId: string): CharacterLife { return { version: 1, characterId, lastAdvancedAt: 0, focus: '', mood: '', events: [], revision: 0, enabled: false, ordinaryAllowed: true, proposals: [] }; }
@@ -51,9 +93,11 @@ export function validateCharacterLife(value: unknown, owner: string): asserts va
     if (s.focus.length > 300 || s.mood.length > 200 || ['enabled', 'ordinaryAllowed'].some(k => (s as any)[k] !== undefined && typeof (s as any)[k] !== 'boolean') || s.revision !== undefined && (!Number.isSafeInteger(s.revision) || s.revision < 0) || [s.occupations, s.interests].some(v => v !== undefined && (typeof v !== 'string' || v.length > 300)))
         throw Error('生活设置格式异常，原数据已保留');
     for (const e of [...s.events, ...s.proposals ?? []]) {
-        if (e.source !== undefined && !['manual', 'simulation'].includes(e.source) || e.confidence !== undefined && !['confirmed', 'simulated'].includes(e.confidence) || e.progress?.some(p => !Number.isFinite(p.at) || typeof p.text !== 'string' || p.text.length > 500))
+        if (e.source !== undefined && !['manual', 'simulation'].includes(e.source) || e.confidence !== undefined && !['confirmed', 'simulated'].includes(e.confidence) || e.progress?.some(p => !Number.isFinite(p.at) || typeof p.text !== 'string' || p.text.length > 500 || p.status !== undefined && !['ongoing', 'paused', 'done'].includes(p.status)))
             throw Error('生活事件来源或进展格式异常');
     }
+    if (s.moodHistory && (!Array.isArray(s.moodHistory) || s.moodHistory.length > 120 || s.moodHistory.some(item => !item || !Number.isFinite(item.at) || typeof item.mood !== 'string' || item.mood.length > 200))) throw Error('历史心情格式异常');
+    if (s.dayReviews && (typeof s.dayReviews !== 'object' || Array.isArray(s.dayReviews) || Object.keys(s.dayReviews).length > 45 || Object.entries(s.dayReviews).some(([day, r]) => !/^\d{4}-\d{2}-\d{2}$/.test(day) || !r || typeof r.text !== 'string' || r.text.length > 500 || !Array.isArray(r.usedIds) || r.usedIds.length > 16 || r.usedIds.some(id => typeof id !== 'string') || !Number.isFinite(r.generatedAt) || !Number.isSafeInteger(r.sourceRevision)))) throw Error('每日回顾格式异常');
     if (s.attempt && (!['running', 'failed', 'succeeded'].includes(s.attempt.status) || typeof s.attempt.token !== 'string' || !Number.isFinite(s.attempt.at)))
         throw Error('生活任务格式异常');
     if (new TextEncoder().encode(JSON.stringify(s)).length > 180000)
@@ -69,9 +113,9 @@ export async function readCharacterLife(owner: string): Promise<CharacterLife> {
     }
     return initial(owner);
 }
-export async function changeCharacterLife(owner: string, edit: (s: CharacterLife) => void, expected?: number) {
+export async function changeCharacterLife(owner: string, edit: (s: CharacterLife) => void | Promise<void>, expected?: number) {
     return db.transaction('rw', db.themes, async () => { const s = await readCharacterLife(owner); if (expected !== undefined && (s.revision ?? 0) !== expected)
-        throw Error('生活状态已变化，请刷新后重试'); edit(s); s.revision = (s.revision ?? 0) + 1; validateCharacterLife(s, owner); await db.themes.put(lifeRow(s) as any); return s; });
+        throw Error('生活状态已变化，请刷新后重试'); await edit(s); s.revision = (s.revision ?? 0) + 1; validateCharacterLife(s, owner); await db.themes.put(lifeRow(s) as any); return s; });
 }
 /** Legacy reader must not claim elapsed time constitutes completed progression. */
 export const advanceCharacterLife = (owner: string, _now = Date.now()) => readCharacterLife(owner);
