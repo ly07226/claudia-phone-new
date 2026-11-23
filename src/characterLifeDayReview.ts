@@ -27,7 +27,7 @@ export async function generateLifeDayReview(owner: string, day: string) {
  try {
   let interrupted = false;
   const raw = await requestReply(config, key, [
-   { role: 'system', content: '你正在为角色的独立生活档案整理一天的回顾。只允许使用提供的事件记录，不得添加聊天、共同经历、地点、人物、任务结果、心理活动或未记录的事实。角色卡仅用于语气，不是当天事实来源。用第三人称，写成一段自然、具体、克制的中文，60至180字；无须覆盖所有事件，优先选择有实际进展的事件。模拟事件不能说成玩家与角色真实共同发生。输出严格JSON：{"text":"...","usedIds":["事件id"]}。usedIds只列正文真正依据的事件ID，不要Markdown。' },
+   { role: 'system', content: '你正在为角色的独立生活档案整理一天的回顾。以提供的事件记录为事实主线。允许少量符合角色人设的氛围、感受和日常细节润色，不必逐字复述；但不得编造玩家行为、双方真实共同经历、重大事件、承诺或与既有记录冲突的结果。角色卡用于语气和合理生活细节，不是共同经历的证据。用第三人称，写成一段自然、具体、克制的中文，60至180字；无须覆盖所有事件，优先选择有实际进展的事件。模拟事件不能说成玩家与角色真实共同发生。输出严格JSON：{"text":"...","usedIds":["事件id"]}。usedIds只列正文真正依据的事件ID，不要Markdown。' },
    { role: 'user', content: JSON.stringify({ day, character: source.character.name, persona: source.character.persona.slice(0, 1200), records }) }
   ], controller.signal, undefined, false, reason => { interrupted = !!reason; });
   if (interrupted) throw Error('回顾生成中断，未保存');
