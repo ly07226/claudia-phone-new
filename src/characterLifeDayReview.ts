@@ -1,7 +1,7 @@
 import { db } from './store';
 import { resolveApi } from './chatService';
 import { requestReply } from './chatProvider';
-import { readCharacterLife, changeCharacterLife } from './characterLife';
+import { readCharacterLife, changeCharacterLife, readLifeArchive, readLifeProgressArchive } from './characterLife';
 import { lifeSource, assertLifeSource } from './characterLifeSource';
 
 const localDay = (at: number) => {
@@ -13,8 +13,10 @@ const localDay = (at: number) => {
 export async function generateLifeDayReview(owner: string, day: string) {
  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || localDay(new Date(day + 'T12:00:00').getTime()) !== day || day > localDay(Date.now())) throw Error('日期无效');
  const state = await readCharacterLife(owner);
- const records = state.events.flatMap(event =>
-  (event.progress?.length ? event.progress : [{ at: event.createdAt, text: event.detail }])
+ const archived = await readLifeArchive(owner);
+ const oldProgress = await readLifeProgressArchive(owner);
+ const records = [...state.events, ...archived].flatMap(event =>
+  [...(oldProgress[event.id] ?? []), ...(event.progress?.length ? event.progress : [{ at: event.createdAt, text: event.detail }])]
    .filter(p => localDay(p.at) === day && p.text.trim() && !/^手动(暂停|恢复|结束)$/.test(p.text.trim()))
    .map(p => ({ id: event.id, title: event.title, detail: p.text, time: p.at, source: event.source ?? 'manual' }))
  ).sort((a, b) => a.time - b.time).slice(-16);
@@ -42,7 +44,7 @@ export async function generateLifeDayReview(owner: string, day: string) {
   await db.transaction('rw', [db.themes, db.characters, db.conversations, db.messages, db.messageVariants, db.timelines, db.pathNodes], async () => {
    await assertLifeSource(source);
    await changeCharacterLife(owner, current => {
-    const fresh = current.events.flatMap(e => (e.progress?.length ? e.progress : [{ at: e.createdAt, text: e.detail }]).filter(p => localDay(p.at) === day && p.text.trim() && !/^手动(暂停|恢复|结束)$/.test(p.text.trim())).map(p => ({ id: e.id, title: e.title, detail: p.text, time: p.at, source: e.source ?? 'manual' }))).sort((a,b) => a.time - b.time).slice(-16);
+    const fresh = [...current.events, ...archived].flatMap(e => [...(oldProgress[e.id] ?? []), ...(e.progress?.length ? e.progress : [{ at: e.createdAt, text: e.detail }])].filter(p => localDay(p.at) === day && p.text.trim() && !/^手动(暂停|恢复|结束)$/.test(p.text.trim())).map(p => ({ id: e.id, title: e.title, detail: p.text, time: p.at, source: e.source ?? 'manual' }))).sort((a,b) => a.time - b.time).slice(-16);
     if (JSON.stringify(fresh) !== snapshot) throw Error('生活记录已变化，请重新生成');
     current.dayReviews ??= {};
     current.dayReviews[day] = { text, usedIds: ids, generatedAt: Date.now(), sourceRevision: state.revision ?? 0 };
