@@ -3,6 +3,7 @@ import { db } from './store';
 export type LifeProgress = {
     at: number;
     text: string;
+    status?: 'ongoing' | 'paused' | 'done';
 };
 export type LifeEvent = {
     id: string;
@@ -51,7 +52,7 @@ export function validateCharacterLife(value: unknown, owner: string): asserts va
     if (s.focus.length > 300 || s.mood.length > 200 || ['enabled', 'ordinaryAllowed'].some(k => (s as any)[k] !== undefined && typeof (s as any)[k] !== 'boolean') || s.revision !== undefined && (!Number.isSafeInteger(s.revision) || s.revision < 0) || [s.occupations, s.interests].some(v => v !== undefined && (typeof v !== 'string' || v.length > 300)))
         throw Error('生活设置格式异常，原数据已保留');
     for (const e of [...s.events, ...s.proposals ?? []]) {
-        if (e.source !== undefined && !['manual', 'simulation'].includes(e.source) || e.confidence !== undefined && !['confirmed', 'simulated'].includes(e.confidence) || e.progress?.some(p => !Number.isFinite(p.at) || typeof p.text !== 'string' || p.text.length > 500))
+        if (e.source !== undefined && !['manual', 'simulation'].includes(e.source) || e.confidence !== undefined && !['confirmed', 'simulated'].includes(e.confidence) || e.progress?.some(p => !Number.isFinite(p.at) || typeof p.text !== 'string' || p.text.length > 500 || p.status !== undefined && !['ongoing', 'paused', 'done'].includes(p.status)))
             throw Error('生活事件来源或进展格式异常');
     }
     if (s.attempt && (!['running', 'failed', 'succeeded'].includes(s.attempt.status) || typeof s.attempt.token !== 'string' || !Number.isFinite(s.attempt.at)))
