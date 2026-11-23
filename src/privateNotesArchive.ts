@@ -26,7 +26,9 @@ export async function saveNoteSchedule(schedule:NoteSchedule){if(!['interval','i
  * inside a transaction, no silent replay after crash. Expired claims can be recovered. */
 export async function withPrivateNotesTask<T>(scope:string,automatic:boolean,source:string,run:()=>Promise<T>):Promise<T|null>{
  const id='private-notes-task:'+scope,token=crypto.randomUUID(),now=Date.now();
- const claimed=await db.transaction('rw',db.themes,async()=>{const old=(await db.themes.get(id) as any)?.privateNotesTask;if(old?.until>now||automatic&&old?.source===source)return false;await db.themes.put(theme(id,{privateNotesTask:{token,until:now+180000,source:automatic?source:old?.source}}) as any);return true;});
+ const claimed=await db.transaction('rw',db.themes,async()=>{const old=(await db.themes.get(id) as any)?.privateNotesTask;if(old?.until>now||automatic&&(old?.failed||old?.source===source||old?.until>0))return false;await db.themes.put(theme(id,{privateNotesTask:{token,until:now+180000,source:automatic?source:old?.source}}) as any);return true;});
  if(!claimed)return null;
- try{return await run()}finally{await db.transaction('rw',db.themes,async()=>{const row=await db.themes.get(id) as any;if(row?.privateNotesTask?.token===token){row.privateNotesTask.until=0;await db.themes.put(row)}});}
+ try{return await run()}catch(error){await db.transaction('rw',db.themes,async()=>{const r=await db.themes.get(id) as any;if(r?.privateNotesTask?.token===token){r.privateNotesTask.failed=true;await db.themes.put(r)}});throw error;}finally{await db.transaction('rw',db.themes,async()=>{const row=await db.themes.get(id) as any;if(row?.privateNotesTask?.token===token){row.privateNotesTask.until=0;await db.themes.put(row)}});}
 }
+
+export async function privateNotesTaskStatus(owner:string){return(await db.themes.get('private-notes-task:'+owner+':automatic') as any)?.privateNotesTask as {failed?:boolean;until?:number}|undefined;}
