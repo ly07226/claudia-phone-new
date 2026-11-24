@@ -2,13 +2,10 @@ import {useEffect} from 'react';
 import {liveQuery} from 'dexie';
 import {db} from './store';
 import {activeMessages} from './messagePath';
-import {useSpaces} from './spaces';
 import {scanProactiveMessages} from './proactiveMessages';
 
 export function ProactiveScheduler(){
- const route=useSpaces(s=>s.route);
  useEffect(()=>{
-  if(route.screen!=='phone'||route.spaceId!=='daily')return;
   let disposed=false;
   let timer:ReturnType<typeof setTimeout>|undefined;
   let running=false;
@@ -18,12 +15,12 @@ export function ProactiveScheduler(){
   const schedule=()=>{
    clear();
    if(disposed||document.visibilityState!=='visible'||nextDeadline===null)return;
-   const delay=Math.max(0,nextDeadline-Date.now());
+   const delay=Math.max(1000,nextDeadline-Date.now());
    // Browser timers can be clamped. Re-evaluate from persisted timestamps on foreground.
    timer=setTimeout(()=>{timer=undefined;void check();},delay);
   };
   const check=async()=>{
-   if(disposed||document.visibilityState!=='visible')return;
+   if(disposed||document.visibilityState!=='visible'||!navigator.onLine)return;
    if(running){queued=true;return;}
    running=true;
    try{await scanProactiveMessages();}catch{/* Automatic sends are silent; manual tests surface errors. */}
@@ -62,12 +59,14 @@ export function ProactiveScheduler(){
   document.addEventListener('visibilitychange',foreground);
   window.addEventListener('focus',foreground);
   // Initial and resumed scans use persisted timestamps; no fixed polling.
+  const fallback=setInterval(foreground,60000);
   void check();
   return()=>{
+   clearInterval(fallback);
    disposed=true;clear();subscription.unsubscribe();
    document.removeEventListener('visibilitychange',foreground);
    window.removeEventListener('focus',foreground);
   };
- },[route.screen,route.screen==='phone'?route.spaceId:undefined]);
+ },[]);
  return null;
 }
