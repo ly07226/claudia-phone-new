@@ -1,4 +1,6 @@
-import {authorizeQqAi,disableQqAi,deleteQqAi,getQqAiStatus,syncQqContext,deleteQqContext} from './qqAiAuthorization';
+import {resolveQqLocalConversation} from './qqDailySync';
+import {syncQqSnapshot} from './qqContextSync';
+import {authorizeQqAi,disableQqAi,deleteQqAi,getQqAiStatus,deleteQqContext} from './qqAiAuthorization';
 import {buildContext} from './chatContext';
 import {restoreWechatFromBackupZip} from './backupZip';
 import React,{useEffect,useState} from 'react';
@@ -120,19 +122,21 @@ export function WechatIntegrationSettings(){
   return()=>{active=false;};
  },[section,qqAiBinding]);
  const [qqContextStatus,setQqContextStatus]=useState('');
+ const [qqSyncIssue,setQqSyncIssue]=useState('');
+ const [qqPendingCount,setQqPendingCount]=useState(0);
+ useEffect(()=>{
+  const update=()=>{setQqSyncIssue(localStorage.getItem('claudia-qq-auto-sync-error:'+qqAiBinding)||localStorage.getItem('claudia-qq-auto-sync-error')||'');setQqPendingCount(Number(localStorage.getItem('claudia-qq-pending-count:'+qqAiBinding))||0);};
+  update();window.addEventListener('claudia-qq-auto-sync-status',update);
+  return()=>window.removeEventListener('claudia-qq-auto-sync-status',update);
+ },[qqAiBinding]);
  const [qqApis,setQqApis]=useState<Array<{id:string;name:string;model:string;enabled:boolean}>>([]);
  useEffect(()=>{if(section!=='qq')return;void db.apiConfigs.toArray().then(rows=>setQqApis(rows.filter(x=>x.enabled).map(x=>({id:x.id,name:x.name,model:x.model,enabled:x.enabled})))).catch(()=>setQqNotice('本地 API 列表读取失败'));},[section]);
  useEffect(()=>{if(!qqBindings.some(b=>b.id===qqAiBinding&&b.status==='connected'))setQqAiBinding(qqBindings.find(b=>b.status==='connected')?.id||'');},[qqBindings,qqAiBinding]);
- const qqSync=async(binding:{id:string;conversation_id:string})=>{
-  const conversation=await db.conversations.get(binding.conversation_id);
+ const qqSync=async(binding:Awaited<ReturnType<typeof listQqCloudBindings>>[number])=>{
+  const conversation=await resolveQqLocalConversation(binding);
   if(!conversation||conversation.mode!=='daily'||conversation.worldId)throw Error('仅支持已绑定的日常聊天');
-  const context=await buildContext(conversation);
-  if(context.some(m=>m.images?.length))throw Error('当前有效上下文包含图片，QQ 云端文字模型无法完整还原');
-  const messages=context.map(m=>({role:m.role,content:m.content}));
-  if(!messages.some(m=>m.role==='system')||messages.length>64||JSON.stringify(messages).length>80000)
-   throw Error('QQ 角色上下文超过云端安全容量或缺少系统设定，已停止同步');
-  await syncQqContext(binding.id,messages);
-  setQqContextStatus('已同步 '+messages.length+' 段角色有效上下文');
+  await syncQqSnapshot(binding.id,conversation.id,true);
+  setQqContextStatus('已同步角色设定、有效记忆与近期日常上下文');
  };
  const qqInheritApi=async()=>{
   const binding=qqBindings.find(b=>b.id===qqAiBinding&&b.status==='connected');
@@ -535,7 +539,9 @@ export function WechatIntegrationSettings(){
     <button type="button" disabled={qqAiBusy||!qqAiBinding} onClick={()=>void qqAiAction('delete-context')}>删除 QQ 云端上下文</button>
     {qqAiStatus&&<p role="status">{qqAiStatus}</p>}
     {qqContextStatus&&<p role="status">{qqContextStatus}</p>}
-    <p>角色记忆仅在授权或手动同步时更新；关闭小手机后，未同步的本地变化无法自动上传。</p>
+    {qqPendingCount>0&&<p role="status">有 {qqPendingCount} 条 QQ 回复等待确认发送；其他消息继续同步，确认后自动补收。</p>}
+    {qqSyncIssue&&<p role="alert">QQ 自动同步未完成：{qqSyncIssue}。已保留现有数据；可使用「重新同步角色记忆」恢复。</p>}
+    <p>小手机打开时，聊天、记忆及世界书变化会自动增量同步。关闭小手机后，QQ 使用最近一次成功同步的资料及持续产生的 QQ 历史；未同步的本地变化要在重新打开后上传。</p>
    </div>}
    <button type="button" disabled={qqBusy} onClick={()=>void beginQq()}>{qqBusy?'正在生成…':'生成 QQ 绑定二维码'}</button>
    {qqSession&&<div className="card form" aria-live="polite">

@@ -19,7 +19,8 @@
   "git": {
     "deploymentEnabled": {
       "feature/private-notes-glass": false,
-      "feature/diary-independent-inner-life": false
+      "feature/diary-independent-inner-life": false,
+      "fix/qq-memory-context-continuity": false
     }
   }
 }
