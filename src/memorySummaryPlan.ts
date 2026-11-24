@@ -24,7 +24,14 @@ export function splitSummaryInput(input:string):string[]{
  * individual unsupported claims; never manufacture citations, repair prose or
  * infer that a plan succeeded. These guards are conservative, not semantic proof. */
 export function reviewIntervalSummary(raw:string,input:string){
- const value=summaryJsonCandidate(raw);if(value&&typeof value==='object'&&!Array.isArray(value)&&['operation','deleteAll','resetDatabase','clear'].some(k=>Object.hasOwn(value,k)))throw new SummaryFormatError({version:1,stage:'validate',code:'unexpected-field'});const rows=Array.isArray(value)?value:value?.memories??value?.facts;
+ let value:any;
+ try{value=summaryJsonCandidate(raw);}catch(error){
+  if(!(error instanceof SummaryFormatError)||!['json-syntax','root-shape'].includes(error.diagnostic.code)||/[{}\[\]`]/.test(raw))throw error;
+  const lines=raw.trim().split(/\n+/).map(s=>s.replace(/^\s*(?:[-*•]|\d+[.、)])\s*/,'').trim()).filter(s=>s.length>0);
+  if(!lines.length||lines.length>8||lines.some(s=>s.length>800))throw error;
+  value={memories:lines.map(content=>({content,type:'belief',kind:'long'}))};
+ }
+ if(value&&typeof value==='object'&&!Array.isArray(value)&&['operation','deleteAll','resetDatabase','clear'].some(k=>Object.hasOwn(value,k)))throw new SummaryFormatError({version:1,stage:'validate',code:'unexpected-field'});const rows=Array.isArray(value)?value:value?.memories??value?.facts;
  const normalized=Array.isArray(rows)?JSON.stringify({memories:rows.map((r:unknown)=>typeof r==='string'?{content:r}:r)}):raw;
  const parsed=recoverSummaryBatch(normalized,input),accepted:SummaryFact[]=[],rejected=[...parsed.rejected];
  const negative=(s:string)=>/不是|没有|不能|不会|未完成|不想|不愿|不要|不喜欢|不接受|不允许|不可能|不打算|不希望|拒绝|禁止|否认/u.test(s);
