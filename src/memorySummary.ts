@@ -284,6 +284,7 @@ export async function tryAutoSummary(conversationId:string){
  const scope=await getMemoryScope(conversationId);
  if(autoLoops.has(conversationId))return;
  autoLoops.add(conversationId);
+ let continueBacklog=false;
  void enqueueAutomation('summary:'+conversationId,async()=>{
   for(let group=0;group<1;group++){
    if(!navigator.onLine||document.hidden)break;
@@ -300,12 +301,13 @@ export async function tryAutoSummary(conversationId:string){
    if(current?.job?.id===before.job?.id){if(current?.job?.status==='failed'&&!current.requiresManualResume)scheduleSummaryRecovery(conversationId);return;}
    const succeeded=current?.job?.status==='succeeded';
    if(!succeeded&&current?.job?.status!=='failed')return;
+   if(succeeded)continueBacklog=true;
    if(!succeeded){
     if(!current?.requiresManualResume)scheduleSummaryRecovery(conversationId);
     break;
    }
   }
- }).catch(()=>{}).finally(()=>autoLoops.delete(conversationId));
+ }).catch(()=>{}).finally(()=>{autoLoops.delete(conversationId);if(continueBacklog&&!document.hidden&&navigator.onLine)setTimeout(()=>void tryAutoSummary(conversationId).catch(()=>{}),0);});
 }
 
 export async function catchUpMemorySummaries(scope:MemoryScope){
