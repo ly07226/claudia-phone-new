@@ -13,6 +13,7 @@ import type {Conversation} from './chatTypes';
 
 const pending=new Set<string>();
 let scanBusy=false;
+let scanCursor=0;
 const hour=3600000;
 export function proactiveEligible(c:Conversation,latestUserAt:number,now:number){
  const s=c.chatSettings;
@@ -94,11 +95,12 @@ export async function scanProactiveMessages(){
  scanBusy=true;
  try{
   const conversations=await db.conversations.toArray();
-  for(const c of conversations){
+  const ordered=conversations.slice(scanCursor%Math.max(1,conversations.length)).concat(conversations.slice(0,scanCursor%Math.max(1,conversations.length)));
+  for(const c of ordered){
    if(!c.chatSettings?.proactiveEnabled||c.mode!=='daily')continue;
    const path=await activeMessages(c.id);
    const latestUserAt=[...path].reverse().find(m=>m.role==='user')?.createdAt??0;
-   if(proactiveEligible(c,latestUserAt,Date.now()))await sendProactiveMessage(c.id).catch(()=>{});
+   if(proactiveEligible(c,latestUserAt,Date.now())){scanCursor=conversations.findIndex(v=>v.id===c.id)+1;await sendProactiveMessage(c.id).catch(()=>{});break;}
   }
  }finally{scanBusy=false;}
 }
