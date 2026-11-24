@@ -275,25 +275,31 @@ export function runMemorySummary(scope:MemoryScope,manual=true){
  */
 const autoLoops=new Set<string>();
 const recoveryTimers=new Map<string,ReturnType<typeof setTimeout>>();
-function scheduleSummaryRecovery(id:string){if(recoveryTimers.has(id))return;recoveryTimers.set(id,setTimeout(()=>{recoveryTimers.delete(id);void tryAutoSummary(id).catch(()=>{});},30*60*1000));}
+const recoveryOwners=new Set<string>();
+function wakeSummaryRecovery(){if(document.hidden||!navigator.onLine)return;for(const id of recoveryOwners)void tryAutoSummary(id).catch(()=>scheduleSummaryRecovery(id));}
+if(typeof window!=='undefined'){window.addEventListener('online',wakeSummaryRecovery);window.addEventListener('focus',wakeSummaryRecovery);document.addEventListener('visibilitychange',wakeSummaryRecovery);}
+function scheduleSummaryRecovery(id:string){if(recoveryTimers.has(id))return;recoveryTimers.set(id,setTimeout(()=>{recoveryTimers.delete(id);if(document.hidden||!navigator.onLine){scheduleSummaryRecovery(id);return;}void tryAutoSummary(id).catch(()=>scheduleSummaryRecovery(id));},30*60*1000));}
 export async function tryAutoSummary(conversationId:string){
- if(autoLoops.has(conversationId)||!navigator.onLine||document.hidden)return;
+ if(autoLoops.has(conversationId))return;
+ if(!navigator.onLine||document.hidden){if(recoveryOwners.has(conversationId))scheduleSummaryRecovery(conversationId);return;}
  const c=await db.conversations.get(conversationId);
- if(!c?.memorySummary?.enabled)return;
+ if(!c?.memorySummary?.enabled){recoveryOwners.delete(conversationId);return;}
+ recoveryOwners.add(conversationId);
  const scope=await getMemoryScope(conversationId);
  if(autoLoops.has(conversationId))return;
  autoLoops.add(conversationId);
  void (async()=>{
   for(let group=0;group<100;group++){
-   if(!navigator.onLine||document.hidden)break;
+   if(!navigator.onLine||document.hidden){scheduleSummaryRecovery(conversationId);break;}
    const before=await summaryStatus(scope);
    const owner=await db.conversations.get(conversationId);const state=owner?.memorySummary;const recovered=owner&&summaryCapacityRecovered(owner)&&state?.job?.chunks===0&&!state.checkpoint?.completed.length;
-   if(!state?.enabled||before.pending<before.interval&&!state.checkpoint)break;
+   if(!state?.enabled){recoveryOwners.delete(conversationId);break;}
+   if(before.pending<before.interval&&!state.checkpoint){recoveryOwners.delete(conversationId);break;}
    if(state.job?.status==='failed'&&Date.now()-(state.job.finishedAt??state.job.startedAt)<30*60*1000&&!recovered){scheduleSummaryRecovery(conversationId);break;}
    // One attempt per due cycle. A failure is terminal for this cycle:
    // do not silently issue another paid API request, even for transient errors.
    // No pending-count backoff: failed work is paused until explicit recovery.
-   if(!navigator.onLine||document.hidden)return;
+   if(!navigator.onLine||document.hidden){scheduleSummaryRecovery(conversationId);return;}
    await runMemorySummary(scope,false);
    const current=(await db.conversations.get(conversationId))?.memorySummary;
    if(current?.job?.id===before.job?.id){if(current?.job?.status==='failed'&&!current.requiresManualResume)scheduleSummaryRecovery(conversationId);return;}
@@ -304,7 +310,7 @@ export async function tryAutoSummary(conversationId:string){
     break;
    }
   }
- })().catch(()=>{}).finally(()=>autoLoops.delete(conversationId));
+ })().catch(()=>scheduleSummaryRecovery(conversationId)).finally(()=>autoLoops.delete(conversationId));
 }
 
 export async function catchUpMemorySummaries(scope:MemoryScope){
