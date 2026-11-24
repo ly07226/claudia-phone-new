@@ -2,6 +2,7 @@ import {loreForConversation} from './loreEngine';
 import {archiveNotes,appendPrivateNote,appendPrivateNoteReply,privateNotesMetadata,readCharacterNotes,withPrivateNotesTask} from './privateNotesArchive';
 import {db} from './store';
 import {resolveApi} from './chatService';
+import {resolveAutomationApi} from './dedicatedSummaryApi';
 import {requestReply} from './chatProvider';
 import {memoryContext} from './memoryContext';
 import {readCharacterLife,lifePrompt,assertLifeAffection} from './characterLife';
@@ -95,7 +96,7 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
  '只能使用给出的真实对话及已核实记忆作为已发生事实；记忆是背景，不得将旧事件写成今天刚发生。不得擅自决定玩家行为、情绪、经历或承诺。猜测必须明确为猜测。缺乏事实时不要补造剧情。',
  '请写一篇'+kind+'，正文目标'+lengths+'个汉字。若今日互动平淡，写真实的细节与感触，不凑事件。标题简短有余味。输出严格 JSON：{"title":"...","body":"..."}，不要 Markdown 代码块。'
  ].join('\n');
- const {config,key}=await resolveApi(conversation);
+ const {config,key}=await resolveAutomationApi(conversation);
  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),90000);
  try{
   let interrupted=false;
