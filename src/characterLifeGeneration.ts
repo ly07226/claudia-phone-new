@@ -41,7 +41,7 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
         let raw: string;
         try {
             let interrupted = false;
-            raw = await requestReply(config, key, [{ role: 'system', content: ['根据角色设定、世界书、已有生活和真实时间，自然模拟角色自己的生活。角色可以主动安排工作、社交、兴趣、休息和计划，也可以思念玩家、表达复杂情绪、延续已有互动。独立生活无需聊天证据。', '涉及玩家的共同经历，以实际聊天为准；不要替玩家决定行动、心理或同意。保持角色设定和关系连续性，重大不可逆变化作为待确认提案。角色不得讨厌 user（玩家），但可以生气、不满或有其他复杂情绪。', '返回 JSON：{"focus":"当前重心","mood":"当前心情","updates":[{"id":"已有事件id","status":"ongoing或paused或done","detail":"进展"}],"events":[{"title":"事件标题","detail":"具体内容","level":"ordinary或continuing或major","actor":"self"}]}。自然推进已有事件，也可新增事件。没有变化时可以保持原状。', source.character.persona, source.character.speakingStyle ?? ''].join('\n') }, { role: 'user', content: JSON.stringify({ now, firstAdvance: !s.lastAdvancedAt, elapsedMs: s.lastAdvancedAt ? Math.max(0, now - s.lastAdvancedAt) : 0, lore: lore.entries.map(e => e.content), state: lifePrompt(s), memory, chat: source.tail.map(m => ({ role: m.role, at: m.createdAt, text: m.content.slice(0, 800) })) }) }], controller.signal, undefined, false, r => interrupted = !!r);
+            raw = await requestReply(config, key, [{ role: 'system', content: ['根据角色设定、世界书、已有生活和真实时间，自然模拟角色自己的生活。角色可以主动安排工作、社交、兴趣、休息和计划，也可以思念玩家、表达复杂情绪、延续已有互动。独立生活无需聊天证据。', '涉及玩家的共同经历，以实际聊天为准；不要替玩家决定行动、心理或同意。保持角色设定和关系连续性，重大不可逆变化作为待确认提案。角色不得讨厌 user（玩家），但可以生气、不满或有其他复杂情绪。', '返回 JSON：{"focus":"当前重心","mood":"当前心情","updates":[{"id":"已有事件id","status":"ongoing或paused或done","detail":"进展"}],"events":[{"title":"事件标题","detail":"具体内容","level":"ordinary或continuing或major","actor":"self"}]}。自然推进已有事件，也可新增事件。没有变化时可以保持原状。', source.character.persona, source.character.speakingStyle ?? ''].join('\n') }, { role: 'user', content: JSON.stringify({ now, firstAdvance: !s.lastAdvancedAt, elapsedMs: s.lastAdvancedAt ? Math.max(0, now - s.lastAdvancedAt) : 0, lore: lore.entries.map(e => e.content), state: lifePrompt(s), existingEvents: s.events.filter(e => e.status !== 'done').map(e => ({ id: e.id, title: e.title, status: e.status, detail: e.detail })), memory, chat: source.tail.map(m => ({ role: m.role, at: m.createdAt, text: m.content.slice(0, 800) })) }) }], controller.signal, undefined, false, r => interrupted = !!r);
             if (interrupted)
                 throw Error('生活推进输出中断，未保存');
         }
@@ -52,8 +52,12 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
         }
         const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
         const result = JSON.parse(cleaned.slice(cleaned.indexOf('{'), cleaned.lastIndexOf('}') + 1));
-        if (!result || typeof result.focus !== 'string' || typeof result.mood !== 'string' || !Array.isArray(result.updates) || !Array.isArray(result.events))
+        if (!result || typeof result !== 'object' || Array.isArray(result))
             throw Error('生活推进格式无效');
+        result.focus = typeof result.focus === 'string' ? result.focus : s.focus;
+        result.mood = typeof result.mood === 'string' ? result.mood : s.mood;
+        result.updates = Array.isArray(result.updates) ? result.updates : [];
+        result.events = Array.isArray(result.events) ? result.events : [];
         // Preserve the model's nuanced relationship language; do not discard the entire life update for keyword matches.
 
         await db.transaction('rw', [db.themes, db.characters, db.conversations, db.messages, db.messageVariants, db.timelines, db.pathNodes], async () => {
@@ -64,11 +68,12 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
 
                 next.focus = result.focus.slice(0, 300);
                 if (result.mood !== next.mood && result.mood.trim()) {
-                    next.moodHistory = [...(next.moodHistory ?? []), { at: now, mood: result.mood }].slice(-120);
+                    next.moodHistory = [...(next.moodHistory ?? []), { at: now, mood: result.mood.slice(0, 200) }].slice(-120);
                 }
                 next.mood = result.mood.slice(0, 200);
                 for (const u of result.updates.slice(0, 3)) {
-                    const e = next.events.find(e => e.id === u.id);
+                    if (!u || typeof u !== 'object') continue;
+                    const e = next.events.find(e => e.id === u.id || e.title === u.id || e.title === u.title);
                     if (!e || e.status === 'done' || !['ongoing', 'paused', 'done'].includes(u.status) || typeof u.detail !== 'string' || majorLifeEvent(u.detail))
                         continue;
                     const previousProgress = e.progress?.length ? e.progress : [{ at: e.updatedAt, text: e.detail, status: 'ongoing' as const }];
@@ -81,7 +86,7 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
                     await appendLifeProgress(owner, e, { at: now, text: u.detail.slice(0, 500), status: u.status });
                 }
                 for (const input of result.events.slice(0, 2)) {
-                    if (typeof input.title !== 'string' || !input.title.trim() || typeof input.detail !== 'string')
+                    if (!input || typeof input !== 'object' || typeof input.title !== 'string' || !input.title.trim() || typeof input.detail !== 'string')
                         continue;
                     if ([...next.events, ...next.proposals ?? []].some(e => e.title === input.title))
                         continue;
