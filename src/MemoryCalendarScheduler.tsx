@@ -1,3 +1,4 @@
+import {enqueueAutomation} from './automationQueue';
 import {useEffect,useRef,useState} from 'react';
 import {db} from './store';
 import {getMemoryScope} from './memoryStore';
@@ -19,7 +20,7 @@ export function MemoryCalendarScheduler(){
      if(!c.dailyDigestSettings?.enabled&&!c.smartTimeMemories?.some(r=>r.enabled))continue;
      let scope:MemoryScope;
      try{scope=await getMemoryScope(c.id);}catch{continue;}
-     if(c.dailyDigestSettings?.enabled)void runDailyDigest(scope).catch(()=>{});
+     if(c.dailyDigestSettings?.enabled)void enqueueAutomation('digest:'+c.id,()=>runDailyDigest(scope));
      if(!notice&&c.smartTimeMemories?.some(r=>r.enabled)){
       const due=await dueTimeMemories(scope);
       const eligible=due.find(r=>(r.method==='system'||r.method==='both')&&!snoozed.current.has(r.id+':'+nextOccurrence(r)));
