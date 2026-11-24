@@ -1,3 +1,4 @@
+import {enqueueAutomation} from './automationQueue';
 import {useEffect} from 'react';
 import {liveQuery} from 'dexie';
 import {db} from './store';
@@ -23,7 +24,7 @@ export function ProactiveScheduler(){
    if(disposed||document.visibilityState!=='visible'||!navigator.onLine)return;
    if(running){queued=true;return;}
    running=true;
-   try{await scanProactiveMessages();}catch{/* Automatic sends are silent; manual tests surface errors. */}
+   try{await enqueueAutomation('proactive',scanProactiveMessages);}catch{/* Automatic sends are silent; manual tests surface errors. */}
    finally{running=false;if(queued){queued=false;void check();}else schedule();}
   };
   const subscription=liveQuery(async()=>{
