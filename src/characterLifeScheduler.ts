@@ -7,7 +7,7 @@ import { generatePrivateNote } from './privateNotesGeneration';
 export function installCharacterLifeScheduler() {
     let stopped = false, running = false, cursor = 0;
     const check = async () => {
-        if (stopped || running || document.hidden)
+        if (stopped || running || document.hidden || !navigator.onLine)
             return;
         running = true;
         try {
@@ -20,7 +20,7 @@ export function installCharacterLifeScheduler() {
             const state = enabled[cursor++ % enabled.length];
             if (!await db.characters.get(state.characterId))
                 return;
-            await runCharacterLife(state.characterId);
+            await runCharacterLife(state.characterId).catch(()=>{});
             if (!stopped && !document.hidden)
                 await generatePrivateNote(state.characterId);
         }
