@@ -22,9 +22,10 @@ export function installMemorySummaryScheduler(){
   finally{running=false;}
  };
  const wake=()=>{void scan();};
+ const timer=setInterval(wake,60000);
  window.addEventListener('online',wake);
  window.addEventListener('pageshow',wake);
  document.addEventListener('visibilitychange',wake);
  void scan();
- return ()=>{window.removeEventListener('online',wake);window.removeEventListener('pageshow',wake);document.removeEventListener('visibilitychange',wake);};
+ return ()=>{clearInterval(timer);window.removeEventListener('online',wake);window.removeEventListener('pageshow',wake);document.removeEventListener('visibilitychange',wake);};
 }
