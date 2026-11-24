@@ -1,6 +1,6 @@
 import type {ApiConfig} from './api';
 import {memoryTokenCost} from './memoryContext';
-import {recoverSummaryBatch,summaryJsonCandidate,SummaryFormatError} from './memorySummaryFormat';
+import {recoverSummaryBatch,summaryJsonCandidate,SummaryFormatError,parseSimpleSummary} from './memorySummaryFormat';
 import {summaryDuplicateIndex} from './memorySummaryQuality';
 import type {SummaryFact} from './memorySummaryTypes';
 /** No model-name guesses or paid discovery. UTF-8 bytes are a conservative token
@@ -33,7 +33,14 @@ export function reviewIntervalSummary(raw:string,input:string){
  }
  if(value&&typeof value==='object'&&!Array.isArray(value)&&['operation','deleteAll','resetDatabase','clear'].some(k=>Object.hasOwn(value,k)))throw new SummaryFormatError({version:1,stage:'validate',code:'unexpected-field'});const rows=Array.isArray(value)?value:value?.memories??value?.facts;
  const normalized=Array.isArray(rows)?JSON.stringify({memories:rows.map((r:unknown)=>typeof r==='string'?{content:r}:r)}):raw;
- const parsed=recoverSummaryBatch(normalized,input),accepted:SummaryFact[]=[],rejected=[...parsed.rejected];
+ let parsed:ReturnType<typeof recoverSummaryBatch>;
+ try{parsed=recoverSummaryBatch(normalized,input);}catch(error){
+  if(!(error instanceof SummaryFormatError)||error.diagnostic.code!=='invalid-quality')throw error;
+  const simple=parseSimpleSummary(normalized);
+  if(!simple.facts.length)throw error;
+  return {facts:simple.facts,candidates:simple.candidates,rejected:Array.from({length:simple.rejected},(_,index)=>({index,reason:'invalid-candidate' as const}))};
+ }
+ const accepted:SummaryFact[]=[],rejected=[...parsed.rejected];
  const negative=(s:string)=>/不是|没有|不能|不会|未完成|不想|不愿|不要|不喜欢|不接受|不允许|不可能|不打算|不希望|拒绝|禁止|否认/u.test(s);
  const uncertain=(s:string)=>/如果|假如|除非|可能|也许|猜测|打算|计划|准备|明天|下周/u.test(s);
  const nums=(s:string)=>s.match(/[+\-−]?\d+(?:\.\d+)?/g)?.join('|')??'';
@@ -47,7 +54,7 @@ export function reviewIntervalSummary(raw:string,input:string){
   else if(/^用户/.test(f.content)&&evidence.every(e=>e.role!=='user')||/^角色/.test(f.content)&&evidence.every(e=>e.role!=='assistant'))reason='unsupported-detail';
   if(reason)rejected.push({index,reason});else accepted.push(f);
  }
- if(parsed.candidates&&!accepted.length)throw new SummaryFormatError({version:1,stage:'validate',code:'invalid-quality'});
+ if(parsed.candidates&&!accepted.length){const simple=parseSimpleSummary(normalized);if(simple.facts.length)return {facts:simple.facts,candidates:simple.candidates,rejected:Array.from({length:simple.rejected},(_,index)=>({index,reason:'invalid-candidate' as const}))};throw new SummaryFormatError({version:1,stage:'validate',code:'invalid-quality'});}
  return {facts:accepted,candidates:parsed.candidates,rejected};
 }
 /** Lossless local reduction tree. Do not pay a model to re-invent already checked
