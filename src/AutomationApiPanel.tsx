@@ -17,9 +17,11 @@ export function AutomationApiPanel({configs}:{configs:ApiConfig[]}){
   setBusy(true);setNotice('');
   try{
    const c=configs.find(c=>c.id===selected);
+   if(selected&&!c)throw Error('所选 API 已删除，请重新选择');
    if(!c){if(current){await saveSummaryApi({...current,enabled:true});setNotice('已启用独立 API');return}throw Error('请选择 API 配置')}
    const credential=await db.apiCredentials.get(c.id);
    if(!credential?.apiKey)throw Error('所选配置缺少 Key');
+   if(c.protocol==='unsupported')throw Error('所选 API 协议不受支持');
    const value:DedicatedSummaryApi={provider:c.provider as DedicatedSummaryApi['provider'],protocol:c.protocol,baseUrl:c.baseUrl,model:c.model,apiKey:credential.apiKey,temperature:c.temperature,maxTokens:c.maxTokens,contextWindowTokens:c.contextWindowTokens,modelOutputTokens:c.modelOutputTokens,enabled:true};
    await saveSummaryApi(value);setNotice('已保存独立自动任务 API');
   }catch(e){setNotice(e instanceof Error?e.message:'保存失败')}finally{setBusy(false)}
