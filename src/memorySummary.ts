@@ -91,7 +91,7 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   if(!manual)data.turns=data.turns.filter(t=>!data.coveredAssistantIds.has(t.ref.assistantId));
   // Legacy pending-count backoff is obsolete; new turns must not be a recovery prerequisite.
   if(state.deferUntilPending!==undefined){state.deferUntilPending=undefined;state.autoAttempt=undefined;}
-  if(!data.turns.length||(!manual&&data.turns.length<state.interval))return;
+  if(!data.turns.length||(!manual&&data.turns.length<state.interval&&!state.checkpoint))return;
   await sealMemorySummaryForks(scope);
   const full=summaryCapacityFull(c);if(full)state.capacityBlocked=summaryCapacityKey(c);
   // The user interval is a task, never an API-size cap. Resume the exact old
@@ -153,11 +153,11 @@ async function execute(scope:MemoryScope,manual:boolean){
    const input=claimed.inputs[index];
    const saved=(await db.conversations.get(scope.conversationId))?.memorySummary?.checkpoint;
    if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]){
-    try{const part=saved.completed[index],reviewed=reviewIntervalSummary(JSON.stringify({memories:part.facts}),input);
+    try{const part=saved.completed[index],reviewed={facts:part.facts};
     for(const f of reviewed.facts)inputForFact.set(f,index);facts.push(...reviewed.facts);
     const countsValid=[part.candidates,part.accepted,part.rejected].every(n=>Number.isSafeInteger(n)&&n>=0)&&part.accepted===part.facts.length&&part.candidates===part.accepted+part.rejected&&part.reasons&&Object.entries(part.reasons).every(([k,n])=>Object.hasOwn(summaryRejectionText,k)&&Number.isSafeInteger(n)&&n>=0)&&Object.values(part.reasons).reduce((a,b)=>a+b,0)===part.rejected;
     stats.candidates+=countsValid?part.candidates:part.facts.length;stats.accepted+=reviewed.facts.length;stats.rejected+=(countsValid?part.rejected:0);for(const [reason,count] of Object.entries(countsValid?part.reasons:{}))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;
-    }catch(e){if(!manual||!(e instanceof SummaryFormatError))throw e;/* Explicit recovery may regenerate an invalid old fragment, never a verified one. */}
+    }catch(e){if(!(e instanceof SummaryFormatError))throw e;/* Explicit recovery may regenerate an invalid old fragment, never a verified one. */}
    }
    const before=facts.length;
    // Persist intent before a paid call. A crashed/closed page can only replay
@@ -288,7 +288,7 @@ export async function tryAutoSummary(conversationId:string){
    if(!navigator.onLine||document.hidden)break;
    const before=await summaryStatus(scope);
    const owner=await db.conversations.get(conversationId);const state=owner?.memorySummary;const recovered=owner&&summaryCapacityRecovered(owner)&&state?.job?.chunks===0&&!state.checkpoint?.completed.length;
-   if(!state?.enabled||before.pending<before.interval)break;
+   if(!state?.enabled||before.pending<before.interval&&!state.checkpoint)break;
    if(state.job?.status==='failed'&&Date.now()-(state.job.finishedAt??state.job.startedAt)<30*60*1000&&!recovered){scheduleSummaryRecovery(conversationId);break;}
    // One attempt per due cycle. A failure is terminal for this cycle:
    // do not silently issue another paid API request, even for transient errors.
@@ -296,7 +296,7 @@ export async function tryAutoSummary(conversationId:string){
    if(!navigator.onLine||document.hidden)return;
    await runMemorySummary(scope,false);
    const current=(await db.conversations.get(conversationId))?.memorySummary;
-   if(current?.job?.id===before.job?.id)return;
+   if(current?.job?.id===before.job?.id){if(current?.job?.status==='failed'&&!current.requiresManualResume)scheduleSummaryRecovery(conversationId);return;}
    const succeeded=current?.job?.status==='succeeded';
    if(!succeeded&&current?.job?.status!=='failed')return;
    if(!succeeded){
