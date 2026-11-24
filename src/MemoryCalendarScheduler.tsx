@@ -10,7 +10,7 @@ export function MemoryCalendarScheduler(){
  const [notice,setNotice]=useState<{scope:MemoryScope;record:SmartTimeMemory}|null>(null);
  useEffect(()=>{let disposed=false,running=false;
   const scan=async()=>{
-   if(disposed||running||document.visibilityState!=='visible')return;
+   if(disposed||running||document.visibilityState!=='visible'||!navigator.onLine)return;
    running=true;
    try{
     const conversations=await db.conversations.toArray();
@@ -23,15 +23,16 @@ export function MemoryCalendarScheduler(){
      if(!notice&&c.smartTimeMemories?.some(r=>r.enabled)){
       const due=await dueTimeMemories(scope);
       const eligible=due.find(r=>(r.method==='system'||r.method==='both')&&!snoozed.current.has(r.id+':'+nextOccurrence(r)));
-      if(eligible&&!disposed){setNotice({scope,record:eligible});break;}
+      if(eligible&&!disposed){setNotice(previous=>previous??{scope,record:eligible});}
      }
     }
    }finally{running=false;}
   };
   const foreground=()=>void scan();
   document.addEventListener('visibilitychange',foreground);window.addEventListener('focus',foreground);
+  const timer=setInterval(foreground,60000);
   void scan();
-  return()=>{disposed=true;document.removeEventListener('visibilitychange',foreground);window.removeEventListener('focus',foreground);};
+  return()=>{disposed=true;clearInterval(timer);document.removeEventListener('visibilitychange',foreground);window.removeEventListener('focus',foreground);};
  },[notice?.record.id]);
  if(!notice)return null;
  return <div className="memory-calendar-notice" role="status" style={{position:'fixed',top:'max(16px, env(safe-area-inset-top))',left:'50%',transform:'translateX(-50%)',zIndex:10000,maxWidth:360,width:'calc(100% - 32px)',background:'var(--surface-color,#f6f6f6)',color:'var(--text-color,#222)',padding:16,borderRadius:16,boxShadow:'0 8px 30px #0004'}}>
