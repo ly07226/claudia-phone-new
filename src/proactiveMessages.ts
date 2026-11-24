@@ -26,7 +26,6 @@ export function proactiveEligible(c:Conversation,latestUserAt:number,now:number)
 export async function sendProactiveMessage(id:string,force=false,gameEvent?:PhaseChatEvent):Promise<boolean>{
  if(pending.has(id)||document.visibilityState!=='visible')return false;
  pending.add(id);
- let token='';
  try{
   const now=Date.now();
   const c=await db.conversations.get(id);
@@ -40,13 +39,12 @@ export async function sendProactiveMessage(id:string,force=false,gameEvent?:Phas
   if(!gameEvent&&!force&&!proactiveEligible(c,latestUserAt,now))return false;
   const anchor=Math.max(c.createdAt,c.chatSettings?.proactiveEnabledAt??c.createdAt,latestUserAt);
   const probability=c.chatSettings?.proactiveProbability??50;
-  token=crypto.randomUUID();
   const acquired=await db.transaction('rw',db.conversations,async()=>{
    const current=await db.conversations.get(id);
    if(!current||(current.sendingUntil??0)>Date.now()||!gameEvent&&(!current.chatSettings?.proactiveEnabled||current.mode!=='daily'||current.worldId))return false;
    if(gameEvent&&(!current.chatEventReceipts?.some(r=>r.id===gameEvent.id&&r.status==='processing')||current.activeTimelineId!==gameEvent.run.target.timelineId||(current.timelineEpoch??0)!==gameEvent.run.target.epoch))return false;
    if(!gameEvent&&!force&&current.chatSettings?.proactiveAttemptFor===anchor)return false;
-   await db.conversations.update(id,{sendingToken:token,sendingUntil:Date.now()+90000,...(!gameEvent||current.chatSettings?.proactiveEnabled?{chatSettings:{...current.chatSettings,proactiveAttemptFor:anchor}}:{})});
+   await db.conversations.update(id,{...(!gameEvent||current.chatSettings?.proactiveEnabled?{chatSettings:{...current.chatSettings,proactiveAttemptFor:anchor}}:{})});
    return true;
   });
   if(!acquired)return false;
@@ -67,12 +65,13 @@ export async function sendProactiveMessage(id:string,force=false,gameEvent?:Phas
   let saved=false;let committedMessage:Message|undefined;
   await db.transaction('rw',[...messageTables(),db.characters,db.worlds,db.worldProfiles],async()=>{
    const current=await db.conversations.get(id);
-   if(!current||current.sendingToken!==token||current.activeTimelineId!==locked.activeTimelineId||(current.timelineEpoch??0)!==(locked.timelineEpoch??0))return;
+   if(!current||(current.sendingUntil??0)>Date.now()||current.activeTimelineId!==locked.activeTimelineId||(current.timelineEpoch??0)!==(locked.timelineEpoch??0))return;
    const existingCharacter=await db.characters.get(current.characterId);if(!existingCharacter||!current.worldId&&!isDailyFriend(existingCharacter))return;
    if(current.worldId&&(!await db.worlds.get(current.worldId)||!await db.worldProfiles.where('[worldId+characterId]').equals([current.worldId,current.characterId]).first()))return;
    await ensureTimelineInTransaction(id);
    const rows=await activeMessages(id);
    if(rows.some(m=>m.role==='user'&&m.createdAt>latestUserAt)||!gameEvent&&!current.chatSettings?.proactiveEnabled)return;
+   if(rows.length!==path.length||rows.at(-1)?.id!==path.at(-1)?.id)return;
    const last=rows.at(-1);
    const message={id:crypto.randomUUID(),conversationId:id,role:'assistant' as const,content:text,createdAt:Math.max(Date.now(),(last?.createdAt??0)+1)};
    await db.messages.add(message);
@@ -87,7 +86,6 @@ export async function sendProactiveMessage(id:string,force=false,gameEvent?:Phas
   }
   return saved;
  }finally{
-  if(token)await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(id);if(c?.sendingToken===token)await db.conversations.update(id,{sendingToken:undefined,sendingUntil:undefined});}).catch(()=>{});
   pending.delete(id);
  }
 }
