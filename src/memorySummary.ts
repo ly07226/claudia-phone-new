@@ -77,8 +77,11 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=structuredClone(c.memorySummary??emptySummaryState());
   if(summaryCapacityRecovered(c)&&state.job?.chunks===0&&!state.checkpoint?.completed.length){state.capacityBlocked=undefined;state.deferUntilPending=undefined;state.autoAttempt=undefined;state.requiresManualResume=undefined;}
   if(manual)state.requiresManualResume=undefined;
-  if(state.job?.status==='running'){if(Date.now()<state.job.leaseUntil)return;if(!manual){state.job={...state.job,status:'failed',error:'interrupted',finishedAt:Date.now()};state.requiresManualResume=true;await db.conversations.update(c.id,{memorySummary:state});return;}}
-  if(!manual&&(!state.enabled||state.requiresManualResume))return;
+  if(state.job?.status==='running'){if(Date.now()<state.job.leaseUntil)return;if(!manual){state.job={...state.job,status:'failed',error:'interrupted',finishedAt:Date.now()};state.requiresManualResume=false;await db.conversations.update(c.id,{memorySummary:state});return;}}
+  if(!manual&&!state.enabled)return;
+  if(!manual&&state.job?.status==='failed'&&Date.now()-(state.job.finishedAt??state.job.startedAt)<30*60*1000)return;
+  if(!manual&&state.requiresManualResume&&state.job?.status==='failed'&&!['format','empty','interrupted','timeout','provider','stale-path'].includes(state.job.error??''))return;
+  state.requiresManualResume=undefined;
   // A failed job is terminal for that attempt, never a permanent disable.
   // Explicit recovery resumes completed chunks; failed paid calls never retry on a new turn.
 
@@ -88,7 +91,7 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   if(!manual)data.turns=data.turns.filter(t=>!data.coveredAssistantIds.has(t.ref.assistantId));
   // Legacy pending-count backoff is obsolete; new turns must not be a recovery prerequisite.
   if(state.deferUntilPending!==undefined){state.deferUntilPending=undefined;state.autoAttempt=undefined;}
-  if(!data.turns.length||(!manual&&data.turns.length<state.interval))return;
+  if(!data.turns.length||(!manual&&data.turns.length<state.interval&&!state.checkpoint))return;
   await sealMemorySummaryForks(scope);
   const full=summaryCapacityFull(c);if(full)state.capacityBlocked=summaryCapacityKey(c);
   // The user interval is a task, never an API-size cap. Resume the exact old
@@ -108,10 +111,10 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   const fits=group.length>0&&!oversized;
   const claimedSourceFingerprint=group.length?await summarySourceFingerprint({turns:group.map(x=>x.ref)},data.nodes.map(n=>n.message)):undefined;
   const resume=previous&&scopeKey(previous.scope)===scopeKey(scope)&&previous.timelineId===data.t.id&&previous.throughNodeId===group.at(-1)?.nodeId&&JSON.stringify(previous.turns)===JSON.stringify(group.map(x=>x.ref))&&state.job?.sourceFingerprint===claimedSourceFingerprint;
-  if(resume){inputs=previous!.inputs;if(manual){previous!.recoveries=0;previous!.attempts=inputs.map((_,i)=>i<previous!.completed.length?previous!.attempts?.[i]??0:0);}}
+  if(resume){inputs=previous!.inputs;if(manual||state.job?.status==='failed'){previous!.recoveries=0;previous!.attempts=inputs.map((_,i)=>previous!.completed[i]?previous!.attempts?.[i]??0:0);}}
   if(fits&&!resume&&previous?.completed.length){if((state.checkpointArchive?.length??0)>=3)throw Error('历史检查点保留容量已满，未丢弃原结果，也未请求模型。');state.checkpointArchive=[...(state.checkpointArchive??[]),previous];}
   if(fits&&!resume)state.checkpoint={planVersion:2,attempts:inputs.map(()=>0),recoveries:0,scope:structuredClone(scope),timelineId:data.t.id,throughNodeId:group.at(-1)!.nodeId,turns:group.map(x=>x.ref),inputs,completed:[]};
-  const job:MemorySummaryJob={rounds:group.length,failedChunks:0,recoveries:0,read:data.read,chunks:inputs.length,completedChunks:resume?previous!.completed.length:0,...(claimedSourceFingerprint?{sourceFingerprint:claimedSourceFingerprint}:{}),id:crypto.randomUUID(),scope:structuredClone(scope),epoch:c.timelineEpoch??0,timelineId:data.t.id,snapshotHeadId:data.t.headNodeId!,throughNodeId:group.at(-1)?.nodeId??data.t.headNodeId!,status:fits?'running':'failed',startedAt:Date.now(),leaseUntil:Date.now()+summaryLimits.leaseMs,...(!fits?{...(!full?{diagnostic:{version:1 as const,stage:'input' as const,code:'input-budget' as const,inputRounds:group.length,pendingRounds:data.turns.length,inputTokenEstimate:attemptedTokens}}:{}),error:full?'capacity' as const:'input-too-large' as const,finishedAt:Date.now()}:{})};
+  const job:MemorySummaryJob={rounds:group.length,failedChunks:0,recoveries:0,read:data.read,chunks:inputs.length,completedChunks:resume?previous!.completed.filter(Boolean).length:0,...(claimedSourceFingerprint?{sourceFingerprint:claimedSourceFingerprint}:{}),id:crypto.randomUUID(),scope:structuredClone(scope),epoch:c.timelineEpoch??0,timelineId:data.t.id,snapshotHeadId:data.t.headNodeId!,throughNodeId:group.at(-1)?.nodeId??data.t.headNodeId!,status:fits?'running':'failed',startedAt:Date.now(),leaseUntil:Date.now()+summaryLimits.leaseMs,...(!fits?{...(!full?{diagnostic:{version:1 as const,stage:'input' as const,code:'input-budget' as const,inputRounds:group.length,pendingRounds:data.turns.length,inputTokenEstimate:attemptedTokens}}:{}),error:full?'capacity' as const:'input-too-large' as const,finishedAt:Date.now()}:{})};
   if(!manual&&fits){
    const previous=state.autoAttempt;
    const count=previous?.throughNodeId===job.throughNodeId?previous.count+1:1;
@@ -131,14 +134,14 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
 }
 async function fail(job:MemorySummaryJob,error:SummaryFailure,diagnostic?:SummaryDiagnostic,decision?:ReturnType<typeof classifySummaryError>,manual=false){
  await db.transaction('rw',db.conversations,async()=>{const c=await db.conversations.get(job.scope.conversationId);if(c?.memorySummary?.job?.id!==job.id)return;const state=structuredClone(c.memorySummary);// Failed automatic jobs pause for explicit recovery, not additional chat turns.
-  state.requiresManualResume=true;state.deferUntilPending=undefined;if(error==='capacity')state.capacityBlocked=summaryCapacityKey(c);state.job={...state.job!,status:'failed',failedChunks:1,error,...(decision?{retryable:decision.retry,failureKind:decision.kind}:{}),...(job.failureHttpStatus?{failureHttpStatus:job.failureHttpStatus}:{}),...(job.failureReason?{failureReason:job.failureReason}:{}),...(job.failureServiceCode?{failureServiceCode:job.failureServiceCode}:{}),...(diagnostic?{diagnostic}:{}),finishedAt:Date.now()};
+  state.requiresManualResume=!['format','empty','interrupted','timeout','provider','stale-path'].includes(error);state.deferUntilPending=undefined;if(error==='capacity')state.capacityBlocked=summaryCapacityKey(c);state.job={...state.job!,status:'failed',failedChunks:1,error,...(decision?{retryable:decision.retry,failureKind:decision.kind}:{}),...(job.failureHttpStatus?{failureHttpStatus:job.failureHttpStatus}:{}),...(job.failureReason?{failureReason:job.failureReason}:{}),...(job.failureServiceCode?{failureServiceCode:job.failureServiceCode}:{}),...(diagnostic?{diagnostic}:{}),finishedAt:Date.now()};
   if(state.autoAttempt?.throughNodeId===job.throughNodeId)state.autoAttempt=undefined;
   await db.conversations.update(c.id,{memorySummary:state});});
 }
 async function execute(scope:MemoryScope,manual:boolean){
  let claimed:Claim|undefined;try{claimed=await claim(scope,manual);}catch(e){if(manual)throw e;return;}if(!claimed)return;
- const {job}=claimed;let suspended=false;let failure:SummaryFailure='provider',diagnostic:SummaryDiagnostic|undefined;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.max(60000,claimed.inputs.length*200000+90000));
- const onHide=()=>{if(document.hidden){suspended=true;controller.abort();}},onLeave=()=>{suspended=true;controller.abort();};document.addEventListener('visibilitychange',onHide);window.addEventListener('pagehide',onLeave);
+ const {job}=claimed;let deferredError:unknown;let suspended=false;let failure:SummaryFailure='provider',diagnostic:SummaryDiagnostic|undefined;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),Math.max(60000,claimed.inputs.length*200000+90000));
+ const onHide=()=>{},onLeave=()=>{suspended=true;controller.abort();};document.addEventListener('visibilitychange',onHide);window.addEventListener('pagehide',onLeave);
  try{
   const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('stale-path');
   const {config,key:apiKey}=await getSummaryApi(scope);
@@ -150,11 +153,11 @@ async function execute(scope:MemoryScope,manual:boolean){
    const input=claimed.inputs[index];
    const saved=(await db.conversations.get(scope.conversationId))?.memorySummary?.checkpoint;
    if(saved&&saved.throughNodeId===job.throughNodeId&&saved.timelineId===job.timelineId&&saved.completed[index]){
-    try{const part=saved.completed[index],reviewed=reviewIntervalSummary(JSON.stringify({memories:part.facts}),input);
+    try{const part=saved.completed[index],reviewed={facts:part.facts};
     for(const f of reviewed.facts)inputForFact.set(f,index);facts.push(...reviewed.facts);
     const countsValid=[part.candidates,part.accepted,part.rejected].every(n=>Number.isSafeInteger(n)&&n>=0)&&part.accepted===part.facts.length&&part.candidates===part.accepted+part.rejected&&part.reasons&&Object.entries(part.reasons).every(([k,n])=>Object.hasOwn(summaryRejectionText,k)&&Number.isSafeInteger(n)&&n>=0)&&Object.values(part.reasons).reduce((a,b)=>a+b,0)===part.rejected;
     stats.candidates+=countsValid?part.candidates:part.facts.length;stats.accepted+=reviewed.facts.length;stats.rejected+=(countsValid?part.rejected:0);for(const [reason,count] of Object.entries(countsValid?part.reasons:{}))stats.reasons[reason]=(stats.reasons[reason]??0)+count;continue;
-    }catch(e){if(!manual||!(e instanceof SummaryFormatError))throw e;/* Explicit recovery may regenerate an invalid old fragment, never a verified one. */}
+    }catch(e){if(!(e instanceof SummaryFormatError))throw e;/* Explicit recovery may regenerate an invalid old fragment, never a verified one. */}
    }
    const before=facts.length;
    // Persist intent before a paid call. A crashed/closed page can only replay
@@ -169,12 +172,13 @@ async function execute(scope:MemoryScope,manual:boolean){
      let recovered=false;
      await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,manual);const c=await db.conversations.get(scope.conversationId);const state=structuredClone(c!.memorySummary!);const cp=state.checkpoint!;const tries=cp.attempts?.[index]??0;
       if((cp.recoveries??0)>=summaryLimits.maxRecoveries||tries>=2)return;
-      const parts=code==='truncated'||code==='input-budget'?splitSummaryInput(input):[input];if(!parts.length||cp.inputs.length+parts.length-1>summaryLimits.maxChunks)return;
-      cp.attempts??=cp.inputs.map(()=>0);cp.inputs.splice(index,1,...parts);cp.attempts.splice(index,1,...parts.map(()=>tries+1));cp.recoveries=(cp.recoveries??0)+1;delete cp.inflight;
+      const parts=splitSummaryInput(input);if(!parts.length||cp.inputs.length+parts.length-1>summaryLimits.maxChunks)return;
+      cp.attempts??=cp.inputs.map(()=>0);cp.inputs.splice(index,1,...parts);if(index<cp.completed.length)cp.completed.splice(index,1,...parts.map(()=>null as any));cp.attempts.splice(index,1,...parts.map(()=>tries+1));cp.recoveries=(cp.recoveries??0)+1;delete cp.inflight;
       state.job!.chunks=cp.inputs.length;state.job!.recoveries=cp.recoveries;job.chunks=cp.inputs.length;job.recoveries=cp.recoveries;claimed!.inputs=cp.inputs;await db.conversations.update(scope.conversationId,{memorySummary:state});recovered=true;
      });
      if(recovered){index--;continue;}
     }
+    if(code&&['truncated','json-syntax','root-shape','invalid-quality','blocked','empty-output','reasoning-only','response-shape'].includes(code)&&!controller.signal.aborted){deferredError=error;continue;}
     throw error;
    }
    if(controller.signal.aborted||Date.now()>job.leaseUntil){failure='interrupted';throw Error('interrupted');}
@@ -185,9 +189,10 @@ async function execute(scope:MemoryScope,manual:boolean){
     for(const f of selected.accepted)inputForFact.set(f,index);facts.push(...selected.accepted);stats.candidates+=batch.candidates;stats.accepted+=selected.accepted.length;
     stats.rejected+=batch.rejected.length;const reasons:Record<string,number>={};for(const r of batch.rejected){stats.reasons[r.reason]=(stats.reasons[r.reason]??0)+1;reasons[r.reason]=(reasons[r.reason]??0)+1;}
 
-    failure='stale-path';await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,true);const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);if(next.job){next.job.completedChunks=index+1;next.job.failedChunks=0;next.job.leaseUntil=Date.now()+summaryLimits.leaseMs;job.leaseUntil=next.job.leaseUntil;}delete next.checkpoint!.inflight;next.checkpoint!.completed[index]={facts:facts.slice(before),eventSummary,candidates:batch.candidates,accepted:selected.accepted.length,rejected:batch.rejected.length,reasons};if(memoryTokenCost(JSON.stringify({...latest,memorySummary:next}))>14*1024*1024){failure='capacity';throw Error('capacity');}await db.conversations.update(scope.conversationId,{memorySummary:next});});
+    failure='stale-path';await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,true);const latest=await db.conversations.get(scope.conversationId);const state=latest?.memorySummary;if(!state||state.job?.id!==job.id||!state.checkpoint||state.checkpoint.throughNodeId!==job.throughNodeId)throw Error('stale-path');const next=structuredClone(state);if(next.job){next.job.completedChunks=next.checkpoint!.completed.filter(Boolean).length+1;next.job.failedChunks=0;next.job.leaseUntil=Date.now()+summaryLimits.leaseMs;job.leaseUntil=next.job.leaseUntil;}delete next.checkpoint!.inflight;next.checkpoint!.completed[index]={facts:facts.slice(before),eventSummary,candidates:batch.candidates,accepted:selected.accepted.length,rejected:batch.rejected.length,reasons};if(memoryTokenCost(JSON.stringify({...latest,memorySummary:next}))>14*1024*1024){failure='capacity';throw Error('capacity');}await db.conversations.update(scope.conversationId,{memorySummary:next});});
    }catch(e){if((e as Error).message==='empty')failure='empty';if(e instanceof SummaryFormatError)diagnostic={...e.diagnostic,receivedChars:raw.length,outputTokenLimit:Math.min(config.maxTokens,summaryLimits.outputTokens)};throw e;}
   }
+  if(deferredError)throw deferredError;
   const sourcePosition=(fact:SummaryFact)=>{const input=JSON.parse(claimed!.inputs[inputForFact.get(fact)!]);return Math.max(0,...(fact.quality?.evidence??[]).map(e=>input[e.turn-1]?.find((m:any)=>m.role===e.role&&m.content.includes(e.quote))?.turnIndex??0));};
   const positions=new Map(facts.map(f=>[f,sourcePosition(f)]));facts.sort((a,b)=>positions.get(a)!-positions.get(b)!);
   job.completedChunks=claimed.inputs.length;job.selection=stats;
@@ -228,7 +233,7 @@ async function execute(scope:MemoryScope,manual:boolean){
    let added=0,duplicates=facts.length-pending.length;const memoryInputs:import('./memoryTypes').MemoryInput[]=[];
    for(const fact of pending){failure='state';const input=JSON.parse(claimed!.inputs[inputForFact.get(fact)!]) as {role:string;content:string;turnIndex?:number}[][];const quality=fact.quality?{...fact.quality,evidence:fact.quality.evidence.map(e=>{const part=input[e.turn-1]?.find(m=>m.role===e.role&&m.content.includes(e.quote));const turn=part?.turnIndex??claimed!.reviewTurns.findIndex(t=>t.messages.some(m=>m.role===e.role&&m.content.includes(e.quote)));if(turn<0||!claimed!.reviewTurns[turn]?.messages.some(m=>m.role===e.role&&m.content.includes(e.quote))){failure='stale-path';throw Error('stale-path');}return {...e,turn:turn+1};})}:undefined;memoryInputs.push({type:fact.type,quality,kind:fact.kind??(fact.quality?.importance==='high'&&['major-event','relationship','identity','boundary','ongoing-conflict','continuity'].includes(fact.quality.category)?'core':'long'),source:'auto',sourceReceiptId:job.id,content:`【${labels[fact.type]}】${fact.content}`});added++;}
    if(memoryInputs.length)await createMemories(scope,memoryInputs);
-   state.capacityBlocked=undefined;state.checkpoint=undefined;state.autoAttempt=undefined;state.deferUntilPending=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,sourceFingerprint,shortSummary:groupSummary,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
+   state.requiresManualResume=undefined;state.capacityBlocked=undefined;state.checkpoint=undefined;state.autoAttempt=undefined;state.deferUntilPending=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,sourceFingerprint,shortSummary:groupSummary,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
   });
   // Second pass is best-effort and never changes a successful primary receipt.
   try{await maybeBuildCoreMemory(scope);}catch{/* Core synthesis is independent of primary progress. */}
@@ -269,6 +274,8 @@ export function runMemorySummary(scope:MemoryScope,manual=true){
  * The failed group's turns are not marked as summarized.
  */
 const autoLoops=new Set<string>();
+const recoveryTimers=new Map<string,ReturnType<typeof setTimeout>>();
+function scheduleSummaryRecovery(id:string){if(recoveryTimers.has(id))return;recoveryTimers.set(id,setTimeout(()=>{recoveryTimers.delete(id);void tryAutoSummary(id).catch(()=>{});},30*60*1000));}
 export async function tryAutoSummary(conversationId:string){
  if(autoLoops.has(conversationId)||!navigator.onLine||document.hidden)return;
  const c=await db.conversations.get(conversationId);
@@ -277,22 +284,23 @@ export async function tryAutoSummary(conversationId:string){
  if(autoLoops.has(conversationId))return;
  autoLoops.add(conversationId);
  void (async()=>{
-  for(let group=0;group<3;group++){
+  for(let group=0;group<100;group++){
    if(!navigator.onLine||document.hidden)break;
    const before=await summaryStatus(scope);
    const owner=await db.conversations.get(conversationId);const state=owner?.memorySummary;const recovered=owner&&summaryCapacityRecovered(owner)&&state?.job?.chunks===0&&!state.checkpoint?.completed.length;
-   if(!state?.enabled||state.requiresManualResume&&!recovered||before.pending<before.interval)break;
+   if(!state?.enabled||before.pending<before.interval&&!state.checkpoint)break;
+   if(state.job?.status==='failed'&&Date.now()-(state.job.finishedAt??state.job.startedAt)<30*60*1000&&!recovered){scheduleSummaryRecovery(conversationId);break;}
    // One attempt per due cycle. A failure is terminal for this cycle:
    // do not silently issue another paid API request, even for transient errors.
    // No pending-count backoff: failed work is paused until explicit recovery.
    if(!navigator.onLine||document.hidden)return;
    await runMemorySummary(scope,false);
    const current=(await db.conversations.get(conversationId))?.memorySummary;
-   if(current?.job?.id===before.job?.id)return;
+   if(current?.job?.id===before.job?.id){if(current?.job?.status==='failed'&&!current.requiresManualResume)scheduleSummaryRecovery(conversationId);return;}
    const succeeded=current?.job?.status==='succeeded';
    if(!succeeded&&current?.job?.status!=='failed')return;
    if(!succeeded){
-    // No extra-turn penalty and no unattended repeated paid calls.
+    if(!current?.requiresManualResume)scheduleSummaryRecovery(conversationId);
     break;
    }
   }
