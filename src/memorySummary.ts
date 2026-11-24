@@ -1,3 +1,4 @@
+import {enqueueAutomation} from './automationQueue';
 import {chatYield} from './chatCooperative';
 import {summaryRequestBudget,splitSummaryInput,reviewIntervalSummary,mergeIntervalSummary} from './memorySummaryPlan';
 import {summaryCapacityKey,summaryCapacityRecovered,summaryCapacityFull} from './summaryCapacity';
@@ -283,8 +284,8 @@ export async function tryAutoSummary(conversationId:string){
  const scope=await getMemoryScope(conversationId);
  if(autoLoops.has(conversationId))return;
  autoLoops.add(conversationId);
- void (async()=>{
-  for(let group=0;group<100;group++){
+ void enqueueAutomation('summary:'+conversationId,async()=>{
+  for(let group=0;group<1;group++){
    if(!navigator.onLine||document.hidden)break;
    const before=await summaryStatus(scope);
    const owner=await db.conversations.get(conversationId);const state=owner?.memorySummary;const recovered=owner&&summaryCapacityRecovered(owner)&&state?.job?.chunks===0&&!state.checkpoint?.completed.length;
@@ -304,7 +305,7 @@ export async function tryAutoSummary(conversationId:string){
     break;
    }
   }
- })().catch(()=>{}).finally(()=>autoLoops.delete(conversationId));
+ }).catch(()=>{}).finally(()=>autoLoops.delete(conversationId));
 }
 
 export async function catchUpMemorySummaries(scope:MemoryScope){
