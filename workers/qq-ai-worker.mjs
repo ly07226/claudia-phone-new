@@ -1,3 +1,5 @@
+import {splitQqReply} from '../supabase/functions/_shared/qqReply.mjs';
+import {prepareQqRequestContext,recallTerms} from '../supabase/functions/_shared/qqContext.mjs';
 // QQ-only AI generation worker. Requires explicit owner authorization and synced context.
 import {webcrypto} from 'node:crypto';
 import {setTimeout as sleep} from 'node:timers/promises';
@@ -27,13 +29,15 @@ async function next(){
   const row=rows?.[0];if(!row)continue;
   let reply=null,errorCode=null;
   try{
-   const [profiles,snapshots,history]=await Promise.all([
+   const [profiles,snapshots,history,bindings]=await Promise.all([
     db('claudia_qq_ai_profiles?binding_id=eq.'+row.binding_id+'&enabled=eq.true&select=user_id,model,endpoint,api_key_ciphertext'),
-    db('claudia_qq_context_snapshots?binding_id=eq.'+row.binding_id+'&select=user_id,context_messages'),
-    db('claudia_qq_messages?binding_id=eq.'+row.binding_id+'&received_at=lt.'+encodeURIComponent(row.received_at)+'&status=in.(received,generated,sent)&select=direction,body,status&order=received_at.desc&limit=24')
+    db('claudia_qq_context_snapshots?binding_id=eq.'+row.binding_id+'&select=user_id,context_messages,context_data'),
+    db('rpc/claudia_qq_history_context',{p_user_id:row.user_id,p_binding_id:row.binding_id,p_before:row.received_at,p_before_id:row.id,p_terms:recallTerms(row.body)}),
+    db('claudia_qq_bindings?id=eq.'+row.binding_id+'&user_id=eq.'+row.user_id+'&select=character_id')
    ]);
    const profile=profiles[0],snapshot=snapshots[0];
    if(!profile||!snapshot||profile.user_id!==row.user_id||snapshot.user_id!==row.user_id)throw Error('profile_or_context_missing');
+   if(!bindings[0]||snapshot.context_data&&snapshot.context_data.characterId!==bindings[0].character_id)throw Error('context_binding_mismatch');
    const context=snapshot.context_messages;
    if(!Array.isArray(context)||!context.some(m=>m?.role==='system'))throw Error('invalid_context');
    const url=new URL(profile.endpoint);
@@ -42,13 +46,10 @@ async function next(){
       !url.pathname.endsWith('/chat/completions')||url.search||
       !host.includes('.')||host.endsWith('.local')||host.endsWith('.internal')||
       /^\[/.test(host)||/^\d+(?:\.\d+){3}$/.test(host))throw Error('invalid_endpoint');
-   const effective=context.filter(m=>m&&['system','user','assistant'].includes(m.role)&&typeof m.content==='string');
-   while(effective.length&&effective[effective.length-1].role==='user')effective.pop();
-   const prior=history.reverse().filter(m=>m.direction==='inbound'||(m.direction==='outbound'&&m.status==='sent'))
-    .map(m=>({role:m.direction==='inbound'?'user':'assistant',content:m.body.slice(0,8000)}));
+   const effective=await prepareQqRequestContext(context,snapshot.context_data??null,history.recent??[],history.recalled??[],row.body);
    const apiKey=await decrypt(profile.api_key_ciphertext);
    const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+apiKey},
-    body:JSON.stringify({model:profile.model,messages:[...effective,...prior,{role:'user',content:row.body}],stream:false}),
+    body:JSON.stringify({model:profile.model,messages:effective,stream:false}),
     signal:AbortSignal.timeout(120000)});
    if(!response.ok)throw Error('model_http_'+response.status);
    const data=await response.json();
@@ -58,10 +59,10 @@ async function next(){
    reply=content.trim();
   }catch(error){
    const reason=error instanceof Error?error.message:'generation_failed';
-   errorCode=/^(model_http_\d+|invalid_model_reply|invalid_context|invalid_endpoint|profile_or_context_missing|invalid_ciphertext)$/.test(reason)?reason:'generation_failed';
+   errorCode=/^(model_http_\d+|invalid_model_reply|invalid_context|invalid_endpoint|profile_or_context_missing|context_binding_mismatch|invalid_ciphertext)$/.test(reason)?reason:'generation_failed';
    console.warn('qq_ai_generation_failed',row.id,errorCode);
   }
-  const saved=await db('rpc/claudia_qq_finish_generation',{p_inbound_id:row.id,p_expected_lease_until:row.lease_until,p_reply_body:reply,p_error_code:errorCode});
+  const saved=await db('rpc/claudia_qq_finish_generation',{p_inbound_id:row.id,p_expected_lease_until:row.lease_until,p_reply_body:reply,p_error_code:errorCode,p_parts:reply?splitQqReply(reply):null});
   console.info('qq_ai_generation_finished',row.id,saved===true,reply!==null);
   return true;
  }

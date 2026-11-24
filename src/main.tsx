@@ -1,3 +1,4 @@
+import {observeQqContextChanges} from './qqContextSync';
 import {installCharacterLifeScheduler} from './characterLifeScheduler';
 import {PrivateNotes} from './PrivateNotes';
 import {ChatBannerSettings} from './ChatBannerSettings';
@@ -104,6 +105,11 @@ function App() {
         );
       }
     };
+    let qqTimer:number|undefined;
+    const stopQqChanges=observeQqContextChanges(()=>{
+      if(qqTimer!==undefined)window.clearTimeout(qqTimer);
+      qqTimer=window.setTimeout(()=>{qqTimer=undefined;if(document.visibilityState==='visible')void reconcileQqAfterReopen().catch(()=>{});},400);
+    });
     reconcile();
     // Keep opted-in WeChat conversations current while the app stays open.
     // The reconciler coalesces overlapping requests and checks opt-in itself.
@@ -112,6 +118,8 @@ function App() {
     window.addEventListener('pageshow', reconcile);
     return () => {
       window.clearInterval(interval);
+      stopQqChanges();
+      if(qqTimer!==undefined)window.clearTimeout(qqTimer);
       document.removeEventListener('visibilitychange', reconcile);
       window.removeEventListener('pageshow', reconcile);
     };

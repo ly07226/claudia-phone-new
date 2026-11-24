@@ -23,6 +23,7 @@ export const contextLimits = {
 export async function buildContext(
   conversation: Conversation,
   beforeMessageId?: string,
+  options: {externalLore?:boolean;externalMemory?:boolean} = {},
 ): Promise<ContextMessage[]> {
   const c = await db.characters.get(conversation.characterId);
   if (!c) throw Error("角色已不存在。");
@@ -75,7 +76,9 @@ export async function buildContext(
   // only drop an incomplete leading turn introduced by history truncation.
   while (history[0]?.role === "assistant"&&path[0]?.role!=="assistant") history.shift();
   // Reserve the actual remaining system budget for lore before constructing the request.
-  const lore = await loreForConversation(
+  const lore:Awaited<ReturnType<typeof loreForConversation>> = options.externalLore
+    ? {entries:[],activated:[],diagnostics:[],regexErrors:{},skippedBooks:[],entryScopes:{}}
+    : await loreForConversation(
     conversation,
     history,
     Math.max(0, contextLimits.systemChars - system.length - (time?.content.length ?? 0) - 4),
@@ -116,9 +119,9 @@ export async function buildContext(
   // time block there without changing profile data or downgrading the profile role.
   const timed = time ? [{...context[0], content: `${context[0].content}\n\n${time.content}`}, ...context.slice(1)] : context;
   const available=contextLimits.systemChars-timed.filter(m=>m.role==='system').reduce((n,m)=>n+m.content.length,0);
-  const memory=await memoryContext(conversation,originalPath,available);
+  const memory=options.externalMemory?'':await memoryContext(conversation,originalPath,available);
   // Keep memory data in the first systemInstruction for Gemini as well as OpenAI.
-  const raw=await rawHistoryRecall(conversation,originalPath,new Set(history.map(m=>m.id)),available-memory.length);
+  const raw=options.externalMemory?'':await rawHistoryRecall(conversation,originalPath,new Set(history.map(m=>m.id)),available-memory.length);
   const life=await characterLifeContext(conversation,originalPath,available-memory.length-raw.length).catch(()=>'');
   const recalled=memory+raw+life;
   const result=recalled ? [{...timed[0],content:timed[0].content+recalled},...timed.slice(1)] : timed;
