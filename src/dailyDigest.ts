@@ -62,7 +62,7 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
   const sourceSnapshot=JSON.stringify(sourceMessages.map(m=>[m.id,m.role,m.createdAt,m.content,m.activeVariantId??null,(m.attachments??[]).map(a=>a.assetId)]));
   const sourceFingerprint='s3:'+await sourceHash(sourceSnapshot);
   const attempt=c.dailyDigestAttempt;
-  if(!manual&&attempt?.status==='failed'&&memoryScopeKey(attempt.scope)===memoryScopeKey(scope)&&attempt.startDay===start&&attempt.endDay===end)return;
+  if(!manual&&attempt?.status==='failed'&&memoryScopeKey(attempt.scope)===memoryScopeKey(scope)&&attempt.startDay===start&&attempt.endDay===end&&Date.now()-attempt.startedAt<30*60000)return;
   if((c.dailyDigests?.length??0)>=5000)throw Error('二级总结达到容量保护上限，原记录保留；未调用 API。');
   const raw=sourceMessages.map(m=>`[${m.role==='user'?'用户':'角色'}] ${visibleMessage(m).content}`);
   if(!raw.length){
@@ -151,7 +151,7 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
    if(JSON.stringify(currentSource.map(m=>[m.id,m.role,m.createdAt,m.content,m.activeVariantId??null,(m.attachments??[]).map(a=>a.assetId)]))!==sourceSnapshot)throw Error('二级总结保存时原文发生变化，未写入旧摘要');
    if(scope.mode==='world'&&current.activeTimelineId!==scope.timelineId)return;
    await db.conversations.update(c.id,{dailyDigests:[...(current.dailyDigests??[]),{id:crypto.randomUUID(),scope:structuredClone(scope),startDay:start,endDay:end,text,createdAt:Date.now(),sourceMessageIds:sourceMessages.map(m=>m.id),sourceFingerprint}],dailyDigestCheckpoint:undefined,dailyDigestAttempt:undefined});});
- }catch(error){const current=await db.conversations.get(scope.conversationId);const attempt=current?.dailyDigestAttempt;if(attempt?.token===token&&attempt.status==='running'&&memoryScopeKey(attempt.scope)===memoryScopeKey(scope))await db.conversations.update(scope.conversationId,{dailyDigestAttempt:{...attempt,status:'failed'}});throw error;}finally{locks.delete(lock);}
+ }catch(error){const current=await db.conversations.get(scope.conversationId);const attempt=current?.dailyDigestAttempt;if(attempt?.token===token&&attempt.status==='running'&&memoryScopeKey(attempt.scope)===memoryScopeKey(scope))await db.conversations.update(scope.conversationId,{dailyDigestAttempt:{...attempt,status:'failed',startedAt:Date.now()}});throw error;}finally{locks.delete(lock);}
 }
 
 /** Cross-tab exclusive lock. If another tab owns the job, skip rather than duplicate a paid call. */
