@@ -77,7 +77,7 @@ async function claim(scope:MemoryScope,manual:boolean):Promise<Claim|undefined>{
   await listMemories(scope);const c=(await db.conversations.get(scope.conversationId))!,state=structuredClone(c.memorySummary??emptySummaryState());
   if(summaryCapacityRecovered(c)&&state.job?.chunks===0&&!state.checkpoint?.completed.length){state.capacityBlocked=undefined;state.deferUntilPending=undefined;state.autoAttempt=undefined;state.requiresManualResume=undefined;}
   if(manual)state.requiresManualResume=undefined;
-  if(state.job?.status==='running'){if(Date.now()<state.job.leaseUntil)return;if(!manual){state.job={...state.job,status:'failed',error:'interrupted',finishedAt:Date.now()};state.requiresManualResume=true;await db.conversations.update(c.id,{memorySummary:state});return;}}
+  if(state.job?.status==='running'){if(Date.now()<state.job.leaseUntil)return;if(!manual){state.job={...state.job,status:'failed',error:'interrupted',finishedAt:Date.now()};state.requiresManualResume=false;await db.conversations.update(c.id,{memorySummary:state});return;}}
   if(!manual&&!state.enabled)return;
   if(!manual&&state.job?.status==='failed'&&Date.now()-(state.job.finishedAt??state.job.startedAt)<30*60*1000)return;
   if(!manual&&state.requiresManualResume&&state.job?.status==='failed'&&!['format','empty','interrupted','timeout','provider','stale-path'].includes(state.job.error??''))return;
@@ -272,6 +272,8 @@ export function runMemorySummary(scope:MemoryScope,manual=true){
  * The failed group's turns are not marked as summarized.
  */
 const autoLoops=new Set<string>();
+const recoveryTimers=new Map<string,ReturnType<typeof setTimeout>>();
+function scheduleSummaryRecovery(id:string){if(recoveryTimers.has(id))return;recoveryTimers.set(id,setTimeout(()=>{recoveryTimers.delete(id);void tryAutoSummary(id).catch(()=>{});},30*60*1000));}
 export async function tryAutoSummary(conversationId:string){
  if(autoLoops.has(conversationId)||!navigator.onLine||document.hidden)return;
  const c=await db.conversations.get(conversationId);
@@ -285,7 +287,7 @@ export async function tryAutoSummary(conversationId:string){
    const before=await summaryStatus(scope);
    const owner=await db.conversations.get(conversationId);const state=owner?.memorySummary;const recovered=owner&&summaryCapacityRecovered(owner)&&state?.job?.chunks===0&&!state.checkpoint?.completed.length;
    if(!state?.enabled||before.pending<before.interval)break;
-   if(state.job?.status==='failed'&&Date.now()-(state.job.finishedAt??state.job.startedAt)<30*60*1000&&!recovered)break;
+   if(state.job?.status==='failed'&&Date.now()-(state.job.finishedAt??state.job.startedAt)<30*60*1000&&!recovered){scheduleSummaryRecovery(conversationId);break;}
    // One attempt per due cycle. A failure is terminal for this cycle:
    // do not silently issue another paid API request, even for transient errors.
    // No pending-count backoff: failed work is paused until explicit recovery.
@@ -296,7 +298,7 @@ export async function tryAutoSummary(conversationId:string){
    const succeeded=current?.job?.status==='succeeded';
    if(!succeeded&&current?.job?.status!=='failed')return;
    if(!succeeded){
-    // No extra-turn penalty and no unattended repeated paid calls.
+    if(!current?.requiresManualResume)scheduleSummaryRecovery(conversationId);
     break;
    }
   }
