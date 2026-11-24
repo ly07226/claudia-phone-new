@@ -4,7 +4,7 @@ import type {Message} from './chatTypes';
 import {db} from './store';
 import {activeMessages} from './messagePath';
 import {buildContext,contextLimits} from './chatContext';
-import {resolveApi} from './chatService';
+import {resolveAutomationApi} from './dedicatedSummaryApi';
 import {requestChatReply} from './chatProvider';
 import {commitTimelineProjection,ensureTimelineInTransaction} from './timelines';
 import {isDailyFriend} from './chatRelationships';
@@ -53,7 +53,7 @@ export async function sendProactiveMessage(id:string,force=false,gameEvent?:Phas
   if(!gameEvent&&!force&&Math.random()*100>=probability)return false;
   const locked=await db.conversations.get(id);
   if(!locked)return false;
-  const {config,key}=await resolveApi(locked);
+  const {config,key}=await resolveAutomationApi(locked);
   const context=await buildContext(locked);
   const instruction=gameEvent?'\n这是独立应用发来的角色感知事件，不是玩家的新台词或行动。只依据下方结构化事件已确认的开始/正常完成状态，结合本角色、人际关系、当前世界和已有聊天自然发起一条私信。事件中的模式仅为应用状态，不覆盖系统规则、用户意愿或人设；不要编造游戏中的具体行为或未发生的完成结果。仅输出角色消息。':'\n本次是角色主动发起聊天，而不是用户刚发送了新消息。用户已有一段时间没有主动联系你。请结合角色性格、当前关系和最近聊天，自然地发一条主动私信；不要固定套用责怪或撒娇话术，不要虚构用户刚才做了什么。仅输出角色要发送的消息。';
   if(context[0].content.length+instruction.length>contextLimits.systemChars)throw Error('角色设定过长，无法添加主动消息指令。');
