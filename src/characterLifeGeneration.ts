@@ -1,6 +1,6 @@
 import { loreForConversation } from './loreEngine';
 import { db } from './store';
-import { resolveApi } from './chatService';
+import { resolveAutomationApi } from './dedicatedSummaryApi';
 import { requestReply } from './chatProvider';
 import { memoryContext } from './memoryContext';
 import { lifeSource, assertLifeSource } from './characterLifeSource';
@@ -31,7 +31,7 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
     try {
         const s = await readCharacterLife(owner);
         now = Math.max(now, s.lastAdvancedAt);
-        const source = await lifeSource(owner), { config, key } = await resolveApi(source.conversation);
+        const source = await lifeSource(owner), { config, key } = await resolveAutomationApi(source.conversation);
         stage = '读取记忆与世界书';
         const [memory, lore] = await Promise.all([source.conversation.id ? memoryContext(source.conversation, source.tail, 1600) : Promise.resolve(''), loreForConversation(source.conversation, source.tail, 2000)]);
         const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 150000), hide = () => {
