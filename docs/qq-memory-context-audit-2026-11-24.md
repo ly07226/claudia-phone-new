@@ -103,6 +103,17 @@ During development, the direct-insert test fixture exposed `PrematureCommitError
 
 Remote main advanced during the audit to `170cb5ee4550c5614d18ad18c793cf7d38cd0ace` (PR #106). Its only changed files since the starting base are `src/CharacterLifePanel.tsx` and `src/characterLifeGeneration.ts`. They are preserved verbatim when merging main **into this feature branch**, never the reverse. The audited QQ and failing ZIP baseline files did not change in that main update.
 
+Final integrated validation after that main update: TypeScript and Production build both exit 0; portable lore parity check exits 0. The combined QQ/WeChat/life run reports **71 passed, 8 failed** (79 tests), including all **24 QQ/WeChat cases passing**. All eight failed life test IDs and assertion categories reproduce on a separate, clean, detached `170cb5e` baseline: **0 passed, 8 failed, exit 1**. They are not counted as passing or silently attributed to an environment issue:
+
+- `character-life.spec.ts:28` (two cases): expects no persisted hostile/player-action event, receives one simulated event.
+- `:88` (390/430px): waits 60 seconds for the absent exact `暂停事件` button.
+- `:118`: old interrupted-claim recovery contract fails.
+- `:160`: advances 90,001 ms, while current main uses a 150-second request timeout; test times out waiting for completion.
+- `:243`: old exact `推进一次 / 手动恢复` label is absent.
+- `:245`: manual life progression starts while the diary gate is held; current main permits that manual path, and the test times out.
+
+The two life source files remain byte-for-byte identical to main. These are existing main/test-contract failures, left for their owning feature rather than weakening assertions or changing life business logic in a QQ repair. Logs: `/tmp/qq-merged-regression.log` and `/tmp/qq-main170-life-baseline-final.log`; the latter completed with exit 1 after the interrupted earlier attempt was rerun. Final integrated Node tests again pass **31/31** and local PostgreSQL tests **8/8**. An additional restricted-sandbox Node attempt reported a file-level failure without assertion output; the same unchanged suite rerun with subprocess/Worker permissions exits 0 (31 tests), not counted as another independent test group.
+
 The feature branch is disabled in `vercel.json`'s existing `git.deploymentEnabled` map. Commit messages use `[skip ci]` to avoid triggering paid/unnecessary Git builds; no GitHub Actions success is claimed. There is no Production release in this task.
 
 ## Changed-file manifest
