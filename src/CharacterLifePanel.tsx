@@ -34,15 +34,15 @@ export function CharacterLifePanel({ owner }: {
         void changeCharacterLife(owner, edit, state.revision ?? 0).catch(() => setError('状态已变化或保存失败，请刷新后重试'));
     };
     const advance = async () => {
-        if (!window.confirm('本次推进会调用角色已配置的 API，可能消耗额度；失败不会自动重试。是否继续？'))
+        if (!window.confirm('本次推进会调用角色已配置的 API，可能消耗额度；失败后可手动重试，自动推进会在后续周期恢复。是否继续？'))
             return;
         setBusy(true);
         setError('');
         try {
             if(!await runCharacterLife(owner, true))setError('该角色正在书写或推进，请稍后再试');
         }
-        catch {
-            setError('推进失败；原状态保留，检查 API 后可手动重试');
+        catch (e) {
+            setError(e instanceof Error ? e.message : '推进失败；原状态保留');
         }
         finally {
             setBusy(false);
@@ -96,7 +96,7 @@ export function CharacterLifePanel({ owner }: {
         }}><summary>管理生活重心与已确立资料</summary>{(['focus', 'mood', 'occupations', 'interests'] as const).map((field, i) => <label className="pn-life-field" key={field}>{['生活重心', '当前心境', '已确立职业', '已确立兴趣'][i]}<input maxLength={field === 'mood' ? 200 : 300} value={draft[field]} onChange={e => setDraft(d => ({ ...d, [field]: e.target.value }))}/></label>)}<button className="pn-action" onClick={() => change(s => { if (draft.mood.trim() && draft.mood !== s.mood) s.moodHistory = [...(s.moodHistory ?? []), { at: Date.now(), mood: draft.mood }].slice(-120); Object.assign(s, draft); })}>保存生活资料</button></details>
  <button className="pn-action" onClick={() => void archiveOld()}>归档已完成事件</button><p>历史档案：{archived.length} 条；归档后仍可在时间轴查看。</p>
  <button className="pn-action" disabled={busy || state.ordinaryAllowed === false || state.attempt?.status === 'running' && Date.now() - state.attempt.at < 180000} onClick={() => void advance()}>{busy ? '正在推进…' : '推进一次 / 手动恢复'}</button>
- {state.attempt && <p role="status">推进状态：{state.attempt.status === 'failed' ? '失败，等待手动恢复' : state.attempt.status === 'running' ? '请求处理中；若页面曾关闭，请稍后手动恢复' : '已完成'}{state.attempt.error && ' · ' + state.attempt.error}</p>}{error && <p role="alert">{error}</p>}</details>
+ {state.attempt && <p role="status">推进状态：{state.attempt.status === 'failed' ? '失败，可手动重试或等待下一周期' : state.attempt.status === 'running' ? '请求处理中；若页面曾关闭，请稍后手动恢复' : '已完成'}{state.attempt.error && ' · ' + state.attempt.error}</p>}{error && <p role="alert">{error}</p>}</details>
 
  <section className="pn-life-timeline" aria-label="生活时间轴">
   <header className="pn-life-timeline-head"><h3>他的生活</h3><span className="pn-mood-chip" title={dayMood || '当天没有可确认的心情记录'}>{dayMood ? '☁ ' + dayMood.slice(0, 12) : '☁ 心情未记录'}</span></header>
