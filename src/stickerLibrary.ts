@@ -31,7 +31,9 @@ export async function prepareSticker(blob:Blob,label:string,group:string):Promis
 export async function importStickerUrl(value:string,group:string,label?:string){
  const url=new URL(value);
  if(url.protocol!=='https:'||url.username||url.password)throw Error('请输入 HTTPS 图片地址');
- const res=await fetch(url,{credentials:'omit',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(15000)});
+ let res:Response;
+ try{res=await fetch(url,{credentials:'omit',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(15000)});}
+ catch{if(!['i.postimg.cc','i.imgur.com'].includes(url.hostname))throw Error('该图床限制跨域下载，请保存图片后从图库导入');res=await fetch('/api/sticker-image?url='+encodeURIComponent(url.href),{credentials:'omit',signal:AbortSignal.timeout(15000)});}
  if(!res.ok||!res.body)throw Error('图片下载失败');
  const reader=res.body.getReader(),chunks:Uint8Array<ArrayBuffer>[]=[];let size=0;
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit)throw Error('图片超过5MB');chunks.push(new Uint8Array(value));}}finally{await reader.cancel().catch(()=>{});}
