@@ -11,7 +11,7 @@ import {prepareQuote,quoteSummary} from './messageReferences';
 import {partKey,type BubblePart} from './messageBubbles';
 import type {MessageSelection} from './MessagePopover';
 import {useGenerationTask, useGenerationFailures, getGenerationTask, retainGenerationFailure, startGenerationTask, stopGenerationTask, runningTask} from "./generationTasks";
-import { AttachmentMenu, StoredImage, useImageDraft } from "./ImageAttachments";
+import { AttachmentMenu, ChatExpandedPanel, StoredImage, useImageDraft, type ChatBottomPanel } from "./ImageAttachments";
 import {listQqCloudBindings,newestQqBinding} from "./qqQrLogin";
 import {syncQqDailyConversation} from "./qqDailySync";
 import { FriendRequests } from "./FriendRequests";
@@ -153,6 +153,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(()=>observeComposerDebug(),[]);
   const followBottom = useRef(true);
+  const [bottomPanel,setBottomPanel]=useState<ChatBottomPanel>("none");
   const onBubbleReveal=useCallback(()=>{if(followBottom.current && historyRef.current)historyRef.current.scrollTop=historyRef.current.scrollHeight;},[]);
   const preserveTop = useRef<number | null>(null);
   const historyWindow=useChatHistoryWindow(messages,historyRef,conversation?.id,followBottom);
@@ -669,6 +670,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 maxLength={8000}
                 value={text}
                 disabled={busy && !savingMessage}
+                onFocus={()=>setBottomPanel("none")}
                 onChange={(e) => {setText(e.target.value);if(!busy)imageDraft.caption(e.target.value);}}
                 onCompositionStart={()=>enterGuard.current.start()}
                 onCompositionEnd={()=>enterGuard.current.end()}
@@ -690,11 +692,11 @@ export function Chat({ worldId }: { worldId?: string }) {
                 {busy ? <Square size={18} /> : <Send size={20} />}
               </button>
               <div className="chat-compose-tools">
-              <AttachmentMenu toolbar onStickerSelect={sticker=>{if(busy||pending.current||imageDraft.processing)return;keyboardAutoReply.suppressSend();void runGeneration(false,undefined,false,false,"ordinary",`[表情包:${sticker.id}:${sticker.label.replace(/[\[\]\r\n]/g," ").slice(0,100)}]`);}} disabled={busy||!imageDraft.ready} processing={imageDraft.processing} scope={imageDraft.scope} onOpenChange={setAttachmentOpen} onChoose={(files,scope)=>void imageDraft.choose(files,text,scope)} onSyncQq={()=>void manualQqSync()} qqSyncEnabled={!!conversation&&conversation.mode==='daily'&&!conversation.worldId&&!!localStorage.getItem('claudia-qq-stable-sync-id')} qqSyncBusy={qqManualSyncBusy}/>
+              <AttachmentMenu toolbar onStickerSelect={sticker=>{if(busy||pending.current||imageDraft.processing)return;keyboardAutoReply.suppressSend();void runGeneration(false,undefined,false,false,"ordinary",`[表情包:${sticker.id}:${sticker.label.replace(/[\[\]\r\n]/g," ").slice(0,100)}]`);}} disabled={busy||!imageDraft.ready} processing={imageDraft.processing} scope={imageDraft.scope} onOpenChange={setAttachmentOpen} panel={bottomPanel} onPanelChange={setBottomPanel} onChoose={(files,scope)=>void imageDraft.choose(files,text,scope)} onSyncQq={()=>void manualQqSync()} qqSyncEnabled={!!conversation&&conversation.mode==='daily'&&!conversation.worldId&&!!localStorage.getItem('claudia-qq-stable-sync-id')} qqSyncBusy={qqManualSyncBusy}/>
               {<button className="chat-reply-button" type="button" aria-label="AI 回复" title="让 AI 回复待回复消息" disabled={busy || messages.at(-1)?.role!=="user"} onClick={()=>void send(true)}><span aria-hidden="true">AI 回复</span><svg width={24} height={24} viewBox="0 0 24 24" fill="none" data-icon="double-sparkle" aria-hidden="true"><path d="M9.5 6 11.8 11.7 17.5 14 11.8 16.3 9.5 22 7.2 16.3 1.5 14 7.2 11.7Z" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinejoin="round"/><path d="M19 1l1.2 3.3L23.5 5.5l-3.3 1.2L19 10l-1.2-3.3-3.3-1.2 3.3-1.2Z" fill="currentColor"/></svg></button>}
               </div>
             </form>
-
+            <ChatExpandedPanel panel={bottomPanel} onClose={()=>setBottomPanel("none")} onStickerSelect={sticker=>{if(busy||pending.current||imageDraft.processing)return;keyboardAutoReply.suppressSend();void runGeneration(false,undefined,false,false,"ordinary",`[表情包:${sticker.id}:${sticker.label.replace(/[\[\]\r\n]/g," ").slice(0,100)}]`);}} onSyncQq={()=>void manualQqSync()} qqSyncEnabled={!!conversation&&conversation.mode==='daily'&&!conversation.worldId&&!!localStorage.getItem('claudia-qq-stable-sync-id')} qqSyncBusy={qqManualSyncBusy}/>
           </div>
           </div>
           {menuId && (
