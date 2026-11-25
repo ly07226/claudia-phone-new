@@ -245,7 +245,7 @@ export function ApiSettings() {
       <div className="page-title">
         <span className="eyebrow">AI CONNECTIONS</span>
         <h2>AI / API 设置</h2>
-        <p>普通聊天与自动任务可使用独立 API。</p>
+        <p>管理普通聊天使用的 API 配置。</p>
       </div>
       {error && (
         <p className="api-error" role="alert">
