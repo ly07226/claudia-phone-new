@@ -346,6 +346,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     allowArchive = false,
     force = false,
     flow: "ordinary"|"automatic"|"manual"|"other" = "other",
+    stickerText?: string,
   ) {
     if (!conversation || ((busy || pending.current) && !force)) {recordKeyboardDebug('generation-blocked',{flow,reason:!conversation?'no-conversation':'busy',hasConversation:!!conversation,idle:!busy,noPending:!pending.current});return;}
     recordKeyboardDebug('generation-entered',{flow,idle:!busy,noPending:!pending.current});
@@ -364,10 +365,10 @@ export function Chat({ worldId }: { worldId?: string }) {
     setFeedback("");
     const controller = new AbortController();
     pending.current = controller;
-    const draft = text;
-    const images=!retry&&!target?imageDraft.ids:[];
+    const draft = stickerText ?? text;
+    const images=!retry&&!target&&stickerText===undefined?imageDraft.ids:[];
     let stored = retry || !!target;
-    if (!retry && !target) setText("");
+    if (!retry && !target && stickerText===undefined) setText("");
     try {
       if (force) {
         await stopGenerationTask(id);
@@ -383,13 +384,13 @@ export function Chat({ worldId }: { worldId?: string }) {
         await queueUserMessage(id, draft, expectedPath,images,replyTo??undefined);
         recordKeyboardDebug('message-save-end',{flow,success:true,inputFocused:document.activeElement===inputRef.current});
         stored = true;
-        if(ownsView()){imageDraft.clear();setReplyTo(null);await refresh(id, true);}
+        if(ownsView()){if(stickerText===undefined)imageDraft.clear();setReplyTo(null);await refresh(id, true);}
       } else {
         recordKeyboardDebug('ai-start',{flow,inputFocused:document.activeElement===inputRef.current,disabled:!!inputRef.current?.disabled});
         const task=startGenerationTask({conversation,expectedPath,text:draft,retry,messageId:target?.id,allowArchive,images,replyTo:!retry&&!target?replyTo??undefined:undefined},()=>{
           stored = true;
           if(ownsView()){
-            if(!target)imageDraft.clear();
+            if(!target&&stickerText===undefined)imageDraft.clear();
             if(!retry&&!target)setReplyTo(null);
             void refresh(id,true).catch(()=>{if(ownsView())setError("无法读取聊天记录，请检查本地存储。");});
           }
@@ -405,7 +406,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       if(!retry&&!target&&conversation.chatSettings?.continuousSend&&!stored)recordKeyboardDebug('message-save-end',{flow,success:false,inputFocused:document.activeElement===inputRef.current});
       if(retry&&keyboardDebugEnabled())recordKeyboardDebug('reply-returned',{success:false,reason:e instanceof Error&&e.message==='此会话正在回复中，请稍候。'?'service-lock':e instanceof Error&&e.message==='剧情已在其他窗口切换，请确认当前消息后重试。'?'service-path':e instanceof Error&&e.message==='没有可重试的用户消息。'?'service-no-pending':'generation-failed'});
       if (ownsView()) {
-        if (!stored && !retry && !target) setText(draft);
+        if (!stored && !retry && !target && stickerText===undefined) setText(draft);
         if(getGenerationTask(id)?.status!=='failed')await retainGenerationFailure({id:crypto.randomUUID(),conversationId:id,characterId:conversation.characterId,worldId:conversation.worldId,timelineId:expectedPath.timelineId,epoch:expectedPath.epoch,startedAt:Date.now(),status:'failed',saved:stored},e);
 
       }
@@ -689,7 +690,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 {busy ? <Square size={18} /> : <Send size={20} />}
               </button>
               <div className="chat-compose-tools">
-              <AttachmentMenu toolbar disabled={busy||!imageDraft.ready} processing={imageDraft.processing} scope={imageDraft.scope} onOpenChange={setAttachmentOpen} onChoose={(files,scope)=>void imageDraft.choose(files,text,scope)} onSyncQq={()=>void manualQqSync()} qqSyncEnabled={!!conversation&&conversation.mode==='daily'&&!conversation.worldId&&!!localStorage.getItem('claudia-qq-stable-sync-id')} qqSyncBusy={qqManualSyncBusy}/>
+              <AttachmentMenu toolbar onStickerSelect={sticker=>{if(busy||pending.current||imageDraft.processing)return;keyboardAutoReply.suppressSend();void runGeneration(false,undefined,false,false,"ordinary",`[表情包:${sticker.id}:${sticker.label.replace(/[\[\]\r\n]/g," ").slice(0,100)}]`);}} disabled={busy||!imageDraft.ready} processing={imageDraft.processing} scope={imageDraft.scope} onOpenChange={setAttachmentOpen} onChoose={(files,scope)=>void imageDraft.choose(files,text,scope)} onSyncQq={()=>void manualQqSync()} qqSyncEnabled={!!conversation&&conversation.mode==='daily'&&!conversation.worldId&&!!localStorage.getItem('claudia-qq-stable-sync-id')} qqSyncBusy={qqManualSyncBusy}/>
               {<button className="chat-reply-button" type="button" aria-label="AI 回复" title="让 AI 回复待回复消息" disabled={busy || messages.at(-1)?.role!=="user"} onClick={()=>void send(true)}><span aria-hidden="true">AI 回复</span><svg width={24} height={24} viewBox="0 0 24 24" fill="none" data-icon="double-sparkle" aria-hidden="true"><path d="M9.5 6 11.8 11.7 17.5 14 11.8 16.3 9.5 22 7.2 16.3 1.5 14 7.2 11.7Z" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinejoin="round"/><path d="M19 1l1.2 3.3L23.5 5.5l-3.3 1.2L19 10l-1.2-3.3-3.3-1.2 3.3-1.2Z" fill="currentColor"/></svg></button>}
               </div>
             </form>
