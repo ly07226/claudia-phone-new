@@ -1,17 +1,20 @@
 import {db} from './store';
-export interface Sticker {id:string;label:string;group:string;data:string;createdAt:number;lastUsed?:number;favorite?:boolean}
+export interface Sticker {id:string;label:string;group:string;data:string;createdAt:number;lastUsed?:number;favorite?:boolean;archived?:boolean}
 const key='sticker-library';
 const limit=5*1024*1024;
 export async function listStickers():Promise<Sticker[]>{
  const row=await db.themes.get(key);
- return row?.stickers??[];
+ return (row?.stickers??[]).filter(r=>!r.archived);
 }
 export async function updateStickers(change:(rows:Sticker[])=>Sticker[]){
  return db.transaction('rw',db.themes,async()=>{
   const row=await db.themes.get(key);
-  const stickers=change(row?.stickers??[]);
+  const old=row?.stickers??[];
+  const active=change(old.filter(r=>!r.archived));
+  const ids=new Set(active.map(r=>r.id));
+  const stickers=[...active,...old.filter(r=>!ids.has(r.id)).map(r=>({...r,archived:true}))];
   await db.themes.put({id:key,color:'',font:'',iconStyle:'rounded',opacity:0,blur:0,...row,stickers});
-  return stickers;
+  return active;
  });
 }
 export async function prepareSticker(blob:Blob,label:string,group:string):Promise<Sticker>{
@@ -34,3 +37,6 @@ export async function importStickerUrl(value:string,group:string){
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit)throw Error('图片超过5MB');chunks.push(new Uint8Array(value));}}finally{await reader.cancel().catch(()=>{});}
  return prepareSticker(new Blob(chunks),decodeURIComponent(url.pathname.split('/').pop()||'表情包'),group);
 }
+
+export async function getSticker(id:string){return (await db.themes.get(key))?.stickers?.find(r=>r.id===id)}
+export function parseSticker(text:string){const m=/^\[表情包:([0-9a-f-]{36}):([^\[\]\r\n]{1,100})\]$/i.exec(text.trim());return m?{id:m[1],label:m[2]}:null;}
