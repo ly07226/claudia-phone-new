@@ -694,14 +694,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               {<button className="chat-reply-button" type="button" aria-label="AI 回复" title="让 AI 回复待回复消息" disabled={busy || messages.at(-1)?.role!=="user"} onClick={()=>void send(true)}><span aria-hidden="true">AI 回复</span><svg width={24} height={24} viewBox="0 0 24 24" fill="none" data-icon="double-sparkle" aria-hidden="true"><path d="M9.5 6 11.8 11.7 17.5 14 11.8 16.3 9.5 22 7.2 16.3 1.5 14 7.2 11.7Z" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinejoin="round"/><path d="M19 1l1.2 3.3L23.5 5.5l-3.3 1.2L19 10l-1.2-3.3-3.3-1.2 3.3-1.2Z" fill="currentColor"/></svg></button>}
               </div>
             </form>
-            {!busy && !conversation.chatSettings?.continuousSend && messages.at(-1)?.role === "user" && (
-              <button
-                className="text-button chat-retry"
-                onClick={() => void send(true)}
-              >
-                重试最后一条消息
-              </button>
-            )}
+
           </div>
           </div>
           {menuId && (
