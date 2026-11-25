@@ -1,20 +1,15 @@
 import {db} from './store';
 export interface Sticker {id:string;label:string;group:string;data:string;createdAt:number;lastUsed?:number;favorite?:boolean;archived?:boolean}
-const key='sticker-library';
+export type StickerMeta=Omit<Sticker,'data'>;
 const limit=5*1024*1024;
-export async function listStickers():Promise<Sticker[]>{
- const row=await db.themes.get(key);
- return (row?.stickers??[]).filter(r=>!r.archived);
-}
+export async function listStickerMeta():Promise<StickerMeta[]>{return (await db.stickerMeta.toArray()).filter(r=>!r.archived);}
+export async function listStickers():Promise<Sticker[]>{return db.transaction('r',db.stickerMeta,db.stickerImages,async()=>{const rows=await listStickerMeta();const images=await db.stickerImages.bulkGet(rows.map(r=>r.id));return rows.flatMap((r,i)=>images[i]?[{...r,data:images[i]!.data}]:[]);});}
 export async function updateStickers(change:(rows:Sticker[])=>Sticker[]){
- return db.transaction('rw',db.themes,async()=>{
-  const row=await db.themes.get(key);
-  const old=row?.stickers??[];
-  const active=change(old.filter(r=>!r.archived));
-  const ids=new Set(active.map(r=>r.id));
-  const stickers=[...active,...old.filter(r=>!ids.has(r.id)).map(r=>({...r,archived:true}))];
-  await db.themes.put({id:key,color:'',font:'',iconStyle:'rounded',opacity:0,blur:0,...row,stickers});
-  return active;
+ return db.transaction('rw',db.stickerMeta,db.stickerImages,async()=>{
+ const old=await listStickers(),active=change(old),previous=new Map(old.map(r=>[r.id,r])),ids=new Set(active.map(r=>r.id));
+ for(const row of active){const {data,...meta}=row;const prior=previous.get(row.id);if(!prior||prior.data!==data)await db.stickerImages.put({id:row.id,data});await db.stickerMeta.put(meta);}
+ for(const row of old)if(!ids.has(row.id))await db.stickerMeta.update(row.id,{archived:true});
+ return active;
  });
 }
 export async function prepareSticker(blob:Blob,label:string,group:string):Promise<Sticker>{
@@ -40,7 +35,7 @@ export async function importStickerUrl(value:string,group:string,label?:string){
  return prepareSticker(new Blob(chunks),label||decodeURIComponent(url.pathname.split('/').pop()||'表情包'),group);
 }
 
-export async function getSticker(id:string){return (await db.themes.get(key))?.stickers?.find(r=>r.id===id)}
+export async function getSticker(id:string){return db.transaction('r',db.stickerMeta,db.stickerImages,async()=>{const meta=await db.stickerMeta.get(id),image=await db.stickerImages.get(id);return meta&&image?{...meta,data:image.data}:undefined;})}
 export function parseSticker(text:string){const m=/^\[表情包:([0-9a-f-]{36}):([^\[\]\r\n]{1,100})\]$/i.exec(text.trim());return m?{id:m[1],label:m[2]}:null;}
 
 export function parseStickerUrls(input:string){return input.replace(/^\uFEFF/,'').split(/\r?\n/).filter(line=>line.trim()).map(line=>{const match=/^(.*?)\s*(https:\/\/\S+)\s*$/i.exec(line.trim());if(!match)return {url:line.trim(),label:''};return {url:match[2],label:match[1].replace(/[：:；;\s]+$/,'').trim()};});}
