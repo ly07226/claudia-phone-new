@@ -1,17 +1,12 @@
-import {installPrivateNotesScheduler} from './privateNotesScheduler';
+import {AutomationSchedulers} from './AutomationSchedulers';
 import {observeQqContextChanges} from './qqContextSync';
-import {installCharacterLifeScheduler} from './characterLifeScheduler';
 import {PrivateNotes} from './PrivateNotes';
 import {ChatBannerSettings} from './ChatBannerSettings';
 import {WechatIntegrationSettings} from './WechatIntegrationSettings';
 import {reconcileWechatAfterReopen} from './wechatClosedContinuity';
 import {reconcileQqAfterReopen} from './qqClosedContinuity';
 import {GlobalChatNotifications} from './GlobalChatNotifications';
-import {installMemorySummaryScheduler} from './memorySummaryScheduler';
 import {PhasePlayApp} from './phasePlay/PhasePlayApp';
-import {ChatHubScheduler} from './ChatHubScheduler';
-import {ProactiveScheduler} from './ProactiveScheduler';
-import {MemoryCalendarScheduler} from './MemoryCalendarScheduler';
 import {BackgroundReplyReconciler} from './BackgroundReplyReconciler';
 import {AudioKeepAliveSettings,initializeAudioKeepAlive} from './AudioKeepAliveSettings';
 import {PushNotificationSettings} from './PushNotificationSettings';
@@ -91,7 +86,6 @@ const icons = [
 function App() {
   const environment = useDisplayEnvironment();
   const s = usePhone();
-  useEffect(()=>{if(!s.ready)return;const stopLife=installCharacterLifeScheduler(),stopNotes=installPrivateNotesScheduler();return()=>{stopLife();stopNotes()}},[s.ready]);
   // Opt-in WeChat recovery only: no project configuration means no cloud request.
   // iOS cannot run this while the PWA is closed; reconcile on reopen/foreground.
   useEffect(() => {
@@ -413,8 +407,6 @@ function App() {
   }
   return (
     <div className="stage" data-ios={environment.ios || undefined} data-standalone={environment.standalone || undefined}>
-      <ChatHubScheduler/>
-      <MemoryCalendarScheduler/><ProactiveScheduler/>
       <aside className="brand">
         <span className="brand-mark">c.</span>
         <h1>
@@ -1040,9 +1032,8 @@ function App() {
   );
 }
 initializeAudioKeepAlive();
-installMemorySummaryScheduler();
 createRoot(document.getElementById("root")!).render(
-  <><SpaceRoot phone={<App />} /><BackgroundReplyReconciler/><GlobalChatNotifications/></>,
+  <><SpaceRoot phone={<App />} /><AutomationSchedulers/><BackgroundReplyReconciler/><GlobalChatNotifications/></>,
 );
 if ("serviceWorker" in navigator && import.meta.env.PROD)
   window.addEventListener("load", () => {

@@ -38,7 +38,7 @@ export async function dailyDigestStatus(scope:MemoryScope){
  return {settings:c?.dailyDigestSettings??{enabled:false,days:1 as const},digests,records:(c?.dailyDigests??[]).filter(d=>memoryScopeKey(d.scope)===memoryScopeKey(scope)).map(d=>({digest:d,status:digests.some(v=>v.id===d.id)?'verified' as const:!d.sourceFingerprint?'unverified' as const:'changed' as const})),attempt:c?.dailyDigestAttempt&&memoryScopeKey(c.dailyDigestAttempt.scope)===memoryScopeKey(scope)?c.dailyDigestAttempt:undefined};
 }
 const locks=new Set<string>();
-async function runDailyDigestLocked(scope:MemoryScope,manual=false){
+async function runDailyDigestLocked(scope:MemoryScope,manual=false,admitted:()=>boolean=()=>true){
  const token=crypto.randomUUID();const lock=scope.conversationId;if(locks.has(lock))return;locks.add(lock);
  try{
   const c=await db.conversations.get(scope.conversationId);if(!c?.dailyDigestSettings?.enabled)return;
@@ -121,13 +121,14 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
    await db.conversations.update(c.id,update);
   }
   const assertSource=async()=>{const current=await db.conversations.get(c.id);if(!current||current.dailyDigestAttempt?.token!==token||current.dailyDigestAttempt.status!=='running'||!current.dailyDigestSettings?.enabled||current.dailyDigestSettings.days!==days||current.characterId!==scope.characterId||current.mode!==scope.mode||current.worldId!==scope.worldId||(scope.mode==='world'&&(current.activeTimelineId!==scope.timelineId||(current.timelineEpoch??0)!==scope.epoch)))throw Error('总结任务或作用域已变化');const rows=scope.mode==='world'?(await nodesForHead(c.id,(await db.timelines.get(scope.timelineId))?.headNodeId)).map(n=>sourceVisibleMessage(n.message)):(await activeMessages(c.id,undefined,true)).map(sourceVisibleMessage);const source=rows.filter(m=>m.createdAt>=dayStart(start)&&m.createdAt<dayStart(end)&&(m.role==='user'||m.role==='assistant'));if(JSON.stringify(source.map(m=>[m.id,m.role,m.createdAt,m.content,m.activeVariantId??null,(m.attachments??[]).map(a=>a.assetId)]))!==sourceSnapshot)throw Error('总结原文已变化');};
+  const beforeRequest=async()=>{if(!admitted())throw Error('自然日调度已停止，未发送请求');await assertSource()};
   const sourceTables=[...timelineTables(),db.characters,db.worlds,db.worldProfiles];
   const summaries:string[]=[];
   for(let index=0;index<pieces.length;index++){
    if(completed[index]){summaries.push(completed[index]);continue;}
    await db.transaction('r',sourceTables,assertSource);
    const piece=pieces[index];
-   const result=await digestReply({...config,maxTokens:Math.max(1000,Math.min(config.maxTokens,2400))},key,[{role:'system',content:'你是剧情时间线总结器。只总结提供的聊天原文，区分已发生事实、角色猜测、未兑现承诺、关系变化、伏笔及最新状态。不得编造；按时间顺序，尽量精炼。'},{role:'user',content:piece}],assertSource);
+   const result=await digestReply({...config,maxTokens:Math.max(1000,Math.min(config.maxTokens,2400))},key,[{role:'system',content:'你是剧情时间线总结器。只总结提供的聊天原文，区分已发生事实、角色猜测、未兑现承诺、关系变化、伏笔及最新状态。不得编造；按时间顺序，尽量精炼。'},{role:'user',content:piece}],beforeRequest);
    if(!result.trim())throw Error('二级总结返回空内容');
    summaries.push(result);completed[index]=result;
    await db.transaction('rw',sourceTables,async()=>{
@@ -148,7 +149,7 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
     await db.transaction('r',sourceTables,assertSource);
     const mergeId=await sourceHash(JSON.stringify(group));
     const cached=(await db.conversations.get(c.id))?.dailyDigestCheckpoint?.merges?.[mergeId];
-    const merged=cached??await digestReply({...config,maxTokens:Math.max(1000,Math.min(config.maxTokens,3000))},key,[{role:'system',content:'将按时间顺序的剧情片段摘要合并，保留因果、人物关系变化、伏笔和未完成事项。不能虚构，也不能把猜测写成事实。'},{role:'user',content:group.join('\n\n')}],assertSource);
+    const merged=cached??await digestReply({...config,maxTokens:Math.max(1000,Math.min(config.maxTokens,3000))},key,[{role:'system',content:'将按时间顺序的剧情片段摘要合并，保留因果、人物关系变化、伏笔和未完成事项。不能虚构，也不能把猜测写成事实。'},{role:'user',content:group.join('\n\n')}],beforeRequest);
     if(!merged.trim())throw Error('二级总结合并结果为空');
     if(!cached)await db.transaction('rw',sourceTables,async()=>{await assertSource();const cp=(await db.conversations.get(c.id))?.dailyDigestCheckpoint;if(!cp||cp.sourceSignature!==signature)throw Error('二级总结检查点已变化');await db.conversations.update(c.id,{dailyDigestCheckpoint:{...cp,merges:{...cp.merges,[mergeId]:merged},updatedAt:Date.now()}})});
     next.push(merged);group=[];
@@ -179,17 +180,17 @@ async function runDailyDigestLocked(scope:MemoryScope,manual=false){
 }
 
 /** Cross-tab exclusive lock. If another tab owns the job, skip rather than duplicate a paid call. */
-export async function runDailyDigest(scope:MemoryScope,options:{manual?:boolean}={}){
+export async function runDailyDigest(scope:MemoryScope,options:{manual?:boolean;admitted?:()=>boolean}={}){
  const name='claudia-daily-digest:'+scope.conversationId;
  await withSummaryLock(name,async()=>{
   // Catch up missed completed calendar windows, without blocking normal chat.
   for(let i=0;i<(options.manual?7:1);i++){
-   if(typeof document!=='undefined'&&document.hidden)break;
+   if(options.admitted?.()===false||typeof document!=='undefined'&&document.hidden)break;
    const before=(await dailyDigestStatus(scope)).digests.length;
-   await runDailyDigestLocked(scope,!!options.manual);
+   await runDailyDigestLocked(scope,!!options.manual,options.admitted);
    const after=(await dailyDigestStatus(scope)).digests.length;
    if(after<=before)break;
-   if(!options.manual)setTimeout(()=>{void enqueueAutomation('digest:'+scope.conversationId,()=>runDailyDigest(scope))},0);
+   if(!options.manual&&options.admitted?.()!==false)setTimeout(()=>{if(options.admitted?.()!==false)void enqueueAutomation('digest:'+scope.conversationId,()=>runDailyDigest(scope,options))},0);
   }
  });
 }

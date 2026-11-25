@@ -9,7 +9,8 @@ import { lifeSource, assertLifeSource } from './characterLifeSource';
 import { readCharacterLife, lifeKey, changeCharacterLife, archiveCompletedLifeEvents, appendLifeProgress, lifePrompt, assertLifeAffection, majorLifeEvent, type LifeEvent } from './characterLife';
 export const lifeInterval = 6 * 60 * 60 * 1000;
 export const affectionRule = '对玩家的感情底色保持喜欢、珍惜和在意；保留人设、嘴硬、嫉妒、欲望、复杂情绪，不强迫温柔、顺从、表白或和好。禁止厌恶、嫌弃、鄙视、后悔认识、想抛弃玩家或无故降低感情。不得决定玩家的言行、心理、同意或关系。';
-export async function runCharacterLife(owner: string, manual = false, now = Date.now()) {
+export async function runCharacterLife(owner: string, manual = false, now = Date.now(), admitted:()=>boolean=()=>true) {
+    if(!admitted())return null;
     const token = crypto.randomUUID();
     // Move only completed events; archive and active state update commit atomically.
     if ((await readCharacterLife(owner)).events.length >= 39) await archiveCompletedLifeEvents(owner, 2);
@@ -51,7 +52,7 @@ export async function runCharacterLife(owner: string, manual = false, now = Date
         document.addEventListener('visibilitychange', hide);
         const leave = () => controller.abort();
         window.addEventListener('pagehide', leave);
-        setAutomationPreflight(controller.signal,async()=>{await assertLifeSource(source);const current=await readCharacterLife(owner);if(current.attempt?.token!==token||current.attempt.status!=='running'||current.revision!==s.revision)throw Error('生活任务已变化，未发出过期请求')});
+        setAutomationPreflight(controller.signal,async()=>{if(!admitted())throw Error('生活调度已停止，未发送请求');await assertLifeSource(source);const current=await readCharacterLife(owner);if(current.attempt?.token!==token||current.attempt.status!=='running'||current.revision!==s.revision)throw Error('生活任务已变化，未发出过期请求')});
         let raw: string;
         stage = 'AI 请求';
         try {

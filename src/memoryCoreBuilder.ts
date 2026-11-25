@@ -16,7 +16,8 @@ import type {MemoryScope} from './memoryTypes';
  * A persisted attempt is written BEFORE calling the paid provider. Failed or
  * interrupted requests are not automatically retried.
  */
-export async function maybeBuildCoreMemory(scope:MemoryScope,manual=false):Promise<void>{
+export async function maybeBuildCoreMemory(scope:MemoryScope,manual=false,admitted:()=>boolean=()=>true):Promise<void>{
+ if(!admitted())return;
  await withSummaryLock('claudia-core-summary:'+scope.conversationId,async()=>{
   const receipts=(await visibleSummaryReceipts(scope)).filter(r=>r.shortSummary?.trim());
   if(receipts.length<5)return;
@@ -69,7 +70,7 @@ export async function maybeBuildCoreMemory(scope:MemoryScope,manual=false):Promi
   const startedAt=Date.now();
   await db.conversations.update(scope.conversationId,{memoryCoreAttempt:{anchorReceiptId:anchor,sourceReceiptIds,attempts,status:'running',startedAt}});
   const controller=new AbortController(),timeout=armAutomationTimeout(controller,120000);
-  setAutomationPreflight(controller.signal,async()=>{await validateLong();if(memoryScopeKey(await getMemoryScope(scope.conversationId))!==memoryScopeKey(scope)||(await db.conversations.get(scope.conversationId))?.memoryCoreAttempt?.anchorReceiptId!==anchor)throw Error('核心记忆任务已变化');const check=summaryVerifier(await activeMessages(scope.conversationId,undefined,true));for(const r of group){const valid=await check(r);if(valid!=='verified'&&valid!=='legacy-verified')throw Error('核心记忆来源已变化')}});
+  setAutomationPreflight(controller.signal,async()=>{if(!admitted())throw Error('核心记忆调度已停止，未发送请求');await validateLong();if(memoryScopeKey(await getMemoryScope(scope.conversationId))!==memoryScopeKey(scope)||(await db.conversations.get(scope.conversationId))?.memoryCoreAttempt?.anchorReceiptId!==anchor)throw Error('核心记忆任务已变化');const check=summaryVerifier(await activeMessages(scope.conversationId,undefined,true));for(const r of group){const valid=await check(r);if(valid!=='verified'&&valid!=='legacy-verified')throw Error('核心记忆来源已变化')}});
   try{
    const {config,key}=await getSummaryApi(scope);
    const result=await requestSummary(config,key,input,controller.signal,false,'core');
@@ -111,7 +112,7 @@ export function enqueueCoreMemory(scope:MemoryScope,admitted:()=>boolean=()=>tru
  return enqueueAutomation('core:'+scope.conversationId,async()=>{
   if(!admitted()||document.hidden||!navigator.onLine)return;
   const before=(await db.conversations.get(scope.conversationId))?.memoryCoreAttempt;
-  await maybeBuildCoreMemory(scope);
+  await maybeBuildCoreMemory(scope,false,admitted);
   const after=(await db.conversations.get(scope.conversationId))?.memoryCoreAttempt;
   if(after?.status==='succeeded'&&(before?.anchorReceiptId!==after.anchorReceiptId||before?.status!=='succeeded'))setTimeout(()=>{if(admitted())void enqueueCoreMemory(scope,admitted)},0);
  });

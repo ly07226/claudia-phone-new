@@ -60,13 +60,13 @@ export async function releaseExpiredSocialJob(now=Date.now()){
  return released;
 }
 const running=new Map<string,Promise<void>>();
-export function generateSocial(r:SocialRequest){
+export function generateSocial(r:SocialRequest,admitted:()=>boolean=()=>true){
  const task=(async()=>{
   const token=crypto.randomUUID();let claimed=false;
   try{
    await changeChatHub(h=>{if(r.reactionToken){const event=reactionEvent(h,r);if(event?.reaction?.token!==r.reactionToken||event.reaction.status!=='queued')throw Error('该互动已处理或状态待确认，不会重复请求。');event.reaction.status='running';}const previousJob=h.job;if(previousJob&&previousJob.expiresAt<=Date.now()){if(previousJob.reactionToken){const previous=reactionEvent(h,previousJob);if(previous?.reaction?.token===previousJob.reactionToken&&previous.reaction.status==='running')previous.reaction.status='failed';}h.job=undefined;}if(h.job)throw Error('朋友圈已有正在执行的任务，请稍候。');if(r.automatic&&(!h.auto.enabled||(h.auto.nextAt??0)>Date.now()))throw Error('尚未到发布时间。');h.job={token,kind:r.kind,characterId:r.characterId,postId:r.postId,parentId:r.parentId,expiresAt:Date.now()+30*60000,...(r.reactionToken?{reactionToken:r.reactionToken}:{})};h.error=undefined;if(r.automatic){h.auto.nextAt=Date.now()+h.auto.hours*3600000;h.auto.cursor++;}});claimed=true;
    const context=await socialContext(r);if(dailyFingerprint(await db.conversations.where('scopeKey').equals(context.c.scopeKey).first())!==context.dailyFingerprint)throw Error('日常资料已更新，未发出过期请求。');const {config,key}=await (r.automatic||r.kind!=='post'?resolveAutomationApi(context.c):resolveApi(context.c));const controller=new AbortController();const timer=r.automatic||r.kind!=='post'?armAutomationTimeout(controller,120000):(()=>{const t=setTimeout(()=>controller.abort(),120000);return()=>clearTimeout(t)})();let text:string;
-   setAutomationPreflight(controller.signal,async()=>{const data=(await db.themes.get('global'))?.chatHub,current=data?.job;if(r.automatic&&!data?.auto.enabled||current?.token!==token||current.expiresAt<=Date.now()||dailyFingerprint(await db.conversations.where('scopeKey').equals(context.c.scopeKey).first())!==context.dailyFingerprint)throw Error('朋友圈任务或资料已变化，未发送过期请求')});
+   setAutomationPreflight(controller.signal,async()=>{if(!admitted())throw Error('朋友圈调度已停止，未发送请求');const data=(await db.themes.get('global'))?.chatHub,current=data?.job;if(r.automatic&&!data?.auto.enabled||current?.token!==token||current.expiresAt<=Date.now()||dailyFingerprint(await db.conversations.where('scopeKey').equals(context.c.scopeKey).first())!==context.dailyFingerprint)throw Error('朋友圈任务或资料已变化，未发送过期请求')});
    try{let interrupted=false;text=await (r.automatic||r.kind!=='post'?requestAutomationReply:requestReply)(config,key,context.messages,controller.signal,undefined,false,reason=>{interrupted=!!reason;});if(interrupted)throw Error('朋友圈回复未完整结束，原动态和评论保留；不会自动重试。');}finally{timer();}
    if(!text.trim()||text.length>(r.kind==='post'?3000:1000))throw Error('朋友圈返回内容为空或超过本机容量，未改写原内容。');
    await db.transaction('rw',[db.themes,db.assets,db.characters,db.conversations],async()=>{
@@ -80,9 +80,9 @@ export function generateSocial(r:SocialRequest){
  })();running.set(r.characterId,task);void task.finally(()=>{if(running.get(r.characterId)===task)running.delete(r.characterId);}).catch(()=>{});return task;
 }
 let checking=false;
-export async function runSocialSchedule(now=Date.now()){
- if(checking||document.visibilityState!=='visible')return;checking=true;
- try{const h=(await db.themes.get('global'))?.chatHub;if(!h?.auto.enabled||(h.job&&h.job.expiresAt>now)||(h.auto.nextAt??0)>now)return;const roles=(await db.characters.toArray()).filter(isDailyFriend).sort((a,b)=>a.id.localeCompare(b.id));if(!roles.length)return;await generateSocial({kind:'post',characterId:roles[h.auto.cursor%roles.length].id,automatic:true});}catch{/* Persisted error; next scheduled cycle remains enabled. */}finally{checking=false;}
+export async function runSocialSchedule(now=Date.now(),admitted:()=>boolean=()=>true){
+ if(!admitted()||checking||document.visibilityState!=='visible')return;checking=true;
+ try{const h=(await db.themes.get('global'))?.chatHub;if(!h?.auto.enabled||(h.job&&h.job.expiresAt>now)||(h.auto.nextAt??0)>now)return;const roles=(await db.characters.toArray()).filter(isDailyFriend).sort((a,b)=>a.id.localeCompare(b.id));if(!roles.length)return;await generateSocial({kind:'post',characterId:roles[h.auto.cursor%roles.length].id,automatic:true},admitted);}catch{/* Persisted error; next scheduled cycle remains enabled. */}finally{checking=false;}
 }
 
 /** Only explicit successful user writes call this; mounting, refresh, imports and AI writes never do. */

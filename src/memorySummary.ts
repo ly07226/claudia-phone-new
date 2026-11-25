@@ -149,14 +149,14 @@ async function fail(job:MemorySummaryJob,error:SummaryFailure,diagnostic?:Summar
   if(state.autoAttempt?.throughNodeId===job.throughNodeId)state.autoAttempt=undefined;
   await db.conversations.update(c.id,{memorySummary:state});});
 }
-async function execute(scope:MemoryScope,manual:boolean,assertLease:()=>Promise<void>){
+async function execute(scope:MemoryScope,manual:boolean,assertLease:()=>Promise<void>,admitted:()=>boolean){
  let claimed:Claim|undefined;try{claimed=await claim(scope,manual);}catch(e){if(manual)throw e;return;}if(!claimed)return;
  const {job}=claimed;let deferredError:unknown;let suspended=false;let failure:SummaryFailure='provider',diagnostic:SummaryDiagnostic|undefined;const controller=new AbortController();
  const onHide=()=>{},onLeave=()=>{suspended=true;controller.abort();};document.addEventListener('visibilitychange',onHide);window.addEventListener('pagehide',onLeave);
  try{
   const c=await db.conversations.get(scope.conversationId);if(!c)throw Error('stale-path');
   const {config,key:apiKey}=await getSummaryApi(scope);
-  setAutomationPreflight(controller.signal,async()=>{await assertLease();job.leaseUntil=Date.now()+summaryLimits.leaseMs;await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,manual);const c=(await db.conversations.get(scope.conversationId))!;await db.conversations.update(c.id,{memorySummary:{...c.memorySummary!,job:{...c.memorySummary!.job!,leaseUntil:job.leaseUntil}}});});});
+  setAutomationPreflight(controller.signal,async()=>{if(!admitted()){failure='interrupted';throw Error('interrupted')}await assertLease();job.leaseUntil=Date.now()+summaryLimits.leaseMs;await db.transaction('rw',tables(),async()=>{await assertSummarySource(job,manual);const c=(await db.conversations.get(scope.conversationId))!;await db.conversations.update(c.id,{memorySummary:{...c.memorySummary!,job:{...c.memorySummary!.job!,leaseUntil:job.leaseUntil}}});});});
 
   failure='format';const facts:SummaryFact[]=[];const inputForFact=new Map<SummaryFact,number>();
   let failedRequests=0;
@@ -251,7 +251,7 @@ async function execute(scope:MemoryScope,manual:boolean,assertLease:()=>Promise<
    state.requiresManualResume=undefined;state.capacityBlocked=undefined;state.checkpoint=undefined;state.autoRecoveries=0;state.autoAttempt=undefined;state.deferUntilPending=undefined;state.revision++;state.receipts.push({id:job.id,revision:state.revision,scope:structuredClone(scope),epoch:job.epoch,timelineId:job.timelineId,throughNodeId:job.throughNodeId,turns:claimed!.turns,sourceFingerprint,shortSummary:groupSummary,createdAt:Date.now(),added,duplicates,selection:job.selection});state.job={...job,status:'succeeded',finishedAt:Date.now(),added,duplicates};await db.conversations.update(current.id,{memorySummary:state});
   });
   // Second pass is best-effort and never changes a successful primary receipt.
-  try{await maybeBuildCoreMemory(scope);}catch{/* Core synthesis is independent of primary progress. */}
+  try{await maybeBuildCoreMemory(scope,false,admitted);}catch{/* Core synthesis is independent of primary progress. */}
  }catch(error){
    const decision=classifySummaryError(error,navigator.onLine);
    const providerDetail=describeReplyFailure(error);
@@ -280,9 +280,9 @@ async function execute(scope:MemoryScope,manual:boolean,assertLease:()=>Promise<
   }finally{document.removeEventListener('visibilitychange',onHide);window.removeEventListener('pagehide',onLeave);}
 }
 const running=new Map<string,Promise<void>>();
-export function runMemorySummary(scope:MemoryScope,manual=true){
+export function runMemorySummary(scope:MemoryScope,manual=true,admitted:()=>boolean=()=>true){
  const old=running.get(scope.conversationId);if(old)return old;
- const task=Promise.resolve().then(()=>withSummaryLock('claudia-primary-summary:'+scope.conversationId,assertLease=>execute(scope,manual,assertLease),summaryLimits.leaseMs)).finally(()=>{if(running.get(scope.conversationId)===task)running.delete(scope.conversationId);});running.set(scope.conversationId,task);return task;
+ const task=Promise.resolve().then(()=>withSummaryLock('claudia-primary-summary:'+scope.conversationId,assertLease=>execute(scope,manual,assertLease,admitted),summaryLimits.leaseMs)).finally(()=>{if(running.get(scope.conversationId)===task)running.delete(scope.conversationId);});running.set(scope.conversationId,task);return task;
 }
 /** One automatic attempt per due group.
  * Paid failures remain paused for explicit recovery.
@@ -290,16 +290,16 @@ export function runMemorySummary(scope:MemoryScope,manual=true){
  */
 const autoLoops=new Set<string>();
 const recoveryTimers=new Map<string,ReturnType<typeof setTimeout>>();
-function scheduleSummaryRecovery(id:string){if(recoveryTimers.has(id))return;recoveryTimers.set(id,setTimeout(()=>{recoveryTimers.delete(id);void tryAutoSummary(id).catch(()=>{});},30*60*1000));}
+function scheduleSummaryRecovery(id:string,admitted:()=>boolean){if(recoveryTimers.has(id))return;recoveryTimers.set(id,setTimeout(()=>{recoveryTimers.delete(id);if(admitted())void tryAutoSummary(id,admitted).catch(()=>{});},30*60*1000));}
 export async function tryAutoSummary(conversationId:string,admitted:()=>boolean=()=>true){
- if(autoLoops.has(conversationId)||!navigator.onLine||document.hidden)return;
+ if(!admitted()||autoLoops.has(conversationId)||!navigator.onLine||document.hidden)return;
  const c=await db.conversations.get(conversationId);
  if(!c?.memorySummary?.enabled)return;
  const saved=c.memorySummary,recovered=summaryCapacityRecovered(c)&&saved.job?.chunks===0&&!saved.checkpoint?.completed.length;
  // Cheap persisted eligibility first: failed/cooling jobs must not repeatedly
  // reconstruct a long source path merely because a scheduler wakes.
  if(autoSummaryPaused(saved)&&!recovered)return;
- if(saved.job?.status==='failed'&&Date.now()-(saved.job.finishedAt??saved.job.startedAt)<30*60*1000&&!recovered){scheduleSummaryRecovery(conversationId);return;}
+ if(saved.job?.status==='failed'&&Date.now()-(saved.job.finishedAt??saved.job.startedAt)<30*60*1000&&!recovered){scheduleSummaryRecovery(conversationId,admitted);return;}
  const scope=await getMemoryScope(conversationId);
  if(autoLoops.has(conversationId))return;
  autoLoops.add(conversationId);
@@ -312,24 +312,24 @@ export async function tryAutoSummary(conversationId:string,admitted:()=>boolean=
    const owner=await db.conversations.get(conversationId);const state=owner?.memorySummary;const recovered=owner&&summaryCapacityRecovered(owner)&&state?.job?.chunks===0&&!state.checkpoint?.completed.length;
    if(!state?.enabled||before.pending<before.interval&&!state.checkpoint)break;
    if(autoSummaryPaused(state)&&!recovered)break;
-   if(state.job?.status==='failed'&&Date.now()-(state.job.finishedAt??state.job.startedAt)<30*60*1000&&!recovered){scheduleSummaryRecovery(conversationId);break;}
+   if(state.job?.status==='failed'&&Date.now()-(state.job.finishedAt??state.job.startedAt)<30*60*1000&&!recovered){scheduleSummaryRecovery(conversationId,admitted);break;}
    // One attempt per due cycle. A failure is terminal for this cycle:
    // do not silently issue another paid API request, even for transient errors.
    // No pending-count backoff: failed work is paused until explicit recovery.
    if(!navigator.onLine||document.hidden)return;
-   await runMemorySummary(scope,false);
+   await runMemorySummary(scope,false,admitted);
    const current=(await db.conversations.get(conversationId))?.memorySummary;
-   if(current?.job?.id===before.job?.id){if(current?.job?.status==='failed'&&!current.requiresManualResume)scheduleSummaryRecovery(conversationId);return;}
+   if(current?.job?.id===before.job?.id){if(current?.job?.status==='failed'&&!current.requiresManualResume)scheduleSummaryRecovery(conversationId,admitted);return;}
    const succeeded=current?.job?.status==='succeeded';
    if(current?.job?.status==='failed')automationStatus('summary:'+conversationId,{state:'failed',reason:current.job.error??'未完成',...(!current.requiresManualResume?{nextAt:(current.job.finishedAt??Date.now())+30*60000}:{})});
    if(!succeeded&&current?.job?.status!=='failed')return;
    if(succeeded)continueBacklog=true;
    if(!succeeded){
-    if(!current?.requiresManualResume)scheduleSummaryRecovery(conversationId);
+    if(!current?.requiresManualResume)scheduleSummaryRecovery(conversationId,admitted);
     break;
    }
   }
- }).catch(()=>{}).finally(()=>{autoLoops.delete(conversationId);if(continueBacklog&&!document.hidden&&navigator.onLine)setTimeout(()=>void tryAutoSummary(conversationId).catch(()=>{}),0);});
+ }).catch(()=>{}).finally(()=>{autoLoops.delete(conversationId);if(continueBacklog&&admitted()&&!document.hidden&&navigator.onLine)setTimeout(()=>{if(admitted())void tryAutoSummary(conversationId,admitted).catch(()=>{})},0);});
 }
 
 export async function catchUpMemorySummaries(scope:MemoryScope){

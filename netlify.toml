@@ -1,5 +1,5 @@
 [build]
-  ignore = "node -e \"process.exit(process.env.BRANCH==='feature/dual-automation-api'?0:1)\""
+  ignore = "node ./scripts/automation-build-policy.mjs ignore"
   command = "npm run build"
   publish = "dist"
   functions = "netlify/functions"

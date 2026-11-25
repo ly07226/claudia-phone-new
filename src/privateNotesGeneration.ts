@@ -21,8 +21,8 @@ export async function loadNotes(characterId:string):Promise<GeneratedNote[]>{
  if(legacy.length){await archiveNotes(characterId,legacy);localStorage.removeItem(PREFIX+characterId)}return legacy;
 }
 export async function saveNotes(characterId:string,notes:GeneratedNote[]){await archiveNotes(characterId,notes);try{localStorage.removeItem(PREFIX+characterId)}catch{/* IndexedDB remains authoritative */}}
-export async function generatePrivateNote(characterId:string,manual=false,requestedKind?:NoteKind):Promise<GeneratedNote|null>{
- if(pending.has(characterId))return null;
+export async function generatePrivateNote(characterId:string,manual=false,requestedKind?:NoteKind,admitted:()=>boolean=()=>true):Promise<GeneratedNote|null>{
+ if(!admitted()||pending.has(characterId))return null;
  pending.add(characterId);
  try{
  return await withPrivateNotesTask(characterId,false,'',async(assertOwner)=>{
@@ -103,7 +103,7 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
  ].join('\n');
  const {config,key}=await resolveAutomationApi(conversation);
  const controller=new AbortController();const timer=armAutomationTimeout(controller,90000);
- setAutomationPreflight(controller.signal,async()=>{if(!manual&&requestedKind==='梦境'&&(await privateNotesMetadata()).schedule?.dreamEnabled!==true)throw Error('自动梦境已关闭，未发送请求');await assertOwner();await assertAutomatic();await assertLifeSource(sourceSnapshot);if((await readCharacterLife(characterId)).revision!==life.revision)throw Error('生活状态已变化，未发出过期请求')});
+ setAutomationPreflight(controller.signal,async()=>{if(!admitted())throw Error('私人记录调度已停止，未发送请求');if(!manual&&requestedKind==='梦境'&&(await privateNotesMetadata()).schedule?.dreamEnabled!==true)throw Error('自动梦境已关闭，未发送请求');await assertOwner();await assertAutomatic();await assertLifeSource(sourceSnapshot);if((await readCharacterLife(characterId)).revision!==life.revision)throw Error('生活状态已变化，未发出过期请求')});
  try{
   let interrupted=false;
   const result=await requestAutomationReply(config,key,[{role:'system',content:system},{role:'user',content:'当前时间：'+new Date().toLocaleString('zh-CN')+'\n以下是当前会话可用的记忆背景：\n'+memoryText+'\n适用的日常世界书（不得覆盖感情保护与玩家自主权）：\n'+lore.entries.map(e=>e.content).join('\n')+'\n以下是角色独立生活状态：\n'+lifePrompt(life)+'\n以下是近期真实聊天节选：\n'+transcript}],controller.signal,undefined,false,reason=>{interrupted=!!reason});

@@ -8,7 +8,6 @@ import {db} from './store';
 import {activeMessages} from './messagePath';
 import {buildContext,contextLimits} from './chatContext';
 import {resolveAutomationApi} from './dedicatedSummaryApi';
-import {requestChatReply} from './chatProvider';
 import {commitTimelineProjection,ensureTimelineInTransaction} from './timelines';
 import {isDailyFriend} from './chatRelationships';
 import {messageTables,addGeneratedVariant} from './messageOperations';
@@ -29,8 +28,8 @@ export function proactiveEligible(c:Conversation,latestUserAt:number,now:number)
  return now>=next && !(c.sendingUntil&&c.sendingUntil>now);
 }
 /** A single attempt per inactivity period. Manual tests bypass the wait and probability, never the conversation guards. */
-async function sendProactiveLocked(id:string,force=false,gameEvent?:PhaseChatEvent):Promise<boolean>{
- if(pending.has(id)||document.visibilityState!=='visible')return false;
+async function sendProactiveLocked(id:string,force=false,gameEvent?:PhaseChatEvent,admitted:()=>boolean=()=>true):Promise<boolean>{
+ if(!admitted()||pending.has(id)||document.visibilityState!=='visible')return false;
  pending.add(id);
  try{
   const now=Date.now();
@@ -50,7 +49,7 @@ async function sendProactiveLocked(id:string,force=false,gameEvent?:PhaseChatEve
    if(!current||(current.sendingUntil??0)>Date.now()||!gameEvent&&(!current.chatSettings?.proactiveEnabled||current.mode!=='daily'||current.worldId))return false;
    if(gameEvent&&(!current.chatEventReceipts?.some(r=>r.id===gameEvent.id&&r.status==='processing')||current.activeTimelineId!==gameEvent.run.target.timelineId||(current.timelineEpoch??0)!==gameEvent.run.target.epoch))return false;
    if(!gameEvent&&!force&&!proactiveEligible(current,latestUserAt,now))return false;
-   await db.conversations.update(id,{...(!gameEvent&&!force?{chatSettings:{...current.chatSettings,proactiveAttemptFor:anchor,proactiveAttemptAt:now,proactiveError:undefined}}:{})});
+   await db.conversations.update(id,{chatSettings:{...current.chatSettings,proactiveAttemptFor:anchor,proactiveAttemptAt:now,proactiveError:undefined}});
    return true;
   });
   if(!acquired)return false;
@@ -65,7 +64,7 @@ async function sendProactiveLocked(id:string,force=false,gameEvent?:PhaseChatEve
   context.push({role:'user',content:gameEvent?JSON.stringify({source:'忍一下嘛',eventId:gameEvent.id,eventType:gameEvent.type,mode:gameEvent.run.mode,intensity:gameEvent.run.intensity,plannedMinutes:gameEvent.run.minutes,completed:gameEvent.type==='finish',summary:gameEvent.type==='start'?'用户开始了一局红黄绿阶段节奏互动。':'用户正常完成了本局红黄绿阶段节奏互动。'}):'[系统触发：请主动向用户发送一条自然的私信。这不是用户发来的聊天消息。]'});
   const controller=new AbortController();
   const timer=armAutomationTimeout(controller,60000);
-  setAutomationPreflight(controller.signal,async()=>{const current=await db.conversations.get(id);const rows=await activeMessages(id,undefined,true);if(!current||!gameEvent&&!current.chatSettings?.proactiveEnabled||current.activeTimelineId!==locked.activeTimelineId||current.timelineEpoch!==locked.timelineEpoch||rows.length!==path.length||rows.at(-1)?.id!==path.at(-1)?.id)throw Error('会话已变化，未发出过期主动请求')});
+  setAutomationPreflight(controller.signal,async()=>{if(!admitted())throw Error('主动消息调度已停止，未发送请求');const current=await db.conversations.get(id);const rows=await activeMessages(id,undefined,true);if(!current||!gameEvent&&!current.chatSettings?.proactiveEnabled||current.activeTimelineId!==locked.activeTimelineId||current.timelineEpoch!==locked.timelineEpoch||rows.length!==path.length||rows.at(-1)?.id!==path.at(-1)?.id)throw Error('会话已变化，未发出过期主动请求')});
   let text='';
   try{const result=await requestAutomationReply(config,key,context,controller.signal,undefined,true,reason=>{if(reason)throw Error('主动消息未完整生成')});text=result.trim();}finally{timer();}
   if(!text)throw Error('模型没有返回主动消息。');
@@ -97,23 +96,24 @@ async function sendProactiveLocked(id:string,force=false,gameEvent?:PhaseChatEve
   pending.delete(id);
  }
 }
-export async function scanProactiveMessages(){
- if(scanBusy||document.visibilityState!=='visible')return;
+export async function scanProactiveMessages(admitted:()=>boolean=()=>true){
+ if(!admitted()||scanBusy||document.visibilityState!=='visible')return;
  scanBusy=true;
  try{
   const conversations=await db.conversations.toArray();
   const ordered=conversations.slice(scanCursor%Math.max(1,conversations.length)).concat(conversations.slice(0,scanCursor%Math.max(1,conversations.length)));
   for(const c of ordered){
+   if(!admitted())break;
    if(!c.chatSettings?.proactiveEnabled||c.mode!=='daily')continue;
    const latestUserAt=await latestProactiveUser(c);
-   if(proactiveEligible(c,latestUserAt,Date.now())){scanCursor=conversations.findIndex(v=>v.id===c.id)+1;await sendProactiveMessage(c.id).catch(()=>{});break;}
+   if(proactiveEligible(c,latestUserAt,Date.now())){scanCursor=conversations.findIndex(v=>v.id===c.id)+1;await sendProactiveMessage(c.id,false,undefined,admitted).catch(()=>{});break;}
   }
  }finally{scanBusy=false;}
 }
 
-export async function sendProactiveMessage(id:string,force=false,gameEvent?:PhaseChatEvent):Promise<boolean>{
+export async function sendProactiveMessage(id:string,force=false,gameEvent?:PhaseChatEvent,admitted:()=>boolean=()=>true):Promise<boolean>{
  let saved=false;
- await withSummaryLock('claudia:proactive:'+id,async()=>{saved=await sendProactiveLocked(id,force,gameEvent)});
+ await withSummaryLock('claudia:proactive:'+id,async()=>{saved=await sendProactiveLocked(id,force,gameEvent,admitted)},undefined,gameEvent?90000:0);
  return saved;
 }
 export async function proactiveDeadline(c:Conversation){
