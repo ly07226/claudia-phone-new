@@ -1,0 +1,6 @@
+export default async function handler(req){
+ if(req.method!=='GET')return new Response(null,{status:405});
+ let url;try{url=new URL(new URL(req.url).searchParams.get('url')||'');}catch{return new Response(null,{status:400});}
+ if(url.protocol!=='https:'||!['i.postimg.cc','i.imgur.com'].includes(url.hostname)||url.port||url.username||url.password||url.search||url.hash||!/^\/[A-Za-z0-9_./-]+\.(png|jpe?g|gif|webp)$/i.test(url.pathname))return new Response(null,{status:403});
+ try{const upstream=await fetch(url.href,{redirect:'error',signal:AbortSignal.timeout(10000)});const mime=(upstream.headers.get('content-type')||'').split(';')[0].trim();const max=4*1024*1024;if(!upstream.ok||!upstream.body||!['image/png','image/jpeg','image/gif','image/webp'].includes(mime))return new Response(null,{status:422});if(Number(upstream.headers.get('content-length'))>max)return new Response(null,{status:413});const reader=upstream.body.getReader();const chunks=[];let size=0;try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>max)return new Response(null,{status:413});chunks.push(value);}}finally{await reader.cancel().catch(()=>{});}return new Response(new Blob(chunks),{headers:{'Content-Type':mime,'X-Content-Type-Options':'nosniff','Cache-Control':'public, max-age=3600'}});}catch{return new Response(null,{status:502});}
+}
