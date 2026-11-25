@@ -67,13 +67,13 @@ export async function listWechatCloudBindings():Promise<Array<{id:string;charact
   throw Error('微信绑定数据不完整。');
  return data.bindings as Array<{id:string;character_id:string;conversation_id:string;status:string}>;
 }
-export async function wechatCloudFunctionRequest(name:'claudia-wechat-sync'|'claudia-wechat-login'|'claudia-wechat-ai-config'|'claudia-qq-login'|'claudia-qq-ai-config'|'claudia-qq-sync',body:unknown){
+export async function wechatCloudFunctionRequest(name:'claudia-wechat-sync'|'claudia-wechat-login'|'claudia-wechat-ai-config'|'claudia-qq-login'|'claudia-qq-ai-config'|'claudia-qq-sync',body:unknown,allowErrorResponse=false){
  const c=project();
  const token=await wechatCloudAccessToken();
  const response=await fetch(c.url+'/functions/v1/'+name,{
   method:'POST',headers:{'Content-Type':'application/json',apikey:c.publishableKey,
    Authorization:'Bearer '+token},body:JSON.stringify(body),cache:'no-store'
  });
- if(!response.ok)throw Error('微信专用云端请求失败（HTTP '+response.status+'）。');
+ if(!response.ok&&!allowErrorResponse)throw Error('微信专用云端请求失败（HTTP '+response.status+'）。');
  return response;
 }

@@ -109,8 +109,6 @@ export function Chat({ worldId }: { worldId?: string }) {
   const [savingMessage, setSavingMessage] = useState(false);
   const [attachmentOpen,setAttachmentOpen]=useState(false);
   const [qqManualSyncBusy,setQqManualSyncBusy]=useState(false);
-  const [qqAutoSyncError,setQqAutoSyncError]=useState(()=>localStorage.getItem('claudia-qq-auto-sync-error')||'');
-  useEffect(()=>{const onStatus=(event:Event)=>{const detail=(event as CustomEvent<{status:string;reason?:string}>).detail;setQqAutoSyncError(detail?.status==='error'?detail.reason||'自动回填失败':'');};window.addEventListener('claudia-qq-auto-sync-status',onStatus);return()=>window.removeEventListener('claudia-qq-auto-sync-status',onStatus);},[]);
   const manualQqSync=async()=>{
     const target=conversation;
     const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
@@ -123,8 +121,8 @@ export function Chat({ worldId }: { worldId?: string }) {
       const latest=newestQqBinding(matching);
       if(!latest)throw Error('此角色尚未确认 QQ 绑定');
       const added=await syncQqDailyConversation(target.id,latest.id,true);
-      if(added>0){localStorage.setItem('claudia-qq-context-dirty:'+latest.id,'yes');await refresh(target.id,true);}
-      window.alert(added>0?'QQ 记录同步完成，新增 '+added+' 条消息。':'本次没有导入新消息。可能已同步过，或同步断点之后没有新记录；云端历史数量不等于本次新增数量。');
+      if(added>0)await refresh(target.id,true);
+      window.alert(added>0?'QQ 记录本次新增 '+added+' 条消息；如仍有历史积压，前台自动同步会继续处理。':'本次没有导入新消息。可能已同步过，或同步断点之后没有新记录；云端历史数量不等于本次新增数量。');
     }catch(e){setError(e instanceof Error?e.message:'QQ 记录同步失败');}
     finally{setQqManualSyncBusy(false);}
   };

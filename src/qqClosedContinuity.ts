@@ -3,9 +3,9 @@
  */
 import {db} from './store';
 import {listQqCloudBindings,newestQqBinding} from './qqQrLogin';
-import {syncQqDailyConversation} from './qqDailySync';
-import {buildContext} from './chatContext';
-import {syncQqContext,getQqAiStatus} from './qqAiAuthorization';
+import {syncQqDailyConversation,resolveQqLocalConversation} from './qqDailySync';
+import {syncQqSnapshot} from './qqContextSync';
+import {getQqAiStatus} from './qqAiAuthorization';
 import {readWechatCloudConfig} from './wechatCloudConfig';
 
 const prefix='claudia-qq-closed-continuity:';
@@ -24,6 +24,7 @@ async function bootstrapExistingAuthorization(){
  if(bootstrap)return bootstrap;
  bootstrap=(async()=>{
   const bindings=await listQqCloudBindings();
+  let failed=false;
   for(const b of bindings.filter(b=>b.status==='connected')){
    if(localStorage.getItem(prefix+b.id)==='no')continue;
    if(getQqClosedContinuity(b.id))continue;
@@ -31,22 +32,24 @@ async function bootstrapExistingAuthorization(){
     const status=await getQqAiStatus(b.id);
     if(status.enabled)setQqClosedContinuity(b.id,true);
    } catch(error) {
+    failed=true;
     // A stale QQ binding must not prevent healthy bindings from restoring.
     console.warn('QQ 绑定授权检查失败，继续恢复其他绑定',b.id,error instanceof Error?error.message:'unknown');
    }
   }
-  bootstrapDone=true;
+  bootstrapDone=!failed;
  })().finally(()=>{bootstrap=null;});
  return bootstrap;
 }
 export function reconcileQqAfterReopen():Promise<void>{
  if(pending)return pending;
  pending=(async()=>{
-  if(document.visibilityState!=='visible'||!navigator.onLine)return;
+  if(!readWechatCloudConfig()||document.visibilityState!=='visible'||!navigator.onLine)return;
   await bootstrapExistingAuthorization();
   const bindings=await listQqCloudBindings();
   const stableId=localStorage.getItem('claudia-qq-stable-sync-id');
   const characterIds=new Set(bindings.filter(b=>b.status==='connected').map(b=>b.character_id));
+  const errors:string[]=[];
   for(const characterId of characterIds){
    const candidates=bindings.filter(b=>b.status==='connected'&&b.character_id===characterId);
    // Only the most recently messaged binding is eligible, even if an older one is confirmed.
@@ -56,9 +59,7 @@ export function reconcileQqAfterReopen():Promise<void>{
    // Confirmed account identity is sufficient for cloud history recovery.
    // Cloud AI authorization controls reply generation, not readback.
    if(!matched&&!getQqClosedContinuity(binding.id))continue;
-   const conversation=matched
-    ?(await db.conversations.where('characterId').equals(binding.character_id).toArray()).find(c=>c.mode==='daily'&&!c.worldId)
-    :await db.conversations.get(binding.conversation_id);
+   const conversation=await resolveQqLocalConversation(binding);
    if(!conversation||conversation.mode!=='daily'||conversation.worldId||
       conversation.characterId!==binding.character_id)continue;
    try{
@@ -66,28 +67,25 @@ export function reconcileQqAfterReopen():Promise<void>{
     const needsBackfill=matched&&localStorage.getItem(backfillKey)!=='done';
     const added=await syncQqDailyConversation(conversation.id,binding.id,needsBackfill);
     if(needsBackfill)localStorage.setItem(backfillKey,'done');
-    localStorage.removeItem('claudia-qq-auto-sync-error');
-    window.dispatchEvent(new CustomEvent('claudia-qq-auto-sync-status',{detail:{status:'ok',added}}));
-    const dirtyKey='claudia-qq-context-dirty:'+binding.id;
-    if(added>0)localStorage.setItem(dirtyKey,'yes');
-    if(localStorage.getItem(dirtyKey)!=='yes')continue;
-    const fresh=await db.conversations.get(conversation.id);
-    if(!fresh||fresh.activeTimelineId!==conversation.activeTimelineId||
-       (fresh.timelineEpoch??0)!==(conversation.timelineEpoch??0))continue;
-    const context=await buildContext(fresh);
-    if(context.some(m=>m.images?.length))throw Error('有效上下文包含图片，QQ 云端暂不支持完整同步');
-    const messages=context.map(m=>({role:m.role,content:m.content}));
-    if(!messages.some(m=>m.role==='system')||messages.length>64||JSON.stringify(messages).length>80000)
-      throw Error('QQ 有效上下文超过安全容量或缺少系统设定');
-    await syncQqContext(binding.id,messages);
-    localStorage.removeItem(dirtyKey);
+    if(getQqClosedContinuity(binding.id))await syncQqSnapshot(binding.id,conversation.id);
+    localStorage.removeItem('claudia-qq-auto-sync-error:'+binding.id);
+    window.dispatchEvent(new CustomEvent('claudia-qq-auto-sync-status',{detail:{status:'ok',bindingId:binding.id,added}}));
    }catch(e){
     const reason=e instanceof Error?e.message:'unknown';
-    localStorage.setItem('claudia-qq-auto-sync-error',reason);
-    window.dispatchEvent(new CustomEvent('claudia-qq-auto-sync-status',{detail:{status:'error',reason}}));
+    errors.push(reason);
+    localStorage.setItem('claudia-qq-auto-sync-error:'+binding.id,reason);
+    window.dispatchEvent(new CustomEvent('claudia-qq-auto-sync-status',{detail:{status:'error',bindingId:binding.id,reason}}));
     console.warn('QQ 离线消息回填或记忆同步待重试',reason);
    }
   }
- })().finally(()=>{pending=null;});
+  if(errors.length)localStorage.setItem('claudia-qq-auto-sync-error',errors.join('；'));
+  else localStorage.removeItem('claudia-qq-auto-sync-error');
+  window.dispatchEvent(new CustomEvent('claudia-qq-auto-sync-status',{detail:{status:errors.length?'error':'ok',reason:errors.join('；')}}));
+ })().catch(error=>{
+  const reason=error instanceof Error?error.message:'QQ 自动同步失败';
+  localStorage.setItem('claudia-qq-auto-sync-error',reason);
+  window.dispatchEvent(new CustomEvent('claudia-qq-auto-sync-status',{detail:{status:'error',reason}}));
+  throw error;
+ }).finally(()=>{pending=null;});
  return pending;
 }
