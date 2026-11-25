@@ -3,7 +3,7 @@ import {useEffect} from 'react';
 import {liveQuery} from 'dexie';
 import {db} from './store';
 import {activeMessages} from './messagePath';
-import {scanProactiveMessages} from './proactiveMessages';
+import {scanProactiveMessages,proactiveDeadline} from './proactiveMessages';
 
 export function ProactiveScheduler(){
  useEffect(()=>{
@@ -24,7 +24,7 @@ export function ProactiveScheduler(){
    if(disposed||document.visibilityState!=='visible'||!navigator.onLine)return;
    if(running){queued=true;return;}
    running=true;
-   try{await enqueueAutomation('proactive',scanProactiveMessages);}catch{/* Automatic sends are silent; manual tests surface errors. */}
+   try{await enqueueAutomation('proactive',()=>disposed?Promise.resolve():scanProactiveMessages());}catch{/* Automatic sends are silent; manual tests surface errors. */}
    finally{running=false;if(queued){queued=false;void check();}else schedule();}
   };
   const subscription=liveQuery(async()=>{
@@ -35,11 +35,8 @@ export function ProactiveScheduler(){
     if(c.mode!=='daily'||c.worldId||!settings?.proactiveEnabled)continue;
     const hours=settings.proactiveHours??3;
     if(!Number.isFinite(hours)||hours<0.5||hours>24)continue;
-    const messages=await activeMessages(c.id);
-    const lastUser=[...messages].reverse().find(m=>m.role==='user')?.createdAt??0;
-    const anchor=Math.max(c.createdAt,settings.proactiveEnabledAt??c.createdAt,lastUser);
-    if(settings.proactiveAttemptFor===anchor)continue;
-    const deadline=Math.max(anchor+hours*3600000,c.sendingUntil??0);
+    const deadline=await proactiveDeadline(c);
+    if(deadline===null)continue;
     earliest=earliest===null?deadline:Math.min(earliest,deadline);
    }
    return earliest;
@@ -60,10 +57,10 @@ export function ProactiveScheduler(){
   document.addEventListener('visibilitychange',foreground);
   window.addEventListener('focus',foreground);
   // Initial and resumed scans use persisted timestamps; no fixed polling.
-  const fallback=setInterval(foreground,60000);
+  window.addEventListener('online',foreground);
   void check();
   return()=>{
-   clearInterval(fallback);
+   window.removeEventListener('online',foreground);
    disposed=true;clear();subscription.unsubscribe();
    document.removeEventListener('visibilitychange',foreground);
    window.removeEventListener('focus',foreground);

@@ -92,7 +92,7 @@ function verifiedSourceQuote(message:string,quote:string){
 export interface RecoveredSummaryBatch {facts:SummaryFact[];candidates:number;rejected:{index:number;reason:import('./memorySummaryQuality').SummaryQualityRejection}[]}
 /** Format recovery cannot invent facts or citations. Invalid candidates are
  * counted individually; only an invalid envelope aborts the extraction. */
-export function recoverSummaryBatch(raw:string,input:string):RecoveredSummaryBatch{
+export function recoverSummaryBatch(raw:string,input:string,allowFilteredEmpty=false):RecoveredSummaryBatch{
  const value=summaryJsonCandidate(raw);
  if(value&&typeof value==='object'&&!Array.isArray(value)&&['operation','deleteAll','resetDatabase','clear'].some(k=>Object.hasOwn(value,k)))reject('unexpected-field',{stage:'validate'});
  const rows=Array.isArray(value)?value&&value:value&&typeof value==='object'?(value.memories??value.facts):undefined;
@@ -148,7 +148,7 @@ export function recoverSummaryBatch(raw:string,input:string):RecoveredSummaryBat
   if(!quality){bad('invalid-candidate');continue;}
   facts.push({type:(type??'fact') as SummaryCategory,...(item.kind?{kind:item.kind}:{}),content,quality});
  }
- if(rows.length&&!facts.length)reject('invalid-quality',{stage:'validate'});
+ if(rows.length&&!facts.length&&!allowFilteredEmpty)reject('invalid-quality',{stage:'validate'});
  return {facts,candidates:rows.length,rejected};
 }
 /** Legacy callers can keep a strict failure for entirely unsupported output. */

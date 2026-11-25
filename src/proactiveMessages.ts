@@ -1,3 +1,6 @@
+import {describeReplyFailure} from './replyFailure';
+import {withSummaryLock} from './summaryLock';
+import {requestAutomationReply,setAutomationPreflight,armAutomationTimeout} from './automationRequests';
 import {publishSavedChatMessage} from './chatMessageEvents';
 import type {PhaseChatEvent} from './phasePlay/chatLink';
 import type {Message} from './chatTypes';
@@ -21,10 +24,12 @@ export function proactiveEligible(c:Conversation,latestUserAt:number,now:number)
  const interval=s.proactiveHours??3;
  if(!Number.isFinite(interval)||interval<0.5||interval>24)return false;
  const anchor=Math.max(c.createdAt,s.proactiveEnabledAt??c.createdAt,latestUserAt);
- return now-anchor>=interval*hour && s.proactiveAttemptFor!==anchor && !(c.sendingUntil&&c.sendingUntil>now);
+ const attempted=s.proactiveAttemptFor===anchor;
+ const next=attempted?(s.proactiveAttemptAt??anchor+interval*hour)+interval*hour:anchor+interval*hour;
+ return now>=next && !(c.sendingUntil&&c.sendingUntil>now);
 }
 /** A single attempt per inactivity period. Manual tests bypass the wait and probability, never the conversation guards. */
-export async function sendProactiveMessage(id:string,force=false,gameEvent?:PhaseChatEvent):Promise<boolean>{
+async function sendProactiveLocked(id:string,force=false,gameEvent?:PhaseChatEvent):Promise<boolean>{
  if(pending.has(id)||document.visibilityState!=='visible')return false;
  pending.add(id);
  try{
@@ -32,7 +37,7 @@ export async function sendProactiveMessage(id:string,force=false,gameEvent?:Phas
   const c=await db.conversations.get(id);
   if(!c||!gameEvent&&(c.mode!=='daily'||c.worldId||!c.chatSettings?.proactiveEnabled))return false;
   if(gameEvent&&(gameEvent.run.target.conversationId!==id||c.characterId!==gameEvent.run.target.characterId||c.worldId!==gameEvent.run.target.worldId||c.activeTimelineId!==gameEvent.run.target.timelineId||(c.timelineEpoch??0)!==gameEvent.run.target.epoch))return false;
-  const path=await activeMessages(id);
+  const path=await activeMessages(id,undefined,true);
   const character=await db.characters.get(c.characterId);
   if(!character||!c.worldId&&!isDailyFriend(character))return false;
   if(c.worldId&&(!await db.worlds.get(c.worldId)||!await db.worldProfiles.where('[worldId+characterId]').equals([c.worldId,c.characterId]).first()))return false;
@@ -44,8 +49,8 @@ export async function sendProactiveMessage(id:string,force=false,gameEvent?:Phas
    const current=await db.conversations.get(id);
    if(!current||(current.sendingUntil??0)>Date.now()||!gameEvent&&(!current.chatSettings?.proactiveEnabled||current.mode!=='daily'||current.worldId))return false;
    if(gameEvent&&(!current.chatEventReceipts?.some(r=>r.id===gameEvent.id&&r.status==='processing')||current.activeTimelineId!==gameEvent.run.target.timelineId||(current.timelineEpoch??0)!==gameEvent.run.target.epoch))return false;
-   if(!gameEvent&&!force&&current.chatSettings?.proactiveAttemptFor===anchor)return false;
-   await db.conversations.update(id,{...(!gameEvent||current.chatSettings?.proactiveEnabled?{chatSettings:{...current.chatSettings,proactiveAttemptFor:anchor}}:{})});
+   if(!gameEvent&&!force&&!proactiveEligible(current,latestUserAt,now))return false;
+   await db.conversations.update(id,{...(!gameEvent&&!force?{chatSettings:{...current.chatSettings,proactiveAttemptFor:anchor,proactiveAttemptAt:now,proactiveError:undefined}}:{})});
    return true;
   });
   if(!acquired)return false;
@@ -59,9 +64,10 @@ export async function sendProactiveMessage(id:string,force=false,gameEvent?:Phas
   context[0]={...context[0],content:context[0].content+instruction};
   context.push({role:'user',content:gameEvent?JSON.stringify({source:'忍一下嘛',eventId:gameEvent.id,eventType:gameEvent.type,mode:gameEvent.run.mode,intensity:gameEvent.run.intensity,plannedMinutes:gameEvent.run.minutes,completed:gameEvent.type==='finish',summary:gameEvent.type==='start'?'用户开始了一局红黄绿阶段节奏互动。':'用户正常完成了本局红黄绿阶段节奏互动。'}):'[系统触发：请主动向用户发送一条自然的私信。这不是用户发来的聊天消息。]'});
   const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),60000);
+  const timer=armAutomationTimeout(controller,60000);
+  setAutomationPreflight(controller.signal,async()=>{const current=await db.conversations.get(id);const rows=await activeMessages(id,undefined,true);if(!current||!gameEvent&&!current.chatSettings?.proactiveEnabled||current.activeTimelineId!==locked.activeTimelineId||current.timelineEpoch!==locked.timelineEpoch||rows.length!==path.length||rows.at(-1)?.id!==path.at(-1)?.id)throw Error('会话已变化，未发出过期主动请求')});
   let text='';
-  try{const result=await requestChatReply(config,key,context,controller.signal);if(result.interruption)throw Error('主动消息未完整生成，未保存成功回复。');text=result.text.trim();}finally{clearTimeout(timer);}
+  try{const result=await requestAutomationReply(config,key,context,controller.signal,undefined,true,reason=>{if(reason)throw Error('主动消息未完整生成')});text=result.trim();}finally{timer();}
   if(!text)throw Error('模型没有返回主动消息。');
   let saved=false;let committedMessage:Message|undefined;
   await db.transaction('rw',[...messageTables(),db.characters,db.worlds,db.worldProfiles],async()=>{
@@ -70,7 +76,7 @@ export async function sendProactiveMessage(id:string,force=false,gameEvent?:Phas
    const existingCharacter=await db.characters.get(current.characterId);if(!existingCharacter||!current.worldId&&!isDailyFriend(existingCharacter))return;
    if(current.worldId&&(!await db.worlds.get(current.worldId)||!await db.worldProfiles.where('[worldId+characterId]').equals([current.worldId,current.characterId]).first()))return;
    await ensureTimelineInTransaction(id);
-   const rows=await activeMessages(id);
+   const rows=await activeMessages(id,undefined,true);
    if(rows.some(m=>m.role==='user'&&m.createdAt>latestUserAt)||!gameEvent&&!current.chatSettings?.proactiveEnabled)return;
    if(rows.length!==path.length||rows.at(-1)?.id!==path.at(-1)?.id)return;
    const last=rows.at(-1);
@@ -86,6 +92,7 @@ export async function sendProactiveMessage(id:string,force=false,gameEvent?:Phas
    publishSavedChatMessage(locked,committedMessage);
   }
   return saved;
+ }catch(error){if(!gameEvent){await db.transaction('rw',db.conversations,async()=>{const current=await db.conversations.get(id);if(current)await db.conversations.update(id,{chatSettings:{...current.chatSettings,proactiveError:describeReplyFailure(error).reason+'；下一周期恢复，或手动重试'}})}).catch(()=>{});}throw error;
  }finally{
   pending.delete(id);
  }
@@ -98,9 +105,30 @@ export async function scanProactiveMessages(){
   const ordered=conversations.slice(scanCursor%Math.max(1,conversations.length)).concat(conversations.slice(0,scanCursor%Math.max(1,conversations.length)));
   for(const c of ordered){
    if(!c.chatSettings?.proactiveEnabled||c.mode!=='daily')continue;
-   const path=await activeMessages(c.id);
-   const latestUserAt=[...path].reverse().find(m=>m.role==='user')?.createdAt??0;
+   const latestUserAt=await latestProactiveUser(c);
    if(proactiveEligible(c,latestUserAt,Date.now())){scanCursor=conversations.findIndex(v=>v.id===c.id)+1;await sendProactiveMessage(c.id).catch(()=>{});break;}
   }
  }finally{scanBusy=false;}
+}
+
+export async function sendProactiveMessage(id:string,force=false,gameEvent?:PhaseChatEvent):Promise<boolean>{
+ let saved=false;
+ await withSummaryLock('claudia:proactive:'+id,async()=>{saved=await sendProactiveLocked(id,force,gameEvent)});
+ return saved;
+}
+export async function proactiveDeadline(c:Conversation){
+ if(c.mode!=='daily'||c.worldId||!c.chatSettings?.proactiveEnabled)return null;
+ const latest=await latestProactiveUser(c);
+ const s=c.chatSettings,interval=(s.proactiveHours??3)*hour;
+ const anchor=Math.max(c.createdAt,s.proactiveEnabledAt??c.createdAt,latest);
+ return Math.max((s.proactiveAttemptFor===anchor?(s.proactiveAttemptAt??anchor+interval):anchor)+interval,c.sendingUntil??0);
+}
+
+/** Indexed tail traversal: deadline scans never deserialize a complete chat. */
+export async function latestProactiveUser(c:Conversation){
+ if(!c.activeTimelineId)return (await db.messages.where('[conversationId+createdAt]').between([c.id,-Infinity],[c.id,Infinity]).reverse().filter(m=>m.role==='user'&&!m.archived).first())?.createdAt??0;
+ let id=(await db.timelines.get(c.activeTimelineId))?.headNodeId;
+ const seen=new Set<string>();
+ while(id){if(seen.has(id))throw Error('会话时间线异常');seen.add(id);const node=await db.pathNodes.get(id);if(!node||node.conversationId!==c.id)throw Error('会话时间线不可读');if(node.message.role==='user')return node.message.createdAt;id=node.parentNodeId;}
+ return 0;
 }

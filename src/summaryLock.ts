@@ -1,3 +1,4 @@
+import {backupIsLocked} from './backupGate';
 import {db} from './store';
 export interface SummaryLease {name:string;owner:string;expiresAt:number;updatedAt:number}
 // Long grace period tolerates iOS background timer suspension during a paid request.
@@ -8,9 +9,9 @@ const HEARTBEAT_MS=20000;
  * Dexie transactions serialize the compare-and-set on the same key.
  * A lost lease stops new work, but cannot prove a remote API request was not billed.
  */
-export async function withSummaryLock(name:string,work:()=>Promise<void>,leaseMs=LEASE_MS):Promise<void>{
+export async function withSummaryLock(name:string,work:(assertLease:()=>Promise<void>)=>Promise<void>,leaseMs=LEASE_MS):Promise<void>{
  if(typeof navigator!=='undefined'&&navigator.locks?.request){
-  await navigator.locks.request(name,{mode:'exclusive',ifAvailable:true},async lock=>{if(lock)await work();});
+  await navigator.locks.request(name,{mode:'exclusive',ifAvailable:true},async lock=>{if(lock)await work(async()=>{});});
   return;
  }
  const owner=crypto.randomUUID();
@@ -26,10 +27,11 @@ export async function withSummaryLock(name:string,work:()=>Promise<void>,leaseMs
   const current=await db.summaryLeases.get(name);
   if(current?.owner!==owner){lost=true;return;}
   await db.summaryLeases.put({...current,expiresAt:Date.now()+leaseMs,updatedAt:Date.now()});
- }).catch(()=>{lost=true;});},HEARTBEAT_MS);
+ }).catch(()=>{if(!backupIsLocked())lost=true;});},HEARTBEAT_MS);
+ const assertLease=async()=>{const current=await db.summaryLeases.get(name);if(lost||current?.owner!==owner||current.expiresAt<=Date.now())throw Error('总结任务锁已失效');};
  try{
-  if(lost)throw Error('总结任务锁已失效');
-  await work();
+  await assertLease();
+  await work(assertLease);
  }finally{
   clearInterval(beat);
   await db.transaction('rw',db.summaryLeases,async()=>{

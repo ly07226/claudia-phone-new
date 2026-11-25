@@ -21,9 +21,8 @@ export function installCharacterLifeScheduler() {
             const state = enabled[cursor++ % enabled.length];
             if (!await db.characters.get(state.characterId))
                 return;
-            await enqueueAutomation('life:'+state.characterId,()=>runCharacterLife(state.characterId));
-            if (!stopped && !document.hidden)
-                await enqueueAutomation('notes:'+state.characterId,()=>generatePrivateNote(state.characterId));
+            await enqueueAutomation('life:'+state.characterId,()=>stopped||document.hidden?Promise.resolve(null):runCharacterLife(state.characterId));
+
         }
         catch { /* Durable task status is shown in the life/notes UI; no raw provider log. */ }
         finally {

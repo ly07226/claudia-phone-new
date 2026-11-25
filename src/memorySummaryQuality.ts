@@ -23,7 +23,7 @@ const emotional=[affection,/占有欲|独占|占有|控制欲/u,/性格|温柔|�
 /** Take the actual source clause and preceding conditional context, rather than
  * trusting an excerpt that silently omits "if", "not", or "not yet".
  */
-function sourceContext(message:string,quote:string){
+export function summaryEvidenceContext(message:string,quote:string){
  const {text,start,end}=evidenceLocation(message,quote)!,before=text.slice(0,start);
  const sentenceStart=Math.max(...['。','！','？','!','?','\n'].map(c=>before.lastIndexOf(c)))+1;
  const sentenceEnd=text.slice(end).search(/[。！？!?\n]/u);
@@ -42,7 +42,7 @@ export function selectSummaryCandidates(facts:SummaryFact[],input:string,origina
  const accepted:SummaryFact[]=[],rejected:{index:number;reason:SummaryQualityRejection}[]=[];
  facts.forEach((fact,index)=>{
   const q=fact.quality!;let reason:SummaryQualityRejection|undefined;
-  const evidence=q.evidence.map(e=>{let source=turns[e.turn-1]?.find(m=>m.role===e.role&&evidenceLocation(m.content,e.quote));if(source?.part!==undefined){const matches=source.turnIndex===undefined?[]:originalTurns?.[source.turnIndex]?.messages.filter(m=>m.role===e.role&&m.content.includes(source!.content))??[];if(matches.length!==1)return undefined;source=matches[0];}return source?sourceContext(source.content,e.quote):undefined;});
+  const evidence=q.evidence.map(e=>{let source=turns[e.turn-1]?.find(m=>m.role===e.role&&evidenceLocation(m.content,e.quote));if(source?.part!==undefined){const matches=source.turnIndex===undefined?[]:originalTurns?.[source.turnIndex]?.messages.filter(m=>m.role===e.role&&m.content.includes(source!.content))??[];if(matches.length!==1)return undefined;source=matches[0];}return source?summaryEvidenceContext(source.content,e.quote):undefined;});
   const sentences=evidence.filter((e):e is NonNullable<typeof e>=>!!e).map(e=>e.sentence).join('\n');
   const clauses=evidence.filter((e):e is NonNullable<typeof e>=>!!e).map(e=>e.clause).join('\n');
   const lastingEvidence=/长期|持续|一直|从此|不再|再也|终身|永久|多年|每次|每天|每周|习惯|关系|伴侣|夫妻|身份|确诊|去世|死亡|结婚|离婚|决裂|和解/u.test(clauses)||naming.test(clauses);

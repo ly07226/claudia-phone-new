@@ -1,3 +1,4 @@
+import {requestAutomationReply,inheritAutomationPreflight,armAutomationTimeout} from './automationRequests';
 import {memoryTokenCost} from './memoryContext';
 import {summaryRequestBudget} from './memorySummaryPlan';
 import {summaryPrompt} from './memorySummaryFormat';
@@ -45,10 +46,11 @@ export async function requestSummary(config:ApiConfig,key:string,input:string,si
   }
   return response;
  }};
- const call=new AbortController(),abort=()=>call.abort();if(signal.aborted)call.abort();signal.addEventListener('abort',abort,{once:true});let timedOut=false;const timer=setTimeout(()=>{timedOut=true;call.abort()},90000);
+ const call=new AbortController(),abort=()=>call.abort();if(signal.aborted)call.abort();signal.addEventListener('abort',abort,{once:true});let timedOut=false;const cancelTimeout=armAutomationTimeout(call,90000,()=>{timedOut=true});
+ inheritAutomationPreflight(signal,call.signal);
  let reason:ReplyInterruption|undefined;
  try{
-  const result=await requestReply({...config,maxTokens:outputLimit},key,[{role:'system',content:instruction},{role:'user',content:input}],call.signal,transport,false,value=>{reason=value;});
+  const result=await requestAutomationReply({...config,maxTokens:outputLimit},key,[{role:'system',content:instruction},{role:'user',content:input}],call.signal,transport,false,value=>{reason=value;});
   if(diagnostic)throw new SummaryResponseError({...diagnostic,outputTokenLimit:outputLimit});
   if(reason)throw new SummaryResponseError({version:1,stage:'response',code:reason==='length'?'truncated':reason==='blocked'?'blocked':'response-shape',...(reason==='length'?{suspectedTruncated:true}:{}),outputTokenLimit:outputLimit});
   const content=result.trim();
@@ -59,14 +61,14 @@ export async function requestSummary(config:ApiConfig,key:string,input:string,si
   if(timedOut)throw Error('summary request timeout');
   if(diagnostic&&!(error instanceof SummaryResponseError))throw new SummaryResponseError({...diagnostic,outputTokenLimit:outputLimit});
   throw error;
- }finally{clearTimeout(timer);signal.removeEventListener('abort',abort);}
+ }finally{cancelTimeout();signal.removeEventListener('abort',abort);}
 }
 
 /** Auxiliary summaries must not commit parseable but unfinished model output. */
 async function completeSummaryReply(config:ApiConfig,key:string,messages:Parameters<typeof requestReply>[2],signal:AbortSignal){
  const outputLimit=summaryRequestBudget(config).output;
  let reason:ReplyInterruption|undefined;
- const text=await requestReply({...config,maxTokens:outputLimit},key,messages,signal,browserTransport,false,value=>{reason=value;});
+ const text=await requestAutomationReply({...config,maxTokens:outputLimit},key,messages,signal,browserTransport,false,value=>{reason=value;});
  if(reason)throw new SummaryResponseError({version:1,stage:'response',code:reason==='length'?'truncated':'response-shape',...(reason==='length'?{suspectedTruncated:true}:{}),outputTokenLimit:outputLimit});
  return text;
 }
