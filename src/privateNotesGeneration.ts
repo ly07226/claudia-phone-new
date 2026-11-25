@@ -1,7 +1,9 @@
+import {requestAutomationReply,setAutomationPreflight,armAutomationTimeout} from './automationRequests';
 import {loreForConversation} from './loreEngine';
 import {archiveNotes,appendPrivateNote,appendPrivateNoteReply,privateNotesMetadata,readCharacterNotes,withPrivateNotesTask} from './privateNotesArchive';
 import {db} from './store';
 import {resolveApi} from './chatService';
+import {resolveAutomationApi} from './dedicatedSummaryApi';
 import {requestReply} from './chatProvider';
 import {memoryContext} from './memoryContext';
 import {readCharacterLife,lifePrompt,assertLifeAffection} from './characterLife';
@@ -19,11 +21,11 @@ export async function loadNotes(characterId:string):Promise<GeneratedNote[]>{
  if(legacy.length){await archiveNotes(characterId,legacy);localStorage.removeItem(PREFIX+characterId)}return legacy;
 }
 export async function saveNotes(characterId:string,notes:GeneratedNote[]){await archiveNotes(characterId,notes);try{localStorage.removeItem(PREFIX+characterId)}catch{/* IndexedDB remains authoritative */}}
-export async function generatePrivateNote(characterId:string,manual=false,requestedKind?:NoteKind):Promise<GeneratedNote|null>{
- if(pending.has(characterId))return null;
+export async function generatePrivateNote(characterId:string,manual=false,requestedKind?:NoteKind,admitted:()=>boolean=()=>true):Promise<GeneratedNote|null>{
+ if(!admitted()||pending.has(characterId))return null;
  pending.add(characterId);
  try{
- return await withPrivateNotesTask(characterId,false,'',async()=>{
+ return await withPrivateNotesTask(characterId,false,'',async(assertOwner)=>{
  const sourceSnapshot=await lifeSource(characterId);
  const {character,conversation,tail:rows}=sourceSnapshot;
  const life=await readCharacterLife(characterId);
@@ -38,11 +40,15 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
  const existing=await loadNotes(characterId);
  if(!manual){
    if(life.attempt?.status==='running')return null;
-   const schedule=(await privateNotesMetadata()).schedule||{mode:'both',intervalMinutes:60};
-   const latest=existing.filter(n=>n.kind!=='梦境').sort((a,b)=>b.sourceLastMessageAt-a.sourceLastMessageAt||b.createdAt-a.createdAt)[0];
-   const interval=Math.max(60,schedule.intervalMinutes||60)*60000;
+   const metadata=await privateNotesMetadata();
+   const schedule=metadata.schedule||{mode:'both',intervalMinutes:60};
+   const isDream=requestedKind==='梦境';
+   const relevant=existing.filter(n=>isDream?n.kind==='梦境':n.kind!=='梦境');
+   const latest=relevant.sort((a,b)=>b.sourceLastMessageAt-a.sourceLastMessageAt||b.createdAt-a.createdAt)[0];
+   const interval=(isDream?24*60:Math.max(60,schedule.intervalMinutes||60))*60000;
    automaticSource=source+':'+Math.floor(Date.now()/interval);
-   const due=!!latest&&Date.now()-Math.max(...existing.filter(n=>n.kind!=='梦境').map(n=>n.createdAt))>=interval;
+   const due=!!latest&&Date.now()-Math.max(...relevant.map(n=>n.createdAt))>=interval;
+   if(isDream){if(schedule.dreamEnabled!==true||latest&&!due)return null;}
    const recent=!!lastAt&&Date.now()-lastAt<3*86400000;
    const newRows=rows.filter(m=>m.createdAt>(latest?.sourceLastMessageAt||0));
    // A lightweight signal, not a claim that a keyword proves an important event.
@@ -58,10 +64,10 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
    const cooldown=!latest||Date.now()-latest.createdAt>=30*60000;
    const important=recent&&exchange&&meaningful&&cooldown;
    const eligible=schedule.mode==='interval'?(due||!latest):schedule.mode==='important'?important:due||important||(!latest&&newRows.length>=6);
-   const independent=!!life.enabled&&schedule.mode!=='important'&&(due||!latest);
-   if(!independent&&(!eligible||!recent||newRows.length===0||latest?.sourceLastMessageAt===lastAt||rows.length<4))return null;
+   const independent=(!!life.enabled||!!metadata.schedule)&&schedule.mode!=='important'&&(due||!latest);
+   if(!isDream&&!independent&&(!eligible||!recent||newRows.length===0||latest?.sourceLastMessageAt===lastAt||rows.length<4))return null;
  }
- return await withPrivateNotesTask(characterId+(requestedKind==='梦境'?':dream':':automatic'),!manual,automaticSource||source,async()=>{
+ return await withPrivateNotesTask(characterId+(requestedKind==='梦境'?':dream':':automatic'),!manual,automaticSource||source,async(assertAutomatic)=>{
  const [memory,lore]=await Promise.all([conversation.id?memoryContext(conversation,rows,2400):Promise.resolve(''),loreForConversation(conversation,rows,2000)]);
  const memoryText=memory.slice(0,2400);
  const today=new Date(),startOfToday=new Date(today.getFullYear(),today.getMonth(),today.getDate()).getTime();
@@ -95,11 +101,12 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
  '只能使用给出的真实对话及已核实记忆作为已发生事实；记忆是背景，不得将旧事件写成今天刚发生。不得擅自决定玩家行为、情绪、经历或承诺。猜测必须明确为猜测。缺乏事实时不要补造剧情。',
  '请写一篇'+kind+'，正文目标'+lengths+'个汉字。若今日互动平淡，写真实的细节与感触，不凑事件。标题简短有余味。输出严格 JSON：{"title":"...","body":"..."}，不要 Markdown 代码块。'
  ].join('\n');
- const {config,key}=await resolveApi(conversation);
- const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),90000);
+ const {config,key}=await resolveAutomationApi(conversation);
+ const controller=new AbortController();const timer=armAutomationTimeout(controller,90000);
+ setAutomationPreflight(controller.signal,async()=>{if(!admitted())throw Error('私人记录调度已停止，未发送请求');if(!manual&&requestedKind==='梦境'&&(await privateNotesMetadata()).schedule?.dreamEnabled!==true)throw Error('自动梦境已关闭，未发送请求');await assertOwner();await assertAutomatic();await assertLifeSource(sourceSnapshot);if((await readCharacterLife(characterId)).revision!==life.revision)throw Error('生活状态已变化，未发出过期请求')});
  try{
   let interrupted=false;
-  const result=await requestReply(config,key,[{role:'system',content:system},{role:'user',content:'当前时间：'+new Date().toLocaleString('zh-CN')+'\n以下是当前会话可用的记忆背景：\n'+memoryText+'\n适用的日常世界书（不得覆盖感情保护与玩家自主权）：\n'+lore.entries.map(e=>e.content).join('\n')+'\n以下是角色独立生活状态：\n'+lifePrompt(life)+'\n以下是近期真实聊天节选：\n'+transcript}],controller.signal,undefined,false,reason=>{interrupted=!!reason});
+  const result=await requestAutomationReply(config,key,[{role:'system',content:system},{role:'user',content:'当前时间：'+new Date().toLocaleString('zh-CN')+'\n以下是当前会话可用的记忆背景：\n'+memoryText+'\n适用的日常世界书（不得覆盖感情保护与玩家自主权）：\n'+lore.entries.map(e=>e.content).join('\n')+'\n以下是角色独立生活状态：\n'+lifePrompt(life)+'\n以下是近期真实聊天节选：\n'+transcript}],controller.signal,undefined,false,reason=>{interrupted=!!reason});
   if(interrupted)throw Error('记录生成中断或达到输出限制，未保存；请手动重试');
   const cleaned=result.trim().replace(/^\x60\x60\x60(?:json)?\s*/i,'').replace(/\s*\x60\x60\x60$/,'');
   let parsed:{title?:unknown;body?:unknown};
@@ -109,12 +116,12 @@ export async function generatePrivateNote(characterId:string,manual=false,reques
   assertLifeAffection(parsed.body);
   const note:GeneratedNote={id:crypto.randomUUID(),characterId,kind,createdAt:Date.now(),title:parsed.title.slice(0,80),body:parsed.body.slice(0,5000),comments:[],sourceLastMessageAt:lastAt};
   await db.transaction('rw',[db.themes,db.characters,db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{
-   await assertLifeSource(sourceSnapshot);
+   await assertOwner();await assertAutomatic();await assertLifeSource(sourceSnapshot);
    if((await readCharacterLife(characterId)).revision!==life.revision)throw Error('生活状态已变化，未保存过期日记');
    await appendPrivateNote(characterId,note);
   });
   return note;
- }finally{clearTimeout(timer)}
+ }finally{timer()}
  });
  });
  }finally{pending.delete(characterId)}

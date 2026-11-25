@@ -4,6 +4,7 @@ import './apiQuickSelection.css';
 import { apiBase, fetchModels } from "./apiModels";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Check, ChevronRight, Eye, EyeOff, Plus } from "lucide-react";
+import { AutomationApiPanel } from "./AutomationApiPanel";
 import { db, usePhone } from "./store";
 import {
   providers,
@@ -245,8 +246,9 @@ export function ApiSettings() {
       <div className="page-title">
         <span className="eyebrow">AI CONNECTIONS</span>
         <h2>AI / API 设置</h2>
-        <p>管理日常与世界聊天使用的多个 API 连接。</p>
+        <p>普通聊天与自动任务可使用独立 API。</p>
       </div>
+      <AutomationApiPanel configs={configs}/>
       {error && (
         <p className="api-error" role="alert">
           {error}

@@ -1,3 +1,4 @@
+import {automationRequest,trackForeground,AutomationRoleFallback} from './automationActivity';
 import {readChatResponse,completionReason,type ReplyInterruption} from './chatCompletion';
 import {ReplyRequestError,replyFailureDetails} from './replyFailure';
 import {linkRequestDiagnostics,recordRequestAttempt,recordRequestResponse,recordRequestFailure} from './chatRequestDiagnostics';
@@ -46,7 +47,7 @@ export function geminiMessages(messages: ContextMessage[]) {
   return contents;
 }
 /** Direct browser transport: no public arbitrary-URL server proxy is exposed. */
-export async function requestReply(
+async function requestReplyTransport(
   c: ApiConfig,
   key: string,
   messages: ContextMessage[],
@@ -161,6 +162,7 @@ export async function requestReply(
           : `[${m.role === "system" ? "系统资料" : "角色历史或设定"}]\n${m.content}`,
     }));
     linkRequestDiagnostics(messages,fallback);
+    if((c as ApiConfig&{[automationRequest]?:boolean})[automationRequest])throw new AutomationRoleFallback(fallback);
     return requestReply(c, key, fallback, signal, transport, false, onCompletion);
   }
   if (!response.ok || data?.error) {
@@ -198,4 +200,10 @@ export async function requestChatReply(c:ApiConfig,key:string,messages:ContextMe
  let interruption:ReplyInterruption|undefined;
  const text=await requestReply(c,key,messages,signal,transport,true,reason=>{interruption=reason;});
  return {text,interruption};
+}
+
+/** Ordinary requests are always admitted; automation observes their transport use. */
+export async function requestReply(...args:Parameters<typeof requestReplyTransport>):Promise<string>{
+ const release=(args[0] as ApiConfig&{[automationRequest]?:boolean})[automationRequest]?()=>{}:trackForeground(args[0],args[1]);
+ try{return await requestReplyTransport(...args);}finally{release();}
 }

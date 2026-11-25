@@ -104,8 +104,8 @@ test('PWA模拟下横幅使用安全区浮层，不改变输入焦点或页面�
 });
 
 for(const fail of [false,true])test(`游戏主动消息${fail?'失败':'成功'}后同一未联系周期不追加第二次付费请求`,async({page})=>{
- const ids=await setup(page),api=await mock(page,'合成回复',fail);await page.evaluate(async()=>await(await import('/src/spaces.ts')).useSpaces.getState().manageWorlds());const run=await runBinding(page);await page.evaluate(async id=>{const {db}=await import('/src/store.ts');await db.conversations.update(id,{createdAt:1,chatSettings:{proactiveEnabled:true,proactiveHours:3,proactiveProbability:100,proactiveEnabledAt:1}});},ids.a);
- await page.evaluate(async run=>{const l=await import('/src/phasePlay/chatLink.ts');try{await l.dispatchPhaseChatEvent(l.phaseChatEvent(run,'start'));}catch{}await(await import('/src/proactiveMessages.ts')).scanProactiveMessages();},run);expect(api.count()).toBe(1);expect(await page.evaluate(async id=>(await(await import('/src/store.ts')).db.conversations.get(id))?.chatSettings?.proactiveAttemptFor,ids.a)).toBe(1);
+ const ids=await setup(page),api=await mock(page,'合成回复',fail);await page.evaluate(async()=>await(await import('/src/spaces.ts')).useSpaces.getState().manageWorlds());const run=await runBinding(page);await page.evaluate(async id=>{const {db}=await import('/src/store.ts');await db.conversations.update(id,{createdAt:1,chatSettings:{proactiveEnabled:true,proactiveHours:3,proactiveProbability:0,proactiveEnabledAt:1}});},ids.a);
+ await page.evaluate(async run=>{const l=await import('/src/phasePlay/chatLink.ts');try{await l.dispatchPhaseChatEvent(l.phaseChatEvent(run,'start'));}catch{}const {db}=await import('/src/store.ts');const c=(await db.conversations.get(run.target.conversationId))!;await db.conversations.update(c.id,{chatSettings:{...c.chatSettings,proactiveProbability:100}});await(await import('/src/proactiveMessages.ts')).scanProactiveMessages();},run);expect(api.count()).toBe(1);expect(await page.evaluate(async id=>(await(await import('/src/store.ts')).db.conversations.get(id))?.chatSettings?.proactiveAttemptFor,ids.a)).toBe(1);
 });
 
 test('设置并发按字段合并，调整概率和事件开关不会清空已经保存的角色绑定',async({page})=>{
@@ -118,4 +118,21 @@ test('后台完成回复只在本地正确持久化后进入同一横幅管线�
 
 test('原有消息免打扰只抑制该会话横幅，不阻止生成和完整保存；取消免打扰后恢复通知',async({page})=>{
  const ids=await setup(page),api=await mock(page,'保留真实回复');await page.evaluate(async id=>{const {db}=await import('/src/store.ts');await db.conversations.update(id,{chatSettings:{muted:true}});await(await import('/src/chatService.ts')).sendMessage(id,'静音消息');},ids.a);await page.waitForTimeout(150);await expect(page.locator('.global-chat-banner')).toHaveCount(0);expect(api.count()).toBe(1);expect(await page.evaluate(async id=>(await(await import('/src/store.ts')).db.messages.where('conversationId').equals(id).count()),ids.a)).toBe(2);await page.evaluate(async id=>{const {db}=await import('/src/store.ts');await db.conversations.update(id,{chatSettings:{muted:false}});await(await import('/src/chatService.ts')).sendMessage(id,'恢复通知');},ids.a);await expect(page.locator('.global-chat-banner')).toContainText('保留真实回复');expect(api.count()).toBe(2);expect(await page.evaluate(async id=>(await(await import('/src/store.ts')).db.messages.where('conversationId').equals(id).count()),ids.a)).toBe(4);
+});
+
+for(const fallback of [false,true])test(`game event waits for existing role task without duplicating force requests (${fallback?'IndexedDB':'Web Locks'})`,async({page})=>{
+ if(fallback)await page.addInitScript(()=>Object.defineProperty(navigator,'locks',{value:undefined,configurable:true}));
+ const ids=await setup(page);const run=await runBinding(page);let calls=0,release!:()=>void,entered!:()=>void;
+ const gate=new Promise<void>(r=>release=r),started=new Promise<void>(r=>entered=r);const bodies:any[]=[];
+ await page.route('https://chat-events.test/**',async route=>{calls++;bodies.push(route.request().postDataJSON());if(calls===1){entered();await gate;}await route.fulfill({json:{choices:[{message:{content:'已保存的角色消息'+calls},finish_reason:'stop'}]}})});
+ await page.evaluate(async id=>{const {db}=await import('/src/store.ts');await db.conversations.update(id,{chatSettings:{proactiveEnabled:true,proactiveHours:3,proactiveProbability:0}});(window as any).__first=(await import('/src/proactiveMessages.ts')).sendProactiveMessage(id,true)},ids.a);
+ await started;
+ expect(await page.evaluate(async id=>(await import('/src/proactiveMessages.ts')).sendProactiveMessage(id,true),ids.a)).toBe(false);
+ await page.evaluate(async run=>{const l=await import('/src/phasePlay/chatLink.ts');(window as any).__event=l.phaseChatEvent(run,'start');(window as any).__game=l.dispatchPhaseChatEvent((window as any).__event).catch(()=>undefined)},run);
+ await page.waitForTimeout(100);
+ const status=await page.evaluate(async id=>{const c=await(await import('/src/store.ts')).db.conversations.get(id);return c?.chatEventReceipts?.find(r=>r.id===(window as any).__event.id)?.status},ids.a);
+ release();await page.evaluate(async()=>{await(window as any).__first;await(window as any).__game});
+ expect(status).toBe('processing');expect(calls).toBe(2);expect(bodies[1].messages.at(-1).content).toContain('eventId');
+ const result=await page.evaluate(async id=>{const {db}=await import('/src/store.ts');return {messages:(await(await import('/src/messagePath.ts')).activeMessages(id)).map(m=>m.content),status:(await db.conversations.get(id))?.chatEventReceipts?.find(r=>r.id===(window as any).__event.id)?.status}},ids.a);
+ expect(result).toEqual({messages:['已保存的角色消息1','已保存的角色消息2'],status:'sent'});
 });

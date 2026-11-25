@@ -11,6 +11,8 @@ export interface ChatSettings {
   proactiveProbability?: number;
   proactiveEnabledAt?: number;
   proactiveAttemptFor?: number;
+  proactiveAttemptAt?: number;
+  proactiveError?: string;
   proactiveUnreadAt?: number;
   remark?: string;
   pinned?: boolean;
@@ -26,11 +28,12 @@ export interface Conversation {
   memoryStore?: MemoryStore;
   memorySummary?: MemorySummaryState;
   /** Durable, independently recoverable second-pass core summary attempt. */
-  memoryCoreAttempt?: {anchorReceiptId:string;sourceReceiptIds:string[];status:'running'|'failed'|'succeeded';startedAt:number;finishedAt?:number};
+  memoryCoreAttempt?: {error?:string;attempts?:number;anchorReceiptId:string;sourceReceiptIds:string[];status:'running'|'failed'|'succeeded';startedAt:number;finishedAt?:number};
   smartTimeMemories?: import('./smartTimeMemory').SmartTimeMemory[];
-  dailyDigestAttempt?: {token?:string;scope:import('./memoryTypes').MemoryScope;startDay:string;endDay:string;status:'running'|'failed';startedAt:number};
+  dailyDigestAttempt?: {error?:string;tries?:number;token?:string;scope:import('./memoryTypes').MemoryScope;startDay:string;endDay:string;status:'running'|'failed';startedAt:number};
   dailyDigestSettings?: {enabled:boolean;days:1|2|3|7|14};
   dailyDigests?: import('./dailyDigest').DailyDigest[];
+  dailyDigestCheckpointArchive?: import('./dailyDigest').DailyDigestCheckpoint[];
   dailyDigestCheckpoint?: import('./dailyDigest').DailyDigestCheckpoint;
   summaryApiConfigId?: string;
   dedicatedSummaryApi?: import('./dedicatedSummaryApi').DedicatedSummaryApi;

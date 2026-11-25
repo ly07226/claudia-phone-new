@@ -1,7 +1,7 @@
 import type {ApiConfig} from './api';
 import {memoryTokenCost} from './memoryContext';
-import {recoverSummaryBatch,summaryJsonCandidate,SummaryFormatError,parseSimpleSummary} from './memorySummaryFormat';
-import {summaryDuplicateIndex} from './memorySummaryQuality';
+import {recoverSummaryBatch,summaryJsonCandidate,SummaryFormatError} from './memorySummaryFormat';
+import {summaryDuplicateIndex,summaryEvidenceContext} from './memorySummaryQuality';
 import type {SummaryFact} from './memorySummaryTypes';
 /** No model-name guesses or paid discovery. UTF-8 bytes are a conservative token
  * upper-bound proxy, not a tokenizer measurement. Undeclared contexts use 8192. */
@@ -23,38 +23,53 @@ export function splitSummaryInput(input:string):string[]{
 /** Missing optional metadata is recovered only from real source clauses. Reject
  * individual unsupported claims; never manufacture citations, repair prose or
  * infer that a plan succeeded. These guards are conservative, not semantic proof. */
-export function reviewIntervalSummary(raw:string,input:string){
- let value:any;
+export function reviewIntervalSummary(raw:string,input:string,originalTurns?:readonly {messages:{role:string;content:string}[]}[]){
+ let value:any,plainError:SummaryFormatError|undefined;
  try{value=summaryJsonCandidate(raw);}catch(error){
   if(!(error instanceof SummaryFormatError)||!['json-syntax','root-shape'].includes(error.diagnostic.code)||/[{}\[\]`]/.test(raw))throw error;
+  plainError=error;
   const lines=raw.trim().split(/\n+/).map(s=>s.replace(/^\s*(?:[-*•]|\d+[.、)])\s*/,'').trim()).filter(s=>s.length>0);
   if(!lines.length||lines.length>8||lines.some(s=>s.length>800))throw error;
   value={memories:lines.map(content=>({content,type:'belief',kind:'long'}))};
  }
  if(value&&typeof value==='object'&&!Array.isArray(value)&&['operation','deleteAll','resetDatabase','clear'].some(k=>Object.hasOwn(value,k)))throw new SummaryFormatError({version:1,stage:'validate',code:'unexpected-field'});const rows=Array.isArray(value)?value:value?.memories??value?.facts;
  const normalized=Array.isArray(rows)?JSON.stringify({memories:rows.map((r:unknown)=>typeof r==='string'?{content:r}:r)}):raw;
- let parsed:ReturnType<typeof recoverSummaryBatch>;
- try{parsed=recoverSummaryBatch(normalized,input);}catch(error){
-  if(!(error instanceof SummaryFormatError)||error.diagnostic.code!=='invalid-quality')throw error;
-  const simple=parseSimpleSummary(normalized);
-  if(!simple.facts.length)throw error;
-  return {facts:simple.facts,candidates:simple.candidates,rejected:Array.from({length:simple.rejected},(_,index)=>({index,reason:'invalid-candidate' as const}))};
- }
+ const parsed=recoverSummaryBatch(normalized,input,true);
  const accepted:SummaryFact[]=[],rejected=[...parsed.rejected];
+ const sourceTurns=JSON.parse(input) as {role:string;content:string;turnIndex?:number;part?:number}[][];
  const negative=(s:string)=>/不是|没有|不能|不会|未完成|不想|不愿|不要|不喜欢|不接受|不允许|不可能|不打算|不希望|拒绝|禁止|否认/u.test(s);
  const uncertain=(s:string)=>/如果|假如|除非|可能|也许|猜测|打算|计划|准备|明天|下周/u.test(s);
  const nums=(s:string)=>s.match(/[+\-−]?\d+(?:\.\d+)?/g)?.join('|')??'';
  for(const [index,f]of parsed.facts.entries()){
   const evidence=f.quality!.evidence,quotes=evidence.map(e=>e.quote).join('；');let reason:typeof rejected[number]['reason']|undefined;
-  if(/如果|除非|只有|必须|前提/u.test(quotes)&&!/如果|除非|只有|必须|前提/u.test(f.content))reason='lost-condition';
+  const contexts=evidence.map(e=>{
+   let source:{role:string;content:string;turnIndex?:number;part?:number}|undefined=sourceTurns[e.turn-1]?.find(m=>m.role===e.role&&m.content.includes(e.quote));
+   if(source?.part!==undefined&&originalTurns){const matches=source.turnIndex===undefined?[]:originalTurns[source.turnIndex]?.messages.filter(m=>m.role===e.role&&m.content.includes(e.quote))??[];if(matches.length!==1)return undefined;source=matches[0];}
+   return source?summaryEvidenceContext(source.content,e.quote):undefined;
+  });
+  const clauses=contexts.map(c=>c?.clause??'').join('；');
+  if(contexts.some(c=>!c))reason='unsupported-evidence';
+  else if(contexts.some(c=>c!.conditional||/只有|必须|前提|除非/u.test(c!.sentence))&&!/如果|除非|只有|必须|前提/u.test(f.content))reason='lost-condition';
+  else if(negative(f.type==='pending'?clauses.replace(/尚未完成|未完成|还没完成|仍未完成/g,''):clauses)!==negative(f.type==='pending'?f.content.replace(/尚未完成|未完成|还没完成|仍未完成/g,''):f.content))reason='lost-condition';
+  else if(f.type==='fact'&&uncertain(clauses))reason='uncertain-as-fact';
+  else if(/如果|除非|只有|必须|前提/u.test(quotes)&&!/如果|除非|只有|必须|前提/u.test(f.content))reason='lost-condition';
   else if(f.type==='fact'&&uncertain(quotes))reason='uncertain-as-fact';
   else if(negative(f.type==='pending'?quotes.replace(/尚未完成|未完成|还没完成|仍未完成/g,''):quotes)!==negative(f.type==='pending'?f.content.replace(/尚未完成|未完成|还没完成|仍未完成/g,''):f.content))reason='lost-condition';
   else if(['belief','speculation'].includes(f.type)&&!/用户|角色|双方|认为|觉得|相信|猜测|可能|怀疑/u.test(f.content))reason='unattributed-view';
   else if(nums(quotes)!==nums(f.content))reason='unsupported-detail';
   else if(/^用户/.test(f.content)&&evidence.every(e=>e.role!=='user')||/^角色/.test(f.content)&&evidence.every(e=>e.role!=='assistant'))reason='unsupported-detail';
+  if(!reason&&f.quality!.durability!=='lasting')reason='temporary';
+  else if(!reason&&f.quality!.importance==='low')reason='low-importance';
   if(reason)rejected.push({index,reason});else accepted.push(f);
  }
- if(parsed.candidates&&!accepted.length){const simple=parseSimpleSummary(normalized);if(simple.facts.length)return {facts:simple.facts,candidates:simple.candidates,rejected:Array.from({length:simple.rejected},(_,index)=>({index,reason:'invalid-candidate' as const}))};throw new SummaryFormatError({version:1,stage:'validate',code:'invalid-quality'});}
+
+ if(plainError&&!accepted.length)throw plainError;
+ // A verified empty selection differs from a failed extraction. Only explicit
+ // utility filtering may consume a nonempty batch without saving any facts.
+ if(parsed.candidates&&!accepted.length&&rejected.some(r=>!['temporary','low-importance','weak-impact'].includes(r.reason))){
+  const invalidEnum=Array.isArray(rows)?rows.findIndex(r=>r&&typeof r==='object'&&r.type!==undefined&&!['fact','belief','speculation','pending'].includes(String(r.type).trim().toLowerCase())):-1;
+  throw new SummaryFormatError({version:1,stage:'validate',code:invalidEnum>=0?'invalid-enum':'invalid-quality',...(invalidEnum>=0?{itemIndex:invalidEnum}:{})});
+ }
  return {facts:accepted,candidates:parsed.candidates,rejected};
 }
 /** Lossless local reduction tree. Do not pay a model to re-invent already checked

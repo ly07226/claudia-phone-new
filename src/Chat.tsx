@@ -396,7 +396,7 @@ export function Chat({ worldId }: { worldId?: string }) {
         pending.current=task.controller;
         await task.done;
         if(conversation.mode==='daily'&&!conversation.worldId){
-          void import('./privateNotesGeneration').then(({generatePrivateNote})=>generatePrivateNote(conversation.characterId)).catch(()=>{/* Private notes must never block chat replies. */});
+          void Promise.all([import('./privateNotesGeneration'),import('./automationQueue')]).then(([{generatePrivateNote},{enqueueAutomation}])=>enqueueAutomation('notes:'+conversation.characterId,()=>generatePrivateNote(conversation.characterId))).catch(()=>{/* Private notes must never block chat replies. */});
         }
       }
       if(retry)recordKeyboardDebug('reply-returned',{success:true});

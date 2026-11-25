@@ -18,14 +18,15 @@ test('verified first-pass summary reaches prompt; edited source invalidates it',
   const user={id:'summary-u',conversationId:c.id,role:'user' as const,content:'我们在雨夜的桥上和好了。',createdAt:base};
   const assistant={id:'summary-a',conversationId:c.id,role:'assistant' as const,content:'我记得那天的雨。',createdAt:base+1000};
   await db.messages.bulkPut([user,assistant]);
+  const timeline=await(await import('/src/timelines.ts')).getCurrentTimeline(c.id);
   const fingerprint='s3:'+await messageSourceFingerprint([user,assistant] as any);
   const scope={mode:'daily' as const,spaceId:'daily' as const,conversationId:c.id,characterId:c.characterId};
-  const receipt={id:'receipt-1',revision:1,scope,epoch:0,timelineId:'',throughNodeId:'summary-a',turns:[{userIds:[user.id],assistantId:assistant.id}],sourceFingerprint:fingerprint,shortSummary:'桥上的雨夜争执已经和解，双方重新建立信任。',createdAt:base+2000,added:0,duplicates:0};
+  const receipt={id:'receipt-1',revision:1,scope,epoch:0,timelineId:timeline.id,throughNodeId:timeline.headNodeId!,turns:[{userIds:[user.id],assistantId:assistant.id}],sourceFingerprint:fingerprint,shortSummary:'桥上的雨夜争执已经和解，双方重新建立信任。',createdAt:base+2000,added:0,duplicates:0};
   await db.conversations.update(c.id,{memorySummary:{version:1,enabled:true,interval:20,revision:1,receipts:[receipt]}});
   const current=(await db.conversations.get(c.id))!;
   const before=JSON.stringify(await buildContext(current));
   const beforeTrace=lastMemoryContextTrace(c.id);
-  await db.messages.update(user.id,{content:'我们从未在桥上和好。'});
+  await(await import('/src/messageOperations.ts')).editMessage(c.id,user.id,'我们从未在桥上和好。',true);
   const after=JSON.stringify(await buildContext((await db.conversations.get(c.id))!));
   const afterTrace=lastMemoryContextTrace(c.id);
   return {before,after,beforeTrace,afterTrace};

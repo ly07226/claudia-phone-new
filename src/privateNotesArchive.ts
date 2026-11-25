@@ -1,6 +1,7 @@
+import {describeReplyFailure} from './replyFailure';
 import {db} from './store';
 import type {GeneratedNote} from './privateNotesGeneration';
-export type NoteSchedule={mode:'interval'|'important'|'both';intervalMinutes:number};
+export type NoteSchedule={mode:'interval'|'important'|'both';intervalMinutes:number;dreamEnabled?:boolean};
 type Archive={version:1;notes:Record<string,GeneratedNote[]>;appearance?:{theme:number;opacity:number;background:string};schedule?:NoteSchedule};
 const ID='private-notes-archive',PREFIX='private-notes-record:';
 const key=(owner:string,id:string)=>PREFIX+encodeURIComponent(owner)+':'+encodeURIComponent(id);
@@ -21,14 +22,20 @@ async function modifyNote(owner:string,id:string,fn:(n:GeneratedNote)=>void){awa
 export async function appendPrivateNoteComment(owner:string,id:string,text:string){await modifyNote(owner,id,n=>{n.comments=[...(n.comments||[]),text]});}
 export async function appendPrivateNoteReply(owner:string,id:string,text:string,expectedIndex?:number,expectedComment?:string){await modifyNote(owner,id,n=>{if(expectedIndex!==undefined&&(n.comments.length!==expectedIndex+1||n.comments[expectedIndex]!==expectedComment))throw Error('评论已变化，未保存过期回复');n.comments.push({author:'character',text})});}
 export async function archiveAppearance(appearance:Archive['appearance']){await db.transaction('rw',db.themes,async()=>{const a=await privateNotesMetadata();a.appearance=appearance;await db.themes.put(theme(ID,{privateNotesArchive:a}) as any);});}
-export async function saveNoteSchedule(schedule:NoteSchedule){if(!['interval','important','both'].includes(schedule.mode)||!Number.isFinite(schedule.intervalMinutes)||schedule.intervalMinutes<60)throw Error('请输入至少60分钟的间隔');await db.transaction('rw',db.themes,async()=>{const a=await privateNotesMetadata();a.schedule=schedule;await db.themes.put(theme(ID,{privateNotesArchive:a}) as any);});}
+export async function saveNoteSchedule(schedule:NoteSchedule){if(schedule.dreamEnabled!==undefined&&typeof schedule.dreamEnabled!=='boolean'||!['interval','important','both'].includes(schedule.mode)||!Number.isFinite(schedule.intervalMinutes)||schedule.intervalMinutes<60)throw Error('请输入至少60分钟的间隔');await db.transaction('rw',db.themes,async()=>{const a=await privateNotesMetadata();a.schedule=schedule;await db.themes.put(theme(ID,{privateNotesArchive:a}) as any);});}
 /** IndexedDB atomic claim works across tabs and Safari without Web Locks. No network
  * inside a transaction, no silent replay after crash. Expired claims can be recovered. */
-export async function withPrivateNotesTask<T>(scope:string,automatic:boolean,source:string,run:()=>Promise<T>):Promise<T|null>{
+export async function withPrivateNotesTask<T>(scope:string,automatic:boolean,source:string,run:(assertCurrent:()=>Promise<void>)=>Promise<T>):Promise<T|null>{
  const id='private-notes-task:'+scope,token=crypto.randomUUID(),now=Date.now();
- const claimed=await db.transaction('rw',db.themes,async()=>{const old=(await db.themes.get(id) as any)?.privateNotesTask;if(old?.until>now||automatic&&(old?.failed||old?.source===source||old?.until>0))return false;await db.themes.put(theme(id,{privateNotesTask:{token,until:now+180000,source:automatic?source:old?.source}}) as any);return true;});
+ const claimed=await db.transaction('rw',db.themes,async()=>{const previous=await db.themes.get(id) as any;const old=previous?.privateNotesTask;if(automatic&&old?.until>0&&old.until<=now&&!old.failed){previous.privateNotesTask={...old,failed:true,finishedAt:now,until:0};await db.themes.put(previous);return false;}if(old?.until>now||automatic&&old?.failed&&now-(old.finishedAt??now)<30*60000||automatic&&old?.source===source&&(!old.failed||now-(old.finishedAt??now)<30*60000||(old.attempts??1)>=2))return false;await db.themes.put(theme(id,{privateNotesTask:{token,until:now+180000,source:automatic?source:old?.source,attempts:automatic&&old?.source===source?(old.attempts??1)+1:1}}) as any);return true;});
  if(!claimed)return null;
- try{return await run()}catch(error){await db.transaction('rw',db.themes,async()=>{const r=await db.themes.get(id) as any;if(r?.privateNotesTask?.token===token){r.privateNotesTask.failed=true;await db.themes.put(r)}});throw error;}finally{await db.transaction('rw',db.themes,async()=>{const row=await db.themes.get(id) as any;if(row?.privateNotesTask?.token===token){row.privateNotesTask.until=0;await db.themes.put(row)}});}
+ const assertCurrent=async()=>{const current=(await db.themes.get(id) as any)?.privateNotesTask;if(current?.token!==token||current.until<=Date.now())throw Error('私人记录任务已过期，未提交迟到结果')};
+ const beat=setInterval(()=>{void db.transaction('rw',db.themes,async()=>{const row=await db.themes.get(id) as any;if(row?.privateNotesTask?.token===token){row.privateNotesTask.until=Date.now()+180000;await db.themes.put(row)}}).catch(()=>{})},20000);
+ try{return await run(assertCurrent)}catch(error){await db.transaction('rw',db.themes,async()=>{const r=await db.themes.get(id) as any;if(r?.privateNotesTask?.token===token){r.privateNotesTask.failed=true;r.privateNotesTask.error=describeReplyFailure(error).reason;r.privateNotesTask.finishedAt=Date.now();await db.themes.put(r)}});throw error;}finally{clearInterval(beat);await db.transaction('rw',db.themes,async()=>{const row=await db.themes.get(id) as any;if(row?.privateNotesTask?.token===token){row.privateNotesTask.until=0;await db.themes.put(row)}});}
 }
 
-export async function privateNotesTaskStatus(owner:string){return(await db.themes.get('private-notes-task:'+owner+':automatic') as any)?.privateNotesTask as {failed?:boolean;until?:number}|undefined;}
+export async function privateNotesTaskStatus(owner:string){
+ const rows=await db.themes.bulkGet(['private-notes-task:'+owner+':automatic','private-notes-task:'+owner+':dream']);
+ const states=rows.map(r=>(r as any)?.privateNotesTask).filter(Boolean) as {failed?:boolean;until?:number;error?:string}[];
+ return states.find(s=>s.failed)??states.find(s=>(s.until??0)>Date.now())??states[0];
+}

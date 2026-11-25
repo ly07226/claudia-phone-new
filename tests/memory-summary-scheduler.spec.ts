@@ -29,7 +29,7 @@ test('summary errors: transient retry only, never quota/auth/safety/format',asyn
  expect(decisions.rate.kind).toBe('transient');
 });
 
-test('automatic summary: provider 503 ends immediately, then waits another interval',async({page})=>{
+test('automatic summary: provider 503 ends immediately, cooldown recovery does not require more chat',async({page})=>{
  await isolatedApp(page,'summary-retry-'+crypto.randomUUID());
  const id=await page.evaluate(async()=>{
   const {db}=await import('/src/store.ts');
@@ -49,16 +49,17 @@ test('automatic summary: provider 503 ends immediately, then waits another inter
  let calls=0;
  await page.route('https://summary-retry.test/**',route=>{calls++;return route.fulfill({status:503,json:{error:{message:'server unavailable'}}});});
  await page.evaluate(async id=>{const {tryAutoSummary}=await import('/src/memorySummary.ts');await tryAutoSummary(id);},id);
- await expect.poll(async()=>page.evaluate(async id=>(await(await import('/src/store.ts')).db.conversations.get(id))?.memorySummary?.deferUntilPending,id)).toBe(40);
+ await expect.poll(async()=>page.evaluate(async id=>(await(await import('/src/store.ts')).db.conversations.get(id))?.memorySummary?.job?.status,id)).toBe('failed');
  expect(calls).toBe(1);
  const state=await page.evaluate(async id=>(await(await import('/src/store.ts')).db.conversations.get(id))?.memorySummary,id);
  expect(state?.job?.failureKind).toBe('transient');
+ expect(state?.requiresManualResume).toBe(false);expect(state?.deferUntilPending).toBeUndefined();
  expect(state?.receipts).toHaveLength(0);
  await page.evaluate(async id=>{await(await import('/src/memorySummary.ts')).tryAutoSummary(id);},id);
  expect(calls).toBe(1);
 });
 
-test('automatic summary: authentication error stops after one attempt and defers',async({page})=>{
+test('automatic summary: authentication error preserves backlog and requires explicit recovery',async({page})=>{
  await isolatedApp(page,'summary-auth-'+crypto.randomUUID());
  const id=await page.evaluate(async()=>{
   const {db}=await import('/src/store.ts');
@@ -78,9 +79,10 @@ test('automatic summary: authentication error stops after one attempt and defers
  let calls=0;
  await page.route('https://summary-auth.test/**',route=>{calls++;return route.fulfill({status:401,json:{error:{code:'invalid_api_key',message:'synthetic'}}});});
  await page.evaluate(async id=>{await(await import('/src/memorySummary.ts')).tryAutoSummary(id);},id);
- await expect.poll(async()=>page.evaluate(async id=>(await(await import('/src/store.ts')).db.conversations.get(id))?.memorySummary?.deferUntilPending,id)).toBe(40);
+ await expect.poll(async()=>page.evaluate(async id=>(await(await import('/src/store.ts')).db.conversations.get(id))?.memorySummary?.job?.status,id)).toBe('failed');
  expect(calls).toBe(1);
  const state=await page.evaluate(async id=>(await(await import('/src/store.ts')).db.conversations.get(id))?.memorySummary,id);
  expect(state?.job?.failureKind).toBe('auth');
+ expect(state?.requiresManualResume).toBe(true);expect(state?.deferUntilPending).toBeUndefined();
  expect(state?.receipts).toHaveLength(0);
 });
