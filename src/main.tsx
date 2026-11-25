@@ -495,7 +495,6 @@ function App() {
                   </div>
                   <IdentityCard spaceId={space?.spaceId || "daily"}/>
                   <AudioKeepAliveSettings/>
-                  <button className="list-row" onClick={()=>openPhoneApp("表情包")}><ImagePlus/>表情包<ArrowRight size={17}/></button>
                   <PushNotificationSettings/><ChatBannerSettings/>
                   <button
                     className="list-row"
@@ -513,6 +512,7 @@ function App() {
                     世界书 / Lorebook
                     <ArrowRight size={17} />
                   </button>
+                  <button className="list-row" onClick={()=>openPhoneApp("表情包")}><ImagePlus/>表情包<ArrowRight size={17}/></button>
                   <button
                     className="list-row"
                     onClick={() => openPhoneApp("AI / API 设置")}
