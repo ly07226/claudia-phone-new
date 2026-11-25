@@ -20,14 +20,14 @@
 
 .chat-user .chat-message-images {justify-content:flex-end}
 
-/* The chat toolbar is a full-width row; the sticker library opens above it, not inside a 40px attachment control. */
+/* Shared composer row; expanded panels are flex children of the footer, not floating overlays. */
 .chat-compose-tools{position:relative;display:flex;align-items:center;width:100%;min-width:0;gap:0}
-.chat-compose-tools .chat-attachment-toolbar{display:contents}
+.chat-compose-tools .chat-attachment-toolbar{position:static;display:contents;right:auto;top:auto;transform:none;z-index:auto}
 .chat-compose-tools .chat-attachment-toolbar>button{flex:0 0 auto;min-width:0}
-.chat-compose-tools .chat-attachment-toolbar>.sticker-panel{position:absolute;left:0;right:0;bottom:calc(100% + 8px);width:100%;max-height:min(38dvh,320px);overflow-y:auto;z-index:30;box-sizing:border-box}
-.chat-compose-tools .chat-attachment-toolbar>.chat-attachment-menu{left:0;right:auto;bottom:calc(100% + 8px)}
-
-/* Picker layout: keep composer/input in place and float the sticker tray above the toolbar. */
-.chat-compose-tools>.chat-attachment-toolbar{position:static;right:auto;top:auto;transform:none;z-index:auto}
-.chat-compose-tools>.chat-attachment-toolbar>.sticker-panel{left:0;right:0;bottom:calc(100% + 12px);width:100%;max-height:min(36dvh,300px);overflow-y:auto;overflow-x:hidden;padding:12px 10px;box-sizing:border-box;background:var(--theme-card,#f4f6ed);border-radius:16px;box-shadow:0 -4px 18px var(--theme-shadow,#24392d20)}
-.chat-compose-tools>.chat-attachment-toolbar>.chat-attachment-menu{position:absolute;left:0;right:auto;bottom:calc(100% + 8px)}
+.chat-bottom-panel{flex:none;width:100%;height:min(36dvh,300px);min-height:0;box-sizing:border-box;overflow-y:auto;overflow-x:hidden;padding:12px 12px max(12px,var(--safe-bottom));background:var(--theme-card,#f4f6ed);overscroll-behavior:contain}
+.chat-bottom-panel .sticker-panel{position:static;max-height:none;height:auto;width:100%;padding:0;overflow:visible;box-sizing:border-box}
+.chat-actions-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px 12px;align-content:start}
+.chat-actions-grid>button,.chat-actions-grid>.chat-action-placeholder{min-width:0;display:flex;flex-direction:column;align-items:center;gap:8px;border:0;background:transparent;color:inherit;font-size:12px;text-align:center}
+.chat-action-tile{display:grid;place-items:center;width:100%;max-width:74px;aspect-ratio:1;border-radius:16px;background:var(--theme-input,#fffdf4de);font-size:23px}
+.chat-action-placeholder{opacity:.55}
+.phone.chat-open .chat-footer:has(.chat-bottom-panel){padding-bottom:0}
