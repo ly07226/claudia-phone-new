@@ -28,15 +28,17 @@ export async function prepareSticker(blob:Blob,label:string,group:string):Promis
  if(!img.naturalWidth||!img.naturalHeight||img.naturalWidth*img.naturalHeight>16000000)throw Error('图片尺寸过大');
  return {id:crypto.randomUUID(),label:label.trim().slice(0,100)||'表情包',group:group.trim().slice(0,40)||'默认',data,createdAt:Date.now()};
 }
-export async function importStickerUrl(value:string,group:string){
+export async function importStickerUrl(value:string,group:string,label?:string){
  const url=new URL(value);
  if(url.protocol!=='https:'||url.username||url.password)throw Error('请输入 HTTPS 图片地址');
  const res=await fetch(url,{credentials:'omit',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(15000)});
  if(!res.ok||!res.body)throw Error('图片下载失败');
  const reader=res.body.getReader(),chunks:Uint8Array<ArrayBuffer>[]=[];let size=0;
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit)throw Error('图片超过5MB');chunks.push(new Uint8Array(value));}}finally{await reader.cancel().catch(()=>{});}
- return prepareSticker(new Blob(chunks),decodeURIComponent(url.pathname.split('/').pop()||'表情包'),group);
+ return prepareSticker(new Blob(chunks),label||decodeURIComponent(url.pathname.split('/').pop()||'表情包'),group);
 }
 
 export async function getSticker(id:string){return (await db.themes.get(key))?.stickers?.find(r=>r.id===id)}
 export function parseSticker(text:string){const m=/^\[表情包:([0-9a-f-]{36}):([^\[\]\r\n]{1,100})\]$/i.exec(text.trim());return m?{id:m[1],label:m[2]}:null;}
+
+export function parseStickerUrls(input:string){return input.replace(/^\uFEFF/,'').split(/\r?\n/).filter(line=>line.trim()).map(line=>{const match=/^(.*?)\s*(https:\/\/\S+)\s*$/i.exec(line.trim());if(!match)return {url:line.trim(),label:''};return {url:match[2],label:match[1].replace(/[：:；;\s]+$/,'').trim()};});}
