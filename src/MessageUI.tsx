@@ -2,6 +2,8 @@ import {MessagePopover,type MessageSelection} from './MessagePopover';
 import {messageBubbles,partKey,visibleContent,type BubblePart} from './messageBubbles';
 import {quotedMessage,quoteSummary} from './messageReferences';
 import {Reply,RefreshCw,Pencil,Copy,Trash2} from 'lucide-react';
+import {StickerBubble} from "./StickerBubble";
+import {parseSticker} from "./stickerLibrary";
 import { MessageImages } from "./ImageAttachments";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -160,20 +162,20 @@ function ChatMessageView({
           </button>
           {m.replyTo&&<button type="button" className="message-quote" aria-label="定位引用消息" disabled={!quoteAvailable} onClick={()=>onLocate(m.replyTo!.messageId,m.replyTo!.part)}><strong>{m.replyTo.role==='user'?userName:characterName}</strong><span>{quoteAvailable?quoteSummary(m.replyTo):'原消息已删除或不在当前分支'}</span></button>}
           {bubbles.some(p=>p.kind==='image')&&<MessageImages ids={bubbles.flatMap(p=>p.kind==='image'?[p.assetId]:[])}/>}
-          {fragments.slice(0,visibleCount).map((fragment,fragmentIndex) => (
+          {fragments.slice(0,visibleCount).map((fragment,fragmentIndex) => {const sticker=parseSticker(fragment.text);return (
             <div className={`${m.role==="assistant"?"chat-heart-bubble-unit":"chat-heart-bubble-unit chat-heart-user-unit"}${/^[?？.!！。]+$/.test(fragment.text.trim())?" chat-punctuation-bubble-unit":""}`} key={partKey(fragment)}>
-            <div className="chat-bubble-surface" data-bubble-key={partKey(fragment)} tabIndex={0}>
-              <p>
+            <div className={`chat-bubble-surface${sticker?" chat-sticker-surface":""}`} data-bubble-key={partKey(fragment)} tabIndex={0}>
+              {sticker?<StickerBubble id={sticker.id} label={sticker.label}/>:<p>
                 {m.role === "assistant" ? (
                   <AssistantBubbleText content={fragment.text} />
                 ) : (
                   fragment.text
                 )}
-              </p>
+              </p>}
             </div>
             {fragmentIndex===0 && heartVoice && heartOpen && <section className="chat-heart-card" aria-label="内心独白"><div className="chat-heart-card-heading">♡ 内心独白</div><p>{heartVoice}</p></section>}
             </div>
-          ))}
+          );})}
           {m.role === "assistant" && variants.length > 1 && (
             <div className="message-versions" aria-label="回复版本">
               <button

@@ -186,8 +186,19 @@ function splitStandalonePunctuationLines(content:string,split:(value:string)=>st
   return parts.length?parts:split(content);
 }
 export function legacyAssistantBubbles(content:string):string[]{
-  return splitStandalonePunctuationLines(content,legacyAssistantBubblesCore);
+  return splitStickerBoundaries(content,value=>splitStandalonePunctuationLines(value,legacyAssistantBubblesCore));
 }
 export function splitAssistantBubbles(content:string):string[]{
-  return splitStandalonePunctuationLines(content,splitAssistantBubblesCore);
+  return splitStickerBoundaries(content,value=>splitStandalonePunctuationLines(value,splitAssistantBubblesCore));
+}
+
+/** Sticker markers are atomic display slices; retain exact source offsets. */
+function splitStickerBoundaries(content:string,split:(value:string)=>string[]):string[]{
+ const marker=/\[表情包:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[^\[\]\r\n]{1,100}\]/gi;
+ const matches=[...content.matchAll(marker)];
+ if(!matches.length)return split(content);
+ const out:string[]=[];let cursor=0;
+ const append=(value:string)=>{if(!value)return;const parts=split(value);out.push(...(parts.join('')===value?parts:[value]));};
+ for(const match of matches){append(content.slice(cursor,match.index));out.push(match[0]);cursor=match.index+match[0].length;}
+ append(content.slice(cursor));return out;
 }
