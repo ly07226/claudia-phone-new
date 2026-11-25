@@ -112,6 +112,8 @@ class PhoneDB extends Dexie {
   pages!: Table<DesktopPage>;
   items!: Table<DesktopItem>;
   themes!: Table<Theme>;
+  stickerMeta!: Table<import('./stickerLibrary').StickerMeta>;
+  stickerImages!: Table<{id:string;data:string}>;
   assets!: Table<Asset>;
   constructor(databaseName = "claudia-phone") {
     super(databaseName);
@@ -181,6 +183,7 @@ class PhoneDB extends Dexie {
     this.version(7).stores(storySchemas);
     // Additive v8: cross-window summary leases, existing records unchanged.
     this.version(8).stores({summaryLeases:'name,expiresAt'});
+    this.version(9).stores({stickerMeta:'id,group,lastUsed',stickerImages:'id'}).upgrade(async tx=>{const row=await tx.table('themes').get('sticker-library');if(!row?.stickers)return;for(const {data,...meta} of row.stickers){await tx.table('stickerMeta').put(meta);await tx.table('stickerImages').put({id:meta.id,data});}await tx.table('themes').delete('sticker-library');});
 
   }
 }
