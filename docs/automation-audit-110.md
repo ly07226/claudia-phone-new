@@ -1,5 +1,7 @@
 # Issue #110 / PR #109: foreground automation audit
 
+> 后续集成验收已更新：[PR #109 最终审计与验证边界](automation-integration-109.md)。下文保留原 8222afc 阶段历史；最新 main 已经通过 b1cbfcd 同步到功能分支，历史测试数量不代表最新全项目通过。
+
 Date: 2026-11-25. Branch: `feature/dual-automation-api`, original HEAD `1dff7f3c16e54d0f5ea0f096ecdba208b2c1d769`.
 
 ## Scope and release safety
