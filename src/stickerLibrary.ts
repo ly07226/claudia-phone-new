@@ -38,7 +38,7 @@ export async function importStickerUrl(value:string,group:string,label?:string){
 export async function getSticker(id:string){return db.transaction('r',db.stickerMeta,db.stickerImages,async()=>{const meta=await db.stickerMeta.get(id),image=await db.stickerImages.get(id);return meta&&image?{...meta,data:image.data}:undefined;})}
 export function parseSticker(text:string){const m=/^\[表情包:([0-9a-f-]{36}):([^\[\]\r\n]{1,100})\]$/i.exec(text.trim());return m?{id:m[1],label:m[2]}:null;}
 
-export function parseStickerUrls(input:string){return input.replace(/^\uFEFF/,'').split(/\r?\n/).filter(line=>line.trim()).map(line=>{const match=/^(.*?)\s*(https:\/\/\S+)\s*$/i.exec(line.trim());if(!match)return {url:line.trim(),label:''};return {url:match[2],label:match[1].replace(/[：:；;\s]+$/,'').trim()};});}
+export function parseStickerUrls(input:string){return input.replace(/^\uFEFF/,'').split(/\r?\n/).filter(line=>line.trim()).map(line=>{const match=/^(.*?)\s*(https:\/\/\S+)\s*$/i.exec(line.trim());if(!match)return {url:line.trim(),label:''};return {url:match[2],label:match[1].replace(/[\u200B-\u200D\u2060\u2063\uFEFF]/g,'').replace(/[：:；;\s]+$/,'').trim()};});}
 
 export async function saveSticker(row:Sticker){const {data,...meta}=row;await db.transaction('rw',db.stickerMeta,db.stickerImages,async()=>{await db.stickerImages.add({id:row.id,data});await db.stickerMeta.add(meta);});}
 export async function patchSticker(id:string,patch:Partial<Pick<StickerMeta,'label'|'group'|'favorite'|'lastUsed'|'archived'>>){await db.stickerMeta.update(id,patch);}
