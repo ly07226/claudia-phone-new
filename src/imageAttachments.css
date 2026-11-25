@@ -26,3 +26,8 @@
 .chat-compose-tools .chat-attachment-toolbar>button{flex:0 0 auto;min-width:0}
 .chat-compose-tools .chat-attachment-toolbar>.sticker-panel{position:absolute;left:0;right:0;bottom:calc(100% + 8px);width:100%;max-height:min(38dvh,320px);overflow-y:auto;z-index:30;box-sizing:border-box}
 .chat-compose-tools .chat-attachment-toolbar>.chat-attachment-menu{left:0;right:auto;bottom:calc(100% + 8px)}
+
+/* Picker layout: keep composer/input in place and float the sticker tray above the toolbar. */
+.chat-compose-tools>.chat-attachment-toolbar{position:static;right:auto;top:auto;transform:none;z-index:auto}
+.chat-compose-tools>.chat-attachment-toolbar>.sticker-panel{left:0;right:0;bottom:calc(100% + 12px);width:100%;max-height:min(36dvh,300px);overflow-y:auto;overflow-x:hidden;padding:12px 10px;box-sizing:border-box;background:var(--theme-card,#f4f6ed);border-radius:16px;box-shadow:0 -4px 18px var(--theme-shadow,#24392d20)}
+.chat-compose-tools>.chat-attachment-toolbar>.chat-attachment-menu{position:absolute;left:0;right:auto;bottom:calc(100% + 8px)}
