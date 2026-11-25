@@ -6,6 +6,8 @@ export interface ChatSettings {
   continuousSend?: boolean;
   keyboardAutoReply?: boolean;
   followRealTime?: boolean;
+  /** Defaults to enabled for existing conversations. */
+  actionDescriptions?: boolean;
   proactiveEnabled?: boolean;
   proactiveHours?: number;
   proactiveProbability?: number;
