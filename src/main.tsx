@@ -1,3 +1,4 @@
+import {StickerPanel} from './StickerPanel';
 import {AutomationSchedulers} from './AutomationSchedulers';
 import {observeQqContextChanges} from './qqContextSync';
 import {PrivateNotes} from './PrivateNotes';
@@ -493,6 +494,7 @@ function App() {
                   </div>
                   <IdentityCard spaceId={space?.spaceId || "daily"}/>
                   <AudioKeepAliveSettings/>
+                  <button className="list-row" onClick={()=>openPhoneApp("表情包")}><ImagePlus/>表情包<ArrowRight size={17}/></button>
                   <PushNotificationSettings/><ChatBannerSettings/>
                   <button
                     className="list-row"
@@ -575,6 +577,8 @@ function App() {
                 <PhasePlayApp onBack={phoneNavigation.back}/>
               ) : s.activeApp === "世界书 / Lorebook" ? (
                 <Lorebooks />
+              ) : s.activeApp === "表情包" ? (
+                <StickerPanel management onClose={phoneNavigation.back}/>
               ) : s.activeApp === "微信接入" ? (
                 <WechatIntegrationSettings />
               ) : s.activeApp === "AI / API 设置" ? (
