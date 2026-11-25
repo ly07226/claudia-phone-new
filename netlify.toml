@@ -5,6 +5,12 @@
   functions = "netlify/functions"
 
 [[redirects]]
+  from = "/api/sticker-image"
+  to = "/.netlify/functions/sticker-image"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/qq/qr/start"
   to = "/.netlify/functions/qq-qr"
   status = 200
