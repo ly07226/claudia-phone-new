@@ -19,3 +19,10 @@
 .chat-image-viewer button {display:block;margin-left:auto;min-width:44px;min-height:44px;color:inherit;background:transparent;border:0;font-size:26px}
 
 .chat-user .chat-message-images {justify-content:flex-end}
+
+/* The chat toolbar is a full-width row; the sticker library opens above it, not inside a 40px attachment control. */
+.chat-compose-tools{position:relative;display:flex;align-items:center;width:100%;min-width:0;gap:0}
+.chat-compose-tools .chat-attachment-toolbar{display:contents}
+.chat-compose-tools .chat-attachment-toolbar>button{flex:0 0 auto;min-width:0}
+.chat-compose-tools .chat-attachment-toolbar>.sticker-panel{position:absolute;left:0;right:0;bottom:calc(100% + 8px);width:100%;max-height:min(38dvh,320px);overflow-y:auto;z-index:30;box-sizing:border-box}
+.chat-compose-tools .chat-attachment-toolbar>.chat-attachment-menu{left:0;right:auto;bottom:calc(100% + 8px)}
