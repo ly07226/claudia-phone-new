@@ -35,6 +35,7 @@ import { KeyboardDebugPanel } from "./KeyboardDebugPanel";
 import { ConversationLayoutDebug } from "./ConversationLayoutDebug";
 import { keyboardDebugEnabled, recordKeyboardDebug } from "./keyboardDebug";
 import { activeMessages } from "./messagePath";
+import { readTimelineDisplayPage } from "./timelines";
 import {
   cancelGeneration,
   invalidateGeneration,
@@ -189,6 +190,10 @@ export function Chat({ worldId }: { worldId?: string }) {
   },[management,historyWindow.start,historyWindow.end,messages]);
   const pendingQuoteJump=useRef<{id:string;part:BubblePart}|null>(null);
   function locateQuote(id:string,part:BubblePart){
+    if(!messages.some(m=>m.id===id)&&displayHasMore.current){
+     void revealFullHistory(activeConversation.current!).then(()=>{if(activeConversation.current)pendingQuoteJump.current={id,part};}).catch(()=>setFeedback('无法定位原消息。'));
+     return;
+    }
     const index=messages.findIndex(m=>m.id===id);
     if(index<0){setFeedback('原消息已删除或不在当前分支。');return;}
     if(index<historyWindow.start||index>=historyWindow.end){
@@ -253,15 +258,59 @@ export function Chat({ worldId }: { worldId?: string }) {
     return () => subscription.unsubscribe();
   }, [characterIds, worldId, conversation?.id]);
   const appliedSnapshot=useRef<{key:string;revision:number;rows:Message[]}|null>(null);
+  const displayCursor=useRef<string|undefined>(undefined);
+  const displayHasMore=useRef(false);
+  const displayPaging=useRef(false);
+  const displayFullyLoaded=useRef(false);
+  async function loadOlderDisplayMessages(){
+   const id=activeConversation.current;
+   if(!id||displayPaging.current||!displayHasMore.current||displayFullyLoaded.current)return;
+   displayPaging.current=true;
+   const scope=visiblePath.current;
+   const cursor=displayCursor.current;
+   try{
+    const page=await readTimelineDisplayPage(id,120,cursor);
+    if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch)return;
+    displayCursor.current=page.nextCursor;
+    displayHasMore.current=page.hasMore;
+    if(!page.rows.length)return;
+    const el=historyRef.current;
+    const oldHeight=el?.scrollHeight??0,oldTop=el?.scrollTop??0;
+    setMessages(old=>{
+     const existing=new Set(old.map(m=>m.id));
+     return [...page.rows.filter(m=>!existing.has(m.id)),...old];
+    });
+    requestAnimationFrame(()=>{const target=historyRef.current;if(target&&!followBottom.current)target.scrollTop=oldTop+target.scrollHeight-oldHeight;});
+   }catch{if(activeConversation.current===id)setError('读取更早消息失败，请重试。');}
+   finally{displayPaging.current=false;}
+  }
+  async function revealFullHistory(id:string){
+   if(displayFullyLoaded.current)return;
+   const rows=await activeMessages(id,undefined,true);
+   if(activeConversation.current!==id)return;
+   displayFullyLoaded.current=true;
+   displayHasMore.current=false;
+   displayCursor.current=undefined;
+   historyWindow.beforeChange();
+   setMessages(rows);
+  }
   async function loadSnapshot(id:string,scroll=false){
    const ticket=++refreshTicket.current,revision=chatDataRevision();const previous=appliedSnapshot.current;
    const data=await db.transaction('r',[db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{const current=await db.conversations.get(id);if(!current)return null;const timeline=current.activeTimelineId?await db.timelines.get(current.activeTimelineId):undefined;
     const key=JSON.stringify([db.name,id,current.activeTimelineId,current.timelineEpoch,timeline?.headNodeId,timeline?.revision]);
     if(previous?.key===key&&previous.revision===revision)return {current,key,rows:previous.rows};
-    const incoming=await activeMessages(id,undefined,true),old=new Map(previous?.rows.map(m=>[m.id,m])??[]);const rows=incoming.map(m=>{const before=old.get(m.id);return before&&dataEqual(before,m)?before:m;});
+    const page=displayFullyLoaded.current?null:await readTimelineDisplayPage(id,120);
+    const incoming=page?page.rows:await activeMessages(id,undefined,true);
+    const old=new Map(previous?.rows.map(m=>[m.id,m])??[]);
+    const rows=incoming.map(m=>{const before=old.get(m.id);return before&&dataEqual(before,m)?before:m;});
+    if(page)return {current,key,rows,page};
     return {current,key,rows:previous&&rows.length===previous.rows.length&&rows.every((m,i)=>m===previous.rows[i])?previous.rows:rows};
    });if(ticket!==refreshTicket.current||!data||!mounted.current||activeConversation.current!==id)return;
    const {current,key,rows}=data;
+   if('page' in data&&data.page){
+    displayCursor.current=data.page.nextCursor;
+    displayHasMore.current=data.page.hasMore;
+   }
    if(visiblePath.current?.conversationId===id&&visiblePath.current.timelineId!==current.activeTimelineId&&(!pending.current||pending.current.signal.aborted))setReplyPresentation(null);
    visiblePath.current={conversationId:id,timelineId:current.activeTimelineId,epoch:current.timelineEpoch??0};
    setConversation(before=>dataEqual(before,current)?before:current);
@@ -314,6 +363,9 @@ export function Chat({ worldId }: { worldId?: string }) {
     const navigation = ++taskSequence.current;
     setError("");
     appliedSnapshot.current=null;
+    displayFullyLoaded.current=false;
+    displayHasMore.current=false;
+    displayCursor.current=undefined;
     pendingQuoteJump.current=null;
     setMessages([]);
     setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
@@ -615,6 +667,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               followBottom.current =
                 el.scrollHeight - el.scrollTop - el.clientHeight < 64;
               historyWindow.onScroll();
+              if(el.scrollTop<240&&displayHasMore.current&&!displayPaging.current)void loadOlderDisplayMessages();
             }}
           >
             {!messages.length && (
@@ -738,7 +791,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               name={displayName}
               avatar={avatarSrc}
               onPreferences={async patch=>{const next=await saveChatSettings(conversation.id,patch);if(activeConversation.current===next.id)setConversation(next);}}
-              onLocate={id=>{void searchableMessages(conversation.id).then(rows=>{if(activeConversation.current!==conversation.id)return;if(!rows.some(m=>m.id===id)){setError('该消息已不在当前有效分支。');return;}jumpTo.current=id;setManagement(false);}).catch(()=>setError('无法定位消息，请稍后重试。'));}}
+              onLocate={id=>{void searchableMessages(conversation.id).then(async rows=>{if(activeConversation.current!==conversation.id)return;if(!rows.some(m=>m.id===id)){setError('该消息已不在当前有效分支。');return;}await revealFullHistory(conversation.id);jumpTo.current=id;setManagement(false);}).catch(()=>setError('无法定位消息，请稍后重试。'));}}
               worldName={
                 s.worlds.find((w) => w.id === conversation.worldId)?.name
               }
