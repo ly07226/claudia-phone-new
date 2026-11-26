@@ -111,7 +111,9 @@ export async function packBackupZip(snapshot:BackupExport,password?:string,signa
   checkAbort(signal);
   const {ZipWriter,BlobReader}=await import('@zip.js/zip.js');const chunks:Blob[]=[];let size=0;
   const sink=new WritableStream<Uint8Array>({write(chunk){checkAbort(signal);size+=chunk.byteLength;checkZipSize(size);chunks.push(new Blob([chunk as Uint8Array<ArrayBuffer>]));}});
-  const writer=new ZipWriter(sink,{...options,level:6,zip64:false});
+  // Maximum DEFLATE compression for text-heavy chat backups. Each member is
+  // actually deflated; this is not a mere ZIP container around raw JSON.
+  const writer=new ZipWriter(sink,{...options,level:9,zip64:false});
   const uncompressedBytes=manifest.size+snapshot.manifest.parts.reduce((total,p)=>total+p.bytes,0)+(portableWechat?.size??0);
   const inner=snapshot.manifest.credentials==='encrypted';
   const info:ZipInfo={format:'claudia-phone-zip',version:portableWechat?3:inner?2:1,encryption:inner?'aes-gcm-backup':password?'winzip-aes-256':'none',payloadFormat:'claudia-phone-backup',...(inner?{encryptionParameters:{cipher:'AES-256-GCM',kdf:'PBKDF2-SHA256',iterations:600000,authentication:'GCM-128 + HMAC-SHA256'}}:password?{encryptionParameters:{cipher:'AES-256-CTR',kdf:'PBKDF2-HMAC-SHA1',iterations:1000,authentication:'HMAC-SHA1-80'}}:{})};
