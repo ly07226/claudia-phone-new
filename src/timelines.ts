@@ -88,11 +88,33 @@ export async function readTimelineDisplayPage(
   if(!c)throw Error('会话不存在。');
   if(!c.activeTimelineId){
    // Legacy conversations are kept on their proven reader until migration.
-   const rows=await legacyActiveMessages(conversationId);
-   const end=beforeNodeId?rows.findIndex(m=>m.id===beforeNodeId):rows.length;
-   if(end<0)throw Error('目标消息不在当前有效路径。');
-   const start=Math.max(0,end-size);
-   return {rows:rows.slice(start,end),nextCursor:start>0?rows[start].id:undefined,hasMore:start>0};
+   // Read the newest indexed records first instead of materializing the
+   // entire legacy conversation on every chat open.
+   const boundary=beforeNodeId?await db.messages.get(beforeNodeId):undefined;
+   if(beforeNodeId&&(!boundary||boundary.conversationId!==conversationId||boundary.archived))
+    throw Error('目标消息不在当前有效路径。');
+   const upper=boundary?boundary.createdAt:Infinity;
+   const query=db.messages.where('[conversationId+createdAt]')
+    .between([conversationId,Dexie.minKey],[conversationId,upper],true,true)
+    .reverse();
+   const selected:Message[]=[];
+   await query.each(m=>{
+    if(m.archived)return;
+    if(boundary&&m.createdAt===boundary.createdAt&&m.id>=boundary.id)return;
+    selected.push(m);
+    if(selected.length>size)return false;
+   });
+   const hasMore=selected.length>size;
+   const page=selected.slice(0,size).reverse();
+   const ids=page.filter(m=>m.role==='assistant'&&m.activeVariantId).map(m=>m.activeVariantId!);
+   const variants=await db.messageVariants.bulkGet(ids);
+   const byId=new Map(variants.filter((v):v is NonNullable<typeof v>=>!!v).map(v=>[v.id,v]));
+   const rows=page.map(m=>{
+    const v=m.activeVariantId?byId.get(m.activeVariantId):undefined;
+    return v&&v.conversationId===conversationId&&v.messageId===m.id
+     ?{...m,content:v.content,userEdited:v.userEdited}:m;
+   });
+   return {rows,nextCursor:hasMore?page[0]?.id:undefined,hasMore};
   }
   const t=await db.timelines.get(c.activeTimelineId);
   if(!t)throw Error('时间线不存在。');
