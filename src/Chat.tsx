@@ -291,7 +291,7 @@ export function Chat({ worldId }: { worldId?: string }) {
    const ticket=refreshTicket.current;
    const previousKey=appliedSnapshot.current?.key;
    try{
-    const page=await readTimelineDisplayPage(id,100,cursor);
+    const page=await readTimelineDisplayPage(id,100,cursor,true);
     if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch||displayFullyLoaded.current||displayCursor.current!==cursor||refreshTicket.current!==ticket||appliedSnapshot.current?.key!==previousKey)return;
     displayCursor.current=page.nextCursor;
     displayHasMore.current=page.hasMore;
