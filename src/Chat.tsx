@@ -325,8 +325,11 @@ export function Chat({ worldId }: { worldId?: string }) {
       activeConversation.current = c.id;
       if(c.chatSettings?.proactiveUnreadAt)void db.conversations.update(c.id,{chatSettings:{...c.chatSettings,proactiveUnreadAt:undefined}});
       followBottom.current = true;
-      // Do not mount an empty conversation screen before its history arrives.
-      // loadSnapshot commits conversation, messages and variants in one React batch.
+      // Enter the conversation shell immediately. Waiting for the complete
+      // timeline read here made the contact appear unresponsive on long chats.
+      // Keep the existing snapshot loader as the source of visible messages;
+      // this does not truncate stored history or change generation context.
+      setConversation(c);
       await refresh(c.id, true);
       try {
         await resolveApi(c);
