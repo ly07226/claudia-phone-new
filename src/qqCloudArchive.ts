@@ -1,9 +1,22 @@
 import {activeMessages} from './messagePath';
 import {db} from './store';
-import {wechatCloudFunctionRequest} from './wechatCloudIdentity';
+import {wechatCloudFunctionRequest,wechatCloudAccessToken} from './wechatCloudIdentity';
+import {readWechatCloudConfig} from './wechatCloudConfig';
+
+async function cloudOwnerId(){
+ const token=await wechatCloudAccessToken();
+ const payload=token.split('.')[1];
+ if(!payload)throw Error('云端身份无效，已停止聊天归档');
+ try{
+  const decoded=JSON.parse(atob(payload.replace(/-/g,'+').replace(/_/g,'/'))) as {sub?:string};
+  if(typeof decoded.sub!=='string'||!/^[0-9a-f-]{36}$/i.test(decoded.sub))throw Error();
+  return new URL(readWechatCloudConfig()!.url).host+':'+decoded.sub;
+ }catch{throw Error('云端身份无效，已停止聊天归档');}
+}
+
 
 /** Upload the current effective Daily timeline in bounded, restartable batches.
- * This is an explicit operation until cloud restore/deletion reconciliation ships.
+ * Automatic on existing QQ context sync; cloud restore/deletion reconciliation is separate.
  * A failed batch leaves the local source intact and can be safely retried.
  */
 export async function uploadQqChatArchive(bindingId:string,conversationId:string,onProgress?:(done:number,total:number)=>void){
@@ -15,8 +28,15 @@ export async function uploadQqChatArchive(bindingId:string,conversationId:string
  const messages=path.filter(m=>m.role==='user'||m.role==='assistant').map(m=>({
   id:m.id,role:m.role,content:m.content,createdAt:m.createdAt
  }));
- let done=0;
- for(let offset=0;offset<messages.length;){
+ // A checkpoint is scoped to the exact project, owner token identity, binding,
+ // conversation and timeline. Re-upload the last 50 to cover recent edits.
+ // The checkpoint only advances after the server acknowledges the batch.
+ const identity=await cloudOwnerId();
+ const key='claudia-chat-archive-v1:'+identity+':'+bindingId+':'+conversationId+':'+timelineId;
+ const checkpoint=Number(localStorage.getItem(key)||0);
+ const start=Number.isSafeInteger(checkpoint)&&checkpoint>=0&&checkpoint<=messages.length?Math.max(0,checkpoint-50):0;
+ let done=start;
+ for(let offset=start;offset<messages.length;){
   const fresh=await db.conversations.get(conversationId);
   if(!fresh||fresh.activeTimelineId!==conversation.activeTimelineId||(fresh.timelineEpoch??0)!==epoch)
    throw Error('聊天时间线已变化，已停止旧时间线的云端上传');
@@ -36,6 +56,7 @@ export async function uploadQqChatArchive(bindingId:string,conversationId:string
   if(!response.ok||data?.ok!==true)throw Error('云端聊天归档失败：'+(data?.error||response.status));
   offset+=batch.length;
   done=offset;
+  localStorage.setItem(key,String(done));
   onProgress?.(done,messages.length);
  }
  return {uploaded:done,total:messages.length,timelineId};
