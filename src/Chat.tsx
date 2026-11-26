@@ -217,9 +217,16 @@ export function Chat({ worldId }: { worldId?: string }) {
   useLayoutEffect(()=>{
     const target=pendingQuoteJump.current;
     if(!target)return;
+    const index=messages.findIndex(m=>m.id===target.id);
+    if(index<0)return; // Wait for the asynchronously loaded target.
+    if(index<historyWindow.start||index>=historyWindow.end){
+      followBottom.current=false;
+      historyWindow.reveal(index);
+      return;
+    }
     pendingQuoteJump.current=null;
     scrollToQuote(target.id,target.part);
-  },[historyWindow.start,historyWindow.end]);
+  },[messages,historyWindow.start,historyWindow.end]);
   const userIdentity = identityFor(s.theme, conversation?.mode === "world" ? `world:${conversation.worldId}` : "daily");
   const userAvatar = s.assets.find(a=>a.id===userIdentity.avatar)?.data;
   const avatarSrc = s.assets.find((a) => a.id === character?.avatar)?.data;
@@ -277,12 +284,11 @@ export function Chat({ worldId }: { worldId?: string }) {
     if(!page.rows.length)return;
     const el=historyRef.current;
     const oldHeight=el?.scrollHeight??0,oldTop=el?.scrollTop??0;
-    setMessages(old=>{
-     const existing=new Set(old.map(m=>m.id));
-     const combined=[...page.rows.filter(m=>!existing.has(m.id)),...old];
-     if(appliedSnapshot.current)appliedSnapshot.current={...appliedSnapshot.current,rows:combined};
-     return combined;
-    });
+    const previousRows=appliedSnapshot.current?.rows??[];
+    const existing=new Set(previousRows.map(m=>m.id));
+    const combined=[...page.rows.filter(m=>!existing.has(m.id)),...previousRows];
+    if(appliedSnapshot.current)appliedSnapshot.current={...appliedSnapshot.current,rows:combined};
+    setMessages(combined);
     requestAnimationFrame(()=>{const target=historyRef.current;if(target&&!followBottom.current)target.scrollTop=oldTop+target.scrollHeight-oldHeight;});
    }catch{if(activeConversation.current===id)setError('读取更早消息失败，请重试。');}
    finally{displayPaging.current=false;}
