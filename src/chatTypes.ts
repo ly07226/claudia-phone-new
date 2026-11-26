@@ -117,8 +117,9 @@ export interface ConversationSnapshot {
   conversationId: string;
   reason: "edit" | "switch" | "withdraw" | "delete" | "regenerate" | "restore";
   createdAt: number;
-  messages: Message[];
-  variants: MessageVariant[];
+  /** Legacy snapshots embed full rows; linked snapshots use headNodeId and versionKeys. */
+  messages?: Message[];
+  variants?: MessageVariant[];
 }
 
 export interface MemoryTimeline {
