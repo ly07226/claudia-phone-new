@@ -1,3 +1,5 @@
+import {emptySummaryState} from './memorySummaryTypes';
+import {notifyAssistantReplyCommitted} from './memorySummaryScheduler';
 import {publishSavedChatMessage} from './chatMessageEvents';
 import {stripLeakedTimeMarkers} from './timeMarkerSanitizer';
 import {appendContinuation,validInterruption} from './chatCompletion';
@@ -64,8 +66,15 @@ export async function getConversation(characterId: string, worldId?: string) {
           ...(worldId ? { worldId } : {}),
           createdAt: now,
           updatedAt: now,
+          memorySummary: emptySummaryState(),
         };
         await db.conversations.add(c);
+      }
+      // Migrate only conversations with no summary state; preserve explicit opt-outs.
+      if(!c.memorySummary){
+        const memorySummary=emptySummaryState();
+        await db.conversations.update(c.id,{memorySummary});
+        c={...c,memorySummary};
       }
       return c;
     },
@@ -335,7 +344,12 @@ async function generate(
    }
   })().catch(()=>{});
   // Detached from views and from normal reply completion. No auto retry on failure.
-  if(!options.messageId&&!interruption)void import('./memorySummary').then(m=>m.tryAutoSummary(id)).catch(()=>{});
+  if(!options.messageId&&!interruption){
+    // A single trigger owns the automatic summary attempt. The scheduler
+    // also recovers work on foreground/network wake; do not launch a second
+    // concurrent summary request from this reply path.
+    notifyAssistantReplyCommitted(id);
+  }
   return {interruption};
 }
 async function purgeRecords(id: string) {

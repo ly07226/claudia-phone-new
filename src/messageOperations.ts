@@ -1,6 +1,7 @@
 import {messageBubbles,hasVisiblePart,type BubblePart} from './messageBubbles';
 import { ensureTimelineInTransaction, commitTimelineProjection, nodesForHead, messageFingerprint } from "./timelines";
 import { db } from "./store";
+import { snapshotVersionIdentity } from "./snapshotVersionPool";
 import { activeMessages, variantsFor } from "./messagePath";
 import type {
   Message,
@@ -60,6 +61,7 @@ export const messageTables = () => [
   db.messageVariants,
   db.messageRevisions,
   db.conversationSnapshots,
+  db.snapshotVersions,
   db.timelines, db.pathNodes,
 ];
 export async function invalidateGeneration(id: string) {
@@ -76,21 +78,33 @@ export async function snapshotPath(
   reason: ConversationSnapshot["reason"],
 ) {
   const timeline = await ensureTimelineInTransaction(id);
-  const messages = await activeMessages(id);
-  const ids = new Set(messages.map((m) => m.id));
-  const variants = await db.messageVariants
-    .where("conversationId")
-    .equals(id)
-    .filter((v) => ids.has(v.messageId))
-    .toArray();
+  // The immutable path nodes already own each historical message body.
+  // Only retain version references, not a second copy of the full path.
+  const nodes = await nodesForHead(id, timeline.headNodeId, true);
+  const ids = new Set(nodes.map(node => node.messageId));
+  const variants = await db.messageVariants.where("conversationId").equals(id)
+    .filter(v => ids.has(v.messageId)).toArray();
+  const versionKeys: string[] = [];
+  for (const variant of variants) {
+    const identity = snapshotVersionIdentity(variant);
+    const existing = await db.snapshotVersions
+      .where("[conversationId+identity]").equals([id, identity]).first();
+    if (existing) {
+      if (snapshotVersionIdentity(existing.variant) !== identity)
+        throw Error("快照版本索引损坏。");
+      versionKeys.push(existing.key);
+    } else {
+      const key = crypto.randomUUID();
+      await db.snapshotVersions.add({
+        key, conversationId: id, identity, variant: structuredClone(variant),
+      });
+      versionKeys.push(key);
+    }
+  }
   const snapshot: ConversationSnapshot = {
-    id: crypto.randomUUID(),
-    conversationId: id,
-    reason,
-    timelineId: timeline.id, headNodeId: timeline.headNodeId, timelineEpoch: timeline.epoch,
-    createdAt: Date.now(),
-    messages,
-    variants,
+    id: crypto.randomUUID(), conversationId: id, reason,
+    timelineId: timeline.id, headNodeId: timeline.headNodeId,
+    timelineEpoch: timeline.epoch, createdAt: Date.now(), versionKeys,
   };
   await db.conversationSnapshots.add(snapshot);
   return snapshot;
@@ -248,18 +262,27 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
     const s = await db.conversationSnapshots.get(snapshotId);
     if (!s || s.conversationId !== id)
       throw Error("快照不属于此会话或已不存在。");
-    const ids = new Set(s.messages.map((m) => m.id));
+    const linked = Array.isArray(s.versionKeys) && !s.messages;
+    if (linked && !s.timelineId) throw Error("快照缺少时间线引用。");
+    const savedNodes = linked ? await nodesForHead(id, s.headNodeId) : undefined;
+    const messages = linked ? savedNodes!.map(n => ({...n.message, archived:false})) : s.messages ?? [];
+    const versionRows = linked ? await db.snapshotVersions.bulkGet(s.versionKeys ?? []) : undefined;
+    if (linked && (!s.versionKeys || versionRows!.some((row,i) => !row || row.key !== s.versionKeys![i] || row.conversationId !== id || snapshotVersionIdentity(row.variant) !== row.identity))) throw Error("快照版本引用缺失或内容损坏。");
+    const variants = linked ? versionRows!.map(row => structuredClone(row!.variant)) : s.variants ?? [];
+    const ids = new Set(messages.map((m) => m.id));
+    if (linked && new Set(s.versionKeys).size !== s.versionKeys.length) throw Error("快照版本引用重复。");
+    if (linked && new Set(variants.map(v => v.id)).size !== variants.length) throw Error("快照版本 ID 重复。");
     if (
-      s.messages.some((m) => m.conversationId !== id) ||
-      s.variants.some((v) => v.conversationId !== id || !ids.has(v.messageId))
+      messages.some((m) => m.conversationId !== id) ||
+      variants.some((v) => v.conversationId !== id || !ids.has(v.messageId))
     )
       throw Error("快照关联不合法。");
-    for (const m of s.messages) {
+    for (const m of messages) {
       const existing = await db.messages.get(m.id);
       if (existing && existing.conversationId !== id)
         throw Error("快照消息关联不合法。");
     }
-    for (const v of s.variants) {
+    for (const v of variants) {
       const existing = await db.messageVariants.get(v.id);
       if (
         existing &&
@@ -267,13 +290,21 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
       )
         throw Error("快照版本关联不合法。");
     }
+    if (linked) {
+      const selected = new Map(variants.map(v => [v.id, v]));
+      for (const m of messages) {
+        if (!m.activeVariantId) continue;
+        const variant = selected.get(m.activeVariantId);
+        if (!variant || variant.messageId !== m.id) throw Error("快照当前候选版本引用损坏。");
+      }
+    }
     if(s.timelineId){
       const source=await db.timelines.get(s.timelineId),c=await db.conversations.get(id);
       if(!source||source.conversationId!==id||source.epoch!==c?.timelineEpoch||s.timelineEpoch!==source.epoch)throw Error("快照时间线关联已失效。");
       if(s.headNodeId&&!(await nodesForHead(id,source.headNodeId)).some(n=>n.id===s.headNodeId))throw Error("快照不属于声明的时间线路径。");
       const saved=await nodesForHead(id,s.headNodeId);
-      if(saved.length!==s.messages.length)throw Error("快照路径不匹配。");
-      for(let i=0;i<saved.length;i++)if(saved[i].fingerprint!==await messageFingerprint(s.messages[i]))throw Error("快照内容与不可变路径不匹配。");
+      if(saved.length!==messages.length)throw Error("快照路径不匹配。");
+      for(let i=0;i<saved.length;i++)if(saved[i].fingerprint!==await messageFingerprint(messages[i]))throw Error("快照内容与不可变路径不匹配。");
     }
     await invalidateGeneration(id);
     await snapshotPath(id, "restore");
@@ -281,9 +312,9 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
       .where("conversationId")
       .equals(id)
       .modify({ archived: true });
-    await db.messageVariants.bulkPut(s.variants);
+    await db.messageVariants.bulkPut(variants);
     await db.messages.bulkPut(
-      s.messages.map((m) => ({ ...m, archived: false })),
+      messages.map((m) => ({ ...m, archived: false })),
     );
     if(s.timelineId)await db.conversations.update(id,{activeTimelineId:s.timelineId});
     await commitTimelineProjection(id,"restore",!s.timelineId);

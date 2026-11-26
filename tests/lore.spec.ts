@@ -406,3 +406,24 @@ test("v3 到 v4 增量迁移保留每张旧表，事务失败不留下半本世�
   expect(result.books).toBe(0);
   expect(result.entries).toBe(0);
 });
+
+
+test("常驻规则不可被截断为误导性片段，预算不足时明确诊断", async ({page}) => {
+  await page.goto("/");
+  const result=await page.evaluate(async()=>{
+    const {newBook,newEntry}=await import("/src/loreTypes.ts");
+    const {planLore}=await import("/src/loreEngine.ts");
+    const book=newBook();
+    const constant={...newEntry(book.id),constant:true,priority:100,content:"允许合理推进剧情，但绝对不能替用户决定行动。"};
+    const optional={...newEntry(book.id),constant:false,primaryKeys:["测试"],content:"辅助资料"};
+    const history=[{id:"lore-budget-user",conversationId:"test",role:"user" as const,content:"测试",createdAt:1}];
+    const insufficient=planLore([{book,entry:constant}],history,constant.content.length-1);
+    const enough=planLore([{book,entry:constant},{book,entry:optional}],history,200);
+    return {insufficient:insufficient.entries.map(e=>e.content),diagnostic:insufficient.diagnostics[0],enough:enough.entries.map(e=>e.content)};
+  });
+  expect(result.insufficient).toEqual([]);
+  expect(result.diagnostic.reason).toBe("context-budget");
+  expect(result.diagnostic.outcome).toBe("skipped");
+  expect(result.enough[0]).toBe("允许合理推进剧情，但绝对不能替用户决定行动。");
+  expect(result.enough).toContain("辅助资料");
+});

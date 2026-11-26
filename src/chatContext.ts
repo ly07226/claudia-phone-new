@@ -83,7 +83,10 @@ export async function buildContext(
     : await loreForConversation(
     conversation,
     history,
-    Math.max(0, contextLimits.systemChars - system.length - (time?.content.length ?? 0) - 4),
+    // Protect memory and recent-event recall from being crowded out by
+    // multiple worldbooks. Lore may use only the system budget left after
+    // this reservation; the final prompt still obeys the same hard limit.
+    Math.max(0, contextLimits.systemChars - system.length - (time?.content.length ?? 0) - 4 - 6000),
   );
   recordLoreTrace(conversation, lore.diagnostics, lore.skippedBooks);
   // Keep real timestamps adjacent to the actual utterances. A clock gap is
@@ -134,7 +137,7 @@ export async function buildContext(
     if(time)sources.push({source:'time',text:time.content,role:'system'});
     if(recalled)sources.push({source:'memory',text:recalled,role:'system'});
     const trace=lastMemoryContextTrace(conversation.id);
-    registerRequestDiagnostics(conversation.mode,result,sources,{history:{available:path.length,included:history.length},budget:{systemLimit:contextLimits.systemChars,historyLimit:historyBudget,loreAllowance:Math.max(0,Math.min(loreLimits.promptChars,contextLimits.systemChars-system.length-(time?.content.length??0)-4)),systemUsed:result.filter(m=>m.role==='system').reduce((n,m)=>n+m.content.length,0),historyUsed:requestHistory.reduce((n,m)=>n+m.content.length,0)},memory:trace??undefined,lore:lore.diagnostics.map(d=>({trigger:d.triggerMode,outcome:d.outcome,completeness:d.completeness,reason:d.reason,scanned:d.scannedMessageCount,matchedUser:d.matchedMessages.filter(m=>m.role==='user').length,matchedAssistant:d.matchedMessages.filter(m=>m.role==='assistant').length,crossMessage:d.crossMessageMatch})),skippedBooks:{disabled:lore.skippedBooks.filter(b=>b.reason==='book-disabled').length,outOfScope:lore.skippedBooks.filter(b=>b.reason==='out-of-scope').length}});
+    registerRequestDiagnostics(conversation.mode,result,sources,{history:{available:path.length,included:history.length},budget:{systemLimit:contextLimits.systemChars,historyLimit:historyBudget,loreAllowance:Math.max(0,Math.min(loreLimits.promptChars,contextLimits.systemChars-system.length-(time?.content.length??0)-4-6000)),systemUsed:result.filter(m=>m.role==='system').reduce((n,m)=>n+m.content.length,0),historyUsed:requestHistory.reduce((n,m)=>n+m.content.length,0)},memory:trace??undefined,lore:lore.diagnostics.map(d=>({trigger:d.triggerMode,outcome:d.outcome,completeness:d.completeness,reason:d.reason,scanned:d.scannedMessageCount,matchedUser:d.matchedMessages.filter(m=>m.role==='user').length,matchedAssistant:d.matchedMessages.filter(m=>m.role==='assistant').length,crossMessage:d.crossMessageMatch})),skippedBooks:{disabled:lore.skippedBooks.filter(b=>b.reason==='book-disabled').length,outOfScope:lore.skippedBooks.filter(b=>b.reason==='out-of-scope').length}});
   }
   return result;
 }

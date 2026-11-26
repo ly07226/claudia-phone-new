@@ -1,3 +1,4 @@
+import {snapshotVersionIdentity} from "./snapshotVersionPool";
 import {validPhaseChatSettings,validChatEventReceipts} from './phasePlay/chatLinkTypes';
 import {supportedDataSchema} from './backupFormat';
 import {verifyDocumentSnapshot} from './wizardDocumentSnapshot';
@@ -50,7 +51,7 @@ export type BackupProgress = {
 };
 type Progress = (value: BackupProgress) => void;
 const owned = new Set<string>();
-async function temporary(prefix: "stage" | "candidate" | "validation", schemaVersion:5|6|7|9=9) {
+async function temporary(prefix: "stage" | "candidate" | "validation", schemaVersion:5|6|7|9|10=10) {
   const name = `claudia-backup-${prefix}-${crypto.randomUUID()}`;
   ensure(!(await Dexie.exists(name)), "临时数据库名称冲突，未覆盖任何数据库。");
   const d = new Dexie(name);
@@ -93,7 +94,7 @@ export async function eachBackupRow(
         : d.table(table).where(":id").above(last);
     const rows = await collection.limit(1).toArray();
     if (!rows.length) return;
-    const key = rows[0][table === "apiCredentials" ? "configId" : "id"];
+    const key = rows[0][table === "apiCredentials" ? "configId" : table === "snapshotVersions" ? "key" : "id"];
     ensure(
       typeof key === "string" && key.length > 0 && key.length < 4096,
       `表 ${table} 存在不支持的主键；没有省略记录。`,
@@ -214,8 +215,8 @@ export async function createBackup(options: {
       codec: 1,
       backupId: crypto.randomUUID(),
       sourceOrigin: location.origin,
-      schemaVersion: 9,
-      nativeVersion: 90,
+      schemaVersion: 10,
+      nativeVersion: 100,
       createdAt: new Date().toISOString(),
       snapshotCompletedAt: "",
       coordination,
@@ -433,7 +434,7 @@ export async function createBackup(options: {
 function validateManifest(input: any): asserts input is BackupManifest {
   ensure(
     input?.format === "claudia-phone-backup" &&
-      ((input.version === 1 && input.schemaVersion===5 && input.nativeVersion===50)||(input.version===2 && input.schemaVersion===6 && input.nativeVersion===60)||(input.version===3 && ((input.schemaVersion===7 && input.nativeVersion===70)||(input.schemaVersion===9 && input.nativeVersion===90)))) &&
+      ((input.version === 1 && input.schemaVersion===5 && input.nativeVersion===50)||(input.version===2 && input.schemaVersion===6 && input.nativeVersion===60)||(input.version===3 && ((input.schemaVersion===7 && input.nativeVersion===70)||(input.schemaVersion===9 && input.nativeVersion===90)||(input.schemaVersion===10 && input.nativeVersion===100)))) &&
       input.codec === 1,
     "备份格式或数据库版本不受支持，未恢复任何正式数据。",
   );
@@ -570,7 +571,7 @@ export interface IntegrityReport {
   snapshotCompletedAt: string;
   manifestDigest: string;
   candidateName?: string;
-  schemaVersion: 5 | 6 | 7 | 9;
+  schemaVersion: 5 | 6 | 7 | 9 | 10;
   counts: Record<string, number>;
   totalRecords: number;
   parts: number;
@@ -699,7 +700,7 @@ export async function readBackup(
         row && typeof row === "object" && !Array.isArray(row),
         "记录不是对象。",
       );
-      const id = row[table === "apiCredentials" ? "configId" : "id"];
+      const id = row[table === "apiCredentials" ? "configId" : table === "snapshotVersions" ? "key" : "id"];
       ensure(
         typeof id === "string" &&
           id.length > 0 &&
@@ -1079,11 +1080,45 @@ export async function validateReferences(
     async (x) => {
       if (
         !(await exists("conversations", x.conversationId)) ||
-        !Array.isArray(x.messages) ||
-        !Array.isArray(x.variants)
+        (!Array.isArray(x.messages) && !Array.isArray(x.versionKeys)) ||
+        (!Array.isArray(x.variants) && !Array.isArray(x.versionKeys))
       ) {
         bad("snapshots.shape/parent");
         return;
+      }
+      if (Array.isArray(x.versionKeys) && !Array.isArray(x.messages)) {
+        if (typeof x.timelineId !== "string" || !Number.isInteger(x.timelineEpoch) ||
+            (x.headNodeId !== undefined && typeof x.headNodeId !== "string")) {
+          bad("snapshots.linkedShape"); return;
+        }
+        const timeline = await d.table("timelines").get(x.timelineId);
+        if (!timeline || timeline.conversationId !== x.conversationId || timeline.epoch !== x.timelineEpoch)
+          bad("snapshots.timeline");
+        const seen = new Set<string>(), messageIds = new Set<string>();
+        if (new Set(x.versionKeys).size !== x.versionKeys.length) bad("snapshots.duplicateVersionKey");
+        let cursor = x.headNodeId;
+        while (cursor) {
+          if (seen.has(cursor)) { bad("snapshots.nodeCycle"); break; }
+          seen.add(cursor);
+          const node = await d.table("pathNodes").get(cursor);
+          if (!node || node.conversationId !== x.conversationId) { bad("snapshots.nodeMissing"); break; }
+          if (messageIds.has(node.messageId)) bad("snapshots.duplicateMessage");
+          messageIds.add(node.messageId);
+          cursor = node.parentNodeId;
+        }
+        for (const key of x.versionKeys) {
+          const record = typeof key === "string" && d.tables.some(t => t.name === "snapshotVersions")
+            ? await d.table("snapshotVersions").get(key) : undefined;
+          if (!record || record.conversationId !== x.conversationId ||
+              record.variant?.conversationId !== x.conversationId ||
+              !messageIds.has(record.variant?.messageId) ||
+              record.identity !== snapshotVersionIdentity(record.variant))
+            bad("snapshots.versionMissing");
+        }
+        return;
+      }
+      if (!Array.isArray(x.messages) || !Array.isArray(x.variants)) {
+        bad("snapshots.legacyShape"); return;
       }
       const messages = new Map(x.messages.map((v: any) => [v.id, v]));
       const variants = new Map<string, any>(

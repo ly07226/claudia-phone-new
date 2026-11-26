@@ -26,7 +26,9 @@ export function loreScanMessages(raw: LoreEntry, book: Lorebook, history: Messag
     return latest ? [latest] : [];
   }
   // Window first, then role filtering: scanDepth remains a message count, not user-turn count.
-  return history.slice(-(e.scanDepth ?? book.scanDepth)).filter(m=>m.role === "user" || (e.scanAssistant && m.role === "assistant"));
+  const depth = Math.max(0, Math.min(loreLimits.scanMessages, Math.trunc(e.scanDepth ?? book.scanDepth) || 0));
+  if (depth === 0) return [];
+  return history.slice(-depth).filter(m=>m.role === "user" || (e.scanAssistant && m.role === "assistant"));
 }
 function scanBuffer(messages: Message[], foldCase = false) {
   let text = "";
@@ -128,7 +130,24 @@ export interface LoreCandidate {entry:LoreEntry;book:Lorebook}
 export function planLore(candidates:LoreCandidate[],history:Message[],remainingBudget=loreLimits.promptChars,random:()=>number=Math.random,regex:Record<string,RegexHits>={}) {
   // Always-on instructions must be considered before optional keyword lore.
   // They are not constrained by the ordinary 4k-per-book / 8k-total lore budgets.
-  const sorted=candidates.map(c=>({...c,entry:normalizeEntry(c.entry)})).sort((a,b)=>Number(b.entry.constant)-Number(a.entry.constant) || b.entry.priority-a.entry.priority || a.entry.createdAt-b.entry.createdAt || (a.entry.id<b.entry.id?-1:a.entry.id>b.entry.id?1:0));
+  // Rotate equally ranked entries across books. Without this, a large first
+  // book can consume the entire shared prompt budget before later books run.
+  // Constant status and explicit priority still take precedence.
+  const ranked=candidates.map(c=>({...c,entry:normalizeEntry(c.entry)})).sort((a,b)=>Number(b.entry.constant)-Number(a.entry.constant) || b.entry.priority-a.entry.priority || a.entry.createdAt-b.entry.createdAt || (a.entry.id<b.entry.id?-1:a.entry.id>b.entry.id?1:0));
+  const sorted:typeof ranked=[];
+  for(let i=0;i<ranked.length;){
+    let j=i+1;
+    while(j<ranked.length && ranked[j].entry.constant===ranked[i].entry.constant && ranked[j].entry.priority===ranked[i].entry.priority)j++;
+    const byBook=new Map<string,typeof ranked>();
+    for(const candidate of ranked.slice(i,j)){
+      const bucket=byBook.get(candidate.book.id)??[];
+      bucket.push(candidate);byBook.set(candidate.book.id,bucket);
+    }
+    const buckets=[...byBook.values()];
+    for(let index=0;index<Math.max(...buckets.map(b=>b.length));index++)
+      for(const bucket of buckets)if(bucket[index])sorted.push(bucket[index]);
+    i=j;
+  }
   const selected:LoreEntry[]=[],diagnostics:LoreDiagnostic[]=[];
   const used=new Map<string,number>();let total=0,optionalTotal=0;
   for(const {entry,book} of sorted) {
@@ -138,7 +157,16 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
     // Keep chat responsive: never fail a request solely because optional lore
     // exceeds its configured budget. Preserve whole entries when possible.
     const available=Math.min(remainingBudget-total,entry.constant?remainingBudget-total:Math.min(loreLimits.promptChars-optionalTotal,book.charBudget-(used.get(book.id)||0)));
-    const effective={...entry,content:retrieveLorePassages(entry.content,history,Math.max(0,available-2))};
+    // Float Android's prompt assembler activates worldbook entries first,
+    // then places their content in the selected prompt slot. Keep passage
+    // retrieval for oversized entries rather than silently disabling a
+    // persistent rule solely because the entire entry cannot fit.
+    // Persistent instructions are indivisible: extracting a keyword-matched
+    // sentence can drop a nearby prohibition or exception and invert the rule.
+    // Optional reference entries may still use passage retrieval.
+    const effective={...entry,content:entry.constant
+      ? (entry.content.length+2<=available?entry.content:'')
+      : retrieveLorePassages(entry.content,history,Math.max(0,available-2))};
     const cost=effective.content.length+2,bookUsed=used.get(book.id)||0;
     if(!effective.content.trim()){d.reason="context-budget";continue;}
     if(entry.constant && total+cost>remainingBudget) {
@@ -161,7 +189,9 @@ export function injectLore(
   history: ContextMessage[],
   entries: LoreEntry[],
 ): ContextMessage[] {
-  const sorted = entries.map(normalizeEntry);
+  // The selected list is already ranked by the activation planner.
+  // Keep it stable across insertion slots, and never inject empty text.
+  const sorted = entries.map(normalizeEntry).filter(e => e.content.trim().length > 0);
   const own = (e: LoreEntry): ContextMessage => ({
     role: e.role!,
     content: e.content,
@@ -234,15 +264,14 @@ export async function loreForConversation(
     if(!inScope || !b.enabled) {skippedBooks.push({lorebookId:b.id,reason:!inScope?"out-of-scope":"book-disabled"});return false;}
     return true;
   }).toArray();
-  const candidates: LoreCandidate[] = [];
-  for (const book of books) {
-    const entries = await db.loreEntries
-      .where("lorebookId")
-      .equals(book.id)
-      .toArray();
-    for (const raw of entries)
-      candidates.push({ entry: normalizeEntry(raw), book });
-  }
+  // Load each mounted book concurrently. Serial IndexedDB reads made prompt
+  // assembly latency grow with the number of enabled worldbooks.
+  const bookEntries = await Promise.all(books.map(async book => ({
+    book,
+    entries: await db.loreEntries.where("lorebookId").equals(book.id).toArray(),
+  })));
+  const candidates: LoreCandidate[] = bookEntries.flatMap(({book,entries}) =>
+    entries.map(raw => ({entry:normalizeEntry(raw),book})));
   const jobs = candidates
     .filter(
       ({ entry: e, book: b }) =>

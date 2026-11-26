@@ -27,4 +27,4 @@ export async function validate(d:Dexie,signal:AbortSignal){
   await validateReferences(d,{credentials:'encrypted',redactions:[]} as unknown as BackupManifest,signal);
   await validateTimelineDatabase(d);
 }
-export async function openRestoreDatabase(name:string){const d=new Dexie(name);if(!await Dexie.exists(name))d.version(7).stores(backupSchemas);await d.open();exactSchema(d);return d;}
+export async function openRestoreDatabase(name:string){const d=new Dexie(name);if(!await Dexie.exists(name))d.version(10).stores({...backupSchemas,summaryLeases:'name,expiresAt'});await d.open();exactSchema(d);return d;}
