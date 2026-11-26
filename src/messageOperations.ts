@@ -90,7 +90,7 @@ export async function snapshotPath(
   const versionKeys: string[] = [];
   for (const variant of variants) {
     const identity = snapshotVersionIdentity(variant);
-    const existing = await db.snapshotVersions.where("identity").equals(identity).filter(row => row.conversationId === id).first();
+    const existing = await db.snapshotVersions.where("[conversationId+identity]").equals([id, identity]).first();
     if (existing) {
       if (snapshotVersionIdentity(existing.variant) !== identity) throw Error("快照版本索引损坏。");
       versionKeys.push(existing.key);
