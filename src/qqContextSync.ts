@@ -7,15 +7,40 @@ import {readWechatCloudConfig} from './wechatCloudConfig';
 import {contextPatch,documentPatch,type QqContextMessage,type QqContextData} from '../supabase/functions/_shared/qqContext.mjs';
 let generation=1;
 const listeners=new Set<()=>void>();
+// A running PWA can sync without the QQ settings screen being visible.
+// iOS may suspend a fully closed PWA: pending changes are retried on next open.
+const activeBindings=new Map<string,{bindingId:string;conversationId:string}>();
+let autoTimer:ReturnType<typeof setTimeout>|undefined;
+let autoBusy=false;
+function scheduleAutomaticQqSync(delay=1200){
+ if(autoTimer)clearTimeout(autoTimer);
+ autoTimer=setTimeout(()=>{void flushAutomaticQqSync();},delay);
+}
+async function flushAutomaticQqSync(){
+ if(autoBusy||typeof navigator!=='undefined'&&!navigator.onLine)return;
+ autoBusy=true;
+ try{
+  for(const item of activeBindings.values()){
+   try{await syncQqSnapshot(item.bindingId,item.conversationId);}
+   catch(error){console.warn('QQ cloud auto-sync pending retry',error);}
+  }
+ }finally{autoBusy=false;}
+}
+if(typeof window!=='undefined'){
+ window.addEventListener('online',()=>scheduleAutomaticQqSync(100));
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleAutomaticQqSync(100);});
+}
+
 export function observeQqContextChanges(listener:()=>void){listeners.add(listener);return ()=>{listeners.delete(listener);};}
 // Dexie broadcasts committed mutations across tabs. No per-message polling/scanning.
-Dexie.on('storagemutated',()=>{generation++;for(const listener of listeners)listener();});
+Dexie.on('storagemutated',()=>{generation++;for(const listener of listeners)listener();if(activeBindings.size)scheduleAutomaticQqSync();});
 const cache=new Map<string,{generation:number;revision:string|null;messages:QqContextMessage[];data:QqContextData|null}>();
 const running=new Map<string,Promise<void>>();
 // Keep lightweight acknowledged signatures even if a large snapshot body is evicted.
 const acknowledged=new Map<string,{generation:number;hash:string}>();
 /** Retry the same version after a lost acknowledgement; a conflict never overwrites the winner. */
 export async function syncQqSnapshot(bindingId:string,conversationId:string,manual=false):Promise<void>{
+ if(bindingId&&conversationId)activeBindings.set(bindingId+':'+conversationId,{bindingId,conversationId});
  // Back up and refresh context independently, so either service can recover.
  const [context,archive]=await Promise.allSettled([
   syncQqSnapshotPass(bindingId,conversationId,manual,1),
