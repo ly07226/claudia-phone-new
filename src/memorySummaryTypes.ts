@@ -1,3 +1,4 @@
+import {FLOAT_MEMORY_DEFAULT_TURNS} from './floatMemoryPolicy';
 import type {SummaryQualityRejection} from './memorySummaryQuality';
 import type {MemoryScope} from './memoryTypes';
 export const summaryLimits={inputTokens:6000,outputTokens:4096,outputChars:12000,facts:8,factChars:800,receipts:5000,leaseMs:180000,maxInterval:1000,maxChunks:2048,maxRecoveries:6};
@@ -19,7 +20,7 @@ export interface SummaryCheckpoint {planVersion?:2;attempts?:number[];recoveries
 export interface MemorySummaryState {autoRecoveries?:number;checkpointArchive?:SummaryCheckpoint[];capacityBlocked?:string;requiresManualResume?:boolean;autoAttempt?:{throughNodeId:string;count:number;pendingAtStart:number};deferUntilPending?:number;checkpoint?:SummaryCheckpoint;version:1;enabled:boolean;interval:number;revision:number;receipts:SummaryReceipt[];job?:MemorySummaryJob}
 // Float's automatic memory pipeline is enabled by default (80 events = 40 chat turns).
 // This applies to newly initialized summary state; existing explicit settings are preserved.
-export const emptySummaryState=():MemorySummaryState=>({version:1,enabled:true,interval:40,revision:0,receipts:[]});
+export const emptySummaryState=():MemorySummaryState=>({version:1,enabled:true,interval:FLOAT_MEMORY_DEFAULT_TURNS,revision:0,receipts:[]});
 export const summaryFailureText:Record<SummaryFailure,string>={provider:'总结服务请求失败（网络、服务端或权限问题，具体类别以任务诊断为准）；聊天不受影响，重试可能再次计费。',format:'总结结果未通过格式或来源核验，未写入记忆。',empty:'没有提取到有效记忆，未记为成功；可稍后手动重试。','stale-path':'总结期间会话路径发生变化，结果未写入。',capacity:'当前会话的记忆修订或总结记录达到容量保护上限；历史原文和已保存记录均未删除。请先备份，后续可升级分段存储。','input-too-large':'待总结片段超过输入预算，未调用模型。系统会在区间内按预算拆片；超出本地容量时原文及成功检查点保留。',interrupted:'总结任务中断（例如页面离开或任务失效）；已成功保存的轮次不会回退，未完成部分可手动重试。',timeout:'总结请求超过等待期限；已成功保存的轮次不会回退，未完成部分可手动重试，可能再次计费。',state:'总结状态失效或无法保存，未确认写入成功。'};
 
 export const summaryRejectionText:Record<SummaryQualityRejection,string>={'invalid-candidate':'候选格式无法安全恢复','unsupported-evidence':'原文证据不匹配',temporary:'缺少持续价值','low-importance':'重要性不足','weak-impact':'持续影响依据不足','unsupported-inference':'推断依据不足','uncertain-as-fact':'计划或不确定内容被当作事实','lost-condition':'遗漏否定或条件','unsupported-detail':'细节或主体不一致','unattributed-view':'观点归属不明确'};
