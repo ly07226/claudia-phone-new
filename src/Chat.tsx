@@ -420,7 +420,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     const cached=recentChatCache.current.get(id)??readRecentDisplay(id,worldId);
     setOpeningCharacter(null);
     setError("");
-    appliedSnapshot.current=cached&&'snapshot' in cached?cached.snapshot:null;
+    appliedSnapshot.current=cached&&'snapshot' in cached?(cached.snapshot as {key:string;revision:number;rows:Message[]}|null):null;
     displayFullyLoaded.current=false;
     displayHasMore.current=false;
     displayCursor.current=undefined;
