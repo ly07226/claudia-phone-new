@@ -12,19 +12,29 @@ const listeners=new Set<()=>void>();
 const activeBindings=new Map<string,{bindingId:string;conversationId:string}>();
 let autoTimer:ReturnType<typeof setTimeout>|undefined;
 let autoBusy=false;
+let pendingChanges=false;
+const archiveRunning=new Map<string,Promise<unknown>>();
+function archiveOnce(bindingId:string,conversationId:string){
+ const key=bindingId+':'+conversationId;
+ const existing=archiveRunning.get(key);if(existing)return existing;
+ const task=uploadQqChatArchive(bindingId,conversationId).finally(()=>archiveRunning.delete(key));
+ archiveRunning.set(key,task);return task;
+}
 function scheduleAutomaticQqSync(delay=1200){
  if(autoTimer)clearTimeout(autoTimer);
  autoTimer=setTimeout(()=>{void flushAutomaticQqSync();},delay);
 }
 async function flushAutomaticQqSync(){
- if(autoBusy||typeof navigator!=='undefined'&&!navigator.onLine)return;
+ if(autoBusy){pendingChanges=true;return;}
+ if(typeof navigator!=='undefined'&&!navigator.onLine)return;
  autoBusy=true;
+ pendingChanges=false;
  try{
   for(const item of activeBindings.values()){
    try{await syncQqSnapshot(item.bindingId,item.conversationId);}
    catch(error){console.warn('QQ cloud auto-sync pending retry',error);}
   }
- }finally{autoBusy=false;}
+ }finally{autoBusy=false;if(pendingChanges)scheduleAutomaticQqSync(1200);}
 }
 if(typeof window!=='undefined'){
  window.addEventListener('online',()=>scheduleAutomaticQqSync(100));
@@ -44,7 +54,7 @@ export async function syncQqSnapshot(bindingId:string,conversationId:string,manu
  // Back up and refresh context independently, so either service can recover.
  const [context,archive]=await Promise.allSettled([
   syncQqSnapshotPass(bindingId,conversationId,manual,1),
-  uploadQqChatArchive(bindingId,conversationId)
+  archiveOnce(bindingId,conversationId)
  ]);
  if(context.status==='rejected')throw context.reason;
  if(archive.status==='rejected')throw archive.reason;
