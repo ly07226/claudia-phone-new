@@ -345,10 +345,10 @@ async function generate(
   })().catch(()=>{});
   // Detached from views and from normal reply completion. No auto retry on failure.
   if(!options.messageId&&!interruption){
+    // A single trigger owns the automatic summary attempt. The scheduler
+    // also recovers work on foreground/network wake; do not launch a second
+    // concurrent summary request from this reply path.
     notifyAssistantReplyCommitted(id);
-    // Direct fallback covers routes without a mounted foreground scheduler.
-    // tryAutoSummary deduplicates concurrent calls by conversation.
-    void import('./memorySummary').then(m=>m.tryAutoSummary(id)).catch(()=>{});
   }
   return {interruption};
 }
