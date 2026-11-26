@@ -47,5 +47,14 @@ export function syncQqSnapshot(bindingId:string,conversationId:string,manual=fal
   cache.set(key,{generation:seen,revision:result.revision,messages:next.messages,data:next.data});
   acknowledged.set(key,{generation:seen,hash:snapshotHash});
   while(cache.size>20)cache.delete(cache.keys().next().value!);
- })().finally(()=>running.delete(key));running.set(key,task);return task;
+ })().finally(()=>running.delete(key));
+ running.set(key,task);
+ // Mutations committed while an upload was in flight must not leave QQ on
+ // the old snapshot until another UI event happens. One bounded second pass
+ // catches that race without polling or touching the local memory system.
+ return task.then(async()=>{
+  if(generation!==acknowledged.get(key)?.generation){
+   await syncQqSnapshot(bindingId,conversationId,manual);
+  }
+ });
 }
