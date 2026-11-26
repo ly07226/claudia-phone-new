@@ -285,14 +285,14 @@ export function Chat({ worldId }: { worldId?: string }) {
     displayCursor.current=page.nextCursor;
     displayHasMore.current=page.hasMore;
     if(!page.rows.length)return;
-    const el=historyRef.current;
-    const oldHeight=el?.scrollHeight??0,oldTop=el?.scrollTop??0;
+    // Let the virtualized history anchor the first visible bubble before
+    // prepending. Scroll-height arithmetic races React layout on iOS.
+    historyWindow.beforeChange();
     const previousRows=appliedSnapshot.current?.rows??[];
     const existing=new Set(previousRows.map(m=>m.id));
     const combined=[...page.rows.filter(m=>!existing.has(m.id)),...previousRows];
     if(appliedSnapshot.current)appliedSnapshot.current={...appliedSnapshot.current,rows:combined};
     setMessages(combined);
-    requestAnimationFrame(()=>{const target=historyRef.current;if(target&&!followBottom.current)target.scrollTop=oldTop+target.scrollHeight-oldHeight;});
    }catch{if(activeConversation.current===id)setError('读取更早消息失败，请重试。');}
    finally{displayPaging.current=false;}
   }
