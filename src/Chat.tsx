@@ -276,9 +276,10 @@ export function Chat({ worldId }: { worldId?: string }) {
    displayPaging.current=true;
    const scope=visiblePath.current;
    const cursor=displayCursor.current;
+   const ticket=refreshTicket.current;
    try{
     const page=await readTimelineDisplayPage(id,120,cursor);
-    if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch)return;
+    if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch||displayFullyLoaded.current||displayCursor.current!==cursor||refreshTicket.current!==ticket)return;
     displayCursor.current=page.nextCursor;
     displayHasMore.current=page.hasMore;
     if(!page.rows.length)return;
