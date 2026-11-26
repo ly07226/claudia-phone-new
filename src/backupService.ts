@@ -301,7 +301,11 @@ export async function createBackup(options: {
         if (used === buffer.length) await flush();
       }
     };
-    await db.transaction("r", backupTables, async () => {
+    // Never hold one IndexedDB transaction across hashing, encryption, staging,
+    // and progress callbacks. IndexedDB auto-commits during asynchronous work.
+    // BackupGuard and cross-client coordination protect the source while
+    // bounded primary-key reads proceed in separate short transactions.
+    {
       phase='export-validate';
       await validateTimelineDatabase(db);
       for (const table of backupTables) {
@@ -365,15 +369,21 @@ export async function createBackup(options: {
                 bytes,
               });
             })();
-            await Dexie.waitFor(pendingWork, 20000);
+            await pendingWork;
           },
           controller.signal,
         );
       }
+      // Reject a changed source table count instead of silently producing
+      // an incomplete archive if a concurrent client altered the source.
+      for(const table of backupTables){
+        const actual=await db.table(table).count();
+        ensure(actual===m.tables[table].sourceCount,`备份期间 ${table} 表记录数量发生变化，请重试；未生成不完整文件。`);
+      }
       pendingWork = flush();
-      await Dexie.waitFor(pendingWork, 20000);
+      await pendingWork;
       checkAbort(controller.signal);
-    });
+    }
     checkAbort(controller.signal);
     phase=key?'export-encrypt':'export-encode';
     m.snapshotCompletedAt = new Date().toISOString();
