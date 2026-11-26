@@ -24,6 +24,17 @@ export async function buildQqSnapshot(conversationId:string){
   return e.kind!=='core'||i<4||(i+1)%5!==0||ordered.slice(i-4,i+1).every(r=>valid.has(r.id));
  }).map(e=>({id:'memory:'+e.id,kind:e.kind,content:e.content,type:e.type,source:e.source,updatedAt:e.updatedAt,sourceReceiptId:e.sourceReceiptId}));
  for(const receipt of memory.shortReceipts)if(valid.has(receipt.id)&&receipt.shortSummary?.trim())documents.push({id:'summary:'+receipt.id,kind:'summary',content:receipt.shortSummary,source:'auto',updatedAt:receipt.createdAt,sourceReceiptId:receipt.id});
+ // Keep bounded, source-grounded Daily history for QQ retrieval, independent
+ // of the automatic memory summary pipeline. Only active-path messages qualify.
+ const historyRows=path.filter(m=>(m.role==='user'||m.role==='assistant')&&!!m.content?.trim()).slice(-1200);
+ let historyBytes=0;
+ for(let i=historyRows.length-1;i>=0;i--){
+  const m=historyRows[i];
+  const d:QqMemoryDocument={id:'history:'+m.id,kind:'history',content:JSON.stringify({role:m.role,at:m.createdAt,text:m.content.slice(0,1400)}),updatedAt:m.createdAt};
+  const bytes=new TextEncoder().encode(JSON.stringify(d)).length;
+  if(historyBytes+bytes>900000)continue;
+  historyBytes+=bytes;documents.push(d);
+ }
  // Daily only uses global enabled books, exactly as loreForConversation does.
  // Carry rules as data so the QQ user's *current* message activates the same planner.
  const books=await db.lorebooks.filter(b=>b.enabled&&b.global).toArray();

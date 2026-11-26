@@ -1,5 +1,5 @@
 export type QqContextMessage={role:'system'|'user'|'assistant';content:string};
-export type QqMemoryDocument={id:string;kind:'core'|'long'|'summary'|'lore';content:string;source?:'manual'|'auto';type?:'fact'|'belief'|'speculation'|'pending';updatedAt?:number;sourceReceiptId?:string};
+export type QqMemoryDocument={id:string;kind:'core'|'long'|'summary'|'lore'|'history';content:string;source?:'manual'|'auto';type?:'fact'|'belief'|'speculation'|'pending';updatedAt?:number;sourceReceiptId?:string};
 export type QqContextData={documents:QqMemoryDocument[];includedQqIds:string[];includedQqReplyIds?:string[];conversationId:string;characterId:string;timelineId:string;epoch:number};
 export type QqHistoryRow={id:string;direction:string;body:string;status:string;received_at:string;in_reply_to?:string|null};
 export function contextPatch(previous:QqContextMessage[],next:QqContextMessage[]):{keep:number;append:QqContextMessage[]};

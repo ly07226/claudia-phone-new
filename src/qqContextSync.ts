@@ -1,4 +1,5 @@
 import {sourceHash} from './summarySourceFingerprint';
+import {uploadQqChatArchive} from './qqCloudArchive';
 import Dexie from 'dexie';
 import {buildQqSnapshot} from './qqContextSnapshot';
 import {wechatCloudFunctionRequest} from './wechatCloudIdentity';
@@ -6,15 +7,59 @@ import {readWechatCloudConfig} from './wechatCloudConfig';
 import {contextPatch,documentPatch,type QqContextMessage,type QqContextData} from '../supabase/functions/_shared/qqContext.mjs';
 let generation=1;
 const listeners=new Set<()=>void>();
+// A running PWA can sync without the QQ settings screen being visible.
+// iOS may suspend a fully closed PWA: pending changes are retried on next open.
+const activeBindings=new Map<string,{bindingId:string;conversationId:string}>();
+let autoTimer:ReturnType<typeof setTimeout>|undefined;
+let autoBusy=false;
+let pendingChanges=false;
+const archiveRunning=new Map<string,Promise<unknown>>();
+function archiveOnce(bindingId:string,conversationId:string){
+ const key=bindingId+':'+conversationId;
+ const existing=archiveRunning.get(key);if(existing)return existing;
+ const task=uploadQqChatArchive(bindingId,conversationId).finally(()=>archiveRunning.delete(key));
+ archiveRunning.set(key,task);return task;
+}
+function scheduleAutomaticQqSync(delay=1200){
+ if(autoTimer)clearTimeout(autoTimer);
+ autoTimer=setTimeout(()=>{void flushAutomaticQqSync();},delay);
+}
+async function flushAutomaticQqSync(){
+ if(autoBusy){pendingChanges=true;return;}
+ if(typeof navigator!=='undefined'&&!navigator.onLine)return;
+ autoBusy=true;
+ pendingChanges=false;
+ try{
+  for(const item of activeBindings.values()){
+   try{await syncQqSnapshot(item.bindingId,item.conversationId);}
+   catch(error){console.warn('QQ cloud auto-sync pending retry',error);}
+  }
+ }finally{autoBusy=false;if(pendingChanges)scheduleAutomaticQqSync(1200);}
+}
+if(typeof window!=='undefined'){
+ window.addEventListener('online',()=>scheduleAutomaticQqSync(100));
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleAutomaticQqSync(100);});
+}
+
 export function observeQqContextChanges(listener:()=>void){listeners.add(listener);return ()=>{listeners.delete(listener);};}
 // Dexie broadcasts committed mutations across tabs. No per-message polling/scanning.
-Dexie.on('storagemutated',()=>{generation++;for(const listener of listeners)listener();});
+Dexie.on('storagemutated',()=>{generation++;for(const listener of listeners)listener();if(activeBindings.size)scheduleAutomaticQqSync();});
 const cache=new Map<string,{generation:number;revision:string|null;messages:QqContextMessage[];data:QqContextData|null}>();
 const running=new Map<string,Promise<void>>();
 // Keep lightweight acknowledged signatures even if a large snapshot body is evicted.
 const acknowledged=new Map<string,{generation:number;hash:string}>();
 /** Retry the same version after a lost acknowledgement; a conflict never overwrites the winner. */
-export function syncQqSnapshot(bindingId:string,conversationId:string,manual=false):Promise<void>{
+export async function syncQqSnapshot(bindingId:string,conversationId:string,manual=false):Promise<void>{
+ if(bindingId&&conversationId)activeBindings.set(bindingId+':'+conversationId,{bindingId,conversationId});
+ // Back up and refresh context independently, so either service can recover.
+ const [context,archive]=await Promise.allSettled([
+  syncQqSnapshotPass(bindingId,conversationId,manual,1),
+  archiveOnce(bindingId,conversationId)
+ ]);
+ if(context.status==='rejected')throw context.reason;
+ if(archive.status==='rejected')throw archive.reason;
+}
+async function syncQqSnapshotPass(bindingId:string,conversationId:string,manual:boolean,retries:number):Promise<void>{
  const key=readWechatCloudConfig()?.url+':'+bindingId+':'+conversationId;
  const pending=running.get(key);if(pending)return pending;
  const task=(async()=>{
@@ -47,5 +92,14 @@ export function syncQqSnapshot(bindingId:string,conversationId:string,manual=fal
   cache.set(key,{generation:seen,revision:result.revision,messages:next.messages,data:next.data});
   acknowledged.set(key,{generation:seen,hash:snapshotHash});
   while(cache.size>20)cache.delete(cache.keys().next().value!);
- })().finally(()=>running.delete(key));running.set(key,task);return task;
+ })().finally(()=>running.delete(key));
+ running.set(key,task);
+ // Mutations committed while an upload was in flight must not leave QQ on
+ // the old snapshot until another UI event happens. One bounded second pass
+ // catches that race without polling or touching the local memory system.
+ return task.then(async()=>{
+  if(retries>0&&generation!==acknowledged.get(key)?.generation){
+   await syncQqSnapshotPass(bindingId,conversationId,manual,retries-1);
+  }
+ });
 }
