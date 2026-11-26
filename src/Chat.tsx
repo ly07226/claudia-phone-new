@@ -425,7 +425,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       // Do not block navigation or API readiness on slow IndexedDB history.
       // The view remains mounted with an explicit loading/error state.
       void refresh(c.id, true).catch(()=>{
-        if(activeConversation.current===c.id)setError("聊天记录读取失败，请返回后重试；本地历史未删除。");
+        if(activeConversation.current===c.id)setError("聊天记录读取失败，本地历史未删除。");
       }).finally(()=>{
         if(activeConversation.current===c.id)setOpeningMessages(false);
       });
@@ -743,6 +743,22 @@ export function Chat({ worldId }: { worldId?: string }) {
               </div>
             )}
             {openingMessages&&!messages.length&&<p className="hint" role="status">正在读取最近聊天记录…</p>}
+            {!openingMessages&&!messages.length&&error&&(
+              <div className="chat-history-load-more" role="alert">
+                <p>{error}</p>
+                <button type="button" className="chat-history-load-capsule" onClick={()=>{
+                  const id=activeConversation.current;
+                  if(!id)return;
+                  setError("");
+                  setOpeningMessages(true);
+                  void refresh(id,true).catch(()=>{
+                    if(activeConversation.current===id)setError("重试读取失败，本地历史未删除。");
+                  }).finally(()=>{
+                    if(activeConversation.current===id)setOpeningMessages(false);
+                  });
+                }}>重新读取聊天记录</button>
+              </div>
+            )}
             {!openingMessages&&!messages.length&&!error&&(
               <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
             )}
