@@ -10,6 +10,7 @@ import {readBackup,verifiedCandidate,eachBackupRow,sanitizeConfig,type Integrity
 import {bound,keep,digest,same,validate,openRestoreDatabase,exactSchema,type DatabaseDigest} from './restoreData';
 import {usableApi} from './apiSelection';
 import {messageFingerprint} from './timelines';
+import {snapshotVersionIdentity} from './snapshotVersionPool';
 import {openStreamingBackupZip,validateBackupZipIdentity} from './backupZip';
 export interface ImportOptions {
   mode:'overwrite'|'merge';apiReplace:boolean;story:boolean;desktop:boolean;identities:boolean;api:boolean;
@@ -35,6 +36,7 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
   const checked=cleanup=await readBackup(files,{mode:'rehearse',password,signal:c.signal,loadPart,partNames});const source=verifiedCandidate(checked)!;
   if(source.verno===5){source.close();source.version(6).stores({timelines:'id,conversationId,parentTimelineId',pathNodes:'id,conversationId,[conversationId+parentNodeId+fingerprint]'});await source.open();}
   if(source.verno<7){source.close();source.version(7).stores(storySchemas);await source.open();}
+  if(source.verno<8){source.close();source.version(8).stores({summaryLeases:'name,expiresAt'});await source.open();}
   if(source.verno<9){source.close();source.version(9).stores({stickerMeta:'id,group,lastUsed',stickerImages:'id'});await source.open();}
   if(source.verno<10){source.close();source.version(10).stores({snapshotVersions:'key,conversationId,identity,[conversationId+identity]'});await source.open();}
 
@@ -165,7 +167,7 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
       if(table==='timelines')r.spaceId=r.worldId?`world:${r.worldId}`:'daily';
       if(table==='pathNodes'){r.message=await message(a.message);r.fingerprint=await messageFingerprint(r.message);}
       if(table==='conversationSnapshots'){if(a.messages)r.messages=await Promise.all(a.messages.map(message));if(a.variants)r.variants=await Promise.all(a.variants.map((v:any)=>transform('messageVariants',v)));if(a.versionKeys)r.versionKeys=await Promise.all(a.versionKeys.map((key:string)=>map('snapshotVersions',key)));}
-      if(table==='snapshotVersions'){r.key=await map('snapshotVersions',a.key);r.variant=await transform('messageVariants',a.variant);r.identity=JSON.stringify(r.variant); }
+      if(table==='snapshotVersions'){r.key=await map('snapshotVersions',a.key);r.variant=await transform('messageVariants',a.variant);r.identity=snapshotVersionIdentity(r.variant); }
       return r;
     }
     async function put(table:BackupTable,row:any){checkAbort(c.signal);const id=row[table==='apiCredentials'?'configId':table==='snapshotVersions'?'key':'id'],existing=await result.table(table).get(id);if(table==='assets'&&existing?.data===row.data){duplicates++;return;}if(await equal(table,row,existing)){duplicates++;return;}
