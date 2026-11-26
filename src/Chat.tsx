@@ -303,7 +303,16 @@ export function Chat({ worldId }: { worldId?: string }) {
     const incoming=page?page.rows:await activeMessages(id,undefined,true);
     const old=new Map(previous?.rows.map(m=>[m.id,m])??[]);
     const rows=incoming.map(m=>{const before=old.get(m.id);return before&&dataEqual(before,m)?before:m;});
-    if(page)return {current,key,rows,page};
+    if(page){
+     // Keep previously loaded older pages when new messages arrive on the
+     // same timeline. Do not merge across a branch switch.
+     if(previous?.key&&JSON.parse(previous.key)[2]===current.activeTimelineId&&JSON.parse(previous.key)[3]===current.timelineEpoch){
+      const seen=new Set(rows.map(m=>m.id));
+      const older=previous.rows.filter(m=>!seen.has(m.id));
+      return {current,key,rows:[...older,...rows],page};
+     }
+     return {current,key,rows,page};
+    }
     return {current,key,rows:previous&&rows.length===previous.rows.length&&rows.every((m,i)=>m===previous.rows[i])?previous.rows:rows};
    });if(ticket!==refreshTicket.current||!data||!mounted.current||activeConversation.current!==id)return;
    const {current,key,rows}=data;
