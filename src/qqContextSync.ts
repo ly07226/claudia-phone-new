@@ -14,7 +14,10 @@ const running=new Map<string,Promise<void>>();
 // Keep lightweight acknowledged signatures even if a large snapshot body is evicted.
 const acknowledged=new Map<string,{generation:number;hash:string}>();
 /** Retry the same version after a lost acknowledgement; a conflict never overwrites the winner. */
-export function syncQqSnapshot(bindingId:string,conversationId:string,manual=false):Promise<void>{\n return syncQqSnapshotPass(bindingId,conversationId,manual,1);\n}\nasync function syncQqSnapshotPass(bindingId:string,conversationId:string,manual:boolean,retries:number):Promise<void>{
+export function syncQqSnapshot(bindingId:string,conversationId:string,manual=false ):Promise<void>{
+ return syncQqSnapshotPass(bindingId,conversationId,manual,1);
+}
+async function syncQqSnapshotPass(bindingId:string,conversationId:string,manual:boolean,retries:number):Promise<void>{
  const key=readWechatCloudConfig()?.url+':'+bindingId+':'+conversationId;
  const pending=running.get(key);if(pending)return pending;
  const task=(async()=>{
@@ -53,8 +56,8 @@ export function syncQqSnapshot(bindingId:string,conversationId:string,manual=fal
  // the old snapshot until another UI event happens. One bounded second pass
  // catches that race without polling or touching the local memory system.
  return task.then(async()=>{
-  if(generation!==acknowledged.get(key)?.generation){
-   await syncQqSnapshot(bindingId,conversationId,manual);
+  if(retries>0&&generation!==acknowledged.get(key)?.generation){
+   await syncQqSnapshotPass(bindingId,conversationId,manual,retries-1);
   }
  });
 }
