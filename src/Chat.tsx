@@ -54,6 +54,22 @@ import {
   deleteConversation,
   resolveApi,
 } from "./chatService";
+// Synchronous display-only cache: never used as generation context or a source of truth.
+const RECENT_DISPLAY_PREFIX='claudia-recent-display-v1:';
+function displayCacheKey(characterId:string,worldId?:string){return RECENT_DISPLAY_PREFIX+JSON.stringify([worldId??null,characterId]);}
+function readRecentDisplay(characterId:string,worldId?:string):{conversation:Conversation;rows:Message[]}|null{
+ try{const raw=localStorage.getItem(displayCacheKey(characterId,worldId));if(!raw)return null;
+  const value=JSON.parse(raw) as {conversation:Conversation;rows:Message[]};
+  if(value?.conversation?.characterId!==characterId||value.conversation.worldId!==worldId||!Array.isArray(value.rows)||value.rows.length>40)return null;
+  if(value.rows.some(m=>m.conversationId!==value.conversation.id))return null;
+  return value;
+ }catch{return null;}
+}
+function saveRecentDisplay(characterId:string,worldId:string|undefined,conversation:Conversation,rows:Message[]){
+ try{const recent=rows.slice(-30);const raw=JSON.stringify({conversation,rows:recent});
+  if(raw.length<220000)localStorage.setItem(displayCacheKey(characterId,worldId),raw);
+ }catch{/* Storage quota/private mode must not block chat. */}
+}
 const noVariants:MessageVariant[]=[];
 export function Chat({ worldId }: { worldId?: string }) {
   const s = usePhone();
@@ -355,6 +371,7 @@ export function Chat({ worldId }: { worldId?: string }) {
    appliedSnapshot.current={key,revision,rows};if(previous?.rows===rows)return;
    historyWindow.beforeChange();preserveTop.current=null;if(scroll&&followBottom.current)scrollRequested.current=true;
    setMessages(rows);
+   saveRecentDisplay(current.characterId,worldId,current,rows);
   }
   function refresh(id:string,scroll=false):Promise<void> {
     const completion=loadSnapshot(id,scroll).then(async()=>{const next=latestRefresh.current;if(next&&next!==completion)await next;});
@@ -400,10 +417,10 @@ export function Chat({ worldId }: { worldId?: string }) {
   async function open(id: string) {
     const navigation = ++taskSequence.current;
     // Reopen the existing view with its last rendered bubbles immediately.
-    const cached=recentChatCache.current.get(id);
+    const cached=recentChatCache.current.get(id)??readRecentDisplay(id,worldId);
     setOpeningCharacter(null);
     setError("");
-    appliedSnapshot.current=cached?.snapshot??null;
+    appliedSnapshot.current=cached&&'snapshot' in cached?cached.snapshot:null;
     displayFullyLoaded.current=false;
     displayHasMore.current=false;
     displayCursor.current=undefined;
@@ -578,6 +595,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   function leaveConversation() {
     if(conversation){
       recentChatCache.current.set(conversation.characterId,{conversation,rows:messages,snapshot:appliedSnapshot.current});
+      saveRecentDisplay(conversation.characterId,worldId,conversation,messages);
       // Bound memory usage while retaining the most recently visited conversations.
       if(recentChatCache.current.size>8)recentChatCache.current.delete(recentChatCache.current.keys().next().value!);
     }
