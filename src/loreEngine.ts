@@ -260,15 +260,14 @@ export async function loreForConversation(
     if(!inScope || !b.enabled) {skippedBooks.push({lorebookId:b.id,reason:!inScope?"out-of-scope":"book-disabled"});return false;}
     return true;
   }).toArray();
-  const candidates: LoreCandidate[] = [];
-  for (const book of books) {
-    const entries = await db.loreEntries
-      .where("lorebookId")
-      .equals(book.id)
-      .toArray();
-    for (const raw of entries)
-      candidates.push({ entry: normalizeEntry(raw), book });
-  }
+  // Load each mounted book concurrently. Serial IndexedDB reads made prompt
+  // assembly latency grow with the number of enabled worldbooks.
+  const bookEntries = await Promise.all(books.map(async book => ({
+    book,
+    entries: await db.loreEntries.where("lorebookId").equals(book.id).toArray(),
+  })));
+  const candidates: LoreCandidate[] = bookEntries.flatMap(({book,entries}) =>
+    entries.map(raw => ({entry:normalizeEntry(raw),book})));
   const jobs = candidates
     .filter(
       ({ entry: e, book: b }) =>
