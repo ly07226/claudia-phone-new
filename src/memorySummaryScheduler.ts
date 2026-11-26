@@ -27,7 +27,7 @@ function startScheduler(){
     const receipts=c.memorySummary?.receipts??[];
     // A receipt can be replaced after regeneration without changing the count.
     // Use persisted receipt IDs rather than a count to avoid missing updates.
-    const receiptSignature=receipts.map(receipt=>receipt.id).join('|');
+    const receiptSignature=receipts.map(receipt=>`${receipt.id}:${receipt.revision}:${receipt.sourceFingerprint??''}`).join('|');
     if(receipts.length>=5 && lastCoreReceiptSignature.get(c.id)!==receiptSignature){
       lastCoreReceiptSignature.set(c.id,receiptSignature);
       void getMemoryScope(c.id).then(scope=>enqueueCoreMemory(scope,()=>!stopped)).catch(()=>{
