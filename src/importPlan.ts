@@ -16,8 +16,8 @@ export interface ImportOptions {
   conflicts:'copy'|'skip';apiConflict:'copy'|'keep';identityConflict:'keep'|'replace';keys:'none'|'missing'|'replace';
 }
 export const defaultImportOptions:ImportOptions={mode:'overwrite',apiReplace:false,story:true,desktop:true,identities:true,api:true,conflicts:'copy',apiConflict:'copy',identityConflict:'keep',keys:'none'};
-export const storyTables:BackupTable[]=['worlds','characters','worldProfiles','conversations','messages','messageVariants','messageRevisions','conversationSnapshots','timelines','pathNodes','lorebooks','loreEntries','storySessions','storyNodes'];
-const ownedTables:BackupTable[]=['messages','messageVariants','messageRevisions','conversationSnapshots','timelines','pathNodes'];
+export const storyTables:BackupTable[]=['worlds','characters','worldProfiles','conversations','messages','messageVariants','messageRevisions','conversationSnapshots','timelines','pathNodes','snapshotVersions','lorebooks','loreEntries','storySessions','storyNodes'];
+const ownedTables:BackupTable[]=['messages','messageVariants','messageRevisions','conversationSnapshots','timelines','pathNodes','snapshotVersions'];
 export interface DataCounts {characters:number;conversations:number;messages:number;worlds:number;lorebooks:number;identities:number;apiConfigs:number;timelines:number;assets:number}
 export interface ImportPreview {formatVersion:number;schemaVersion:number;createdAt:string;credentials:IntegrityReport['credentials'];incoming:DataCounts;current:DataCounts;result:DataCounts;added:DataCounts;duplicates:number;conflicts:number;changed:number;bytes:number;warnings:string[];options:ImportOptions;manifestDigest:string;credentialChanges:{added:number;replaced:number;removed:number;kept:number;names:string[]}}
 export interface ImportPlan {preview:ImportPreview;dispose:()=>Promise<void>}
@@ -35,6 +35,8 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
   const checked=cleanup=await readBackup(files,{mode:'rehearse',password,signal:c.signal,loadPart,partNames});const source=verifiedCandidate(checked)!;
   if(source.verno===5){source.close();source.version(6).stores({timelines:'id,conversationId,parentTimelineId',pathNodes:'id,conversationId,[conversationId+parentNodeId+fingerprint]'});await source.open();}
   if(source.verno<7){source.close();source.version(7).stores(storySchemas);await source.open();}
+  if(source.verno<9){source.close();source.version(9).stores({stickerMeta:'id,group,lastUsed',stickerImages:'id'});await source.open();}
+  if(source.verno<10){source.close();source.version(10).stores({snapshotVersions:'key,conversationId,identity,[conversationId+identity]'});await source.open();}
 
     ensure(options.story||options.desktop||options.identities||options.api,'请至少选择一项导入范围。');
     ensure(options.keys==='none'||(options.api&&checked.report.credentials!=='excluded'),'导入密钥必须选择 API 范围且备份确实包含加密凭据。');
@@ -46,7 +48,7 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
     function own(table:string,id:string,cid:string){const key=table+':'+id;ensure(!historicalOwners.has(key)||historicalOwners.get(key)===cid,'历史消息或版本 ID 跨会话重复，无法安全重映射，已拒绝导入。');historicalOwners.set(key,cid);}
     for(const table of ['messages','messageVariants'] as const)await eachBackupRow(source,table,async a=>own(table,a.id,a.conversationId),c.signal);
     await eachBackupRow(source,'pathNodes',async a=>{own('messages',a.messageId,a.conversationId);if(a.variantId)own('messageVariants',a.variantId,a.conversationId);},c.signal);
-    await eachBackupRow(source,'conversationSnapshots',async a=>{for(const m of a.messages)own('messages',m.id,a.conversationId);for(const v of a.variants)own('messageVariants',v.id,a.conversationId);},c.signal);
+    await eachBackupRow(source,'conversationSnapshots',async a=>{for(const m of a.messages??[])own('messages',m.id,a.conversationId);for(const v of a.variants??[])own('messageVariants',v.id,a.conversationId);},c.signal);
     if(!options.story&&incoming.characters)warnings.push('未选择剧情范围，不导入角色、聊天、世界及世界书。');
     if(options.story&&incoming.characters===0)warnings.push('备份中的角色数量为0，与总记录数无关；覆盖剧情范围将移除当前角色。');
     const maps=new Map<BackupTable,Map<string,string>>(backupTables.map(t=>[t,new Map()]));
@@ -55,7 +57,7 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
     const map=async(t:BackupTable,id:any):Promise<any>=>{if(!id)return id;const m=maps.get(t)!;if(m.has(id))return m.get(id);const value=options.mode==='merge'?await fresh(t,id):id;m.set(id,value);return value;};
     let conflicts=0,duplicates=0,bytes=0,changed=0;const credentialChanges={added:0,replaced:0,removed:0,kept:0,names:[] as string[]};
     const localConfigs=await result.table('apiConfigs').toArray();let validDefault:string|undefined;for(const a of localConfigs){if(a.isDefault&&usableApi(a,(await result.table('apiCredentials').get(a.id))?.apiKey??''))validDefault=a.id;}
-    for(const table of backupTables)await eachBackupRow(source,table,async row=>{const id=row[table==='apiCredentials'?'configId':'id'];const existing=await result.table(table).get(id);if(existing){if(!await equal(table,row,existing))conflicts++;}maps.get(table)!.set(id,options.mode==='merge'?(await equal(table,row,existing)?id:await fresh(table,id)):id);},c.signal);
+    for(const table of backupTables)await eachBackupRow(source,table,async row=>{const id=row[table==='apiCredentials'?'configId':table==='snapshotVersions'?'key':'id'];const existing=await result.table(table).get(id);if(existing){if(!await equal(table,row,existing))conflicts++;}maps.get(table)!.set(id,options.mode==='merge'?(await equal(table,row,existing)?id:await fresh(table,id)):id);},c.signal);
     // Assets are immutable uploads: dedup by content, not filename or timestamps.
     const resources=new Map<string,string>();await eachBackupRow(result,'assets',async a=>{resources.set(await sha(utf8(a.data)),a.id);},c.signal);
     await eachBackupRow(source,'assets',async a=>{if(a.type==='chat-image'){
@@ -162,10 +164,11 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
       if(table==='lorebooks'){if(options.mode==='merge'&&a.global&&a.enabled)warnings.push('包含已启用全局世界书：按原作用范围可影响所有聊天，请在世界书管理中核对。');r.worldIds=await Promise.all(a.worldIds.map((id:string)=>map('worlds',id)));}
       if(table==='timelines')r.spaceId=r.worldId?`world:${r.worldId}`:'daily';
       if(table==='pathNodes'){r.message=await message(a.message);r.fingerprint=await messageFingerprint(r.message);}
-      if(table==='conversationSnapshots'){r.messages=await Promise.all(a.messages.map(message));r.variants=await Promise.all(a.variants.map((v:any)=>transform('messageVariants',v)));}
+      if(table==='conversationSnapshots'){if(a.messages)r.messages=await Promise.all(a.messages.map(message));if(a.variants)r.variants=await Promise.all(a.variants.map((v:any)=>transform('messageVariants',v)));if(a.versionKeys)r.versionKeys=await Promise.all(a.versionKeys.map((key:string)=>map('snapshotVersions',key)));}
+      if(table==='snapshotVersions'){r.key=await map('snapshotVersions',a.key);r.variant=await transform('messageVariants',a.variant);r.identity=JSON.stringify(r.variant); }
       return r;
     }
-    async function put(table:BackupTable,row:any){checkAbort(c.signal);const id=row[table==='apiCredentials'?'configId':'id'],existing=await result.table(table).get(id);if(table==='assets'&&existing?.data===row.data){duplicates++;return;}if(await equal(table,row,existing)){duplicates++;return;}
+    async function put(table:BackupTable,row:any){checkAbort(c.signal);const id=row[table==='apiCredentials'?'configId':table==='snapshotVersions'?'key':'id'],existing=await result.table(table).get(id);if(table==='assets'&&existing?.data===row.data){duplicates++;return;}if(await equal(table,row,existing)){duplicates++;return;}
       if(options.mode==='merge'&&existing&&table!=='themes'&&table!=='apiCredentials'&&table!=='apiConfigs')ensure(false,'导入副本已被修改或存在无法安全处理的冲突；请保留当前或改用覆盖模式，不会静默覆盖。');
       const encoded=await rowBytes(table,row);bytes+=encoded.length;ensure(bytes<=2*1024*1024*1024,'导入变更超过2048 MiB安全上限，未写入当前手机。');await result.table(table).put(row);changed++;
     }
