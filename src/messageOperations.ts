@@ -1,6 +1,7 @@
 import {messageBubbles,hasVisiblePart,type BubblePart} from './messageBubbles';
 import { ensureTimelineInTransaction, commitTimelineProjection, nodesForHead, messageFingerprint } from "./timelines";
 import { db } from "./store";
+import { snapshotVersionIdentity } from "./snapshotVersionPool";
 import { activeMessages, variantsFor } from "./messagePath";
 import type {
   Message,
@@ -60,6 +61,7 @@ export const messageTables = () => [
   db.messageVariants,
   db.messageRevisions,
   db.conversationSnapshots,
+  db.snapshotVersions,
   db.timelines, db.pathNodes,
 ];
 export async function invalidateGeneration(id: string) {
@@ -83,6 +85,21 @@ export async function snapshotPath(
     .equals(id)
     .filter((v) => ids.has(v.messageId))
     .toArray();
+  // Reuse complete immutable version records. Keep legacy embedded variants until
+  // all backup/export and history readers support reference-only snapshots.
+  const versionKeys: string[] = [];
+  for (const variant of variants) {
+    const identity = snapshotVersionIdentity(variant);
+    const existing = await db.snapshotVersions.where("identity").equals(identity).filter(row => row.conversationId === id).first();
+    if (existing) {
+      if (snapshotVersionIdentity(existing.variant) !== identity) throw Error("快照版本索引损坏。");
+      versionKeys.push(existing.key);
+    } else {
+      const key = crypto.randomUUID();
+      await db.snapshotVersions.add({key, conversationId:id, identity, variant:structuredClone(variant)});
+      versionKeys.push(key);
+    }
+  }
   const snapshot: ConversationSnapshot = {
     id: crypto.randomUUID(),
     conversationId: id,
@@ -91,6 +108,7 @@ export async function snapshotPath(
     createdAt: Date.now(),
     messages,
     variants,
+    versionKeys,
   };
   await db.conversationSnapshots.add(snapshot);
   return snapshot;
