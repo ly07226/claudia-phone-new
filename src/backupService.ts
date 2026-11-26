@@ -1079,11 +1079,42 @@ export async function validateReferences(
     async (x) => {
       if (
         !(await exists("conversations", x.conversationId)) ||
-        !Array.isArray(x.messages) ||
-        !Array.isArray(x.variants)
+        (!Array.isArray(x.messages) && !Array.isArray(x.versionKeys)) ||
+        (!Array.isArray(x.variants) && !Array.isArray(x.versionKeys))
       ) {
         bad("snapshots.shape/parent");
         return;
+      }
+      if (Array.isArray(x.versionKeys) && !Array.isArray(x.messages)) {
+        if (typeof x.timelineId !== "string" || !Number.isInteger(x.timelineEpoch) ||
+            (x.headNodeId !== undefined && typeof x.headNodeId !== "string")) {
+          bad("snapshots.linkedShape"); return;
+        }
+        const timeline = await d.table("timelines").get(x.timelineId);
+        if (!timeline || timeline.conversationId !== x.conversationId || timeline.epoch !== x.timelineEpoch)
+          bad("snapshots.timeline");
+        const seen = new Set<string>(), messageIds = new Set<string>();
+        let cursor = x.headNodeId;
+        while (cursor) {
+          if (seen.has(cursor)) { bad("snapshots.nodeCycle"); break; }
+          seen.add(cursor);
+          const node = await d.table("pathNodes").get(cursor);
+          if (!node || node.conversationId !== x.conversationId) { bad("snapshots.nodeMissing"); break; }
+          messageIds.add(node.messageId);
+          cursor = node.parentNodeId;
+        }
+        for (const key of x.versionKeys) {
+          const record = typeof key === "string" && d.tables.some(t => t.name === "snapshotVersions")
+            ? await d.table("snapshotVersions").get(key) : undefined;
+          if (!record || record.conversationId !== x.conversationId ||
+              record.variant?.conversationId !== x.conversationId ||
+              !messageIds.has(record.variant?.messageId))
+            bad("snapshots.versionMissing");
+        }
+        return;
+      }
+      if (!Array.isArray(x.messages) || !Array.isArray(x.variants)) {
+        bad("snapshots.legacyShape"); return;
       }
       const messages = new Map(x.messages.map((v: any) => [v.id, v]));
       const variants = new Map<string, any>(
