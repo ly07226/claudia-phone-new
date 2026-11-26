@@ -31,6 +31,17 @@ Deno.serve(async(req)=>{
   const {error}=await admin.from("claudia_chat_archive").upsert(rows,{onConflict:"owner_id,conversation_id,timeline_id,message_id"});
   return error?json(503,{error:"write_failed"}):json(200,{ok:true,stored:rows.length});
  }
+ if(p.action==="tombstone"){
+  if(!Array.isArray(p.messageIds)||p.messageIds.length>100||!p.messageIds.every((id:unknown)=>typeof id==="string"&&id.length>0&&id.length<=180))
+   return json(400,{error:"invalid_message_ids"});
+  if(!p.messageIds.length)return json(200,{ok:true,deleted:0});
+  const {data,error}=await admin.from("claudia_chat_archive")
+   .update({deleted_at:new Date().toISOString()})
+   .eq("owner_id",auth.user.id).eq("conversation_id",p.conversationId)
+   .eq("timeline_id",p.timelineId).in("message_id",p.messageIds)
+   .is("deleted_at",null).select("message_id");
+  return error?json(503,{error:"delete_failed"}):json(200,{ok:true,deleted:data?.length??0});
+ }
  if(p.action==="search"){
   const query=String(p.query??"").trim().slice(0,120);
   if(!query)return json(400,{error:"empty_query"});
