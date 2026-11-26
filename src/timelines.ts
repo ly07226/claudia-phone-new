@@ -81,6 +81,7 @@ export async function readTimelineDisplayPage(
  conversationId:string,
  limit=120,
  beforeNodeId?:string,
+ trustedPageCursor=false,
 ):Promise<{rows:Message[];nextCursor?:string;hasMore:boolean}> {
  const size=Math.max(1,Math.min(250,Math.floor(limit)));
  return db.transaction('r',timelineTables(),async()=>{
@@ -129,8 +130,10 @@ export async function readTimelineDisplayPage(
   const seen=new Set<string>();
   let id=t.headNodeId;
   if(beforeNodeId){
-   // Never trust a cursor from another branch: prove its ancestry from HEAD.
-   while(id&&id!==beforeNodeId){
+   // External cursors must prove ancestry. A UI cursor returned by our
+   // previous page is already scoped to the same timeline/epoch by Chat;
+   // rewalking every loaded page makes paging cost quadratic in history size.
+   while(!trustedPageCursor&&id&&id!==beforeNodeId){
     if(seen.has(id))throw Error('时间线路径存在循环。');
     seen.add(id);
     const node=await db.pathNodes.get(id);
@@ -139,7 +142,7 @@ export async function readTimelineDisplayPage(
     if(node.fingerprint!==await messageFingerprint(node.message))throw Error('不可变节点内容校验失败。');
     id=node.parentNodeId;
    }
-   if(id!==beforeNodeId)throw Error('目标消息不在当前有效路径。');
+   if(!trustedPageCursor&&id!==beforeNodeId)throw Error('目标消息不在当前有效路径。');
   }
   // Cursor is exclusive: first read the ancestor of the previous page's
   // oldest node, preserving stable pages even when the head receives messages.
