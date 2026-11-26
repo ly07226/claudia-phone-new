@@ -679,7 +679,7 @@ export function Chat({ worldId }: { worldId?: string }) {
             </div>
           )}
   </>);
-  if(!conversation&&!worldId)return <ChatHub characters={characters} applications={applications.length} onOpen={id=>void open(id)} onRequests={()=>setRequests(true)} chats={<>
+  if(!conversation&&!worldId&&!openingCharacter)return <ChatHub characters={characters} applications={applications.length} onOpen={id=>void open(id)} onRequests={()=>setRequests(true)} chats={<>
     <label className="chat-search"><Search size={20} aria-hidden="true"/><input type="search" aria-label="搜索聊天" placeholder="搜索聊天…" value={search} onChange={e=>setSearch(e.target.value)} autoComplete="off"/>{search&&<button type="button" aria-label="清空聊天搜索" onClick={()=>setSearch('')}><X size={18}/></button>}</label>
 {applications.length>0&&<button className="friend-requests-entry" onClick={()=>setRequests(true)}>新的好友申请 <span>{applications.length}</span></button>}{listContent}{error&&<p role="alert">{error}</p>}</>}/>;
   return (
