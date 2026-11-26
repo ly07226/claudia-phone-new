@@ -435,6 +435,14 @@ export function Chat({ worldId }: { worldId?: string }) {
       const c = await getConversation(id, worldId);
       if (navigation !== taskSequence.current) return;
       activeConversation.current = c.id;
+      // A cached display from a different branch must never masquerade as this timeline.
+      if(cached&&(cached.conversation.id!==c.id||cached.conversation.activeTimelineId!==c.activeTimelineId||cached.conversation.timelineEpoch!==c.timelineEpoch)){
+        appliedSnapshot.current=null;
+        setMessages([]);
+        setOpeningMessages(true);
+        recentChatCache.current.delete(id);
+        try{localStorage.removeItem(displayCacheKey(id,worldId));}catch{/* unavailable */}
+      }
       if(c.chatSettings?.proactiveUnreadAt)void db.conversations.update(c.id,{chatSettings:{...c.chatSettings,proactiveUnreadAt:undefined}});
       followBottom.current = true;
       // Enter the conversation shell immediately. Waiting for the complete
