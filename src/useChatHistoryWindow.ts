@@ -1,7 +1,7 @@
 import {useLayoutEffect,useMemo,useRef,useState,type RefObject,type MutableRefObject} from 'react';
 import {HistoryLayout} from './historyLayout';
 import type {Message} from './chatTypes';
-const windowSize=120,overscan=30;
+const windowSize=100,overscan=25;
 type Anchor={id:string;top:number};
 /** One scrolling surface, bidirectional DOM recycling, measured variable-height
  * groups. Spacers never render a different bubble or store a second history. */
