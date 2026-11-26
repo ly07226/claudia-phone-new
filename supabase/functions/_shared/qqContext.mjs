@@ -17,7 +17,7 @@ export function validContextData(value) {
     if (!value || typeof value !== 'object')
         return false;
     const d = value;
-    return typeof d.conversationId === 'string' && typeof d.characterId === 'string' && typeof d.timelineId === 'string' && Number.isInteger(d.epoch) && d.epoch >= 0 && (d.includedQqReplyIds===undefined||Array.isArray(d.includedQqReplyIds)&&d.includedQqReplyIds.length<=64&&d.includedQqReplyIds.every(id=>typeof id==='string'&&/^[0-9a-f-]{36}$/i.test(id)))&&Array.isArray(d.includedQqIds) && d.includedQqIds.length <= 64 && d.includedQqIds.every(id => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id)) && Array.isArray(d.documents) && d.documents.length <= 4000 && new Set(d.documents.map(x => x?.id)).size === d.documents.length && d.documents.every(x => x && typeof x.id === 'string' && x.id.length <= 180 && ['core', 'long', 'summary', 'lore'].includes(x.kind) && typeof x.content === 'string' && x.content.length <= (x.kind==='lore'?80000:24000)) && JSON.stringify(d).length <= 2000000;
+    return typeof d.conversationId === 'string' && typeof d.characterId === 'string' && typeof d.timelineId === 'string' && Number.isInteger(d.epoch) && d.epoch >= 0 && (d.includedQqReplyIds===undefined||Array.isArray(d.includedQqReplyIds)&&d.includedQqReplyIds.length<=64&&d.includedQqReplyIds.every(id=>typeof id==='string'&&/^[0-9a-f-]{36}$/i.test(id)))&&Array.isArray(d.includedQqIds) && d.includedQqIds.length <= 64 && d.includedQqIds.every(id => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id)) && Array.isArray(d.documents) && d.documents.length <= 4000 && new Set(d.documents.map(x => x?.id)).size === d.documents.length && d.documents.every(x => x && typeof x.id === 'string' && x.id.length <= 180 && ['core', 'long', 'summary', 'lore', 'history'].includes(x.kind) && typeof x.content === 'string' && x.content.length <= (x.kind==='lore'?80000:24000)) && JSON.stringify(d).length <= 2000000;
 }
 export function documentPatch(previous, next) {
     const old = new Map(previous.map(d => [d.id, d]));
@@ -70,7 +70,15 @@ function appendReferences(messages,data,recent,recalled,query){
     const terms=historyTerms(query);
     const overlap=text=>{const source=new Set(historyTerms(text));return terms.reduce((n,t)=>n+Number(source.has(t)),0);};
     let remaining = Math.max(0,Math.min(6000,24000-effective.filter(m=>m.role==='system').reduce((n,m)=>n+m.content.length,0)-300));
-    const documents = (data?.documents ?? []).filter(d=>d.kind!=='lore').map(d => ({ d, score: overlap(d.content) })).filter(x => x.d.kind === 'core' || x.score > 0).sort((a, b) => Number(b.d.kind === 'core') - Number(a.d.kind === 'core') || b.score - a.score || a.d.id.localeCompare(b.d.id));
+    const documents = (data?.documents ?? []).filter(d=>d.kind!=='lore').map(d => {
+        let text=d.content;
+        if(d.kind==='history'){try{text=JSON.parse(d.content).text??'';}catch{text='';}}
+        return {d,score:overlap(text)};
+    }).filter(x => x.d.kind === 'core' || x.score > 0).sort((a,b)=>
+        Number(b.d.kind==='core')-Number(a.d.kind==='core') ||
+        b.score-a.score ||
+        (b.d.updatedAt??0)-(a.d.updatedAt??0) ||
+        a.d.id.localeCompare(b.d.id));
     const facts = [];
     for (const { d } of documents) {
         if (effective.some(m => m.content.includes(d.content)))
