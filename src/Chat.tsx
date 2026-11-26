@@ -430,11 +430,9 @@ export function Chat({ worldId }: { worldId?: string }) {
       activeConversation.current = c.id;
       if(c.chatSettings?.proactiveUnreadAt)void db.conversations.update(c.id,{chatSettings:{...c.chatSettings,proactiveUnreadAt:undefined}});
       followBottom.current = true;
-      // Enter the conversation shell immediately. Waiting for the complete
-      // timeline read here made the contact appear unresponsive on long chats.
-      // Keep the existing snapshot loader as the source of visible messages;
-      // this does not truncate stored history or change generation context.
-      setConversation(c);
+      // Commit the conversation and its first bounded message page together.
+      // loadSnapshot owns setConversation/setMessages after a successful read;
+      // mounting an empty conversation first creates a false empty chat state.
       await refresh(c.id, true);
       try {
         await resolveApi(c);
