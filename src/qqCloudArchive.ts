@@ -97,6 +97,12 @@ export async function uploadQqChatArchive(bindingId:string,conversationId:string
  const final=await db.conversations.get(conversationId);
  if(!final||final.activeTimelineId!==conversation.activeTimelineId||(final.timelineEpoch??0)!==epoch)
   throw Error('聊天时间线发生变化，等待下一轮同步');
+ const finalPath=(await activeMessages(conversationId,undefined,true))
+  .filter(m=>m.role==='user'||m.role==='assistant')
+  .map(m=>({id:m.id,role:m.role,content:m.content,createdAt:m.createdAt}));
+ const finalDigest=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(finalPath))));
+ const finalSignature=Array.from(finalDigest,b=>b.toString(16).padStart(2,'0')).join('');
+ if(finalSignature!==signature)throw Error('上传期间聊天内容发生变化，等待下一轮同步');
  localStorage.setItem(idsKey,JSON.stringify([...currentIds]));
  localStorage.setItem(chunksKey,JSON.stringify(next));
  localStorage.setItem(key,signature);
