@@ -10,9 +10,9 @@ import {tryAutoSummary} from './memorySummary';
  */
 function startScheduler(){
  let running=false,stopped=false,queued=false;
- // Only schedule core-memory consolidation when the receipt count advances.
+ // Only schedule core-memory consolidation when the receipt identity changes.
  // A periodic foreground wake must not enqueue the same work every minute.
- const lastCoreReceiptCount=new Map<string,number>();
+ const lastCoreReceiptSignature=new Map<string,string>();
  const scan=async()=>{
   if(stopped||running||document.hidden||!navigator.onLine)return;
   running=true;
@@ -24,11 +24,14 @@ function startScheduler(){
     // Launch eligible work without serially blocking the sweep on one chat.
     // The summary engine owns per-conversation exclusion and persistence.
     void tryAutoSummary(c.id,()=>!stopped).catch(()=>{});
-    const receiptCount=c.memorySummary?.receipts.length??0;
-    if(receiptCount>=5 && lastCoreReceiptCount.get(c.id)!==receiptCount){
-      lastCoreReceiptCount.set(c.id,receiptCount);
+    const receipts=c.memorySummary?.receipts??[];
+    // A receipt can be replaced after regeneration without changing the count.
+    // Use persisted receipt IDs rather than a count to avoid missing updates.
+    const receiptSignature=receipts.map(receipt=>receipt.id).join('|');
+    if(receipts.length>=5 && lastCoreReceiptSignature.get(c.id)!==receiptSignature){
+      lastCoreReceiptSignature.set(c.id,receiptSignature);
       void getMemoryScope(c.id).then(scope=>enqueueCoreMemory(scope,()=>!stopped)).catch(()=>{
-        lastCoreReceiptCount.delete(c.id);
+        lastCoreReceiptSignature.delete(c.id);
       });
     }
    }
@@ -52,7 +55,7 @@ function startScheduler(){
  window.addEventListener('pageshow',wake);
  document.addEventListener('visibilitychange',wake);
  wake();
- return {wake,stop:()=>{stopped=true;lastCoreReceiptCount.clear();clearInterval(timer);window.removeEventListener('claudia:assistant-reply-committed',onReplyCommitted);window.removeEventListener('online',wake);window.removeEventListener('pageshow',wake);document.removeEventListener('visibilitychange',wake);}};
+ return {wake,stop:()=>{stopped=true;lastCoreReceiptSignature.clear();clearInterval(timer);window.removeEventListener('claudia:assistant-reply-committed',onReplyCommitted);window.removeEventListener('online',wake);window.removeEventListener('pageshow',wake);document.removeEventListener('visibilitychange',wake);}};
 }
 
 export function installMemorySummaryScheduler(){return acquireAutomationScheduler('memory',startScheduler);}
