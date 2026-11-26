@@ -50,7 +50,7 @@ export type BackupProgress = {
 };
 type Progress = (value: BackupProgress) => void;
 const owned = new Set<string>();
-async function temporary(prefix: "stage" | "candidate" | "validation", schemaVersion:5|6|7=7) {
+async function temporary(prefix: "stage" | "candidate" | "validation", schemaVersion:5|6|7|9=9) {
   const name = `claudia-backup-${prefix}-${crypto.randomUUID()}`;
   ensure(!(await Dexie.exists(name)), "临时数据库名称冲突，未覆盖任何数据库。");
   const d = new Dexie(name);
@@ -214,8 +214,8 @@ export async function createBackup(options: {
       codec: 1,
       backupId: crypto.randomUUID(),
       sourceOrigin: location.origin,
-      schemaVersion: 7,
-      nativeVersion: 70,
+      schemaVersion: 9,
+      nativeVersion: 90,
       createdAt: new Date().toISOString(),
       snapshotCompletedAt: "",
       coordination,
@@ -433,7 +433,7 @@ export async function createBackup(options: {
 function validateManifest(input: any): asserts input is BackupManifest {
   ensure(
     input?.format === "claudia-phone-backup" &&
-      ((input.version === 1 && input.schemaVersion===5 && input.nativeVersion===50)||(input.version===2 && input.schemaVersion===6 && input.nativeVersion===60)||(input.version===3 && input.schemaVersion===7 && input.nativeVersion===70)) &&
+      ((input.version === 1 && input.schemaVersion===5 && input.nativeVersion===50)||(input.version===2 && input.schemaVersion===6 && input.nativeVersion===60)||(input.version===3 && ((input.schemaVersion===7 && input.nativeVersion===70)||(input.schemaVersion===9 && input.nativeVersion===90)))) &&
       input.codec === 1,
     "备份格式或数据库版本不受支持，未恢复任何正式数据。",
   );
@@ -570,7 +570,7 @@ export interface IntegrityReport {
   snapshotCompletedAt: string;
   manifestDigest: string;
   candidateName?: string;
-  schemaVersion: 5 | 6 | 7;
+  schemaVersion: 5 | 6 | 7 | 9;
   counts: Record<string, number>;
   totalRecords: number;
   parts: number;
