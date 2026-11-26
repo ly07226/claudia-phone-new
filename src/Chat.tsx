@@ -21,6 +21,7 @@ import { identityFor } from "./userIdentity";
 import { createEnterSendGuard } from "./enterSend";
 import "./chatReplyButton.css";
 import "./chatTime.css";
+import "./chatHistoryCapsule.css";
 import { chatTimeLabels } from "./chatTime";
 import { Search, X } from "lucide-react";
 import { liveQuery } from "dexie";
