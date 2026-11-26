@@ -93,7 +93,7 @@ export async function eachBackupRow(
         : d.table(table).where(":id").above(last);
     const rows = await collection.limit(1).toArray();
     if (!rows.length) return;
-    const key = rows[0][table === "apiCredentials" ? "configId" : "id"];
+    const key = rows[0][table === "apiCredentials" ? "configId" : table === "snapshotVersions" ? "key" : "id"];
     ensure(
       typeof key === "string" && key.length > 0 && key.length < 4096,
       `表 ${table} 存在不支持的主键；没有省略记录。`,
@@ -699,7 +699,7 @@ export async function readBackup(
         row && typeof row === "object" && !Array.isArray(row),
         "记录不是对象。",
       );
-      const id = row[table === "apiCredentials" ? "configId" : "id"];
+      const id = row[table === "apiCredentials" ? "configId" : table === "snapshotVersions" ? "key" : "id"];
       ensure(
         typeof id === "string" &&
           id.length > 0 &&
