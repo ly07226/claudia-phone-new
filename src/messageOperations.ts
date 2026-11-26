@@ -262,7 +262,7 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
     const s = await db.conversationSnapshots.get(snapshotId);
     if (!s || s.conversationId !== id)
       throw Error("快照不属于此会话或已不存在。");
-    const linked = !!s.headNodeId && !s.messages;
+    const linked = Array.isArray(s.versionKeys) && !s.messages;
     if (linked && !s.timelineId) throw Error("快照缺少时间线引用。");
     const savedNodes = linked ? await nodesForHead(id, s.headNodeId) : undefined;
     const messages = linked ? savedNodes!.map(n => ({...n.message, archived:false})) : s.messages ?? [];
