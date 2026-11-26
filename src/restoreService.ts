@@ -55,7 +55,7 @@ async function replace(source:Dexie,target:Dexie,report:IntegrityReport|undefine
           let last:string|undefined;
           for(;;){
             const row=await keep(tx,Dexie.ignoreTransaction(()=>(last===undefined?source.table(table).orderBy(':id'):source.table(table).where(':id').above(last)).first()));
-            if(!row)break;checkAbort(signal);await tx.table(table).add(row);last=row[table==='apiCredentials'?'configId':'id'];
+            if(!row)break;checkAbort(signal);await tx.table(table).add(row);last=row[table==='apiCredentials'?'configId':table==='snapshotVersions'?'key':'id'];
           }
         }
         const actual=await digest(bound(target,tx),signal),wanted={...expected};
