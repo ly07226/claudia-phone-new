@@ -265,10 +265,14 @@ export function Chat({ worldId }: { worldId?: string }) {
     if (conversation) return;
     setPreviews({scope: previewScope, rows: {}});
     let active=true;
-    const subscription = liveQuery(() => chatListPreviews(characters.map(c => c.id), worldId,(characterId,preview)=>{
-      if(!active)return;
-      setPreviews(state=>state.scope===previewScope?{scope:previewScope,rows:{...state.rows,[characterId]:preview}}:state);
-    }))
+    let generation=0;
+    const subscription = liveQuery(() => {
+      const current=++generation;
+      return chatListPreviews(characters.map(c => c.id), worldId,(characterId,preview)=>{
+        if(!active||current!==generation)return;
+        setPreviews(state=>state.scope===previewScope?{scope:previewScope,rows:{...state.rows,[characterId]:preview}}:state);
+      });
+    })
       .subscribe({ next: rows => {if(active)setPreviews({scope: previewScope, rows});}, error: () => {if(active)setError("无法读取聊天预览，请稍后重试。");} });
     return () => {active=false;subscription.unsubscribe();};
   }, [characterIds, worldId, conversation?.id]);
