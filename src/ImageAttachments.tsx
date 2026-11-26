@@ -1,3 +1,5 @@
+import {StickerPanel} from './StickerPanel';
+import {Camera,Image as ImageIcon,File,Smile} from 'lucide-react';
 import {useEffect,useRef,useState} from 'react';
 import {db} from './store';
 import type {Conversation} from './chatTypes';
@@ -40,11 +42,27 @@ export function MessageImages({ids}:{ids:string[]}){
  useEffect(()=>{if(full)dialog.current?.showModal();},[full]);
  return <><div className="chat-message-images">{ids.map(id=><div key={id} data-bubble-key={`image:${id}`}><StoredImage id={id} onOpen={setFull}/></div>)}</div>{full&&createPortal(<dialog ref={dialog} className="chat-image-viewer" aria-label="聊天图片大图" onClose={()=>setFull(null)} onClick={e=>{if(e.target===e.currentTarget){dialog.current?.close();setFull(null);}}}><button type="button" onClick={()=>{dialog.current?.close();setFull(null);}} aria-label="关闭图片大图">×</button><img src={full} alt="聊天图片大图"/></dialog>,document.body)}</>;
 }
-export function AttachmentMenu({disabled,processing,scope,onChoose,onOpenChange,onSyncQq,qqSyncEnabled=false,qqSyncBusy=false}:{disabled:boolean;processing:boolean;scope:string;onChoose:(files:FileList|null,scope:string)=>void;onOpenChange:(open:boolean)=>void;onSyncQq?:()=>void;qqSyncEnabled?:boolean;qqSyncBusy?:boolean}){
- const [open,setOpen]=useState(false),root=useRef<HTMLDivElement>(null),album=useRef<HTMLInputElement>(null),camera=useRef<HTMLInputElement>(null),files=useRef<HTMLInputElement>(null),selection=useRef(scope);
- const toggle=(value:boolean)=>{setOpen(value);onOpenChange(value);};
- useEffect(()=>{if(!open)return;const outside=(e:PointerEvent)=>{if(!root.current?.contains(e.target as Node))toggle(false);};const escape=(e:KeyboardEvent)=>{if(e.key==='Escape')toggle(false);};document.addEventListener('pointerdown',outside);document.addEventListener('keydown',escape);return()=>{document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',escape);};},[open]);
- useEffect(()=>{toggle(false);},[scope]);
- const pick=(ref:typeof album)=>{selection.current=scope;toggle(false);ref.current?.click();};
- return <div className="chat-attachment-control" ref={root}><button type="button" aria-label="图片附件" aria-expanded={open} disabled={disabled||processing} onPointerDown={e=>e.preventDefault()} onMouseDown={e=>e.preventDefault()} onClick={()=>toggle(!open)}><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" style={{transform:open?'rotate(45deg)':undefined}}><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg></button>{open&&<div role="menu" aria-label="添加图片" className="chat-attachment-menu">{[['相册',album],['拍照',camera],['文件',files]].map(([label,ref])=><button type="button" role="menuitem" key={label as string} onClick={()=>pick(ref as typeof album)}>{label as string}</button>)}{onSyncQq&&<button type="button" role="menuitem" disabled={!qqSyncEnabled||qqSyncBusy} onClick={()=>{toggle(false);onSyncQq();}}>{qqSyncBusy?'同步中…':'同步 QQ 记录到本地'}</button>}</div>}{[[album,false],[camera,true],[files,false]].map(([ref,capture],i)=><input key={i} ref={ref as typeof album} aria-label={['相册图片','拍照图片','文件图片'][i]} type="file" accept="image/jpeg,image/png,image/webp" capture={capture?'environment':undefined} multiple={!capture} hidden onChange={e=>{onChoose(e.currentTarget.files,selection.current);e.currentTarget.value='';}}/>)}</div>;
+export type ChatBottomPanel = 'none'|'stickers'|'actions';
+export function AttachmentMenu({toolbar=false,onStickerSelect,disabled,processing,scope,onChoose,onOpenChange,onSyncQq,qqSyncEnabled=false,qqSyncBusy=false,panel='none',onPanelChange}:{toolbar?:boolean;onStickerSelect?:(sticker:import('./stickerLibrary').Sticker)=>void;disabled:boolean;processing:boolean;scope:string;onChoose:(files:FileList|null,scope:string)=>void;onOpenChange:(open:boolean)=>void;onSyncQq?:()=>void;qqSyncEnabled?:boolean;qqSyncBusy?:boolean;panel?:ChatBottomPanel;onPanelChange?:(panel:ChatBottomPanel)=>void}){
+ const album=useRef<HTMLInputElement>(null),camera=useRef<HTMLInputElement>(null),files=useRef<HTMLInputElement>(null),selection=useRef(scope);
+ const setPanel=(next:ChatBottomPanel)=>{onPanelChange?.(next);onOpenChange(next!=='none');};
+ const pick=(ref:typeof album)=>{selection.current=scope;setPanel('none');ref.current?.click();};
+ useEffect(()=>{setPanel('none');},[scope]);
+ const toggle=(next:ChatBottomPanel)=>{if(next!=='none'&&document.activeElement instanceof HTMLElement)document.activeElement.blur();setPanel(panel===next?'none':next);};
+ return <div className={`chat-attachment-control ${toolbar?"chat-attachment-toolbar":""}`}>
+  <button type="button" aria-label="更多功能" aria-expanded={panel==='actions'} disabled={disabled||processing} onPointerDown={e=>e.preventDefault()} onClick={()=>toggle('actions')}><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" style={{transform:panel==='actions'?'rotate(45deg)':undefined}}><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg></button>
+  {toolbar&&<><button type="button" aria-label="拍照" disabled={disabled||processing} onClick={()=>pick(camera)}><Camera size={22}/></button><button type="button" aria-label="相册" disabled={disabled||processing} onClick={()=>pick(album)}><ImageIcon size={22}/></button><button type="button" aria-label="表情包" aria-expanded={panel==='stickers'} onPointerDown={e=>e.preventDefault()} onClick={()=>toggle('stickers')}><Smile size={22}/></button><button type="button" aria-label="文件" disabled={disabled||processing} onClick={()=>pick(files)}><File size={22}/></button></>}
+  {[[album,false],[camera,true],[files,false]].map(([ref,capture],i)=><input key={i} ref={ref as typeof album} aria-label={['相册图片','拍照图片','文件图片'][i]} type="file" accept="image/jpeg,image/png,image/webp" capture={capture?'environment':undefined} multiple={!capture} hidden onChange={e=>{onChoose(e.currentTarget.files,selection.current);e.currentTarget.value='';}}/>)}
+ </div>;
+}
+export function ChatExpandedPanel({panel,onClose,onStickerSelect,onSyncQq,qqSyncEnabled=false,qqSyncBusy=false}:{panel:ChatBottomPanel;onClose:()=>void;onStickerSelect?:(sticker:import('./stickerLibrary').Sticker)=>void;onSyncQq?:()=>void;qqSyncEnabled?:boolean;qqSyncBusy?:boolean}){
+ if(panel==='none')return null;
+ return <div className="chat-bottom-panel" aria-label={panel==='stickers'?'表情包面板':'更多功能面板'}>
+  {panel==='stickers'?<StickerPanel onClose={onClose} onSelect={onStickerSelect}/>:<div className="chat-actions-grid">
+   <button type="button" disabled={!qqSyncEnabled||qqSyncBusy} onClick={()=>{onSyncQq?.();onClose()}}><span className="chat-action-tile">QQ</span><span>{qqSyncBusy?'同步中…':'导入 QQ'}</span></button>
+   <div className="chat-action-placeholder"><span className="chat-action-tile">🛍️</span><span>点外卖</span></div>
+   <div className="chat-action-placeholder"><span className="chat-action-tile">📱</span><span>查手机</span></div>
+   <div className="chat-action-placeholder"><span className="chat-action-tile">♫</span><span>听歌</span></div>
+  </div>}
+ </div>;
 }

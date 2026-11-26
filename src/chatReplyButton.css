@@ -2,3 +2,7 @@
 .chat-reply-button > span { visibility: hidden; }
 .chat-reply-button > svg { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; }
 .chat-reply-button:active:not(:disabled) > svg { opacity: .65; }
+
+/* Keep the AI reply control at the far right of the attachment row, including while stickers are open. */
+.chat-compose-tools>.chat-reply-button{position:relative;flex:0 0 44px;width:44px;height:44px;min-width:44px;min-height:44px;margin-left:auto;padding:0;display:grid;place-items:center;align-self:center}
+.chat-compose-tools>.chat-reply-button>svg{position:static;transform:none;display:block;width:24px;height:24px}

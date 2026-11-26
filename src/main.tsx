@@ -1,3 +1,5 @@
+import {StickerPanel} from './StickerPanel';
+import {AutomationApiSettings} from './AutomationApiSettings';
 import {AutomationSchedulers} from './AutomationSchedulers';
 import {observeQqContextChanges} from './qqContextSync';
 import {PrivateNotes} from './PrivateNotes';
@@ -510,6 +512,7 @@ function App() {
                     世界书 / Lorebook
                     <ArrowRight size={17} />
                   </button>
+                  <button className="list-row" onClick={()=>openPhoneApp("表情包")}><ImagePlus/>表情包<ArrowRight size={17}/></button>
                   <button
                     className="list-row"
                     onClick={() => openPhoneApp("AI / API 设置")}
@@ -518,6 +521,7 @@ function App() {
                     AI / API 设置
                     <ArrowRight size={17} />
                   </button>
+                  <button className="list-row" onClick={() => openPhoneApp("自动任务 API")}><Settings/>自动任务 API<ArrowRight size={17}/></button>
                   <button className="list-row" onClick={() => openPhoneApp("微信接入")}>
                     <MessageCircle />
                     微信接入
@@ -575,8 +579,12 @@ function App() {
                 <PhasePlayApp onBack={phoneNavigation.back}/>
               ) : s.activeApp === "世界书 / Lorebook" ? (
                 <Lorebooks />
+              ) : s.activeApp === "表情包" ? (
+                <StickerPanel management onClose={phoneNavigation.back}/>
               ) : s.activeApp === "微信接入" ? (
                 <WechatIntegrationSettings />
+              ) : s.activeApp === "自动任务 API" ? (
+                <AutomationApiSettings />
               ) : s.activeApp === "AI / API 设置" ? (
                 <ApiSettings />
               ) : s.activeApp === "主题编辑器" ? (
