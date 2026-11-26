@@ -1,4 +1,5 @@
 import {sourceHash} from './summarySourceFingerprint';
+import {uploadQqChatArchive} from './qqCloudArchive';
 import Dexie from 'dexie';
 import {buildQqSnapshot} from './qqContextSnapshot';
 import {wechatCloudFunctionRequest} from './wechatCloudIdentity';
