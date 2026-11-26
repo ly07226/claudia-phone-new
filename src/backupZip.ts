@@ -121,7 +121,7 @@ export async function packBackupZip(snapshot:BackupExport,password?:string,signa
     await writer.add(infoName,new BlobReader(new Blob([JSON.stringify(info)])),{signal});
     const settings={signal,password:inner?undefined:password,encryptionStrength:3 as const,zipCrypto:false};
     await writer.add(`${snapshot.manifest.backupId}.manifest.json`,new BlobReader(manifest),settings);
-    for(const p of snapshot.manifest.parts){checkAbort(signal);const blob=await snapshot.readPart(p.index);ensure(blob.size===p.bytes,"备份内部数据不完整，未生成 ZIP。");await writer.add(p.name,new BlobReader(blob),settings);onProgress?.({phase:'正在打包',bytes:size,records:p.index+1});}
+    for(const p of snapshot.manifest.parts){checkAbort(signal);const blob=await snapshot.readPart(p.index);ensure(blob.size===p.bytes,"备份内部数据不完整，未生成 ZIP。");await writer.add(p.name,new BlobReader(blob),{...settings,level:9});onProgress?.({phase:'正在压缩数据',bytes:size,records:p.index+1});}
     if(portableWechat){ensure(inner&&!!password,'微信身份只能加入加密 ZIP。');ensure(portableWechat.size<=32768,'微信身份附件超出安全限制。');await writer.add(wechatName,new BlobReader(portableWechat),settings);}
     await writer.close();checkAbort(signal);checkZipSize(size);
     onProgress?.({phase:`压缩完成：原始 ${Math.round(uncompressedBytes/1048576)} MiB → ZIP ${Math.round(size/1048576)} MiB（${uncompressedBytes?Math.round(100*size/uncompressedBytes):100}%）`,bytes:size,records:snapshot.manifest.parts.length});
