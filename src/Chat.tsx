@@ -93,6 +93,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const [previewState, setPreviews] = useState<{scope: string; rows: Record<string, ChatPreview>}>({scope: "", rows: {}});
   const [error, setError] = useState("");
   const [openingMessages,setOpeningMessages]=useState(false);
+  const [openingCharacter,setOpeningCharacter]=useState<string|null>(null);
   const [localBusy, setBusy] = useState(false);
   const generationTask=useGenerationTask(conversation?.id);
   const [leaseClock,setLeaseClock]=useState(Date.now());
@@ -396,6 +397,8 @@ export function Chat({ worldId }: { worldId?: string }) {
   }, [feedback]);
   async function open(id: string) {
     const navigation = ++taskSequence.current;
+    // Show navigation feedback synchronously, before any IndexedDB query.
+    setOpeningCharacter(id);
     setError("");
     appliedSnapshot.current=null;
     displayFullyLoaded.current=false;
@@ -418,6 +421,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       // Keep the existing snapshot loader as the source of visible messages;
       // this does not truncate stored history or change generation context.
       setConversation(c);
+      setOpeningCharacter(null);
       // Do not block navigation or API readiness on slow IndexedDB history.
       // The view remains mounted with an explicit loading/error state.
       void refresh(c.id, true).catch(()=>{
@@ -434,6 +438,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     } catch {
       if (navigation === taskSequence.current){
         setOpeningMessages(false);
+        setOpeningCharacter(null);
         setError("无法打开会话，请检查本地存储与角色关联。");
       }
     }
@@ -584,6 +589,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     setReplyTo(null);
     setMessages([]);
     setOpeningMessages(false);
+    setOpeningCharacter(null);
     setText("");
     setError("");
     setFeedback("");
@@ -684,7 +690,20 @@ export function Chat({ worldId }: { worldId?: string }) {
       {!conversation && worldId && <p className="chat-world-caption">世界聊天 · {world?.name || "世界不存在"}</p>}
       {!conversation ? (
         <>
-{listContent}        </>
+          {openingCharacter ? (
+            <div className="chat-view">
+              <nav className="chat-nav" aria-label="正在进入会话">
+                <button aria-label="返回角色列表" onClick={()=>{++taskSequence.current;setOpeningCharacter(null);setOpeningMessages(false);setError("");}}>
+                  <ChevronLeft size={24}/>
+                </button>
+                <div className="chat-nav-heading"><span className="chat-nav-title">{s.characters.find(c=>c.id===openingCharacter)?.name??"聊天"}</span></div>
+              </nav>
+              <div className="chat-history" role="status" aria-live="polite">
+                <p className="hint">正在打开会话…</p>
+              </div>
+            </div>
+          ) : listContent}
+        </>
       ) : (
         <>
           <div className="chat-view" hidden={management}>
