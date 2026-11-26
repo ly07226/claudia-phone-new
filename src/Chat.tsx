@@ -282,7 +282,7 @@ export function Chat({ worldId }: { worldId?: string }) {
    const ticket=refreshTicket.current;
    const previousKey=appliedSnapshot.current?.key;
    try{
-    const page=await readTimelineDisplayPage(id,120,cursor);
+    const page=await readTimelineDisplayPage(id,100,cursor);
     if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch||displayFullyLoaded.current||displayCursor.current!==cursor||refreshTicket.current!==ticket||appliedSnapshot.current?.key!==previousKey)return;
     displayCursor.current=page.nextCursor;
     displayHasMore.current=page.hasMore;
@@ -314,7 +314,7 @@ export function Chat({ worldId }: { worldId?: string }) {
    const data=await db.transaction('r',[db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{const current=await db.conversations.get(id);if(!current)return null;const timeline=current.activeTimelineId?await db.timelines.get(current.activeTimelineId):undefined;
     const key=JSON.stringify([db.name,id,current.activeTimelineId,current.timelineEpoch,timeline?.headNodeId,timeline?.revision]);
     if(previous?.key===key&&previous.revision===revision)return {current,key,rows:previous.rows};
-    const page=displayFullyLoaded.current?null:await readTimelineDisplayPage(id,120);
+    const page=displayFullyLoaded.current?null:await readTimelineDisplayPage(id,100);
     const incoming=page?page.rows:await activeMessages(id,undefined,true);
     const old=new Map(previous?.rows.map(m=>[m.id,m])??[]);
     const rows=incoming.map(m=>{const before=old.get(m.id);return before&&dataEqual(before,m)?before:m;});
