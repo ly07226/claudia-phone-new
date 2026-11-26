@@ -28,15 +28,18 @@ export async function uploadQqChatArchive(bindingId:string,conversationId:string
  const messages=path.filter(m=>m.role==='user'||m.role==='assistant').map(m=>({
   id:m.id,role:m.role,content:m.content,createdAt:m.createdAt
  }));
- // A checkpoint is scoped to the exact project, owner token identity, binding,
- // conversation and timeline. Re-upload the last 50 to cover recent edits.
- // The checkpoint only advances after the server acknowledges the batch.
+ // The acknowledged content signature is scoped to the project, verified owner,
+ // binding, conversation and timeline; never reuse another account's cursor.
  const identity=await cloudOwnerId();
  const key='claudia-chat-archive-v1:'+identity+':'+bindingId+':'+conversationId+':'+timelineId;
- const checkpoint=Number(localStorage.getItem(key)||0);
- const start=Number.isSafeInteger(checkpoint)&&checkpoint>=0&&checkpoint<=messages.length?Math.max(0,checkpoint-50):0;
- let done=start;
- for(let offset=start;offset<messages.length;){
+ // Index-only cursors are unsafe: edits, deletions and timeline rewrites shift
+ // message positions. Hash the complete effective path and only skip when it
+ // exactly matches a previously acknowledged upload.
+ const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(messages))));
+ const signature=Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('');
+ if(localStorage.getItem(key)===signature)return {uploaded:0,total:messages.length,timelineId};
+ let done=0;
+ for(let offset=0;offset<messages.length;){
   const fresh=await db.conversations.get(conversationId);
   if(!fresh||fresh.activeTimelineId!==conversation.activeTimelineId||(fresh.timelineEpoch??0)!==epoch)
    throw Error('聊天时间线已变化，已停止旧时间线的云端上传');
@@ -56,8 +59,8 @@ export async function uploadQqChatArchive(bindingId:string,conversationId:string
   if(!response.ok||data?.ok!==true)throw Error('云端聊天归档失败：'+(data?.error||response.status));
   offset+=batch.length;
   done=offset;
-  localStorage.setItem(key,String(done));
   onProgress?.(done,messages.length);
  }
+ localStorage.setItem(key,signature);
  return {uploaded:done,total:messages.length,timelineId};
 }
