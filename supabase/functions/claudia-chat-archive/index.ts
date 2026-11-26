@@ -16,7 +16,7 @@ Deno.serve(async(req)=>{
  const {data:auth,error:authError}=await admin.auth.getUser(token);
  if(authError||!auth.user)return json(401,{error:"unauthorized"});
  let p:any;try{const raw=await req.text();if(raw.length>600000)throw Error();p=JSON.parse(raw);}catch{return json(400,{error:"invalid_payload"});}
- if(typeof p?.bindingId!=="string"||typeof p?.conversationId!=="string"||typeof p?.timelineId!=="string")return json(400,{error:"invalid_scope"});
+ if(typeof p?.bindingId!=="string"||typeof p?.conversationId!=="string"||typeof p?.timelineId!=="string"||p.bindingId.length>180||p.conversationId.length>180||p.timelineId.length>180)return json(400,{error:"invalid_scope"});
  const {data:binding,error:bindingError}=await admin.from("claudia_qq_bindings").select("character_id,conversation_id").eq("id",p.bindingId).eq("user_id",auth.user.id).maybeSingle();
  if(bindingError||!binding)return json(403,{error:"binding_not_owned"});
  if(binding.conversation_id!==p.conversationId)return json(409,{error:"conversation_mismatch"});
@@ -29,13 +29,13 @@ Deno.serve(async(req)=>{
   }
   if(!rows.length)return json(200,{ok:true,stored:0});
   const {error}=await admin.from("claudia_chat_archive").upsert(rows,{onConflict:"owner_id,conversation_id,timeline_id,message_id"});
-  return error?respond(503,{error:"write_failed"}):respond(200,{ok:true,stored:rows.length});
+  return error?json(503,{error:"write_failed"}):json(200,{ok:true,stored:rows.length});
  }
  if(p.action==="search"){
   const query=String(p.query??"").trim().slice(0,120);
   if(!query)return json(400,{error:"empty_query"});
   const {data,error}=await admin.from("claudia_chat_archive").select("message_id,role,body,created_at_ms").eq("owner_id",auth.user.id).eq("conversation_id",p.conversationId).eq("timeline_id",p.timelineId).is("deleted_at",null).ilike("body","%"+query.replace(/[\\%_]/g,"\\$&")+"%").order("created_at_ms",{ascending:false}).limit(30);
-  return error?respond(503,{error:"search_failed"}):respond(200,{ok:true,messages:data});
+  return error?json(503,{error:"search_failed"}):json(200,{ok:true,messages:data});
  }
  return json(400,{error:"unknown_action"});
 });
