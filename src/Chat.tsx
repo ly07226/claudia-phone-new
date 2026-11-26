@@ -92,6 +92,8 @@ export function Chat({ worldId }: { worldId?: string }) {
   const enterGuard = useRef(createEnterSendGuard());
   const [previewState, setPreviews] = useState<{scope: string; rows: Record<string, ChatPreview>}>({scope: "", rows: {}});
   const [error, setError] = useState("");
+  const [openingMessages,setOpeningMessages]=useState(false);
+  const [openingCharacter,setOpeningCharacter]=useState<string|null>(null);
   const [localBusy, setBusy] = useState(false);
   const generationTask=useGenerationTask(conversation?.id);
   const [leaseClock,setLeaseClock]=useState(Date.now());
@@ -395,6 +397,8 @@ export function Chat({ worldId }: { worldId?: string }) {
   }, [feedback]);
   async function open(id: string) {
     const navigation = ++taskSequence.current;
+    // Show navigation feedback synchronously, before any IndexedDB query.
+    setOpeningCharacter(id);
     setError("");
     appliedSnapshot.current=null;
     displayFullyLoaded.current=false;
@@ -402,6 +406,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     displayCursor.current=undefined;
     pendingQuoteJump.current=null;
     setMessages([]);
+    setOpeningMessages(true);
     setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
     setReplyPresentation(null);
     try {
@@ -416,7 +421,14 @@ export function Chat({ worldId }: { worldId?: string }) {
       // Keep the existing snapshot loader as the source of visible messages;
       // this does not truncate stored history or change generation context.
       setConversation(c);
-      await refresh(c.id, true);
+      setOpeningCharacter(null);
+      // Do not block navigation or API readiness on slow IndexedDB history.
+      // The view remains mounted with an explicit loading/error state.
+      void refresh(c.id, true).catch(()=>{
+        if(activeConversation.current===c.id)setError("聊天记录读取失败，本地历史未删除。");
+      }).finally(()=>{
+        if(activeConversation.current===c.id)setOpeningMessages(false);
+      });
       try {
         await resolveApi(c);
       } catch (e) {
@@ -424,8 +436,11 @@ export function Chat({ worldId }: { worldId?: string }) {
           setError(e instanceof Error ? e.message : "无法读取 API。");
       }
     } catch {
-      if (navigation === taskSequence.current)
+      if (navigation === taskSequence.current){
+        setOpeningMessages(false);
+        setOpeningCharacter(null);
         setError("无法打开会话，请检查本地存储与角色关联。");
+      }
     }
   }
   async function runGeneration(
@@ -573,6 +588,8 @@ export function Chat({ worldId }: { worldId?: string }) {
     setConversation(null);
     setReplyTo(null);
     setMessages([]);
+    setOpeningMessages(false);
+    setOpeningCharacter(null);
     setText("");
     setError("");
     setFeedback("");
@@ -662,7 +679,7 @@ export function Chat({ worldId }: { worldId?: string }) {
             </div>
           )}
   </>);
-  if(!conversation&&!worldId)return <ChatHub characters={characters} applications={applications.length} onOpen={id=>void open(id)} onRequests={()=>setRequests(true)} chats={<>
+  if(!conversation&&!worldId&&!openingCharacter)return <ChatHub characters={characters} applications={applications.length} onOpen={id=>void open(id)} onRequests={()=>setRequests(true)} chats={<>
     <label className="chat-search"><Search size={20} aria-hidden="true"/><input type="search" aria-label="搜索聊天" placeholder="搜索聊天…" value={search} onChange={e=>setSearch(e.target.value)} autoComplete="off"/>{search&&<button type="button" aria-label="清空聊天搜索" onClick={()=>setSearch('')}><X size={18}/></button>}</label>
 {applications.length>0&&<button className="friend-requests-entry" onClick={()=>setRequests(true)}>新的好友申请 <span>{applications.length}</span></button>}{listContent}{error&&<p role="alert">{error}</p>}</>}/>;
   return (
@@ -673,7 +690,20 @@ export function Chat({ worldId }: { worldId?: string }) {
       {!conversation && worldId && <p className="chat-world-caption">世界聊天 · {world?.name || "世界不存在"}</p>}
       {!conversation ? (
         <>
-{listContent}        </>
+          {openingCharacter ? (
+            <div className="chat-view">
+              <nav className="chat-nav" aria-label="正在进入会话">
+                <button aria-label="返回角色列表" onClick={()=>{++taskSequence.current;setOpeningCharacter(null);setOpeningMessages(false);setError("");}}>
+                  <ChevronLeft size={24}/>
+                </button>
+                <div className="chat-nav-heading"><span className="chat-nav-title">{s.characters.find(c=>c.id===openingCharacter)?.name??"聊天"}</span></div>
+              </nav>
+              <div className="chat-history" role="status" aria-live="polite">
+                <p className="hint">正在打开会话…</p>
+              </div>
+            </div>
+          ) : listContent}
+        </>
       ) : (
         <>
           <div className="chat-view" hidden={management}>
@@ -712,7 +742,24 @@ export function Chat({ worldId }: { worldId?: string }) {
                 </button>
               </div>
             )}
-            {!messages.length && (
+            {openingMessages&&!messages.length&&<p className="hint" role="status">正在读取最近聊天记录…</p>}
+            {!openingMessages&&!messages.length&&error&&(
+              <div className="chat-history-load-more" role="alert">
+                <p>{error}</p>
+                <button type="button" className="chat-history-load-capsule" onClick={()=>{
+                  const id=activeConversation.current;
+                  if(!id)return;
+                  setError("");
+                  setOpeningMessages(true);
+                  void refresh(id,true).catch(()=>{
+                    if(activeConversation.current===id)setError("重试读取失败，本地历史未删除。");
+                  }).finally(()=>{
+                    if(activeConversation.current===id)setOpeningMessages(false);
+                  });
+                }}>重新读取聊天记录</button>
+              </div>
+            )}
+            {!openingMessages&&!messages.length&&!error&&(
               <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
             )}
             <div data-history-spacer="" aria-hidden="true" style={{height:historyWindow.top,padding:0,margin:0,border:0,flexShrink:0,pointerEvents:'none'}}/>
