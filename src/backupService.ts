@@ -1174,3 +1174,24 @@ export async function validateReferences(
   warnings.add("图片校验为资源清单、数据URL和字节摘要，不等同像素解码诊断。");
   return [...warnings];
 }
+
+/**
+ * Read-only preflight for failed exports: no ZIP, temporary database, credentials,
+ * or chat contents leave the device. Reports approximate serialized bytes by table.
+ */
+export async function auditBackupDataSize(database: Dexie = phoneDatabase, signal?: AbortSignal) {
+  await database.open();
+  const tables: Array<{table: string; records: number; bytes: number}> = [];
+  let totalBytes = 0;
+  for (const table of backupTables) {
+    let records = 0, bytes = 0;
+    await eachBackupRow(database, table, async row => {
+      const encoded = rowBytes(table as BackupTable, row);
+      bytes += encoded.length + 1;
+      records++;
+    }, signal);
+    tables.push({table, records, bytes});
+    totalBytes += bytes;
+  }
+  return {totalBytes, tables: tables.sort((a,b)=>b.bytes-a.bytes)};
+}
