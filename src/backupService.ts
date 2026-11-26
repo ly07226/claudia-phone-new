@@ -91,15 +91,21 @@ export async function eachBackupRow(
       last === undefined
         ? d.table(table).orderBy(":id")
         : d.table(table).where(":id").above(last);
-    const rows = await collection.limit(1).toArray();
+    // Bounded primary-key batches avoid one transaction per message.
+    // Individual message bodies are never truncated.
+    const rows = await collection.limit(32).toArray();
     if (!rows.length) return;
-    const key = rows[0][table === "apiCredentials" ? "configId" : "id"];
-    ensure(
-      typeof key === "string" && key.length > 0 && key.length < 4096,
-      `表 ${table} 存在不支持的主键；没有省略记录。`,
-    );
-    await fn(rows[0]);
-    last = key;
+    for (const row of rows) {
+      checkAbort(signal);
+      const key = row[table === "apiCredentials" ? "configId" : "id"];
+      ensure(
+        typeof key === "string" && key.length > 0 && key.length < 4096 &&
+          (last === undefined || key > last),
+        `表 ${table} 存在不支持或重复的主键；没有省略记录。`,
+      );
+      await fn(row);
+      last = key;
+    }
   }
 }
 export function sanitizeConfig(row: any, redactions: BackupManifest["redactions"]) {
@@ -318,6 +324,7 @@ export async function createBackup(options: {
         };
         m.tables[table] = info;
         if (table === "apiCredentials" && !options.includeCredentials) continue;
+        let tableBytes=0;
         await eachBackupRow(
           db,
           table,
@@ -341,6 +348,7 @@ export async function createBackup(options: {
                 encoded.length <= backupLimits.recordBytes,
                 "单条记录超过16MiB安全工作集，导出未完成；没有截断或丢弃记录。请勿进入升级阶段。",
               );
+              tableBytes += encoded.length + 1;
               info.digest = await nextDigest(info.digest, encoded);
               await append(encoded);
               await append(utf8("\n"));
@@ -373,6 +381,7 @@ export async function createBackup(options: {
           },
           controller.signal,
         );
+        options.onProgress?.({phase:`数据量审计：${table} ${Math.round(tableBytes/1024)} KiB`,table,records,bytes:tableBytes});
       }
       // Reject a changed source table count instead of silently producing
       // an incomplete archive if a concurrent client altered the source.
