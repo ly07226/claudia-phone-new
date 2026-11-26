@@ -345,9 +345,9 @@ async function generate(
   })().catch(()=>{});
   // Detached from views and from normal reply completion. No auto retry on failure.
   if(!options.messageId&&!interruption){
-    notifyAssistantReplyCommitted();
-    // Keep the direct fallback when the foreground scheduler has not mounted.
-    void import('./memorySummary').then(m=>m.tryAutoSummary(id)).catch(()=>{});
+    notifyAssistantReplyCommitted(id);
+    // Direct fallback remains for routes without a mounted foreground scheduler.
+    // tryAutoSummary deduplicates concurrent calls by conversation.
   }
   return {interruption};
 }
