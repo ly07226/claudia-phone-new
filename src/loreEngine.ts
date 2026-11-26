@@ -187,7 +187,9 @@ export function injectLore(
   history: ContextMessage[],
   entries: LoreEntry[],
 ): ContextMessage[] {
-  const sorted = entries.map(normalizeEntry);
+  // The selected list is already ranked by the activation planner.
+  // Keep it stable across insertion slots, and never inject empty text.
+  const sorted = entries.map(normalizeEntry).filter(e => e.content.trim().length > 0);
   const own = (e: LoreEntry): ContextMessage => ({
     role: e.role!,
     content: e.content,
