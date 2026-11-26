@@ -98,11 +98,10 @@ export async function readTimelineDisplayPage(
     .between([conversationId,Dexie.minKey],[conversationId,upper],true,true)
     .reverse();
    const selected:Message[]=[];
-   await query.each(m=>{
+   await query.until(()=>selected.length>size).each(m=>{
     if(m.archived)return;
     if(boundary&&m.createdAt===boundary.createdAt&&m.id>=boundary.id)return;
     selected.push(m);
-    if(selected.length>size)return false;
    });
    const hasMore=selected.length>size;
    const page=selected.slice(0,size).reverse();
