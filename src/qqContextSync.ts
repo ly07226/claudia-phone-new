@@ -15,8 +15,14 @@ const running=new Map<string,Promise<void>>();
 // Keep lightweight acknowledged signatures even if a large snapshot body is evicted.
 const acknowledged=new Map<string,{generation:number;hash:string}>();
 /** Retry the same version after a lost acknowledgement; a conflict never overwrites the winner. */
-export function syncQqSnapshot(bindingId:string,conversationId:string,manual=false ):Promise<void>{
- return syncQqSnapshotPass(bindingId,conversationId,manual,1);
+export async function syncQqSnapshot(bindingId:string,conversationId:string,manual=false):Promise<void>{
+ // Back up and refresh context independently, so either service can recover.
+ const [context,archive]=await Promise.allSettled([
+  syncQqSnapshotPass(bindingId,conversationId,manual,1),
+  uploadQqChatArchive(bindingId,conversationId)
+ ]);
+ if(context.status==='rejected')throw context.reason;
+ if(archive.status==='rejected')throw archive.reason;
 }
 async function syncQqSnapshotPass(bindingId:string,conversationId:string,manual:boolean,retries:number):Promise<void>{
  const key=readWechatCloudConfig()?.url+':'+bindingId+':'+conversationId;
