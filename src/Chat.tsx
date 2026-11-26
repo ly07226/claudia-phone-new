@@ -54,29 +54,11 @@ import {
   deleteConversation,
   resolveApi,
 } from "./chatService";
-// Synchronous display-only cache: never used as generation context or a source of truth.
-const RECENT_DISPLAY_PREFIX='claudia-recent-display-v1:';
-function displayCacheKey(characterId:string,worldId?:string){return RECENT_DISPLAY_PREFIX+JSON.stringify([worldId??null,characterId]);}
-function readRecentDisplay(characterId:string,worldId?:string):{conversation:Conversation;rows:Message[]}|null{
- try{const raw=localStorage.getItem(displayCacheKey(characterId,worldId));if(!raw)return null;
-  const value=JSON.parse(raw) as {conversation:Conversation;rows:Message[]};
-  if(value?.conversation?.characterId!==characterId||value.conversation.worldId!==worldId||!Array.isArray(value.rows)||value.rows.length>40)return null;
-  if(value.rows.some(m=>m.conversationId!==value.conversation.id))return null;
-  return value;
- }catch{return null;}
-}
-function saveRecentDisplay(characterId:string,worldId:string|undefined,conversation:Conversation,rows:Message[]){
- try{const recent=rows.slice(-30);const raw=JSON.stringify({conversation,rows:recent});
-  if(raw.length<220000)localStorage.setItem(displayCacheKey(characterId,worldId),raw);
- }catch{/* Storage quota/private mode must not block chat. */}
-}
 const noVariants:MessageVariant[]=[];
 export function Chat({ worldId }: { worldId?: string }) {
   const s = usePhone();
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  // Preserve the last rendered bubbles across navigation; never reread them just to enter.
-  const recentChatCache=useRef(new Map<string,{conversation:Conversation;rows:Message[];snapshot:{key:string;revision:number;rows:Message[]}|null}>());
   // Only an already opted-in cloud device reports foreground chat presence.
   // No login prompt, no automatic anonymous signup for ordinary local chats.
   useEffect(()=>{
@@ -110,8 +92,6 @@ export function Chat({ worldId }: { worldId?: string }) {
   const enterGuard = useRef(createEnterSendGuard());
   const [previewState, setPreviews] = useState<{scope: string; rows: Record<string, ChatPreview>}>({scope: "", rows: {}});
   const [error, setError] = useState("");
-  const [openingMessages,setOpeningMessages]=useState(false);
-  const [openingCharacter,setOpeningCharacter]=useState<string|null>(null);
   const [localBusy, setBusy] = useState(false);
   const generationTask=useGenerationTask(conversation?.id);
   const [leaseClock,setLeaseClock]=useState(Date.now());
@@ -371,7 +351,6 @@ export function Chat({ worldId }: { worldId?: string }) {
    appliedSnapshot.current={key,revision,rows};if(previous?.rows===rows)return;
    historyWindow.beforeChange();preserveTop.current=null;if(scroll&&followBottom.current)scrollRequested.current=true;
    setMessages(rows);
-   saveRecentDisplay(current.characterId,worldId,current,rows);
   }
   function refresh(id:string,scroll=false):Promise<void> {
     const completion=loadSnapshot(id,scroll).then(async()=>{const next=latestRefresh.current;if(next&&next!==completion)await next;});
@@ -416,18 +395,13 @@ export function Chat({ worldId }: { worldId?: string }) {
   }, [feedback]);
   async function open(id: string) {
     const navigation = ++taskSequence.current;
-    // Reopen the existing view with its last rendered bubbles immediately.
-    const cached=recentChatCache.current.get(id)??readRecentDisplay(id,worldId);
-    setOpeningCharacter(null);
     setError("");
-    appliedSnapshot.current=cached&&'snapshot' in cached?(cached.snapshot as {key:string;revision:number;rows:Message[]}|null):null;
+    appliedSnapshot.current=null;
     displayFullyLoaded.current=false;
     displayHasMore.current=false;
     displayCursor.current=undefined;
     pendingQuoteJump.current=null;
-    setMessages(cached?.rows??[]);
-    setOpeningMessages(!cached);
-    if(cached){activeConversation.current=cached.conversation.id;setConversation(cached.conversation);}
+    setMessages([]);
     setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
     setReplyPresentation(null);
     try {
@@ -435,14 +409,6 @@ export function Chat({ worldId }: { worldId?: string }) {
       const c = await getConversation(id, worldId);
       if (navigation !== taskSequence.current) return;
       activeConversation.current = c.id;
-      // A cached display from a different branch must never masquerade as this timeline.
-      if(cached&&(cached.conversation.id!==c.id||cached.conversation.activeTimelineId!==c.activeTimelineId||cached.conversation.timelineEpoch!==c.timelineEpoch)){
-        appliedSnapshot.current=null;
-        setMessages([]);
-        setOpeningMessages(true);
-        recentChatCache.current.delete(id);
-        try{localStorage.removeItem(displayCacheKey(id,worldId));}catch{/* unavailable */}
-      }
       if(c.chatSettings?.proactiveUnreadAt)void db.conversations.update(c.id,{chatSettings:{...c.chatSettings,proactiveUnreadAt:undefined}});
       followBottom.current = true;
       // Enter the conversation shell immediately. Waiting for the complete
@@ -450,14 +416,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       // Keep the existing snapshot loader as the source of visible messages;
       // this does not truncate stored history or change generation context.
       setConversation(c);
-      setOpeningCharacter(null);
-      // Do not block navigation or API readiness on slow IndexedDB history.
-      // The view remains mounted with an explicit loading/error state.
-      void refresh(c.id, true).catch(()=>{
-        if(activeConversation.current===c.id)setError("聊天记录读取失败，本地历史未删除。");
-      }).finally(()=>{
-        if(activeConversation.current===c.id)setOpeningMessages(false);
-      });
+      await refresh(c.id, true);
       try {
         await resolveApi(c);
       } catch (e) {
@@ -465,11 +424,8 @@ export function Chat({ worldId }: { worldId?: string }) {
           setError(e instanceof Error ? e.message : "无法读取 API。");
       }
     } catch {
-      if (navigation === taskSequence.current){
-        setOpeningMessages(false);
-        setOpeningCharacter(null);
+      if (navigation === taskSequence.current)
         setError("无法打开会话，请检查本地存储与角色关联。");
-      }
     }
   }
   async function runGeneration(
@@ -601,12 +557,6 @@ export function Chat({ worldId }: { worldId?: string }) {
     }
   }
   function leaveConversation() {
-    if(conversation){
-      recentChatCache.current.set(conversation.characterId,{conversation,rows:messages,snapshot:appliedSnapshot.current});
-      saveRecentDisplay(conversation.characterId,worldId,conversation,messages);
-      // Bound memory usage while retaining the most recently visited conversations.
-      if(recentChatCache.current.size>8)recentChatCache.current.delete(recentChatCache.current.keys().next().value!);
-    }
     appliedSnapshot.current=null;
     pendingQuoteJump.current=null;
     setSelection(undefined);
@@ -623,8 +573,6 @@ export function Chat({ worldId }: { worldId?: string }) {
     setConversation(null);
     setReplyTo(null);
     setMessages([]);
-    setOpeningMessages(false);
-    setOpeningCharacter(null);
     setText("");
     setError("");
     setFeedback("");
@@ -725,8 +673,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       {!conversation && worldId && <p className="chat-world-caption">世界聊天 · {world?.name || "世界不存在"}</p>}
       {!conversation ? (
         <>
-          {listContent}
-        </>
+{listContent}        </>
       ) : (
         <>
           <div className="chat-view" hidden={management}>
@@ -765,24 +712,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 </button>
               </div>
             )}
-            {openingMessages&&!messages.length&&<p className="hint" role="status">正在读取最近聊天记录…</p>}
-            {!openingMessages&&!messages.length&&error&&(
-              <div className="chat-history-load-more" role="alert">
-                <p>{error}</p>
-                <button type="button" className="chat-history-load-capsule" onClick={()=>{
-                  const id=activeConversation.current;
-                  if(!id)return;
-                  setError("");
-                  setOpeningMessages(true);
-                  void refresh(id,true).catch(()=>{
-                    if(activeConversation.current===id)setError("重试读取失败，本地历史未删除。");
-                  }).finally(()=>{
-                    if(activeConversation.current===id)setOpeningMessages(false);
-                  });
-                }}>重新读取聊天记录</button>
-              </div>
-            )}
-            {!openingMessages&&!messages.length&&!error&&(
+            {!messages.length && (
               <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
             )}
             <div data-history-spacer="" aria-hidden="true" style={{height:historyWindow.top,padding:0,margin:0,border:0,flexShrink:0,pointerEvents:'none'}}/>

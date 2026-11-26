@@ -34,22 +34,6 @@ export function parseHeartVoice(raw:string){
  return {text,heartVoice:voice?voice.slice(0,3000):undefined};
 }
 export async function getConversation(characterId: string, worldId?: string) {
-  // Existing chats are the hot path. Avoid opening a read-write transaction
-  // (and waiting behind pending writers) just to navigate into a conversation.
-  const scopeKey = JSON.stringify([
-    characterId,
-    worldId ? "world" : "daily",
-    worldId || "",
-  ]);
-  const existing = await db.conversations.where("scopeKey").equals(scopeKey).first();
-  if (existing) {
-    if (!(await db.characters.get(characterId))) throw Error("角色不存在。");
-    if (worldId &&
-      (!(await db.worlds.get(worldId)) ||
-       !(await db.worldProfiles.where("[worldId+characterId]").equals([worldId,characterId]).first())))
-      throw Error("请先关联此世界与角色。");
-    return existing;
-  }
   return db.transaction(
     "rw",
     [db.conversations, db.characters, db.worlds, db.worldProfiles],
