@@ -264,9 +264,13 @@ export function Chat({ worldId }: { worldId?: string }) {
   useEffect(() => {
     if (conversation) return;
     setPreviews({scope: previewScope, rows: {}});
-    const subscription = liveQuery(() => chatListPreviews(characters.map(c => c.id), worldId))
-      .subscribe({ next: rows => setPreviews({scope: previewScope, rows}), error: () => setError("无法读取聊天预览，请稍后重试。") });
-    return () => subscription.unsubscribe();
+    let active=true;
+    const subscription = liveQuery(() => chatListPreviews(characters.map(c => c.id), worldId,(characterId,preview)=>{
+      if(!active)return;
+      setPreviews(state=>state.scope===previewScope?{scope:previewScope,rows:{...state.rows,[characterId]:preview}}:state);
+    }))
+      .subscribe({ next: rows => {if(active)setPreviews({scope: previewScope, rows});}, error: () => {if(active)setError("无法读取聊天预览，请稍后重试。");} });
+    return () => {active=false;subscription.unsubscribe();};
   }, [characterIds, worldId, conversation?.id]);
   const appliedSnapshot=useRef<{key:string;revision:number;rows:Message[]}|null>(null);
   const displayCursor=useRef<string|undefined>(undefined);
