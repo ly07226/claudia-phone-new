@@ -318,8 +318,13 @@ export function Chat({ worldId }: { worldId?: string }) {
    });if(ticket!==refreshTicket.current||!data||!mounted.current||activeConversation.current!==id)return;
    const {current,key,rows}=data;
    if('page' in data&&data.page){
-    displayCursor.current=data.page.nextCursor;
-    displayHasMore.current=data.page.hasMore;
+    // A head refresh must not rewind the paging cursor after older pages
+    // were loaded. Reset only on an actual timeline/epoch change.
+    const samePath=!!previous?.key&&JSON.parse(previous.key)[2]===current.activeTimelineId&&JSON.parse(previous.key)[3]===current.timelineEpoch;
+    if(!samePath||!displayCursor.current){
+     displayCursor.current=data.page.nextCursor;
+     displayHasMore.current=data.page.hasMore;
+    }
    }
    if(visiblePath.current?.conversationId===id&&visiblePath.current.timelineId!==current.activeTimelineId&&(!pending.current||pending.current.signal.aborted))setReplyPresentation(null);
    visiblePath.current={conversationId:id,timelineId:current.activeTimelineId,epoch:current.timelineEpoch??0};
