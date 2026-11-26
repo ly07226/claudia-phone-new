@@ -101,8 +101,7 @@ export async function readTimelineDisplayPage(
     .reverse();
    const selected:Message[]=[];
    let cutoff:number|undefined;
-   await query.until(()=>cutoff!==undefined).each(m=>{
-    if(cutoff!==undefined&&m.createdAt<cutoff)return;
+   await query.until(m=>cutoff!==undefined&&m.createdAt<cutoff).each(m=>{
     if(m.archived)return;
     if(boundary&&(m.createdAt>boundary.createdAt||
        m.createdAt===boundary.createdAt&&m.id>=boundary.id))return;
