@@ -40,6 +40,10 @@ export async function uploadQqChatArchive(bindingId:string,conversationId:string
  const existingSignature=localStorage.getItem(key);
  if(existingSignature===signature)return {uploaded:0,total:messages.length,timelineId};
  const chunksKey=key+':chunks';
+ const idsKey=key+':ids';
+ const currentIds=new Set(messages.map(m=>m.id));
+ let previousIds:string[]=[];
+ try{const stored=JSON.parse(localStorage.getItem(idsKey)||'[]');if(Array.isArray(stored)&&stored.every(x=>typeof x==='string'))previousIds=stored;}catch{}
  let previous:Record<string,string>={};
  try{const value=JSON.parse(localStorage.getItem(chunksKey)||'{}');if(value&&typeof value==='object'&&!Array.isArray(value))previous=value;}catch{}
  const next:Record<string,string>={};
@@ -80,6 +84,20 @@ export async function uploadQqChatArchive(bindingId:string,conversationId:string
  const latest=await db.conversations.get(conversationId);
  if(!latest||latest.activeTimelineId!==conversation.activeTimelineId||(latest.timelineEpoch??0)!==epoch)
   throw Error('聊天时间线已变化，未确认云端归档完成');
+ // Tombstone only IDs that this same owner and timeline previously uploaded.
+ // Never infer another user's history or delete unrelated timelines.
+ const removed=previousIds.filter(id=>!currentIds.has(id));
+ for(let i=0;i<removed.length;i+=100){
+  const response=await wechatCloudFunctionRequest('claudia-chat-archive',{
+   action:'tombstone',bindingId,conversationId,timelineId,messageIds:removed.slice(i,i+100)
+  },true);
+  const result=await response.json().catch(()=>null) as {ok?:boolean;error?:string}|null;
+  if(!response.ok||result?.ok!==true)throw Error('云端历史删除同步失败：'+(result?.error||response.status));
+ }
+ const final=await db.conversations.get(conversationId);
+ if(!final||final.activeTimelineId!==conversation.activeTimelineId||(final.timelineEpoch??0)!==epoch)
+  throw Error('聊天时间线发生变化，等待下一轮同步');
+ localStorage.setItem(idsKey,JSON.stringify([...currentIds]));
  localStorage.setItem(chunksKey,JSON.stringify(next));
  localStorage.setItem(key,signature);
  return {uploaded:done,total:messages.length,timelineId};
