@@ -191,7 +191,8 @@ export function Chat({ worldId }: { worldId?: string }) {
   const pendingQuoteJump=useRef<{id:string;part:BubblePart}|null>(null);
   function locateQuote(id:string,part:BubblePart){
     if(!messages.some(m=>m.id===id)&&displayHasMore.current){
-     void revealFullHistory(activeConversation.current!).then(()=>{if(activeConversation.current)pendingQuoteJump.current={id,part};}).catch(()=>setFeedback('无法定位原消息。'));
+     pendingQuoteJump.current={id,part};
+     void revealFullHistory(activeConversation.current!).catch(()=>{pendingQuoteJump.current=null;setFeedback('无法定位原消息。');});
      return;
     }
     const index=messages.findIndex(m=>m.id===id);
