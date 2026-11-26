@@ -59,6 +59,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const s = usePhone();
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [openingChat,setOpeningChat]=useState(false);
   // Only an already opted-in cloud device reports foreground chat presence.
   // No login prompt, no automatic anonymous signup for ordinary local chats.
   useEffect(()=>{
@@ -150,7 +151,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const activeConversation = useRef<string | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
   const refreshTicket = useRef(0);
-  const latestRefresh = useRef<Promise<void> | null>(null);
+  const refreshFlight=useRef<{id:string;promise:Promise<void>;dirty:boolean;scroll:boolean}|null>(null);
   const visiblePath = useRef<{conversationId:string;timelineId?:string;epoch:number}|null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(()=>observeComposerDebug(),[]);
@@ -264,9 +265,17 @@ export function Chat({ worldId }: { worldId?: string }) {
   useEffect(() => {
     if (conversation) return;
     setPreviews({scope: previewScope, rows: {}});
-    const subscription = liveQuery(() => chatListPreviews(characters.map(c => c.id), worldId))
-      .subscribe({ next: rows => setPreviews({scope: previewScope, rows}), error: () => setError("无法读取聊天预览，请稍后重试。") });
-    return () => subscription.unsubscribe();
+    let active=true;
+    let generation=0;
+    const subscription = liveQuery(() => {
+      const current=++generation;
+      return chatListPreviews(characters.map(c => c.id), worldId,(characterId,preview)=>{
+        if(!active||current!==generation)return;
+        setPreviews(state=>state.scope===previewScope?{scope:previewScope,rows:{...state.rows,[characterId]:preview}}:state);
+      });
+    })
+      .subscribe({ next: rows => {if(active)setPreviews({scope: previewScope, rows});}, error: () => {if(active)setError("无法读取聊天预览，请稍后重试。");} });
+    return () => {active=false;subscription.unsubscribe();};
   }, [characterIds, worldId, conversation?.id]);
   const appliedSnapshot=useRef<{key:string;revision:number;rows:Message[]}|null>(null);
   const displayCursor=useRef<string|undefined>(undefined);
@@ -282,7 +291,7 @@ export function Chat({ worldId }: { worldId?: string }) {
    const ticket=refreshTicket.current;
    const previousKey=appliedSnapshot.current?.key;
    try{
-    const page=await readTimelineDisplayPage(id,120,cursor);
+    const page=await readTimelineDisplayPage(id,100,cursor,true);
     if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch||displayFullyLoaded.current||displayCursor.current!==cursor||refreshTicket.current!==ticket||appliedSnapshot.current?.key!==previousKey)return;
     displayCursor.current=page.nextCursor;
     displayHasMore.current=page.hasMore;
@@ -314,7 +323,7 @@ export function Chat({ worldId }: { worldId?: string }) {
    const data=await db.transaction('r',[db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{const current=await db.conversations.get(id);if(!current)return null;const timeline=current.activeTimelineId?await db.timelines.get(current.activeTimelineId):undefined;
     const key=JSON.stringify([db.name,id,current.activeTimelineId,current.timelineEpoch,timeline?.headNodeId,timeline?.revision]);
     if(previous?.key===key&&previous.revision===revision)return {current,key,rows:previous.rows};
-    const page=displayFullyLoaded.current?null:await readTimelineDisplayPage(id,120);
+    const page=displayFullyLoaded.current?null:await readTimelineDisplayPage(id,100);
     const incoming=page?page.rows:await activeMessages(id,undefined,true);
     const old=new Map(previous?.rows.map(m=>[m.id,m])??[]);
     const rows=incoming.map(m=>{const before=old.get(m.id);return before&&dataEqual(before,m)?before:m;});
@@ -353,8 +362,23 @@ export function Chat({ worldId }: { worldId?: string }) {
    setMessages(rows);
   }
   function refresh(id:string,scroll=false):Promise<void> {
-    const completion=loadSnapshot(id,scroll).then(async()=>{const next=latestRefresh.current;if(next&&next!==completion)await next;});
-    latestRefresh.current=completion;return completion;
+    // Coalesce overlapping UI refreshes. Database liveQuery, navigation and
+    // send completion must not start competing full display reads.
+    const existing=refreshFlight.current;
+    if(existing?.id===id){existing.dirty=true;existing.scroll ||=scroll;return existing.promise;}
+    const flight:{id:string;promise:Promise<void>;dirty:boolean;scroll:boolean}={id,promise:Promise.resolve(),dirty:false,scroll};
+    refreshFlight.current=flight;
+    flight.promise=(async()=>{
+      try{
+        do{
+          flight.dirty=false;
+          const shouldScroll=flight.scroll;
+          flight.scroll=false;
+          await loadSnapshot(id,shouldScroll);
+        }while(flight.dirty&&activeConversation.current===id&&mounted.current);
+      }finally{if(refreshFlight.current===flight)refreshFlight.current=null;}
+    })();
+    return flight.promise;
   }
   useEffect(()=>{
     const id=conversation?.id;if(!id)return;
@@ -395,6 +419,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   }, [feedback]);
   async function open(id: string) {
     const navigation = ++taskSequence.current;
+    setOpeningChat(true);
     setError("");
     appliedSnapshot.current=null;
     displayFullyLoaded.current=false;
@@ -411,12 +436,11 @@ export function Chat({ worldId }: { worldId?: string }) {
       activeConversation.current = c.id;
       if(c.chatSettings?.proactiveUnreadAt)void db.conversations.update(c.id,{chatSettings:{...c.chatSettings,proactiveUnreadAt:undefined}});
       followBottom.current = true;
-      // Enter the conversation shell immediately. Waiting for the complete
-      // timeline read here made the contact appear unresponsive on long chats.
-      // Keep the existing snapshot loader as the source of visible messages;
-      // this does not truncate stored history or change generation context.
-      setConversation(c);
+      // Commit the conversation and its first bounded message page together.
+      // loadSnapshot owns setConversation/setMessages after a successful read;
+      // mounting an empty conversation first creates a false empty chat state.
       await refresh(c.id, true);
+      if(navigation===taskSequence.current)setOpeningChat(false);
       try {
         await resolveApi(c);
       } catch (e) {
@@ -424,8 +448,10 @@ export function Chat({ worldId }: { worldId?: string }) {
           setError(e instanceof Error ? e.message : "无法读取 API。");
       }
     } catch {
-      if (navigation === taskSequence.current)
+      if (navigation === taskSequence.current){
+        setOpeningChat(false);
         setError("无法打开会话，请检查本地存储与角色关联。");
+      }
     }
   }
   async function runGeneration(
@@ -557,6 +583,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     }
   }
   function leaveConversation() {
+    setOpeningChat(false);
     appliedSnapshot.current=null;
     pendingQuoteJump.current=null;
     setSelection(undefined);
@@ -673,7 +700,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       {!conversation && worldId && <p className="chat-world-caption">世界聊天 · {world?.name || "世界不存在"}</p>}
       {!conversation ? (
         <>
-{listContent}        </>
+{openingChat&&<p role="status" className="chat-loading-status">正在读取最近聊天记录…</p>}{listContent}        </>
       ) : (
         <>
           <div className="chat-view" hidden={management}>
