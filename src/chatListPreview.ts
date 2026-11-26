@@ -3,7 +3,7 @@ import { db } from "./store";
 import {latestTimelineMessage} from "./timelines";
 export interface ChatPreview { content: string; createdAt?: number; remark?: string; pinned?: boolean; pinnedAt?: number; unread?: boolean; conversationId: string }
 /** Read-only display projection of the current space's active branch. */
-export async function chatListPreviews(characterIds: string[], worldId?: string) {
+export async function chatListPreviews(characterIds: string[], worldId?: string, onPreview?:(characterId:string,preview:ChatPreview)=>void) {
   const allowed = new Set(characterIds);
   const conversations = (await db.conversations.where("characterId").anyOf(characterIds).toArray())
     .filter(c => allowed.has(c.characterId) && (worldId ? c.mode === "world" && c.worldId === worldId : c.mode === "daily"))
@@ -21,7 +21,7 @@ export async function chatListPreviews(characterIds: string[], worldId?: string)
       console.warn('Chat preview unavailable for conversation',c.id,error);
       return {characterId:c.characterId,preview:{conversationId:c.id,remark:c.chatSettings?.remark,pinned:c.chatSettings?.pinned,pinnedAt:c.chatSettings?.pinnedAt,unread:!!c.chatSettings?.proactiveUnreadAt,content:'预览暂不可用'} as ChatPreview};
     }
-  }));
+  }).then(entry=>{onPreview?.(entry.characterId,entry.preview);return entry;}));
   const result:Record<string,ChatPreview>={};
   for(const {characterId,preview} of entries)if(!result[characterId])result[characterId]=preview;
   return result;
