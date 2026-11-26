@@ -91,15 +91,21 @@ export async function eachBackupRow(
       last === undefined
         ? d.table(table).orderBy(":id")
         : d.table(table).where(":id").above(last);
-    const rows = await collection.limit(1).toArray();
+    // Bounded primary-key batches avoid one transaction per message.
+    // Individual message bodies are never truncated.
+    const rows = await collection.limit(32).toArray();
     if (!rows.length) return;
-    const key = rows[0][table === "apiCredentials" ? "configId" : "id"];
-    ensure(
-      typeof key === "string" && key.length > 0 && key.length < 4096,
-      `表 ${table} 存在不支持的主键；没有省略记录。`,
-    );
-    await fn(rows[0]);
-    last = key;
+    for (const row of rows) {
+      checkAbort(signal);
+      const key = row[table === "apiCredentials" ? "configId" : "id"];
+      ensure(
+        typeof key === "string" && key.length > 0 && key.length < 4096 &&
+          (last === undefined || key > last),
+        `表 ${table} 存在不支持或重复的主键；没有省略记录。`,
+      );
+      await fn(row);
+      last = key;
+    }
   }
 }
 export function sanitizeConfig(row: any, redactions: BackupManifest["redactions"]) {
@@ -301,7 +307,11 @@ export async function createBackup(options: {
         if (used === buffer.length) await flush();
       }
     };
-    await db.transaction("r", backupTables, async () => {
+    // Never hold one IndexedDB transaction across hashing, encryption, staging,
+    // and progress callbacks. IndexedDB auto-commits during asynchronous work.
+    // BackupGuard and cross-client coordination protect the source while
+    // bounded primary-key reads proceed in separate short transactions.
+    {
       phase='export-validate';
       await validateTimelineDatabase(db);
       for (const table of backupTables) {
@@ -314,6 +324,7 @@ export async function createBackup(options: {
         };
         m.tables[table] = info;
         if (table === "apiCredentials" && !options.includeCredentials) continue;
+        let tableBytes=0;
         await eachBackupRow(
           db,
           table,
@@ -337,6 +348,7 @@ export async function createBackup(options: {
                 encoded.length <= backupLimits.recordBytes,
                 "单条记录超过16MiB安全工作集，导出未完成；没有截断或丢弃记录。请勿进入升级阶段。",
               );
+              tableBytes += encoded.length + 1;
               info.digest = await nextDigest(info.digest, encoded);
               await append(encoded);
               await append(utf8("\n"));
@@ -365,15 +377,22 @@ export async function createBackup(options: {
                 bytes,
               });
             })();
-            await Dexie.waitFor(pendingWork, 20000);
+            await pendingWork;
           },
           controller.signal,
         );
+        options.onProgress?.({phase:`数据量审计：${table} ${Math.round(tableBytes/1024)} KiB`,table,records,bytes:tableBytes});
+      }
+      // Reject a changed source table count instead of silently producing
+      // an incomplete archive if a concurrent client altered the source.
+      for(const table of backupTables){
+        const actual=await db.table(table).count();
+        ensure(actual===m.tables[table].sourceCount,`备份期间 ${table} 表记录数量发生变化，请重试；未生成不完整文件。`);
       }
       pendingWork = flush();
-      await Dexie.waitFor(pendingWork, 20000);
+      await pendingWork;
       checkAbort(controller.signal);
-    });
+    }
     checkAbort(controller.signal);
     phase=key?'export-encrypt':'export-encode';
     m.snapshotCompletedAt = new Date().toISOString();
@@ -1154,4 +1173,25 @@ export async function validateReferences(
     );
   warnings.add("图片校验为资源清单、数据URL和字节摘要，不等同像素解码诊断。");
   return [...warnings];
+}
+
+/**
+ * Read-only preflight for failed exports: no ZIP, temporary database, credentials,
+ * or chat contents leave the device. Reports approximate serialized bytes by table.
+ */
+export async function auditBackupDataSize(database: Dexie = phoneDatabase, signal?: AbortSignal) {
+  await database.open();
+  const tables: Array<{table: string; records: number; bytes: number}> = [];
+  let totalBytes = 0;
+  for (const table of backupTables) {
+    let records = 0, bytes = 0;
+    await eachBackupRow(database, table, async row => {
+      const encoded = rowBytes(table as BackupTable, row);
+      bytes += encoded.length + 1;
+      records++;
+    }, signal);
+    tables.push({table, records, bytes});
+    totalBytes += bytes;
+  }
+  return {totalBytes, tables: tables.sort((a,b)=>b.bytes-a.bytes)};
 }
