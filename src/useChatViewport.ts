@@ -21,10 +21,12 @@ export function useChatViewport(
       Math.min(120, (viewport?.height || innerHeight) * 0.28),
     );
     // Avoid collapsing the textarea during viewport changes.
+    // Read intrinsic height once. Avoid two synchronous layout reads per keystroke.
     el.style.height = "auto";
-    const height = Math.max(40, Math.min(el.scrollHeight, max));
+    const intrinsicHeight = el.scrollHeight;
+    const height = Math.max(40, Math.min(intrinsicHeight, max));
     el.style.height = `${height}px`;
-    el.style.overflowY = el.scrollHeight > height ? "auto" : "hidden";
+    el.style.overflowY = intrinsicHeight > height ? "auto" : "hidden";
     return height;
   };
   useLayoutEffect(() => {
@@ -71,12 +73,15 @@ export function useChatViewport(
   }, [active]);
   useLayoutEffect(() => {
     if (!active) return;
-    const height=fit();
-    // Typing within the same line must not force the full history to scroll.
-    // Scroll anchoring is needed only when the composer actually changes height.
-    if(height!==undefined && lastInputHeight.current!==height){
-      lastInputHeight.current=height;
-      callback.current();
-    }
+    // Keep typing responsive: measuring scrollHeight forces layout. Schedule it
+    // after the current React commit instead of blocking every keypress.
+    const frame = window.requestAnimationFrame(() => {
+      const height = fit();
+      if (height !== undefined && lastInputHeight.current !== height) {
+        lastInputHeight.current = height;
+        callback.current();
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [active, text]);
 }

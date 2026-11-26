@@ -22,6 +22,7 @@ import { createEnterSendGuard } from "./enterSend";
 import "./chatReplyButton.css";
 import "./composerDouble.css";
 import "./chatTime.css";
+import "./chatHistoryCapsule.css";
 import { chatTimeLabels } from "./chatTime";
 import { Search, X } from "lucide-react";
 import { liveQuery } from "dexie";
@@ -36,6 +37,7 @@ import { KeyboardDebugPanel } from "./KeyboardDebugPanel";
 import { ConversationLayoutDebug } from "./ConversationLayoutDebug";
 import { keyboardDebugEnabled, recordKeyboardDebug } from "./keyboardDebug";
 import { activeMessages } from "./messagePath";
+import { readTimelineDisplayPage } from "./timelines";
 import {
   cancelGeneration,
   invalidateGeneration,
@@ -191,6 +193,11 @@ export function Chat({ worldId }: { worldId?: string }) {
   },[management,historyWindow.start,historyWindow.end,messages]);
   const pendingQuoteJump=useRef<{id:string;part:BubblePart}|null>(null);
   function locateQuote(id:string,part:BubblePart){
+    if(!messages.some(m=>m.id===id)&&displayHasMore.current){
+     pendingQuoteJump.current={id,part};
+     void revealFullHistory(activeConversation.current!).catch(()=>{pendingQuoteJump.current=null;setFeedback('无法定位原消息。');});
+     return;
+    }
     const index=messages.findIndex(m=>m.id===id);
     if(index<0){setFeedback('原消息已删除或不在当前分支。');return;}
     if(index<historyWindow.start||index>=historyWindow.end){
@@ -213,9 +220,16 @@ export function Chat({ worldId }: { worldId?: string }) {
   useLayoutEffect(()=>{
     const target=pendingQuoteJump.current;
     if(!target)return;
+    const index=messages.findIndex(m=>m.id===target.id);
+    if(index<0)return; // Wait for the asynchronously loaded target.
+    if(index<historyWindow.start||index>=historyWindow.end){
+      followBottom.current=false;
+      historyWindow.reveal(index);
+      return;
+    }
     pendingQuoteJump.current=null;
     scrollToQuote(target.id,target.part);
-  },[historyWindow.start,historyWindow.end]);
+  },[messages,historyWindow.start,historyWindow.end]);
   const userIdentity = identityFor(s.theme, conversation?.mode === "world" ? `world:${conversation.worldId}` : "daily");
   const userAvatar = s.assets.find(a=>a.id===userIdentity.avatar)?.data;
   const avatarSrc = s.assets.find((a) => a.id === character?.avatar)?.data;
@@ -255,15 +269,82 @@ export function Chat({ worldId }: { worldId?: string }) {
     return () => subscription.unsubscribe();
   }, [characterIds, worldId, conversation?.id]);
   const appliedSnapshot=useRef<{key:string;revision:number;rows:Message[]}|null>(null);
+  const displayCursor=useRef<string|undefined>(undefined);
+  const displayHasMore=useRef(false);
+  const displayPaging=useRef(false);
+  const displayFullyLoaded=useRef(false);
+  async function loadOlderDisplayMessages(){
+   const id=activeConversation.current;
+   if(!id||displayPaging.current||!displayHasMore.current||displayFullyLoaded.current)return;
+   displayPaging.current=true;
+   const scope=visiblePath.current;
+   const cursor=displayCursor.current;
+   const ticket=refreshTicket.current;
+   const previousKey=appliedSnapshot.current?.key;
+   try{
+    const page=await readTimelineDisplayPage(id,120,cursor);
+    if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch||displayFullyLoaded.current||displayCursor.current!==cursor||refreshTicket.current!==ticket||appliedSnapshot.current?.key!==previousKey)return;
+    displayCursor.current=page.nextCursor;
+    displayHasMore.current=page.hasMore;
+    if(!page.rows.length)return;
+    // Let the virtualized history anchor the first visible bubble before
+    // prepending. Scroll-height arithmetic races React layout on iOS.
+    historyWindow.beforeChange();
+    const previousRows=appliedSnapshot.current?.rows??[];
+    const existing=new Set(previousRows.map(m=>m.id));
+    const combined=[...page.rows.filter(m=>!existing.has(m.id)),...previousRows];
+    if(appliedSnapshot.current)appliedSnapshot.current={...appliedSnapshot.current,rows:combined};
+    setMessages(combined);
+   }catch{if(activeConversation.current===id)setError('读取更早消息失败，请重试。');}
+   finally{displayPaging.current=false;}
+  }
+  async function revealFullHistory(id:string){
+   if(displayFullyLoaded.current)return;
+   const scope=visiblePath.current;
+   const rows=await activeMessages(id,undefined,true);
+   if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch)return;
+   displayFullyLoaded.current=true;
+   displayHasMore.current=false;
+   displayCursor.current=undefined;
+   historyWindow.beforeChange();
+   setMessages(rows);
+  }
   async function loadSnapshot(id:string,scroll=false){
    const ticket=++refreshTicket.current,revision=chatDataRevision();const previous=appliedSnapshot.current;
    const data=await db.transaction('r',[db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{const current=await db.conversations.get(id);if(!current)return null;const timeline=current.activeTimelineId?await db.timelines.get(current.activeTimelineId):undefined;
     const key=JSON.stringify([db.name,id,current.activeTimelineId,current.timelineEpoch,timeline?.headNodeId,timeline?.revision]);
     if(previous?.key===key&&previous.revision===revision)return {current,key,rows:previous.rows};
-    const incoming=await activeMessages(id,undefined,true),old=new Map(previous?.rows.map(m=>[m.id,m])??[]);const rows=incoming.map(m=>{const before=old.get(m.id);return before&&dataEqual(before,m)?before:m;});
+    const page=displayFullyLoaded.current?null:await readTimelineDisplayPage(id,120);
+    const incoming=page?page.rows:await activeMessages(id,undefined,true);
+    const old=new Map(previous?.rows.map(m=>[m.id,m])??[]);
+    const rows=incoming.map(m=>{const before=old.get(m.id);return before&&dataEqual(before,m)?before:m;});
+    if(page){
+     // Keep previously loaded older pages when new messages arrive on the
+     // same timeline. Do not merge across a branch switch.
+     if(previous?.key&&JSON.parse(previous.key)[2]===current.activeTimelineId&&JSON.parse(previous.key)[3]===current.timelineEpoch){
+      // A timeline revision can edit/delete any older message. Retaining
+      // previously loaded pages here would display stale or removed bubbles.
+      // Preserve older pages only when the source revision has not changed.
+      if(previous.revision===revision){
+       const seen=new Set(rows.map(m=>m.id));
+       const older=previous.rows.filter(m=>!seen.has(m.id));
+       return {current,key,rows:[...older,...rows],page};
+      }
+     }
+     return {current,key,rows,page};
+    }
     return {current,key,rows:previous&&rows.length===previous.rows.length&&rows.every((m,i)=>m===previous.rows[i])?previous.rows:rows};
    });if(ticket!==refreshTicket.current||!data||!mounted.current||activeConversation.current!==id)return;
    const {current,key,rows}=data;
+   if('page' in data&&data.page){
+    // A head refresh must not rewind the paging cursor after older pages
+    // were loaded. Reset only on an actual timeline/epoch change.
+    const samePath=!!previous?.key&&JSON.parse(previous.key)[2]===current.activeTimelineId&&JSON.parse(previous.key)[3]===current.timelineEpoch;
+    if(!samePath||previous?.revision!==revision||!displayCursor.current){
+     displayCursor.current=data.page.nextCursor;
+     displayHasMore.current=data.page.hasMore;
+    }
+   }
    if(visiblePath.current?.conversationId===id&&visiblePath.current.timelineId!==current.activeTimelineId&&(!pending.current||pending.current.signal.aborted))setReplyPresentation(null);
    visiblePath.current={conversationId:id,timelineId:current.activeTimelineId,epoch:current.timelineEpoch??0};
    setConversation(before=>dataEqual(before,current)?before:current);
@@ -316,6 +397,9 @@ export function Chat({ worldId }: { worldId?: string }) {
     const navigation = ++taskSequence.current;
     setError("");
     appliedSnapshot.current=null;
+    displayFullyLoaded.current=false;
+    displayHasMore.current=false;
+    displayCursor.current=undefined;
     pendingQuoteJump.current=null;
     setMessages([]);
     setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
@@ -327,8 +411,11 @@ export function Chat({ worldId }: { worldId?: string }) {
       activeConversation.current = c.id;
       if(c.chatSettings?.proactiveUnreadAt)void db.conversations.update(c.id,{chatSettings:{...c.chatSettings,proactiveUnreadAt:undefined}});
       followBottom.current = true;
-      // Do not mount an empty conversation screen before its history arrives.
-      // loadSnapshot commits conversation, messages and variants in one React batch.
+      // Enter the conversation shell immediately. Waiting for the complete
+      // timeline read here made the contact appear unresponsive on long chats.
+      // Keep the existing snapshot loader as the source of visible messages;
+      // this does not truncate stored history or change generation context.
+      setConversation(c);
       await refresh(c.id, true);
       try {
         await resolveApi(c);
@@ -615,8 +702,16 @@ export function Chat({ worldId }: { worldId?: string }) {
               followBottom.current =
                 el.scrollHeight - el.scrollTop - el.clientHeight < 64;
               historyWindow.onScroll();
+              // Older pages are loaded explicitly from the history capsule.
             }}
           >
+            {displayHasMore.current&&!displayFullyLoaded.current&&(
+              <div className="chat-history-load-more">
+                <button type="button" className="chat-history-load-capsule" onClick={()=>void loadOlderDisplayMessages()}>
+                  点击查看历史记录
+                </button>
+              </div>
+            )}
             {!messages.length && (
               <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
             )}
@@ -736,7 +831,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               name={displayName}
               avatar={avatarSrc}
               onPreferences={async patch=>{const next=await saveChatSettings(conversation.id,patch);if(activeConversation.current===next.id)setConversation(next);}}
-              onLocate={id=>{void searchableMessages(conversation.id).then(rows=>{if(activeConversation.current!==conversation.id)return;if(!rows.some(m=>m.id===id)){setError('该消息已不在当前有效分支。');return;}jumpTo.current=id;setManagement(false);}).catch(()=>setError('无法定位消息，请稍后重试。'));}}
+              onLocate={id=>{void searchableMessages(conversation.id).then(async rows=>{if(activeConversation.current!==conversation.id)return;if(!rows.some(m=>m.id===id)){setError('该消息已不在当前有效分支。');return;}await revealFullHistory(conversation.id);jumpTo.current=id;setManagement(false);}).catch(()=>setError('无法定位消息，请稍后重试。'));}}
               worldName={
                 s.worlds.find((w) => w.id === conversation.worldId)?.name
               }
