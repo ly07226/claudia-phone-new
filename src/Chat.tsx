@@ -54,11 +54,29 @@ import {
   deleteConversation,
   resolveApi,
 } from "./chatService";
+// Synchronous display-only cache: never used as generation context or a source of truth.
+const RECENT_DISPLAY_PREFIX='claudia-recent-display-v1:';
+function displayCacheKey(characterId:string,worldId?:string){return RECENT_DISPLAY_PREFIX+JSON.stringify([worldId??null,characterId]);}
+function readRecentDisplay(characterId:string,worldId?:string):{conversation:Conversation;rows:Message[]}|null{
+ try{const raw=localStorage.getItem(displayCacheKey(characterId,worldId));if(!raw)return null;
+  const value=JSON.parse(raw) as {conversation:Conversation;rows:Message[]};
+  if(value?.conversation?.characterId!==characterId||value.conversation.worldId!==worldId||!Array.isArray(value.rows)||value.rows.length>40)return null;
+  if(value.rows.some(m=>m.conversationId!==value.conversation.id))return null;
+  return value;
+ }catch{return null;}
+}
+function saveRecentDisplay(characterId:string,worldId:string|undefined,conversation:Conversation,rows:Message[]){
+ try{const recent=rows.slice(-30);const raw=JSON.stringify({conversation,rows:recent});
+  if(raw.length<220000)localStorage.setItem(displayCacheKey(characterId,worldId),raw);
+ }catch{/* Storage quota/private mode must not block chat. */}
+}
 const noVariants:MessageVariant[]=[];
 export function Chat({ worldId }: { worldId?: string }) {
   const s = usePhone();
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  // Preserve the last rendered bubbles across navigation; never reread them just to enter.
+  const recentChatCache=useRef(new Map<string,{conversation:Conversation;rows:Message[];snapshot:{key:string;revision:number;rows:Message[]}|null}>());
   // Only an already opted-in cloud device reports foreground chat presence.
   // No login prompt, no automatic anonymous signup for ordinary local chats.
   useEffect(()=>{
@@ -353,6 +371,7 @@ export function Chat({ worldId }: { worldId?: string }) {
    appliedSnapshot.current={key,revision,rows};if(previous?.rows===rows)return;
    historyWindow.beforeChange();preserveTop.current=null;if(scroll&&followBottom.current)scrollRequested.current=true;
    setMessages(rows);
+   saveRecentDisplay(current.characterId,worldId,current,rows);
   }
   function refresh(id:string,scroll=false):Promise<void> {
     const completion=loadSnapshot(id,scroll).then(async()=>{const next=latestRefresh.current;if(next&&next!==completion)await next;});
@@ -397,16 +416,18 @@ export function Chat({ worldId }: { worldId?: string }) {
   }, [feedback]);
   async function open(id: string) {
     const navigation = ++taskSequence.current;
-    // Show navigation feedback synchronously, before any IndexedDB query.
-    setOpeningCharacter(id);
+    // Reopen the existing view with its last rendered bubbles immediately.
+    const cached=recentChatCache.current.get(id)??readRecentDisplay(id,worldId);
+    setOpeningCharacter(null);
     setError("");
-    appliedSnapshot.current=null;
+    appliedSnapshot.current=cached&&'snapshot' in cached?(cached.snapshot as {key:string;revision:number;rows:Message[]}|null):null;
     displayFullyLoaded.current=false;
     displayHasMore.current=false;
     displayCursor.current=undefined;
     pendingQuoteJump.current=null;
-    setMessages([]);
-    setOpeningMessages(true);
+    setMessages(cached?.rows??[]);
+    setOpeningMessages(!cached);
+    if(cached){activeConversation.current=cached.conversation.id;setConversation(cached.conversation);}
     setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
     setReplyPresentation(null);
     try {
@@ -414,6 +435,14 @@ export function Chat({ worldId }: { worldId?: string }) {
       const c = await getConversation(id, worldId);
       if (navigation !== taskSequence.current) return;
       activeConversation.current = c.id;
+      // A cached display from a different branch must never masquerade as this timeline.
+      if(cached&&(cached.conversation.id!==c.id||cached.conversation.activeTimelineId!==c.activeTimelineId||cached.conversation.timelineEpoch!==c.timelineEpoch)){
+        appliedSnapshot.current=null;
+        setMessages([]);
+        setOpeningMessages(true);
+        recentChatCache.current.delete(id);
+        try{localStorage.removeItem(displayCacheKey(id,worldId));}catch{/* unavailable */}
+      }
       if(c.chatSettings?.proactiveUnreadAt)void db.conversations.update(c.id,{chatSettings:{...c.chatSettings,proactiveUnreadAt:undefined}});
       followBottom.current = true;
       // Enter the conversation shell immediately. Waiting for the complete
@@ -572,6 +601,12 @@ export function Chat({ worldId }: { worldId?: string }) {
     }
   }
   function leaveConversation() {
+    if(conversation){
+      recentChatCache.current.set(conversation.characterId,{conversation,rows:messages,snapshot:appliedSnapshot.current});
+      saveRecentDisplay(conversation.characterId,worldId,conversation,messages);
+      // Bound memory usage while retaining the most recently visited conversations.
+      if(recentChatCache.current.size>8)recentChatCache.current.delete(recentChatCache.current.keys().next().value!);
+    }
     appliedSnapshot.current=null;
     pendingQuoteJump.current=null;
     setSelection(undefined);
@@ -679,7 +714,7 @@ export function Chat({ worldId }: { worldId?: string }) {
             </div>
           )}
   </>);
-  if(!conversation&&!worldId&&!openingCharacter)return <ChatHub characters={characters} applications={applications.length} onOpen={id=>void open(id)} onRequests={()=>setRequests(true)} chats={<>
+  if(!conversation&&!worldId)return <ChatHub characters={characters} applications={applications.length} onOpen={id=>void open(id)} onRequests={()=>setRequests(true)} chats={<>
     <label className="chat-search"><Search size={20} aria-hidden="true"/><input type="search" aria-label="搜索聊天" placeholder="搜索聊天…" value={search} onChange={e=>setSearch(e.target.value)} autoComplete="off"/>{search&&<button type="button" aria-label="清空聊天搜索" onClick={()=>setSearch('')}><X size={18}/></button>}</label>
 {applications.length>0&&<button className="friend-requests-entry" onClick={()=>setRequests(true)}>新的好友申请 <span>{applications.length}</span></button>}{listContent}{error&&<p role="alert">{error}</p>}</>}/>;
   return (
@@ -690,19 +725,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       {!conversation && worldId && <p className="chat-world-caption">世界聊天 · {world?.name || "世界不存在"}</p>}
       {!conversation ? (
         <>
-          {openingCharacter ? (
-            <div className="chat-view">
-              <nav className="chat-nav" aria-label="正在进入会话">
-                <button aria-label="返回角色列表" onClick={()=>{++taskSequence.current;setOpeningCharacter(null);setOpeningMessages(false);setError("");}}>
-                  <ChevronLeft size={24}/>
-                </button>
-                <div className="chat-nav-heading"><span className="chat-nav-title">{s.characters.find(c=>c.id===openingCharacter)?.name??"聊天"}</span></div>
-              </nav>
-              <div className="chat-history" role="status" aria-live="polite">
-                <p className="hint">正在打开会话…</p>
-              </div>
-            </div>
-          ) : listContent}
+          {listContent}
         </>
       ) : (
         <>
