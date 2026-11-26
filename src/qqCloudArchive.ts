@@ -37,7 +37,8 @@ export async function uploadQqChatArchive(bindingId:string,conversationId:string
  // exactly matches a previously acknowledged upload.
  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(messages))));
  const signature=Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('');
- if(localStorage.getItem(key)===signature)return {uploaded:0,total:messages.length,timelineId};
+ const existingSignature=localStorage.getItem(key);
+ if(existingSignature===signature)return {uploaded:0,total:messages.length,timelineId};
  let done=0;
  for(let offset=0;offset<messages.length;){
   const fresh=await db.conversations.get(conversationId);
@@ -48,7 +49,7 @@ export async function uploadQqChatArchive(bindingId:string,conversationId:string
   while(offset+batch.length<messages.length&&batch.length<50){
    const item=messages[offset+batch.length];
    const size=new TextEncoder().encode(JSON.stringify(item)).length;
-   if(size>500000)throw Error('单条聊天消息超出云端归档容量，未跳过该消息');
+   if(item.content.length>24000||size>450000)throw Error('单条聊天消息超出云端归档容量，未跳过该消息');
    if(batch.length&&bytes+size>450000)break;
    bytes+=size;batch.push(item);
   }
@@ -61,6 +62,10 @@ export async function uploadQqChatArchive(bindingId:string,conversationId:string
   done=offset;
   onProgress?.(done,messages.length);
  }
+ // Only publish the checkpoint if the same timeline and epoch still exist.
+ const latest=await db.conversations.get(conversationId);
+ if(!latest||latest.activeTimelineId!==conversation.activeTimelineId||(latest.timelineEpoch??0)!==epoch)
+  throw Error('聊天时间线已变化，未确认云端归档完成');
  localStorage.setItem(key,signature);
  return {uploaded:done,total:messages.length,timelineId};
 }
