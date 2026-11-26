@@ -59,6 +59,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const s = usePhone();
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [openingChat,setOpeningChat]=useState(false);
   // Only an already opted-in cloud device reports foreground chat presence.
   // No login prompt, no automatic anonymous signup for ordinary local chats.
   useEffect(()=>{
@@ -418,6 +419,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   }, [feedback]);
   async function open(id: string) {
     const navigation = ++taskSequence.current;
+    setOpeningChat(true);
     setError("");
     appliedSnapshot.current=null;
     displayFullyLoaded.current=false;
@@ -438,6 +440,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       // loadSnapshot owns setConversation/setMessages after a successful read;
       // mounting an empty conversation first creates a false empty chat state.
       await refresh(c.id, true);
+      if(navigation===taskSequence.current)setOpeningChat(false);
       try {
         await resolveApi(c);
       } catch (e) {
@@ -445,8 +448,10 @@ export function Chat({ worldId }: { worldId?: string }) {
           setError(e instanceof Error ? e.message : "无法读取 API。");
       }
     } catch {
-      if (navigation === taskSequence.current)
+      if (navigation === taskSequence.current){
+        setOpeningChat(false);
         setError("无法打开会话，请检查本地存储与角色关联。");
+      }
     }
   }
   async function runGeneration(
@@ -578,6 +583,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     }
   }
   function leaveConversation() {
+    setOpeningChat(false);
     appliedSnapshot.current=null;
     pendingQuoteJump.current=null;
     setSelection(undefined);
@@ -694,7 +700,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       {!conversation && worldId && <p className="chat-world-caption">世界聊天 · {world?.name || "世界不存在"}</p>}
       {!conversation ? (
         <>
-{listContent}        </>
+{openingChat&&<p role="status" className="chat-loading-status">正在读取最近聊天记录…</p>}{listContent}        </>
       ) : (
         <>
           <div className="chat-view" hidden={management}>
