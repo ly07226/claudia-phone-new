@@ -39,6 +39,10 @@ export async function uploadQqChatArchive(bindingId:string,conversationId:string
  const signature=Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('');
  const existingSignature=localStorage.getItem(key);
  if(existingSignature===signature)return {uploaded:0,total:messages.length,timelineId};
+ const chunksKey=key+':chunks';
+ let previous:Record<string,string>={};
+ try{const value=JSON.parse(localStorage.getItem(chunksKey)||'{}');if(value&&typeof value==='object'&&!Array.isArray(value))previous=value;}catch{}
+ const next:Record<string,string>={};
  let done=0;
  for(let offset=0;offset<messages.length;){
   const fresh=await db.conversations.get(conversationId);
@@ -53,11 +57,21 @@ export async function uploadQqChatArchive(bindingId:string,conversationId:string
    if(batch.length&&bytes+size>450000)break;
    bytes+=size;batch.push(item);
   }
+  const batchDigest=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(batch))));
+  const batchHash=Array.from(batchDigest,b=>b.toString(16).padStart(2,'0')).join('');
+  const chunkKey=String(offset);
+  if(previous[chunkKey]===batchHash){
+   next[chunkKey]=batchHash;
+   offset+=batch.length;done=offset;onProgress?.(done,messages.length);
+   continue;
+  }
   const response=await wechatCloudFunctionRequest('claudia-chat-archive',{
    action:'upsert',bindingId,conversationId,timelineId,messages:batch
   },true);
   const data=await response.json().catch(()=>null) as {ok?:boolean;error?:string}|null;
   if(!response.ok||data?.ok!==true)throw Error('云端聊天归档失败：'+(data?.error||response.status));
+  next[chunkKey]=batchHash;
+  localStorage.setItem(chunksKey,JSON.stringify({...previous,...next}));
   offset+=batch.length;
   done=offset;
   onProgress?.(done,messages.length);
@@ -66,6 +80,7 @@ export async function uploadQqChatArchive(bindingId:string,conversationId:string
  const latest=await db.conversations.get(conversationId);
  if(!latest||latest.activeTimelineId!==conversation.activeTimelineId||(latest.timelineEpoch??0)!==epoch)
   throw Error('聊天时间线已变化，未确认云端归档完成');
+ localStorage.setItem(chunksKey,JSON.stringify(next));
  localStorage.setItem(key,signature);
  return {uploaded:done,total:messages.length,timelineId};
 }
