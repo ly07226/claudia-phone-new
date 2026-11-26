@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useMemo,useState} from 'react';
 import {liveQuery} from 'dexie';
 import {db} from './store';
 import type {MemoryScope} from './memoryTypes';
@@ -11,9 +11,10 @@ import type {DedicatedSummaryApi} from './dedicatedSummaryApi';
  */
 export function MemorySummarySettings({scope}:{scope:MemoryScope}){
  const [state,setState]=useState<Awaited<ReturnType<typeof summaryStatus>>>();
+ const scopeKey=useMemo(()=>JSON.stringify(scope),[scope]);
  const [api,setApi]=useState<DedicatedSummaryApi>({provider:'openai-compatible',baseUrl:'',model:'',apiKey:'',temperature:0.2,maxTokens:3000,enabled:true});
  const [showApi,setShowApi]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
- useEffect(()=>{let active=true;const sub=liveQuery(async()=>({status:await summaryStatus(scope),global:await db.themes.get('global')})).subscribe({next:v=>{if(!active)return;setState(v.status);if(v.global?.dedicatedSummaryApi)setApi(v.global.dedicatedSummaryApi);},error:()=>{if(active)setError('记忆状态读取失败，请稍后重试。');}});return()=>{active=false;sub.unsubscribe();};},[scope]);
+ useEffect(()=>{let active=true;const sub=liveQuery(async()=>({status:await summaryStatus(scope),global:await db.themes.get('global')})).subscribe({next:v=>{if(!active)return;setState(v.status);if(v.global?.dedicatedSummaryApi)setApi(v.global.dedicatedSummaryApi);},error:()=>{if(active)setError('记忆状态读取失败，请稍后重试。');}});return()=>{active=false;sub.unsubscribe();};},[scopeKey]);
  async function configure(enabled:boolean){setBusy(true);setError('');try{await saveSummarySettings(scope,enabled,state?.interval??40);}catch{setError('自动记忆设置保存失败。');}finally{setBusy(false);}}
  async function summarize(){if(!state||busy)return;setBusy(true);setError('');try{await runMemorySummary(scope,true);}catch(e){setError(e instanceof Error?e.message:'记忆总结失败，请检查接口。');}finally{setBusy(false);}}
  return <section className="memory-summary-screen" aria-label="自动记忆">
