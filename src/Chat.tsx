@@ -320,9 +320,14 @@ export function Chat({ worldId }: { worldId?: string }) {
      // Keep previously loaded older pages when new messages arrive on the
      // same timeline. Do not merge across a branch switch.
      if(previous?.key&&JSON.parse(previous.key)[2]===current.activeTimelineId&&JSON.parse(previous.key)[3]===current.timelineEpoch){
-      const seen=new Set(rows.map(m=>m.id));
-      const older=previous.rows.filter(m=>!seen.has(m.id));
-      return {current,key,rows:[...older,...rows],page};
+      // A timeline revision can edit/delete any older message. Retaining
+      // previously loaded pages here would display stale or removed bubbles.
+      // Preserve older pages only when the source revision has not changed.
+      if(previous.revision===revision){
+       const seen=new Set(rows.map(m=>m.id));
+       const older=previous.rows.filter(m=>!seen.has(m.id));
+       return {current,key,rows:[...older,...rows],page};
+      }
      }
      return {current,key,rows,page};
     }
@@ -333,7 +338,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     // A head refresh must not rewind the paging cursor after older pages
     // were loaded. Reset only on an actual timeline/epoch change.
     const samePath=!!previous?.key&&JSON.parse(previous.key)[2]===current.activeTimelineId&&JSON.parse(previous.key)[3]===current.timelineEpoch;
-    if(!samePath||!displayCursor.current){
+    if(!samePath||previous?.revision!==revision||!displayCursor.current){
      displayCursor.current=data.page.nextCursor;
      displayHasMore.current=data.page.hasMore;
     }
