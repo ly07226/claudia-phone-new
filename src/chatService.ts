@@ -34,42 +34,29 @@ export function parseHeartVoice(raw:string){
  return {text,heartVoice:voice?voice.slice(0,3000):undefined};
 }
 export async function getConversation(characterId: string, worldId?: string) {
-  return db.transaction(
-    "rw",
-    [db.conversations, db.characters, db.worlds, db.worldProfiles],
-    async () => {
-      if (!(await db.characters.get(characterId))) throw Error("角色不存在。");
-      if (
-        worldId &&
-        (!(await db.worlds.get(worldId)) ||
-          !(await db.worldProfiles
-            .where("[worldId+characterId]")
-            .equals([worldId, characterId])
-            .first()))
-      )
-        throw Error("请先关联此世界与角色。");
-      const scopeKey = JSON.stringify([
-        characterId,
-        worldId ? "world" : "daily",
-        worldId || "",
-      ]);
-      let c = await db.conversations.where("scopeKey").equals(scopeKey).first();
-      if (!c) {
-        const now = Date.now();
-        c = {
-          id: crypto.randomUUID(),
-          scopeKey,
-          characterId,
-          mode: worldId ? "world" : "daily",
-          ...(worldId ? { worldId } : {}),
-          createdAt: now,
-          updatedAt: now,
-        };
-        await db.conversations.add(c);
-      }
-      return c;
-    },
-  );
+  const scopeKey=JSON.stringify([characterId,worldId?"world":"daily",worldId||""]);
+  // Existing conversations are overwhelmingly the hot path. Opening one must
+  // not acquire a write transaction across four unrelated object stores.
+  const existing=await db.conversations.where("scopeKey").equals(scopeKey).first();
+  if(existing){
+    if(!(await db.characters.get(characterId)))throw Error("角色不存在。");
+    if(worldId&&(!(await db.worlds.get(worldId))||!(await db.worldProfiles.where("[worldId+characterId]").equals([worldId,characterId]).first())))
+      throw Error("请先关联此世界与角色。");
+    return existing;
+  }
+  // Only creation needs an atomic write transaction. Recheck inside the
+  // transaction so concurrent navigation never creates duplicate scopes.
+  return db.transaction("rw",[db.conversations,db.characters,db.worlds,db.worldProfiles],async()=>{
+    if(!(await db.characters.get(characterId)))throw Error("角色不存在。");
+    if(worldId&&(!(await db.worlds.get(worldId))||!(await db.worldProfiles.where("[worldId+characterId]").equals([worldId,characterId]).first())))
+      throw Error("请先关联此世界与角色。");
+    const current=await db.conversations.where("scopeKey").equals(scopeKey).first();
+    if(current)return current;
+    const now=Date.now();
+    const created:Conversation={id:crypto.randomUUID(),scopeKey,characterId,mode:worldId?"world":"daily",...(worldId?{worldId}:{}),createdAt:now,updatedAt:now};
+    await db.conversations.add(created);
+    return created;
+  });
 }
 export async function resolveApi(c: Conversation) {
   const character = await db.characters.get(c.characterId);
