@@ -26,7 +26,9 @@ export function loreScanMessages(raw: LoreEntry, book: Lorebook, history: Messag
     return latest ? [latest] : [];
   }
   // Window first, then role filtering: scanDepth remains a message count, not user-turn count.
-  return history.slice(-(e.scanDepth ?? book.scanDepth)).filter(m=>m.role === "user" || (e.scanAssistant && m.role === "assistant"));
+  const depth = Math.max(0, Math.min(loreLimits.scanMessages, Math.trunc(e.scanDepth ?? book.scanDepth) || 0));
+  if (depth === 0) return [];
+  return history.slice(-depth).filter(m=>m.role === "user" || (e.scanAssistant && m.role === "assistant"));
 }
 function scanBuffer(messages: Message[], foldCase = false) {
   let text = "";
