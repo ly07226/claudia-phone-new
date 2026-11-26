@@ -38,7 +38,7 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
   if(source.verno<7){source.close();source.version(7).stores(storySchemas);await source.open();}
   if(source.verno<8){source.close();source.version(8).stores({summaryLeases:'name,expiresAt'});await source.open();}
   if(source.verno<9){source.close();source.version(9).stores({stickerMeta:'id,group,lastUsed',stickerImages:'id'});await source.open();}
-  if(source.verno<10){source.close();source.version(10).stores({snapshotVersions:'key,conversationId,identity,[conversationId+identity]'});await source.open();}
+  if(source.verno<10){source.close();source.version(10).stores({snapshotVersions:'key,conversationId,identity,[conversationId+identity]',summaryLeases:'name,expiresAt'});await source.open();}
 
     ensure(options.story||options.desktop||options.identities||options.api,'请至少选择一项导入范围。');
     ensure(options.keys==='none'||(options.api&&checked.report.credentials!=='excluded'),'导入密钥必须选择 API 范围且备份确实包含加密凭据。');
