@@ -26,12 +26,21 @@ function startScheduler(){
   finally{running=false;if(queued&&!stopped){queued=false;wake();}}
  };
  const wake=()=>{if(running){queued=true;return;}void scan();};
+ // Event-driven wake: a completed AI reply should be eligible immediately.
+ // Periodic scan remains a fallback for restored foreground sessions.
+ const onReplyCommitted=()=>wake();
+ window.addEventListener('claudia:assistant-reply-committed',onReplyCommitted);
  const timer=setInterval(wake,60000);
  window.addEventListener('online',wake);
  window.addEventListener('pageshow',wake);
  document.addEventListener('visibilitychange',wake);
  wake();
- return {wake,stop:()=>{stopped=true;clearInterval(timer);window.removeEventListener('online',wake);window.removeEventListener('pageshow',wake);document.removeEventListener('visibilitychange',wake);}};
+ return {wake,stop:()=>{stopped=true;clearInterval(timer);window.removeEventListener('claudia:assistant-reply-committed',onReplyCommitted);window.removeEventListener('online',wake);window.removeEventListener('pageshow',wake);document.removeEventListener('visibilitychange',wake);}};
 }
 
 export function installMemorySummaryScheduler(){return acquireAutomationScheduler('memory',startScheduler);}
+
+/** Call after the assistant reply has been committed to the local timeline. */
+export function notifyAssistantReplyCommitted(){
+ if(typeof window!=='undefined')window.dispatchEvent(new Event('claudia:assistant-reply-committed'));
+}
