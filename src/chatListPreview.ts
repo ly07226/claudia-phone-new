@@ -13,7 +13,7 @@ export async function chatListPreviews(characterIds: string[], worldId?: string,
   const selected=conversations.filter((c,index)=>conversations.findIndex(row=>row.characterId===c.characterId)===index);
   // Each conversation is an independent read unit: one broken timeline must
   // never prevent other contacts from rendering their previews.
-  const entries=await Promise.all(selected.map(async c=>{
+  const readOne=async(c:typeof selected[number])=>{
     try{
       let last:ReturnType<typeof visibleMessage>|undefined;
       if(c.activeTimelineId){const m=await latestTimelineMessage(c);if(m)last=visibleMessage(m);}
@@ -24,9 +24,20 @@ export async function chatListPreviews(characterIds: string[], worldId?: string,
       console.warn('Chat preview unavailable for conversation',c.id,error);
       return {characterId:c.characterId,preview:{conversationId:c.id,remark:c.chatSettings?.remark,pinned:c.chatSettings?.pinned,pinnedAt:c.chatSettings?.pinnedAt,unread:!!c.chatSettings?.proactiveUnreadAt,content:'预览暂不可用'} as ChatPreview};
     }
-  }).then(entry=>{onPreview?.(entry.characterId,entry.preview);return entry;}));
+  };
+  // Bounded workers avoid flooding IndexedDB with one concurrent transaction
+  // per contact while still allowing each completed contact to appear.
   const result:Record<string,ChatPreview>={};
-  for(const {characterId,preview} of entries)if(!result[characterId])result[characterId]=preview;
+  let next=0;
+  const workers=Array.from({length:Math.min(4,selected.length)},async()=>{
+    while(next<selected.length){
+      const c=selected[next++];
+      const {characterId,preview}=await readOne(c);
+      result[characterId]=preview;
+      onPreview?.(characterId,preview);
+    }
+  });
+  await Promise.all(workers);
   return result;
 }
 export function chatPreviewTime(timestamp: number) {
