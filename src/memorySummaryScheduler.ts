@@ -18,8 +18,9 @@ function startScheduler(){
    for(const c of conversations){
     if(stopped||document.hidden||!navigator.onLine)break;
     if(!c.memorySummary?.enabled)continue;
-    // Never block normal chat or wait for a remote request in this scan.
-    await tryAutoSummary(c.id,()=>!stopped).catch(()=>{});
+    // Launch eligible work without serially blocking the sweep on one chat.
+    // The summary engine owns per-conversation exclusion and persistence.
+    void tryAutoSummary(c.id,()=>!stopped).catch(()=>{});
     if((c.memorySummary?.receipts.length??0)>=5)void enqueueCoreMemory(await getMemoryScope(c.id),()=>!stopped);
    }
   }catch{/* Keep chat functional if local storage is unavailable. */}
