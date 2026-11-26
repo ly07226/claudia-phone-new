@@ -59,6 +59,8 @@ export function Chat({ worldId }: { worldId?: string }) {
   const s = usePhone();
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  // Preserve the last rendered bubbles across navigation; never reread them just to enter.
+  const recentChatCache=useRef(new Map<string,{conversation:Conversation;rows:Message[];snapshot:{key:string;revision:number;rows:Message[]}|null}>());
   // Only an already opted-in cloud device reports foreground chat presence.
   // No login prompt, no automatic anonymous signup for ordinary local chats.
   useEffect(()=>{
@@ -397,16 +399,18 @@ export function Chat({ worldId }: { worldId?: string }) {
   }, [feedback]);
   async function open(id: string) {
     const navigation = ++taskSequence.current;
-    // Show navigation feedback synchronously, before any IndexedDB query.
-    setOpeningCharacter(id);
+    // Reopen the existing view with its last rendered bubbles immediately.
+    const cached=recentChatCache.current.get(id);
+    setOpeningCharacter(null);
     setError("");
-    appliedSnapshot.current=null;
+    appliedSnapshot.current=cached?.snapshot??null;
     displayFullyLoaded.current=false;
     displayHasMore.current=false;
     displayCursor.current=undefined;
     pendingQuoteJump.current=null;
-    setMessages([]);
-    setOpeningMessages(true);
+    setMessages(cached?.rows??[]);
+    setOpeningMessages(!cached);
+    if(cached){activeConversation.current=cached.conversation.id;setConversation(cached.conversation);}
     setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
     setReplyPresentation(null);
     try {
@@ -572,6 +576,11 @@ export function Chat({ worldId }: { worldId?: string }) {
     }
   }
   function leaveConversation() {
+    if(conversation){
+      recentChatCache.current.set(conversation.characterId,{conversation,rows:messages,snapshot:appliedSnapshot.current});
+      // Bound memory usage while retaining the most recently visited conversations.
+      if(recentChatCache.current.size>8)recentChatCache.current.delete(recentChatCache.current.keys().next().value!);
+    }
     appliedSnapshot.current=null;
     pendingQuoteJump.current=null;
     setSelection(undefined);
@@ -679,7 +688,7 @@ export function Chat({ worldId }: { worldId?: string }) {
             </div>
           )}
   </>);
-  if(!conversation&&!worldId&&!openingCharacter)return <ChatHub characters={characters} applications={applications.length} onOpen={id=>void open(id)} onRequests={()=>setRequests(true)} chats={<>
+  if(!conversation&&!worldId)return <ChatHub characters={characters} applications={applications.length} onOpen={id=>void open(id)} onRequests={()=>setRequests(true)} chats={<>
     <label className="chat-search"><Search size={20} aria-hidden="true"/><input type="search" aria-label="搜索聊天" placeholder="搜索聊天…" value={search} onChange={e=>setSearch(e.target.value)} autoComplete="off"/>{search&&<button type="button" aria-label="清空聊天搜索" onClick={()=>setSearch('')}><X size={18}/></button>}</label>
 {applications.length>0&&<button className="friend-requests-entry" onClick={()=>setRequests(true)}>新的好友申请 <span>{applications.length}</span></button>}{listContent}{error&&<p role="alert">{error}</p>}</>}/>;
   return (
