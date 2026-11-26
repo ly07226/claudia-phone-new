@@ -693,9 +693,16 @@ export function Chat({ worldId }: { worldId?: string }) {
               followBottom.current =
                 el.scrollHeight - el.scrollTop - el.clientHeight < 64;
               historyWindow.onScroll();
-              if(el.scrollTop<240&&displayHasMore.current&&!displayPaging.current)void loadOlderDisplayMessages();
+              // Older pages are loaded explicitly from the history capsule.
             }}
           >
+            {displayHasMore.current&&!displayFullyLoaded.current&&(
+              <div className="chat-history-load-more">
+                <button type="button" className="chat-history-load-capsule" onClick={()=>void loadOlderDisplayMessages()}>
+                  点击查看历史记录
+                </button>
+              </div>
+            )}
             {!messages.length && (
               <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
             )}
