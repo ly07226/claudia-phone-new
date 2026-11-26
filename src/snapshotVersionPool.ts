@@ -11,6 +11,8 @@ function canonical(value: unknown): unknown {
 
 export interface SnapshotVersionRecord {
   key: string;
+  conversationId: string;
+  identity: string;
   variant: MessageVariant;
 }
 
@@ -29,7 +31,7 @@ export function internSnapshotVersions(variants: readonly MessageVariant[], pool
       return existing;
     }
     const key = crypto.randomUUID();
-    pool.set(key, { key, variant: structuredClone(variant) });
+    pool.set(key, { key, conversationId: variant.conversationId, identity, variant: structuredClone(variant) });
     identities.set(identity, key);
     return key;
   });
