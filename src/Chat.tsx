@@ -295,8 +295,9 @@ export function Chat({ worldId }: { worldId?: string }) {
   }
   async function revealFullHistory(id:string){
    if(displayFullyLoaded.current)return;
+   const scope=visiblePath.current;
    const rows=await activeMessages(id,undefined,true);
-   if(activeConversation.current!==id)return;
+   if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch)return;
    displayFullyLoaded.current=true;
    displayHasMore.current=false;
    displayCursor.current=undefined;
