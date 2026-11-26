@@ -53,3 +53,22 @@ test('v9 大段文字分块备份必须实际压缩并完整恢复贴纸与全�
   expect(result.sticker).toBe(true);
   expect(result.progress).toBe(true);
 });
+
+
+test('ZIP 数据条目必须实际使用 DEFLATE，而非只将 4MiB 原文存储进容器',async({page})=>{
+  await seed(page);
+  const result=await page.evaluate(async()=>{
+    const {createZipBackup}=await import('/src/backupZip.ts');
+    const {ZipReader,BlobReader}=await import('@zip.js/zip.js');
+    const file=await createZipBackup({closedOtherClients:true});
+    const reader=new ZipReader(new BlobReader(file));
+    try{
+      const entries=await reader.getEntries();
+      const payload=entries.filter(e=>e.filename.endsWith('.cphone'));
+      return {payload:payload.length,methods:payload.map(e=>e.compressionMethod),compressed:payload.some(e=>e.compressedSize<e.uncompressedSize)};
+    }finally{await reader.close();}
+  });
+  expect(result.payload).toBeGreaterThan(0);
+  expect(result.methods.every(x=>x===8)).toBe(true);
+  expect(result.compressed).toBe(true);
+});
