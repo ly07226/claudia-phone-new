@@ -92,6 +92,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const enterGuard = useRef(createEnterSendGuard());
   const [previewState, setPreviews] = useState<{scope: string; rows: Record<string, ChatPreview>}>({scope: "", rows: {}});
   const [error, setError] = useState("");
+  const [openingMessages,setOpeningMessages]=useState(false);
   const [localBusy, setBusy] = useState(false);
   const generationTask=useGenerationTask(conversation?.id);
   const [leaseClock,setLeaseClock]=useState(Date.now());
@@ -402,6 +403,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     displayCursor.current=undefined;
     pendingQuoteJump.current=null;
     setMessages([]);
+    setOpeningMessages(true);
     setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
     setReplyPresentation(null);
     try {
@@ -416,7 +418,13 @@ export function Chat({ worldId }: { worldId?: string }) {
       // Keep the existing snapshot loader as the source of visible messages;
       // this does not truncate stored history or change generation context.
       setConversation(c);
-      await refresh(c.id, true);
+      // Do not block navigation or API readiness on slow IndexedDB history.
+      // The view remains mounted with an explicit loading/error state.
+      void refresh(c.id, true).catch(()=>{
+        if(activeConversation.current===c.id)setError("聊天记录读取失败，请返回后重试；本地历史未删除。");
+      }).finally(()=>{
+        if(activeConversation.current===c.id)setOpeningMessages(false);
+      });
       try {
         await resolveApi(c);
       } catch (e) {
@@ -424,8 +432,10 @@ export function Chat({ worldId }: { worldId?: string }) {
           setError(e instanceof Error ? e.message : "无法读取 API。");
       }
     } catch {
-      if (navigation === taskSequence.current)
+      if (navigation === taskSequence.current){
+        setOpeningMessages(false);
         setError("无法打开会话，请检查本地存储与角色关联。");
+      }
     }
   }
   async function runGeneration(
@@ -573,6 +583,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     setConversation(null);
     setReplyTo(null);
     setMessages([]);
+    setOpeningMessages(false);
     setText("");
     setError("");
     setFeedback("");
@@ -712,7 +723,8 @@ export function Chat({ worldId }: { worldId?: string }) {
                 </button>
               </div>
             )}
-            {!messages.length && (
+            {openingMessages&&!messages.length&&<p className="hint" role="status">正在读取最近聊天记录…</p>}
+            {!openingMessages&&!messages.length&&!error&&(
               <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
             )}
             <div data-history-spacer="" aria-hidden="true" style={{height:historyWindow.top,padding:0,margin:0,border:0,flexShrink:0,pointerEvents:'none'}}/>
