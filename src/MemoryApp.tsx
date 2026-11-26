@@ -45,14 +45,14 @@ function MemoryPanel({scope}:{scope:MemoryScope}){
  const goBack=()=>{setEditor(undefined);setHistory(undefined);setRemove(undefined);if(view==='detail')setView(selected?.kind==='long'?'long':'core');else setView('home');};
  return <section aria-label="角色记忆" className="memory-panel">
  <p className="memory-scope">{scope.mode==='daily'?'日常记忆 · 持续积累，不按剧情分支拆分':'剧情记忆 · 当前有效时间线（继承共同过去，独立积累未来）'}</p>
- <div className="memory-nav-head">{view!=='home'&&<button type="button" aria-label="返回记忆首页" onClick={goBack}><ChevronLeft size={20}/></button>}{(['core','long','short'] as string[]).includes(view)&&<button type="button" disabled={busy||loading} onClick={()=>{clearRevision.current={store:revision,summary:short?.summaryRevision??0};setClearKind(view as 'core'|'long'|'short');}}>清空当前分类</button>}<h3>{view==='home'?'记忆卡片':view==='core'?'核心记忆':view==='long'?'长期记忆':view==='summary'?'自动记忆总结':view==='short'?'短期记忆':view==='time'?'智能时间记忆':'记忆详情'}</h3>{(view==='core'||view==='long')&&<button type="button" aria-label="添加记忆" title="添加记忆" onClick={()=>{if(view==='core'){setAddChoice(v=>!v);return;}setEditor({kind:view,text:'',revision});setSelectedId(undefined);setHistory(undefined);setRemove(undefined);}}><Plus size={20}/></button>}</div>
+ <div className="memory-nav-head">{view!=='home'&&<button type="button" aria-label="返回记忆首页" onClick={goBack}><ChevronLeft size={20}/></button>}{(['core','long','short'] as string[]).includes(view)&&<button type="button" disabled={busy||loading} onClick={()=>{clearRevision.current={store:revision,summary:short?.summaryRevision??0};setClearKind(view as 'core'|'long'|'short');}}>清空当前分类</button>}<h3>{view==='home'?'记忆卡片':view==='core'?'核心记忆':view==='long'?'长期记忆':view==='summary'?'自动记忆':view==='short'?'短期记忆':view==='time'?'智能时间记忆':'记忆详情'}</h3>{(view==='core'||view==='long')&&<button type="button" aria-label="添加记忆" title="添加记忆" onClick={()=>{if(view==='core'){setAddChoice(v=>!v);return;}setEditor({kind:view,text:'',revision});setSelectedId(undefined);setHistory(undefined);setRemove(undefined);}}><Plus size={20}/></button>}</div>
  {!!categorized.legacy&&<p role="status">{categorized.legacy} 条旧版自动记忆缺少来源绑定，仍可查看和编辑；核对后保存为手动记忆即可确认。</p>}
  {loading&&<p role="status">正在读取…</p>}{error&&<p role="alert">{error}<button disabled={busy} onClick={()=>{setLoading(true);setReload(n=>n+1);}}>重新读取</button></p>}
  {view==='home'&&<div className="memory-home-links">
- <button onClick={()=>setView('short')}><BookOpen size={22}/><span><strong>短期记忆</strong><small>近期重要事件、约定与关系变化 · 自动总结后更新</small></span><ChevronRight size={18}/></button>
- <button onClick={()=>openList('core')}><Heart size={22}/><span><strong>核心记忆</strong><small>重要事件、深度交流与智能时间记忆 · {categorized.core.length}条</small></span><ChevronRight size={18}/></button>
- <button onClick={()=>openList('long')}><BookOpen size={22}/><span><strong>长期记忆</strong><small>人物背景、经历与持续性信息 · {categorized.long.length}条</small></span><ChevronRight size={18}/></button>
- <button onClick={()=>setView('summary')}><Sparkles size={22}/><span><strong>自动记忆总结</strong><small>一级总结、二级总结、专用 API</small></span><ChevronRight size={18}/></button>
+ <button onClick={()=>setView('short')}><BookOpen size={22}/><span><strong>近期事件</strong><small>自动整理的最近经历与约定</small></span><ChevronRight size={18}/></button>
+ <button onClick={()=>openList('core')}><Heart size={22}/><span><strong>核心记忆</strong><small>稳定事实与重要关系 · {categorized.core.length}条</small></span><ChevronRight size={18}/></button>
+ <button onClick={()=>openList('long')}><BookOpen size={22}/><span><strong>长期记忆</strong><small>过去的经历与关系进展 · {categorized.long.length}条</small></span><ChevronRight size={18}/></button>
+ <button onClick={()=>setView('summary')}><Sparkles size={22}/><span><strong>自动记忆</strong><small>自动运行状态与 API 设置</small></span><ChevronRight size={18}/></button>
 
  </div>}
  {view==='summary'&&<><MemorySummarySettings scope={scope}/><button type="button" className="memory-list-entry" onClick={()=>setView('short')}>查看短期记忆与近期事件摘要 <ChevronRight size={18}/></button></>}
@@ -71,12 +71,12 @@ function MemoryPanel({scope}:{scope:MemoryScope}){
  {history&&<section className="memory-history" aria-label="记忆历史版本"><h3>历史版本</h3><button onClick={()=>setHistory(undefined)}>关闭历史</button>{history.map(e=><article key={e.revision}><small>修订 {e.revision} · {e.source==='manual'?'手动 · 已保护':'自动总结'} · {new Date(e.updatedAt).toLocaleString()}</small><p>{e.deleted?'已删除（局部删除标记）':e.content}</p></article>)}</section>}
  {view==='short'&&<>
  <p className="memory-scope">展示已完成总结中最近的重要事件。不会因打开页面额外调用模型；原始聊天始终保留。清空只停止当前范围的短期摘要展示与注入。</p>
- {!loading&&!short?.summaries?.length&&<p className="memory-empty">暂无已完成的事件摘要。可在自动总结设置中查看进度或主动总结。</p>}
+ {!loading&&!short?.summaries?.length&&<p className="memory-empty">暂无近期事件。正常聊天达到总结条件后会自动整理。</p>}
  {short?.summaries?.map(item=><article className="memory-card" key={item.id}>
  <div className="memory-meta"><span>自动总结 · {new Date(item.createdAt).toLocaleString()}</span></div><IntervalSummaryText text={item.text}/>
  <details><summary>查看来源 · {item.turns.length} 轮对话</summary><p>当前角色与记忆空间；来源节点：{item.throughNodeId}</p><small>来源消息：{item.turns.flatMap(t=>[...t.userIds,t.assistantId]).join('、')}</small></details>
  </article>)}
- <button onClick={()=>setView('summary')}>自动总结设置与进度</button>
+ <button onClick={()=>setView('summary')}>自动记忆设置</button>
  </>}
  </section>;
 }
