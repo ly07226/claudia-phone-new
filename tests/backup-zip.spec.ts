@@ -18,3 +18,38 @@ for(const width of [375,390,430])test(`ZIP手机流程 ${width}px：单次保存
 test('加密开关只保护数据不选择Key，密码确认必需，主界面支持加密ZIP读回',async({page})=>{await seed(page);await screen(page);await page.getByRole('switch',{name:'加密保护',exact:true}).check();await page.getByLabel('备份加密密码',{exact:true}).fill('long UI fixture password');await page.getByLabel('再次输入密码',{exact:true}).fill('different password');await page.getByRole('button',{name:'导出备份',exact:true}).click();await expect(page.getByRole('alert')).toContainText('两次输入一致');await page.getByLabel('再次输入密码',{exact:true}).fill('long UI fixture password');page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'导出备份',exact:true}).click();await expect(page.getByRole('button',{name:'保存或分享备份',exact:true})).toBeEnabled();await expect(page.getByLabel('备份加密密码',{exact:true})).toHaveValue('');const download=page.waitForEvent('download');await page.getByRole('link',{name:'直接下载 ZIP',exact:true}).click();const d=await download;await page.getByLabel('选择 ZIP 备份',{exact:true}).setInputFiles({name:d.suggestedFilename(),mimeType:'application/zip',buffer:await readFile((await d.path())!)});await expect(page.getByLabel('解密备份密码',{exact:true})).toBeVisible();await page.getByLabel('解密备份密码',{exact:true}).fill('wrong');await page.getByRole('button',{name:'验证加密备份',exact:true}).click();await expect(page.getByRole('alert')).toContainText('密码');await page.getByLabel('解密备份密码',{exact:true}).fill('long UI fixture password');await page.getByRole('button',{name:'验证加密备份',exact:true}).click();await expect(page.getByRole('region',{name:'校验报告'})).toContainText('备份已验证');});
 test('多份内部数据完整封装，内容摘要不匹配即拒绝，自动取消不返回半份文件',async({page})=>{await seed(page);const r=await page.evaluate(async()=>{const {db}=await import('/src/store.ts');const {newBook,newEntry}=await import('/src/loreTypes.ts');const book=newBook('容量测试');await db.lorebooks.put(book);await db.loreEntries.put({...newEntry(book.id),content:'X'.repeat(5*1024*1024)});const {createZipBackup,readBackupZip}=await import('/src/backupZip.ts');const {readBackup}=await import('/src/backupService.ts');const before=JSON.stringify(await Promise.all(db.tables.map(t=>t.toArray())));const zip=await createZipBackup({closedOtherClients:true}),files=await readBackupZip(zip),m=JSON.parse(await files.find(f=>f.name.endsWith('.manifest.json'))!.text());const checked=await readBackup(files,{mode:'verify'});await checked.dispose();const part=files.find(f=>f.name.endsWith('.cphone'))!,mutated=new Uint8Array(await part.arrayBuffer());mutated[10]^=1;const altered=files.map(f=>f===part?new File([mutated],part.name):f);let integrity=false;try{await readBackup(altered,{mode:'rehearse'});}catch{integrity=true;}const c=new AbortController();let cancelled=false;try{await createZipBackup({closedOtherClients:true,signal:c.signal,onProgress:p=>{if(p.phase==='正在打包')c.abort();}});}catch{cancelled=true;}return {parts:m.parts.length,files:files.length,integrity,cancelled,unchanged:before===JSON.stringify(await Promise.all(db.tables.map(t=>t.toArray())))};});expect(r.parts).toBeGreaterThan(1);expect(r.files).toBe(r.parts+1);expect(r.integrity).toBe(true);expect(r.cancelled).toBe(true);expect(r.unchanged).toBe(true);});
 test('拒绝弱加密声明；分享取消不会声称已保存',async({page})=>{await seed(page);const r=await page.evaluate(async()=>{const {ZipWriter,BlobWriter,BlobReader}=await import('/tests/zipFixture.ts');const {inspectBackupZip}=await import('/src/backupZip.ts');const w=new ZipWriter(new BlobWriter('application/zip'),{useWebWorkers:false,level:0,zip64:false});await w.add('backup-info.json',new BlobReader(new Blob([JSON.stringify({format:'claudia-phone-zip',version:1,encryption:'winzip-aes-256',payloadFormat:'claudia-phone-backup'})])));await w.add('fake.manifest.json',new BlobReader(new Blob(['{}'])),{password:'fixture password',encryptionStrength:1});let rejected=false;try{await inspectBackupZip(new File([await w.close()],'weak.zip'));}catch{rejected=true;}return rejected;});expect(r).toBe(true);await screen(page);page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'导出备份',exact:true}).click();await expect(page.getByRole('button',{name:'保存或分享备份',exact:true})).toBeEnabled();await page.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>true});Object.defineProperty(navigator,'share',{configurable:true,value:async()=>{throw new DOMException('cancelled','AbortError');}});});await page.getByRole('button',{name:'保存或分享备份',exact:true}).click();await expect(page.getByRole('alert')).toContainText('已取消保存或分享');await expect(page.getByRole('status')).not.toContainText('安全保存');});
+
+
+test('v9 大段文字分块备份必须实际压缩并完整恢复贴纸与全部聊天',async({page})=>{
+  await seed(page);
+  const result=await page.evaluate(async()=>{
+    const {db}=await import('/src/store.ts');
+    const {createZipBackup,readBackupZip}=await import('/src/backupZip.ts');
+    const {readBackup}=await import('/src/backupService.ts');
+    const c=await db.conversations.where('characterId').equals('zip-char').first();
+    if(!c)throw Error('missing seeded conversation');
+    const body='连续对话原文测试。'.repeat(500);
+    const rows=Array.from({length:120},(_,i)=>({id:'bulk-text-'+i,conversationId:c.id,role:'user' as const,content:body+'序号'+i,createdAt:100+i}));
+    await db.messages.bulkPut(rows);
+    await db.stickerMeta.put({id:'backup-sticker',group:'test',lastUsed:1});
+    await db.stickerImages.put({id:'backup-sticker',data:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='});
+    const progress:string[]=[];
+    const zip=await createZipBackup({closedOtherClients:true,onProgress:p=>progress.push(p.phase)});
+    const files=await readBackupZip(zip);
+    const manifest=JSON.parse(await files.find(f=>f.name.endsWith('.manifest.json'))!.text());
+    const raw=manifest.parts.reduce((sum:number,p:{bytes:number})=>sum+p.bytes,0);
+    const check=await readBackup(files,{mode:'rehearse'});
+    try{
+      const {verifiedCandidate}=await import('/src/backupService.ts');
+      const candidate=verifiedCandidate(check);
+      const messages=await candidate.table('messages').where('conversationId').equals(c.id).toArray();
+      const sticker=await candidate.table('stickerImages').get('backup-sticker');
+      return {size:zip.size,raw,compressed:zip.size<raw/2,full:rows.every(row=>messages.some(m=>m.id===row.id&&m.content===row.content)),sticker:!!sticker,manifest:manifest.schemaVersion,progress:progress.some(x=>x.includes('压缩完成'))};
+    }finally{await check.dispose();}
+  });
+  expect(result.manifest).toBe(9);
+  expect(result.compressed).toBe(true);
+  expect(result.full).toBe(true);
+  expect(result.sticker).toBe(true);
+  expect(result.progress).toBe(true);
+});
