@@ -159,7 +159,12 @@ export function planLore(candidates:LoreCandidate[],history:Message[],remainingB
     // then places their content in the selected prompt slot. Keep passage
     // retrieval for oversized entries rather than silently disabling a
     // persistent rule solely because the entire entry cannot fit.
-    const effective={...entry,content:retrieveLorePassages(entry.content,history,Math.max(0,available-2))};
+    // Persistent instructions are indivisible: extracting a keyword-matched
+    // sentence can drop a nearby prohibition or exception and invert the rule.
+    // Optional reference entries may still use passage retrieval.
+    const effective={...entry,content:entry.constant
+      ? (entry.content.length+2<=available?entry.content:'')
+      : retrieveLorePassages(entry.content,history,Math.max(0,available-2))};
     const cost=effective.content.length+2,bookUsed=used.get(book.id)||0;
     if(!effective.content.trim()){d.reason="context-budget";continue;}
     if(entry.constant && total+cost>remainingBudget) {
