@@ -98,7 +98,7 @@ export async function readTimelineDisplayPage(
    // a page boundary, because the compound index has no message-id tie breaker.
    const upper=boundary?boundary.createdAt:Infinity;
    const query=db.messages.where('[conversationId+createdAt]')
-    .between([conversationId,Dexie.minKey],[conversationId,upper],true,true)
+    .between([conversationId,Dexie.minKey],[conversationId,upper],false,false)
     .reverse();
    const selected:Message[]=[];
    let cutoff:number|undefined;
