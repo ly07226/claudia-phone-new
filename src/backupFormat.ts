@@ -18,12 +18,13 @@ export const legacyBackupSchemas = {
   conversationSnapshots: "id,conversationId,createdAt",
 } as const;
 export const v6BackupSchemas = {...legacyBackupSchemas, timelines:"id,conversationId,parentTimelineId",pathNodes:"id,conversationId,[conversationId+parentNodeId+fingerprint]"} as const;
-export const backupSchemas = {...v6BackupSchemas,...storySchemas} as const;
-export const schemasForVersion=(version:5|6|7)=>version===5?legacyBackupSchemas:version===6?v6BackupSchemas:backupSchemas;
+export const v7BackupSchemas = {...v6BackupSchemas,...storySchemas} as const;
+export const backupSchemas = {...v7BackupSchemas,stickerMeta:'id,group,lastUsed',stickerImages:'id'} as const;
+export const schemasForVersion=(version:5|6|7|9)=>version===5?legacyBackupSchemas:version===6?v6BackupSchemas:version===7?v7BackupSchemas:backupSchemas;
 export type BackupTable = keyof typeof backupSchemas;
 export const backupTables = Object.keys(backupSchemas) as BackupTable[];
 /** V8 adds only ephemeral summary leases. Archive payload stays persistent v7. */
-export function supportedDataSchema(d:{verno:number;backendDB:()=>IDBDatabase}){const native=d.backendDB();const names=[...native.objectStoreNames].sort().join();return d.verno===7&&native.version===70&&names===[...backupTables].sort().join()||d.verno===8&&native.version===80&&names===[...backupTables,'summaryLeases'].sort().join();}
+export function supportedDataSchema(d:{verno:number;backendDB:()=>IDBDatabase}){const native=d.backendDB();const names=[...native.objectStoreNames].sort().join();return (d.verno===7&&native.version===70&&names===[...Object.keys(v7BackupSchemas)].sort().join())||(d.verno===8&&native.version===80&&names===[...Object.keys(v7BackupSchemas),'summaryLeases'].sort().join())||(d.verno===9&&native.version===90&&names===[...backupTables,'summaryLeases'].sort().join());}
 export const backupLimits = {
   partBytes: 4 * 1024 * 1024,
   recordBytes: 16 * 1024 * 1024,
@@ -316,8 +317,8 @@ export interface BackupManifest {
   version: 1 | 2 | 3;
   codec: 1;
   backupId: string;
-  schemaVersion: 5 | 6 | 7;
-  nativeVersion: 50 | 60 | 70;
+  schemaVersion: 5 | 6 | 7 | 9;
+  nativeVersion: 50 | 60 | 70 | 90;
   createdAt: string;
   snapshotCompletedAt: string;
   coordination: string;
