@@ -187,7 +187,7 @@ class PhoneDB extends Dexie {
     this.version(9).stores({stickerMeta:'id,group,lastUsed',stickerImages:'id'}).upgrade(async tx=>{const row=await tx.table('themes').get('sticker-library');if(!row?.stickers)return;for(const {data,...meta} of row.stickers){await tx.table('stickerMeta').put(meta);await tx.table('stickerImages').put({id:meta.id,data});}await tx.table('themes').delete('sticker-library');});
 
     // Additive v10: preserve legacy snapshots and introduce shared version records.
-    this.version(10).stores({snapshotVersions:'key,conversationId,identity'});
+    this.version(10).stores({snapshotVersions:'key,conversationId,identity,[conversationId+identity]'});
   }
 }
 export const db = new PhoneDB();
