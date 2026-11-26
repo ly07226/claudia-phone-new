@@ -28,7 +28,14 @@ function startScheduler(){
  const wake=()=>{if(running){queued=true;return;}void scan();};
  // Event-driven wake: a completed AI reply should be eligible immediately.
  // Periodic scan remains a fallback for restored foreground sessions.
- const onReplyCommitted=()=>wake();
+ const onReplyCommitted=(event:Event)=>{
+  const id=(event as CustomEvent<{conversationId?:string}>).detail?.conversationId;
+  // Only inspect the conversation whose reply was committed. The periodic
+  // foreground sweep still catches interrupted or previously pending work.
+  if(id&&!stopped&&!document.hidden&&navigator.onLine){
+   void tryAutoSummary(id,()=>!stopped).catch(()=>{});
+  }else wake();
+ };
  window.addEventListener('claudia:assistant-reply-committed',onReplyCommitted);
  const timer=setInterval(wake,60000);
  window.addEventListener('online',wake);
@@ -41,6 +48,6 @@ function startScheduler(){
 export function installMemorySummaryScheduler(){return acquireAutomationScheduler('memory',startScheduler);}
 
 /** Call after the assistant reply has been committed to the local timeline. */
-export function notifyAssistantReplyCommitted(){
- if(typeof window!=='undefined')window.dispatchEvent(new Event('claudia:assistant-reply-committed'));
+export function notifyAssistantReplyCommitted(conversationId:string){
+ if(typeof window!=='undefined')window.dispatchEvent(new CustomEvent('claudia:assistant-reply-committed',{detail:{conversationId}}));
 }
