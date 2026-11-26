@@ -267,9 +267,11 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
     const savedNodes = linked ? await nodesForHead(id, s.headNodeId) : undefined;
     const messages = linked ? savedNodes!.map(n => ({...n.message, archived:false})) : s.messages ?? [];
     const versionRows = linked ? await db.snapshotVersions.bulkGet(s.versionKeys ?? []) : undefined;
-    if (linked && (!s.versionKeys || versionRows!.some((row,i) => !row || row.key !== s.versionKeys![i] || row.conversationId !== id))) throw Error("快照版本引用缺失。");
+    if (linked && (!s.versionKeys || versionRows!.some((row,i) => !row || row.key !== s.versionKeys![i] || row.conversationId !== id || snapshotVersionIdentity(row.variant) !== row.identity))) throw Error("快照版本引用缺失或内容损坏。");
     const variants = linked ? versionRows!.map(row => structuredClone(row!.variant)) : s.variants ?? [];
     const ids = new Set(messages.map((m) => m.id));
+    if (linked && new Set(s.versionKeys).size !== s.versionKeys.length) throw Error("快照版本引用重复。");
+    if (linked && new Set(variants.map(v => v.id)).size !== variants.length) throw Error("快照版本 ID 重复。");
     if (
       messages.some((m) => m.conversationId !== id) ||
       variants.some((v) => v.conversationId !== id || !ids.has(v.messageId))
@@ -287,6 +289,14 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
         (existing.conversationId !== id || existing.messageId !== v.messageId)
       )
         throw Error("快照版本关联不合法。");
+    }
+    if (linked) {
+      const selected = new Map(variants.map(v => [v.id, v]));
+      for (const m of messages) {
+        if (!m.activeVariantId) continue;
+        const variant = selected.get(m.activeVariantId);
+        if (!variant || variant.messageId !== m.id) throw Error("快照当前候选版本引用损坏。");
+      }
     }
     if(s.timelineId){
       const source=await db.timelines.get(s.timelineId),c=await db.conversations.get(id);
