@@ -128,7 +128,24 @@ export interface LoreCandidate {entry:LoreEntry;book:Lorebook}
 export function planLore(candidates:LoreCandidate[],history:Message[],remainingBudget=loreLimits.promptChars,random:()=>number=Math.random,regex:Record<string,RegexHits>={}) {
   // Always-on instructions must be considered before optional keyword lore.
   // They are not constrained by the ordinary 4k-per-book / 8k-total lore budgets.
-  const sorted=candidates.map(c=>({...c,entry:normalizeEntry(c.entry)})).sort((a,b)=>Number(b.entry.constant)-Number(a.entry.constant) || b.entry.priority-a.entry.priority || a.entry.createdAt-b.entry.createdAt || (a.entry.id<b.entry.id?-1:a.entry.id>b.entry.id?1:0));
+  // Rotate equally ranked entries across books. Without this, a large first
+  // book can consume the entire shared prompt budget before later books run.
+  // Constant status and explicit priority still take precedence.
+  const ranked=candidates.map(c=>({...c,entry:normalizeEntry(c.entry)})).sort((a,b)=>Number(b.entry.constant)-Number(a.entry.constant) || b.entry.priority-a.entry.priority || a.entry.createdAt-b.entry.createdAt || (a.entry.id<b.entry.id?-1:a.entry.id>b.entry.id?1:0));
+  const sorted:typeof ranked=[];
+  for(let i=0;i<ranked.length;){
+    let j=i+1;
+    while(j<ranked.length && ranked[j].entry.constant===ranked[i].entry.constant && ranked[j].entry.priority===ranked[i].entry.priority)j++;
+    const byBook=new Map<string,typeof ranked>();
+    for(const candidate of ranked.slice(i,j)){
+      const bucket=byBook.get(candidate.book.id)??[];
+      bucket.push(candidate);byBook.set(candidate.book.id,bucket);
+    }
+    const buckets=[...byBook.values()];
+    for(let index=0;index<Math.max(...buckets.map(b=>b.length));index++)
+      for(const bucket of buckets)if(bucket[index])sorted.push(bucket[index]);
+    i=j;
+  }
   const selected:LoreEntry[]=[],diagnostics:LoreDiagnostic[]=[];
   const used=new Map<string,number>();let total=0,optionalTotal=0;
   for(const {entry,book} of sorted) {
