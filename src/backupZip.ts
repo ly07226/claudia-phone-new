@@ -112,6 +112,7 @@ export async function packBackupZip(snapshot:BackupExport,password?:string,signa
   const {ZipWriter,BlobReader}=await import('@zip.js/zip.js');const chunks:Blob[]=[];let size=0;
   const sink=new WritableStream<Uint8Array>({write(chunk){checkAbort(signal);size+=chunk.byteLength;checkZipSize(size);chunks.push(new Blob([chunk as Uint8Array<ArrayBuffer>]));}});
   const writer=new ZipWriter(sink,{...options,level:6,zip64:false});
+  const uncompressedBytes=manifest.size+snapshot.manifest.parts.reduce((total,p)=>total+p.bytes,0)+(portableWechat?.size??0);
   const inner=snapshot.manifest.credentials==='encrypted';
   const info:ZipInfo={format:'claudia-phone-zip',version:portableWechat?3:inner?2:1,encryption:inner?'aes-gcm-backup':password?'winzip-aes-256':'none',payloadFormat:'claudia-phone-backup',...(inner?{encryptionParameters:{cipher:'AES-256-GCM',kdf:'PBKDF2-SHA256',iterations:600000,authentication:'GCM-128 + HMAC-SHA256'}}:password?{encryptionParameters:{cipher:'AES-256-CTR',kdf:'PBKDF2-HMAC-SHA1',iterations:1000,authentication:'HMAC-SHA1-80'}}:{})};
   try{
@@ -120,7 +121,9 @@ export async function packBackupZip(snapshot:BackupExport,password?:string,signa
     await writer.add(`${snapshot.manifest.backupId}.manifest.json`,new BlobReader(manifest),settings);
     for(const p of snapshot.manifest.parts){checkAbort(signal);const blob=await snapshot.readPart(p.index);ensure(blob.size===p.bytes,"备份内部数据不完整，未生成 ZIP。");await writer.add(p.name,new BlobReader(blob),settings);onProgress?.({phase:'正在打包',bytes:size,records:p.index+1});}
     if(portableWechat){ensure(inner&&!!password,'微信身份只能加入加密 ZIP。');ensure(portableWechat.size<=32768,'微信身份附件超出安全限制。');await writer.add(wechatName,new BlobReader(portableWechat),settings);}
-    await writer.close();checkAbort(signal);checkZipSize(size);return new File(chunks,`Claudia-Phone-Backup-${new Date().toISOString().slice(0,10)}.zip`,{type:'application/zip'});
+    await writer.close();checkAbort(signal);checkZipSize(size);
+    onProgress?.({phase:`压缩完成：原始 ${Math.round(uncompressedBytes/1048576)} MiB → ZIP ${Math.round(size/1048576)} MiB（${uncompressedBytes?Math.round(100*size/uncompressedBytes):100}%）`,bytes:size,records:snapshot.manifest.parts.length});
+    return new File(chunks,`Claudia-Phone-Backup-${new Date().toISOString().slice(0,10)}.zip`,{type:'application/zip'});
   }catch(e){chunks.length=0;checkAbort(signal);if(e instanceof BackupError)throw e;throw withBackupPhase(e,'zip-pack');}
 }
 export async function createZipBackup(options:{closedOtherClients:boolean;includeCredentials?:boolean;credentialConsent?:boolean;database?:import("dexie").default;password?:string;signal?:AbortSignal;onProgress?:(p:BackupProgress)=>void;onWarning?:(message:string)=>void}) {
