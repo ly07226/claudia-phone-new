@@ -150,7 +150,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   const activeConversation = useRef<string | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
   const refreshTicket = useRef(0);
-  const latestRefresh = useRef<Promise<void> | null>(null);
+  const refreshFlight=useRef<{id:string;promise:Promise<void>;dirty:boolean;scroll:boolean}|null>(null);
   const visiblePath = useRef<{conversationId:string;timelineId?:string;epoch:number}|null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(()=>observeComposerDebug(),[]);
@@ -357,8 +357,23 @@ export function Chat({ worldId }: { worldId?: string }) {
    setMessages(rows);
   }
   function refresh(id:string,scroll=false):Promise<void> {
-    const completion=loadSnapshot(id,scroll).then(async()=>{const next=latestRefresh.current;if(next&&next!==completion)await next;});
-    latestRefresh.current=completion;return completion;
+    // Coalesce overlapping UI refreshes. Database liveQuery, navigation and
+    // send completion must not start competing full display reads.
+    const existing=refreshFlight.current;
+    if(existing?.id===id){existing.dirty=true;existing.scroll ||=scroll;return existing.promise;}
+    const flight:{id:string;promise:Promise<void>;dirty:boolean;scroll:boolean}={id,promise:Promise.resolve(),dirty:false,scroll};
+    flight.promise=(async()=>{
+      try{
+        do{
+          flight.dirty=false;
+          const shouldScroll=flight.scroll;
+          flight.scroll=false;
+          await loadSnapshot(id,shouldScroll);
+        }while(flight.dirty&&activeConversation.current===id&&mounted.current);
+      }finally{if(refreshFlight.current===flight)refreshFlight.current=null;}
+    })();
+    refreshFlight.current=flight;
+    return flight.promise;
   }
   useEffect(()=>{
     const id=conversation?.id;if(!id)return;
