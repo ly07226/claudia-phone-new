@@ -93,16 +93,23 @@ export async function readTimelineDisplayPage(
    const boundary=beforeNodeId?await db.messages.get(beforeNodeId):undefined;
    if(beforeNodeId&&(!boundary||boundary.conversationId!==conversationId||boundary.archived))
     throw Error('目标消息不在当前有效路径。');
+   // Indexed time-range read. Read complete timestamp groups before choosing
+   // a page boundary, because the compound index has no message-id tie breaker.
    const upper=boundary?boundary.createdAt:Infinity;
    const query=db.messages.where('[conversationId+createdAt]')
     .between([conversationId,Dexie.minKey],[conversationId,upper],true,true)
     .reverse();
    const selected:Message[]=[];
-   await query.until(()=>selected.length>size).each(m=>{
+   let cutoff:number|undefined;
+   await query.until(()=>cutoff!==undefined).each(m=>{
+    if(cutoff!==undefined&&m.createdAt<cutoff)return;
     if(m.archived)return;
-    if(boundary&&m.createdAt===boundary.createdAt&&m.id>=boundary.id)return;
+    if(boundary&&(m.createdAt>boundary.createdAt||
+       m.createdAt===boundary.createdAt&&m.id>=boundary.id))return;
     selected.push(m);
+    if(selected.length>size&&cutoff===undefined)cutoff=m.createdAt;
    });
+   selected.sort((a,b)=>b.createdAt-a.createdAt||b.id.localeCompare(a.id));
    const hasMore=selected.length>size;
    const page=selected.slice(0,size).reverse();
    const ids=page.filter(m=>m.role==='assistant'&&m.activeVariantId).map(m=>m.activeVariantId!);
