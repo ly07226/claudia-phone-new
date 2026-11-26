@@ -362,6 +362,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     const existing=refreshFlight.current;
     if(existing?.id===id){existing.dirty=true;existing.scroll ||=scroll;return existing.promise;}
     const flight:{id:string;promise:Promise<void>;dirty:boolean;scroll:boolean}={id,promise:Promise.resolve(),dirty:false,scroll};
+    refreshFlight.current=flight;
     flight.promise=(async()=>{
       try{
         do{
@@ -372,7 +373,6 @@ export function Chat({ worldId }: { worldId?: string }) {
         }while(flight.dirty&&activeConversation.current===id&&mounted.current);
       }finally{if(refreshFlight.current===flight)refreshFlight.current=null;}
     })();
-    refreshFlight.current=flight;
     return flight.promise;
   }
   useEffect(()=>{
