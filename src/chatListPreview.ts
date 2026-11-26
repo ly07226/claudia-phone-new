@@ -8,14 +8,17 @@ export async function chatListPreviews(characterIds: string[], worldId?: string,
   const conversations = (await db.conversations.where("characterId").anyOf(characterIds).toArray())
     .filter(c => allowed.has(c.characterId) && (worldId ? c.mode === "world" && c.worldId === worldId : c.mode === "daily"))
     .sort((a,b) => b.updatedAt-a.updatedAt || a.id.localeCompare(b.id));
+  // Select the newest conversation per contact before scheduling reads.
+  // Concurrent older conversations must not overwrite the chosen preview.
+  const selected=conversations.filter((c,index)=>conversations.findIndex(row=>row.characterId===c.characterId)===index);
   // Each conversation is an independent read unit: one broken timeline must
   // never prevent other contacts from rendering their previews.
-  const entries=await Promise.all(conversations.map(async c=>{
+  const entries=await Promise.all(selected.map(async c=>{
     try{
       let last:ReturnType<typeof visibleMessage>|undefined;
       if(c.activeTimelineId){const m=await latestTimelineMessage(c);if(m)last=visibleMessage(m);}
       else {const m=await db.messages.where('[conversationId+createdAt]').between([c.id,-Infinity],[c.id,Infinity]).reverse().filter(m=>!m.archived&&(m.role==='user'||m.role==='assistant')).first();if(m){const v=m.role==='assistant'&&m.activeVariantId?await db.messageVariants.get(m.activeVariantId):undefined;last=visibleMessage(v&&v.conversationId===c.id&&v.messageId===m.id?{...m,content:v.content,userEdited:v.userEdited}:m);}}
-      return {characterId:c.characterId,preview:{conversationId:c.id,remark:c.chatSettings?.remark,pinned:c.chatSettings?.pinned,pinnedAt:c.chatSettings?.pinnedAt,unread:!!c.chatSettings?.proactiveUnreadAt,content:last?.content.replace(/\\s+/g," ").trim()||(last?.attachments?.length?"[图片]":""),createdAt:last?.createdAt} as ChatPreview};
+      return {characterId:c.characterId,preview:{conversationId:c.id,remark:c.chatSettings?.remark,pinned:c.chatSettings?.pinned,pinnedAt:c.chatSettings?.pinnedAt,unread:!!c.chatSettings?.proactiveUnreadAt,content:last?.content.replace(/\s+/g," ").trim()||(last?.attachments?.length?"[图片]":""),createdAt:last?.createdAt} as ChatPreview};
     }catch(error){
       // Preserve the contact row even when its latest path is corrupt.
       console.warn('Chat preview unavailable for conversation',c.id,error);
