@@ -10,7 +10,8 @@ export async function chatListPreviews(characterIds: string[], worldId?: string,
     .sort((a,b) => b.updatedAt-a.updatedAt || a.id.localeCompare(b.id));
   // Select the newest conversation per contact before scheduling reads.
   // Concurrent older conversations must not overwrite the chosen preview.
-  const selected=conversations.filter((c,index)=>conversations.findIndex(row=>row.characterId===c.characterId)===index);
+  const chosen=new Set<string>();
+  const selected=conversations.filter(c=>{if(chosen.has(c.characterId))return false;chosen.add(c.characterId);return true;});
   // Each conversation is an independent read unit: one broken timeline must
   // never prevent other contacts from rendering their previews.
   const readOne=async(c:typeof selected[number])=>{
