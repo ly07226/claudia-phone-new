@@ -108,6 +108,8 @@ export interface MessageRevision {
   createdAt: number;
 }
 export interface ConversationSnapshot {
+  /** Shared immutable version records; legacy embedded variants remain readable. */
+  versionKeys?: string[];
   timelineId?: string;
   headNodeId?: string;
   timelineEpoch?: number;
