@@ -266,18 +266,25 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
     const s = await db.conversationSnapshots.get(snapshotId);
     if (!s || s.conversationId !== id)
       throw Error("快照不属于此会话或已不存在。");
-    const ids = new Set(s.messages.map((m) => m.id));
+    const linked = !!s.headNodeId && !s.messages;
+    if (linked && !s.timelineId) throw Error("快照缺少时间线引用。");
+    const savedNodes = linked ? await nodesForHead(id, s.headNodeId) : undefined;
+    const messages = linked ? savedNodes!.map(n => ({...n.message, archived:false})) : s.messages ?? [];
+    const versionRows = linked ? await db.snapshotVersions.bulkGet(s.versionKeys ?? []) : undefined;
+    if (linked && (!s.versionKeys || versionRows!.some((row,i) => !row || row.key !== s.versionKeys![i] || row.conversationId !== id))) throw Error("快照版本引用缺失。");
+    const variants = linked ? versionRows!.map(row => structuredClone(row!.variant)) : s.variants ?? [];
+    const ids = new Set(messages.map((m) => m.id));
     if (
-      s.messages.some((m) => m.conversationId !== id) ||
-      s.variants.some((v) => v.conversationId !== id || !ids.has(v.messageId))
+      messages.some((m) => m.conversationId !== id) ||
+      variants.some((v) => v.conversationId !== id || !ids.has(v.messageId))
     )
       throw Error("快照关联不合法。");
-    for (const m of s.messages) {
+    for (const m of messages) {
       const existing = await db.messages.get(m.id);
       if (existing && existing.conversationId !== id)
         throw Error("快照消息关联不合法。");
     }
-    for (const v of s.variants) {
+    for (const v of variants) {
       const existing = await db.messageVariants.get(v.id);
       if (
         existing &&
@@ -290,8 +297,8 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
       if(!source||source.conversationId!==id||source.epoch!==c?.timelineEpoch||s.timelineEpoch!==source.epoch)throw Error("快照时间线关联已失效。");
       if(s.headNodeId&&!(await nodesForHead(id,source.headNodeId)).some(n=>n.id===s.headNodeId))throw Error("快照不属于声明的时间线路径。");
       const saved=await nodesForHead(id,s.headNodeId);
-      if(saved.length!==s.messages.length)throw Error("快照路径不匹配。");
-      for(let i=0;i<saved.length;i++)if(saved[i].fingerprint!==await messageFingerprint(s.messages[i]))throw Error("快照内容与不可变路径不匹配。");
+      if(saved.length!==messages.length)throw Error("快照路径不匹配。");
+      for(let i=0;i<saved.length;i++)if(saved[i].fingerprint!==await messageFingerprint(messages[i]))throw Error("快照内容与不可变路径不匹配。");
     }
     await invalidateGeneration(id);
     await snapshotPath(id, "restore");
@@ -299,9 +306,9 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
       .where("conversationId")
       .equals(id)
       .modify({ archived: true });
-    await db.messageVariants.bulkPut(s.variants);
+    await db.messageVariants.bulkPut(variants);
     await db.messages.bulkPut(
-      s.messages.map((m) => ({ ...m, archived: false })),
+      messages.map((m) => ({ ...m, archived: false })),
     );
     if(s.timelineId)await db.conversations.update(id,{activeTimelineId:s.timelineId});
     await commitTimelineProjection(id,"restore",!s.timelineId);
