@@ -279,7 +279,9 @@ export function Chat({ worldId }: { worldId?: string }) {
     const oldHeight=el?.scrollHeight??0,oldTop=el?.scrollTop??0;
     setMessages(old=>{
      const existing=new Set(old.map(m=>m.id));
-     return [...page.rows.filter(m=>!existing.has(m.id)),...old];
+     const combined=[...page.rows.filter(m=>!existing.has(m.id)),...old];
+     if(appliedSnapshot.current)appliedSnapshot.current={...appliedSnapshot.current,rows:combined};
+     return combined;
     });
     requestAnimationFrame(()=>{const target=historyRef.current;if(target&&!followBottom.current)target.scrollTop=oldTop+target.scrollHeight-oldHeight;});
    }catch{if(activeConversation.current===id)setError('读取更早消息失败，请重试。');}
