@@ -699,19 +699,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       {!conversation && worldId && <p className="chat-world-caption">世界聊天 · {world?.name || "世界不存在"}</p>}
       {!conversation ? (
         <>
-          {openingCharacter ? (
-            <div className="chat-view">
-              <nav className="chat-nav" aria-label="正在进入会话">
-                <button aria-label="返回角色列表" onClick={()=>{++taskSequence.current;setOpeningCharacter(null);setOpeningMessages(false);setError("");}}>
-                  <ChevronLeft size={24}/>
-                </button>
-                <div className="chat-nav-heading"><span className="chat-nav-title">{s.characters.find(c=>c.id===openingCharacter)?.name??"聊天"}</span></div>
-              </nav>
-              <div className="chat-history" role="status" aria-live="polite">
-                <p className="hint">正在打开会话…</p>
-              </div>
-            </div>
-          ) : listContent}
+          {listContent}
         </>
       ) : (
         <>
