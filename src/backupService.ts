@@ -1167,7 +1167,7 @@ export async function auditBackupDataSize(database: Dexie = phoneDatabase, signa
   for (const table of backupTables) {
     let records = 0, bytes = 0;
     await eachBackupRow(database, table, async row => {
-      const encoded = rowBytes(table as BackupTable, row);
+      const encoded = await rowBytes(table as BackupTable, row);
       bytes += encoded.length + 1;
       records++;
     }, signal);
