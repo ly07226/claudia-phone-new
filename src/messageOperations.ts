@@ -78,37 +78,33 @@ export async function snapshotPath(
   reason: ConversationSnapshot["reason"],
 ) {
   const timeline = await ensureTimelineInTransaction(id);
-  const messages = await activeMessages(id);
-  const ids = new Set(messages.map((m) => m.id));
-  const variants = await db.messageVariants
-    .where("conversationId")
-    .equals(id)
-    .filter((v) => ids.has(v.messageId))
-    .toArray();
-  // Reuse complete immutable version records. Keep legacy embedded variants until
-  // all backup/export and history readers support reference-only snapshots.
+  // The immutable path nodes already own each historical message body.
+  // Only retain version references, not a second copy of the full path.
+  const nodes = await nodesForHead(id, timeline.headNodeId, true);
+  const ids = new Set(nodes.map(node => node.messageId));
+  const variants = await db.messageVariants.where("conversationId").equals(id)
+    .filter(v => ids.has(v.messageId)).toArray();
   const versionKeys: string[] = [];
   for (const variant of variants) {
     const identity = snapshotVersionIdentity(variant);
-    const existing = await db.snapshotVersions.where("[conversationId+identity]").equals([id, identity]).first();
+    const existing = await db.snapshotVersions
+      .where("[conversationId+identity]").equals([id, identity]).first();
     if (existing) {
-      if (snapshotVersionIdentity(existing.variant) !== identity) throw Error("快照版本索引损坏。");
+      if (snapshotVersionIdentity(existing.variant) !== identity)
+        throw Error("快照版本索引损坏。");
       versionKeys.push(existing.key);
     } else {
       const key = crypto.randomUUID();
-      await db.snapshotVersions.add({key, conversationId:id, identity, variant:structuredClone(variant)});
+      await db.snapshotVersions.add({
+        key, conversationId: id, identity, variant: structuredClone(variant),
+      });
       versionKeys.push(key);
     }
   }
   const snapshot: ConversationSnapshot = {
-    id: crypto.randomUUID(),
-    conversationId: id,
-    reason,
-    timelineId: timeline.id, headNodeId: timeline.headNodeId, timelineEpoch: timeline.epoch,
-    createdAt: Date.now(),
-    messages,
-    variants,
-    versionKeys,
+    id: crypto.randomUUID(), conversationId: id, reason,
+    timelineId: timeline.id, headNodeId: timeline.headNodeId,
+    timelineEpoch: timeline.epoch, createdAt: Date.now(), versionKeys,
   };
   await db.conversationSnapshots.add(snapshot);
   return snapshot;
