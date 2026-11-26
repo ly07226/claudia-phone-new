@@ -73,6 +73,70 @@ const messageSnapshots=new WeakMap<ConversationPathNode[],Map<string,{rows:Messa
 export async function resolveTimelinePath(conversationId:string,timelineId?:string,shared=false):Promise<Message[]> {
  return db.transaction("r",timelineTables(),async()=>{const c=await db.conversations.get(conversationId);if(!c)throw Error("会话不存在。");const id=timelineId??c.activeTimelineId;if(!id)return legacyActiveMessages(conversationId);const t=await db.timelines.get(id);if(!t)throw Error("时间线不存在。");assertOwner(c,t);await getTimelineAncestors(c.id,t.id);const nodes=await nodesForHead(c.id,t.headNodeId,true);let snapshots=messageSnapshots.get(nodes);if(!snapshots)messageSnapshots.set(nodes,snapshots=new Map());const snapshotKey=JSON.stringify([c.id,c.characterId,c.mode,c.worldId,t.id,t.epoch]);let snapshot=snapshots.get(snapshotKey);if(!snapshot){const rows=nodes.map(n=>n.message.archived===false?n.message:Object.freeze({...n.message,archived:false}));Object.freeze(rows);snapshot={rows,nodeIds:Object.freeze(nodes.map(n=>n.id)),fingerprints:Object.freeze(nodes.map(n=>n.fingerprint))};snapshots.set(snapshotKey,snapshot);}const rows=shared?snapshot.rows:await cloneChatRows(snapshot.rows);rememberPath(rows,{conversationId:c.id,timelineId:t.id,epoch:t.epoch,head:t.headNodeId,nodeIds:snapshot.nodeIds,fingerprints:snapshot.fingerprints});return rows;});
 }
+/** Bounded read for the chat UI only. Generation, memory and search retain their
+ * full-path readers and are deliberately unaffected by this API.
+ * Cursor is a path-node ID, not a message ID, so sibling branches cannot leak.
+ */
+export async function readTimelineDisplayPage(
+ conversationId:string,
+ limit=120,
+ beforeNodeId?:string,
+):Promise<{rows:Message[];nextCursor?:string;hasMore:boolean}> {
+ const size=Math.max(1,Math.min(250,Math.floor(limit)));
+ return db.transaction('r',timelineTables(),async()=>{
+  const c=await db.conversations.get(conversationId);
+  if(!c)throw Error('会话不存在。');
+  if(!c.activeTimelineId){
+   // Legacy conversations are kept on their proven reader until migration.
+   const rows=await legacyActiveMessages(conversationId);
+   const end=beforeNodeId?rows.findIndex(m=>m.id===beforeNodeId):rows.length;
+   if(end<0)throw Error('目标消息不在当前有效路径。');
+   const start=Math.max(0,end-size);
+   return {rows:rows.slice(start,end),nextCursor:start>0?rows[start].id:undefined,hasMore:start>0};
+  }
+  const t=await db.timelines.get(c.activeTimelineId);
+  if(!t)throw Error('时间线不存在。');
+  assertOwner(c,t);
+  await getTimelineAncestors(c.id,t.id);
+  const rows:ConversationPathNode[]=[];
+  const seen=new Set<string>();
+  let id=t.headNodeId;
+  if(beforeNodeId){
+   // Never trust a cursor from another branch: prove its ancestry from HEAD.
+   while(id&&id!==beforeNodeId){
+    if(seen.has(id))throw Error('时间线路径存在循环。');
+    seen.add(id);
+    const node=await db.pathNodes.get(id);
+    if(!node)throw Error('时间线路径断链。');
+    nodeShape(node,c.id);
+    if(node.fingerprint!==await messageFingerprint(node.message))throw Error('不可变节点内容校验失败。');
+    id=node.parentNodeId;
+   }
+   if(id!==beforeNodeId)throw Error('目标消息不在当前有效路径。');
+  }
+  // Cursor is exclusive: first read the ancestor of the previous page's
+  // oldest node, preserving stable pages even when the head receives messages.
+  if(beforeNodeId){
+   const boundary=await db.pathNodes.get(beforeNodeId);
+   if(!boundary)throw Error('时间线路径断链。');
+   nodeShape(boundary,c.id);
+   if(boundary.fingerprint!==await messageFingerprint(boundary.message))throw Error('不可变节点内容校验失败。');
+   id=boundary.parentNodeId;
+  }
+  while(id&&rows.length<size){
+   if(seen.has(id))throw Error('时间线路径存在循环。');
+   seen.add(id);
+   const node=await db.pathNodes.get(id);
+   if(!node)throw Error('时间线路径断链。');
+   nodeShape(node,c.id);
+   if(node.fingerprint!==await messageFingerprint(node.message))throw Error('不可变节点内容校验失败。');
+   rows.push(node);
+   id=node.parentNodeId;
+  }
+  rows.reverse();
+  return {rows:rows.map(n=>({...n.message,archived:false})),nextCursor:rows.length&&id?rows[0].id:undefined,hasMore:!!id};
+ });
+}
 /** Read-only preview: validates the timeline owner and each visited tip, not an
  * assertion that the entire historical graph is valid. Generation verifies new nodes
  * and reuses a committed prefix only while its mutation proof remains valid. */
