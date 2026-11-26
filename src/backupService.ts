@@ -1,3 +1,4 @@
+import {snapshotVersionIdentity} from "./snapshotVersionPool";
 import {validPhaseChatSettings,validChatEventReceipts} from './phasePlay/chatLinkTypes';
 import {supportedDataSchema} from './backupFormat';
 import {verifyDocumentSnapshot} from './wizardDocumentSnapshot';
@@ -1094,12 +1095,14 @@ export async function validateReferences(
         if (!timeline || timeline.conversationId !== x.conversationId || timeline.epoch !== x.timelineEpoch)
           bad("snapshots.timeline");
         const seen = new Set<string>(), messageIds = new Set<string>();
+        if (new Set(x.versionKeys).size !== x.versionKeys.length) bad("snapshots.duplicateVersionKey");
         let cursor = x.headNodeId;
         while (cursor) {
           if (seen.has(cursor)) { bad("snapshots.nodeCycle"); break; }
           seen.add(cursor);
           const node = await d.table("pathNodes").get(cursor);
           if (!node || node.conversationId !== x.conversationId) { bad("snapshots.nodeMissing"); break; }
+          if (messageIds.has(node.messageId)) bad("snapshots.duplicateMessage");
           messageIds.add(node.messageId);
           cursor = node.parentNodeId;
         }
@@ -1108,7 +1111,8 @@ export async function validateReferences(
             ? await d.table("snapshotVersions").get(key) : undefined;
           if (!record || record.conversationId !== x.conversationId ||
               record.variant?.conversationId !== x.conversationId ||
-              !messageIds.has(record.variant?.messageId))
+              !messageIds.has(record.variant?.messageId) ||
+              record.identity !== snapshotVersionIdentity(record.variant))
             bad("snapshots.versionMissing");
         }
         return;
