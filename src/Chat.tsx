@@ -372,29 +372,42 @@ export function Chat({ worldId }: { worldId?: string }) {
     // previously paged-in bubble when the user has a long open chat.
     const old=new Map(previous?.rows.slice(-72).map(m=>[m.id,m])??[]);
     const rows=incoming.map(m=>{const before=old.get(m.id);return before&&dataEqual(before,m)?before:m;});
-    if(page){
-     // Keep previously loaded older pages when new messages arrive on the
-     // same timeline. Do not merge across a branch switch.
-     if(previous?.key&&JSON.parse(previous.key)[2]===current.activeTimelineId&&JSON.parse(previous.key)[3]===current.timelineEpoch){
-      // A timeline revision can edit/delete any older message. Retaining
-      // previously loaded pages here would display stale or removed bubbles.
-      // Preserve older pages only when the source revision has not changed.
-      if(previous.revision===revision){
-       const seen=new Set(rows.map(m=>m.id));
-       const older=previous.rows.filter(m=>!seen.has(m.id));
-       return {current,key,rows:[...older,...rows],page};
+    // Retain older loaded pages only when the previous head is a verified
+    // ancestor of the new head. Appends preserve immutable history; edits,
+    // deletes and branch changes do not.
+    const oldKey=previous?.key?JSON.parse(previous.key):null;
+    const samePath=!!oldKey&&oldKey[2]===current.activeTimelineId&&oldKey[3]===current.timelineEpoch;
+    let appendOnly=false;
+    if(samePath&&previous?.rows.length&&timeline?.headNodeId&&oldKey[4]){
+     if(timeline.headNodeId===oldKey[4])appendOnly=true;
+     else {
+      let nodeId:string|undefined=timeline.headNodeId;
+      const visited=new Set<string>();
+      // A refresh normally adds only one or two bubbles. A large rewrite
+      // or an unverified path discards cached older pages safely.
+      for(let steps=0;nodeId&&steps<72;steps++){
+       if(nodeId===oldKey[4]){appendOnly=true;break;}
+       if(visited.has(nodeId))break;
+       visited.add(nodeId);
+       const node=await db.pathNodes.get(nodeId);
+       if(!node||node.conversationId!==id)break;
+       nodeId=node.parentNodeId;
       }
      }
-     return {current,key,rows,page};
     }
-    return {current,key,rows:previous&&rows.length===previous.rows.length&&rows.every((m,i)=>m===previous.rows[i])?previous.rows:rows};
+    if(appendOnly&&previous){
+     const seen=new Set(rows.map(m=>m.id));
+     const older=previous.rows.filter(m=>!seen.has(m.id));
+     return {current,key,rows:[...older,...rows],page,appendOnly};
+    }
+    return {current,key,rows,page,appendOnly:false};
    });if(ticket!==refreshTicket.current||!data||!mounted.current||activeConversation.current!==id)return;
    const {current,key,rows}=data;
    if('page' in data&&data.page){
     // A head refresh must not rewind the paging cursor after older pages
     // were loaded. Reset only on an actual timeline/epoch change.
     const samePath=!!previous?.key&&JSON.parse(previous.key)[2]===current.activeTimelineId&&JSON.parse(previous.key)[3]===current.timelineEpoch;
-    if(!samePath||previous?.revision!==revision||!displayCursor.current){
+    if(!samePath||!data.appendOnly||!displayCursor.current){
      displayCursor.current=data.page.nextCursor;
      displayHasMore.current=data.page.hasMore;
     }
