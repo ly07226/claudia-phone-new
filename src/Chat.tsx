@@ -265,17 +265,26 @@ export function Chat({ worldId }: { worldId?: string }) {
   useEffect(()=>{setSearch("");enterGuard.current.reset();},[worldId]);
   useEffect(() => {
     if (conversation) return;
-    setPreviews({scope: previewScope, rows: {}});
+    // Keep the last successful preview while refreshing; the list must remain
+    // navigable even if a single IndexedDB observation fails.
+    setPreviews(state=>state.scope===previewScope?state:{scope:previewScope,rows:{}});
     let active=true;
     let generation=0;
-    const subscription = liveQuery(() => {
-      const current=++generation;
-      return chatListPreviews(characters.map(c => c.id), worldId,(characterId,preview)=>{
-        if(!active||current!==generation)return;
-        setPreviews(state=>state.scope===previewScope?{scope:previewScope,rows:{...state.rows,[characterId]:preview}}:state);
+    const subscription = liveQuery(() => chatListPreviews(characters.map(c => c.id), worldId))
+      .subscribe({
+        next: rows => {
+          if(!active)return;
+          generation++;
+          setPreviews(state=>state.scope===previewScope?{scope:previewScope,rows:{...state.rows,...rows}}:state);
+          setError(current=>current==="无法读取聊天预览，请稍后重试。"?"":current);
+        },
+        error: error => {
+          if(!active)return;
+          console.warn("Chat preview observation failed; retaining previous rows",error);
+          // The preview is optional display data, not a navigation failure.
+          // Keep existing rows and allow the user to open the conversation.
+        },
       });
-    })
-      .subscribe({ next: rows => {if(active)setPreviews({scope: previewScope, rows});}, error: () => {if(active)setError("无法读取聊天预览，请稍后重试。");} });
     return () => {active=false;subscription.unsubscribe();};
   }, [characterIds, worldId, conversation?.id]);
   const appliedSnapshot=useRef<{key:string;revision:number;rows:Message[]}|null>(null);
