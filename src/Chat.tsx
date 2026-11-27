@@ -368,7 +368,9 @@ export function Chat({ worldId }: { worldId?: string }) {
     // activeMessages(): that materializes the entire history on refresh.
     const page=await readTimelineDisplayPage(id,36);
     const incoming=page.rows;
-    const old=new Map(previous?.rows.map(m=>[m.id,m])??[]);
+    // Only the newest page can overlap a refresh. Avoid indexing every
+    // previously paged-in bubble when the user has a long open chat.
+    const old=new Map(previous?.rows.slice(-72).map(m=>[m.id,m])??[]);
     const rows=incoming.map(m=>{const before=old.get(m.id);return before&&dataEqual(before,m)?before:m;});
     if(page){
      // Keep previously loaded older pages when new messages arrive on the
