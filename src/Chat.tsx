@@ -46,7 +46,7 @@ import {
 import { MessageAvatar, ChatMessage, MessageTools, SnapshotTools } from "./MessageUI";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { db, usePhone } from "./store";
-import type { Conversation, Message, MessageVariant, MessageQuote } from "./chatTypes";
+import type { Conversation, ConversationPathNode, Message, MessageVariant, MessageQuote } from "./chatTypes";
 import type { ApiConfig } from "./api";
 import {
   getConversation,
@@ -150,6 +150,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   useEffect(()=>{if(menuId&&!messages.some(m=>m.id===menuId)){setMenuId(null);setSelection(undefined);setPreviewVariant(undefined);}},[menuId,messages]);
   const activeConversation = useRef<string | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
+  const lastHistoryScrollTop = useRef<number | null>(null);
   const refreshTicket = useRef(0);
   const refreshFlight=useRef<{id:string;promise:Promise<void>;dirty:boolean;scroll:boolean}|null>(null);
   const visiblePath = useRef<{conversationId:string;timelineId?:string;epoch:number}|null>(null);
@@ -196,7 +197,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   function locateQuote(id:string,part:BubblePart){
     if(!messages.some(m=>m.id===id)&&displayHasMore.current){
      pendingQuoteJump.current={id,part};
-     void revealFullHistory(activeConversation.current!).catch(()=>{pendingQuoteJump.current=null;setFeedback('无法定位原消息。');});
+     void loadQuoteHistory(activeConversation.current!,id).catch(()=>{pendingQuoteJump.current=null;setFeedback('无法定位原消息。');});
      return;
     }
     const index=messages.findIndex(m=>m.id===id);
@@ -264,17 +265,26 @@ export function Chat({ worldId }: { worldId?: string }) {
   useEffect(()=>{setSearch("");enterGuard.current.reset();},[worldId]);
   useEffect(() => {
     if (conversation) return;
-    setPreviews({scope: previewScope, rows: {}});
+    // Keep the last successful preview while refreshing; the list must remain
+    // navigable even if a single IndexedDB observation fails.
+    setPreviews(state=>state.scope===previewScope?state:{scope:previewScope,rows:{}});
     let active=true;
     let generation=0;
-    const subscription = liveQuery(() => {
-      const current=++generation;
-      return chatListPreviews(characters.map(c => c.id), worldId,(characterId,preview)=>{
-        if(!active||current!==generation)return;
-        setPreviews(state=>state.scope===previewScope?{scope:previewScope,rows:{...state.rows,[characterId]:preview}}:state);
+    const subscription = liveQuery(() => chatListPreviews(characters.map(c => c.id), worldId))
+      .subscribe({
+        next: rows => {
+          if(!active)return;
+          generation++;
+          setPreviews(state=>state.scope===previewScope?{scope:previewScope,rows:{...state.rows,...rows}}:state);
+          setError(current=>current==="无法读取聊天预览，请稍后重试。"?"":current);
+        },
+        error: error => {
+          if(!active)return;
+          console.warn("Chat preview observation failed; retaining previous rows",error);
+          // The preview is optional display data, not a navigation failure.
+          // Keep existing rows and allow the user to open the conversation.
+        },
       });
-    })
-      .subscribe({ next: rows => {if(active)setPreviews({scope: previewScope, rows});}, error: () => {if(active)setError("无法读取聊天预览，请稍后重试。");} });
     return () => {active=false;subscription.unsubscribe();};
   }, [characterIds, worldId, conversation?.id]);
   const appliedSnapshot=useRef<{key:string;revision:number;rows:Message[]}|null>(null);
@@ -288,11 +298,11 @@ export function Chat({ worldId }: { worldId?: string }) {
    displayPaging.current=true;
    const scope=visiblePath.current;
    const cursor=displayCursor.current;
-   const ticket=refreshTicket.current;
-   const previousKey=appliedSnapshot.current?.key;
+   // A refresh of the same branch must not invalidate an older-page read.
+   // Validate the active path and cursor after the await instead.
    try{
-    const page=await readTimelineDisplayPage(id,100,cursor,true);
-    if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch||displayFullyLoaded.current||displayCursor.current!==cursor||refreshTicket.current!==ticket||appliedSnapshot.current?.key!==previousKey)return;
+    const page=await readTimelineDisplayPage(id,36,cursor,true);
+    if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch||displayFullyLoaded.current||displayCursor.current!==cursor)return;
     displayCursor.current=page.nextCursor;
     displayHasMore.current=page.hasMore;
     if(!page.rows.length)return;
@@ -307,49 +317,107 @@ export function Chat({ worldId }: { worldId?: string }) {
    }catch{if(activeConversation.current===id)setError('读取更早消息失败，请重试。');}
    finally{displayPaging.current=false;}
   }
-  async function revealFullHistory(id:string){
-   if(displayFullyLoaded.current)return;
-   const scope=visiblePath.current;
-   const rows=await activeMessages(id,undefined,true);
-   if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch)return;
-   displayFullyLoaded.current=true;
-   displayHasMore.current=false;
-   displayCursor.current=undefined;
-   historyWindow.beforeChange();
-   setMessages(rows);
+  // Quote navigation must not materialize the entire chat in one read.
+  // Fetch bounded pages and stop as soon as the referenced message is found.
+  async function loadQuoteHistory(id:string,targetId:string){
+   if(displayPaging.current)return;
+   displayPaging.current=true;
+   const scope=visiblePath.current,ticket=refreshTicket.current;
+   const originalCursor=displayCursor.current;
+   let cursor=originalCursor,hasMore=displayHasMore.current;
+   const previousKey=appliedSnapshot.current?.key;
+   const gathered:Message[]=[];
+   try{
+    while(hasMore){
+     const page=await readTimelineDisplayPage(id,36,cursor,true);
+     if(activeConversation.current!==id||refreshTicket.current!==ticket||
+        visiblePath.current?.timelineId!==scope?.timelineId||
+        visiblePath.current?.epoch!==scope?.epoch||
+        appliedSnapshot.current?.key!==previousKey||
+        displayCursor.current!==originalCursor) return;
+     gathered.unshift(...page.rows);
+     cursor=page.nextCursor;hasMore=page.hasMore;
+     if(page.rows.some(m=>m.id===targetId)||!hasMore)break;
+     // Allow scrolling, typing and paint between database pages.
+     await new Promise<void>(resolve=>setTimeout(resolve,0));
+    }
+    if(activeConversation.current!==id||refreshTicket.current!==ticket||
+       appliedSnapshot.current?.key!==previousKey)return;
+    displayCursor.current=cursor;
+    displayHasMore.current=hasMore;
+    const previousRows=appliedSnapshot.current?.rows??[];
+    const seen=new Set(previousRows.map(m=>m.id));
+    const combined=[...gathered.filter(m=>!seen.has(m.id)),...previousRows];
+    if(gathered.length){
+     historyWindow.beforeChange();
+     if(appliedSnapshot.current)appliedSnapshot.current={...appliedSnapshot.current,rows:combined};
+     setMessages(combined);
+    }
+    if(!combined.some(m=>m.id===targetId)){
+     pendingQuoteJump.current=null;
+     setFeedback('原消息已删除或不在当前分支。');
+    }
+   }finally{displayPaging.current=false;}
   }
   async function loadSnapshot(id:string,scroll=false){
    const ticket=++refreshTicket.current,revision=chatDataRevision();const previous=appliedSnapshot.current;
    const data=await db.transaction('r',[db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{const current=await db.conversations.get(id);if(!current)return null;const timeline=current.activeTimelineId?await db.timelines.get(current.activeTimelineId):undefined;
     const key=JSON.stringify([db.name,id,current.activeTimelineId,current.timelineEpoch,timeline?.headNodeId,timeline?.revision]);
     if(previous?.key===key&&previous.revision===revision)return {current,key,rows:previous.rows};
-    const page=displayFullyLoaded.current?null:await readTimelineDisplayPage(id,100);
-    const incoming=page?page.rows:await activeMessages(id,undefined,true);
-    const old=new Map(previous?.rows.map(m=>[m.id,m])??[]);
+    // The chat display always uses a bounded page. Never fall back to
+    // activeMessages(): that materializes the entire history on refresh.
+    const page=await readTimelineDisplayPage(id,36);
+    const incoming=page.rows;
+    // Only the newest page can overlap a refresh. Avoid indexing every
+    // previously paged-in bubble when the user has a long open chat.
+    const old=new Map(previous?.rows.slice(-72).map(m=>[m.id,m])??[]);
     const rows=incoming.map(m=>{const before=old.get(m.id);return before&&dataEqual(before,m)?before:m;});
-    if(page){
-     // Keep previously loaded older pages when new messages arrive on the
-     // same timeline. Do not merge across a branch switch.
-     if(previous?.key&&JSON.parse(previous.key)[2]===current.activeTimelineId&&JSON.parse(previous.key)[3]===current.timelineEpoch){
-      // A timeline revision can edit/delete any older message. Retaining
-      // previously loaded pages here would display stale or removed bubbles.
-      // Preserve older pages only when the source revision has not changed.
-      if(previous.revision===revision){
-       const seen=new Set(rows.map(m=>m.id));
-       const older=previous.rows.filter(m=>!seen.has(m.id));
-       return {current,key,rows:[...older,...rows],page};
+    // Retain older loaded pages only when the previous head is a verified
+    // ancestor of the new head. Appends preserve immutable history; edits,
+    // deletes and branch changes do not.
+    const oldKey=previous?.key?JSON.parse(previous.key):null;
+    const samePath=!!oldKey&&oldKey[0]===db.name&&oldKey[1]===id&&oldKey[2]===current.activeTimelineId&&oldKey[3]===current.timelineEpoch;
+    let appendOnly=false;
+    if(samePath&&previous?.rows.length&&timeline?.headNodeId&&oldKey[4]){
+     if(timeline.headNodeId===oldKey[4])appendOnly=true;
+     else {
+      let nodeId:string|undefined=timeline.headNodeId;
+      const visited=new Set<string>();
+      // A refresh normally adds only one or two bubbles. A large rewrite
+      // or an unverified path discards cached older pages safely.
+      for(let steps=0;nodeId&&steps<72;steps++){
+       if(nodeId===oldKey[4]){appendOnly=true;break;}
+       if(visited.has(nodeId))break;
+       visited.add(nodeId);
+       const node: ConversationPathNode | undefined = await db.pathNodes.get(nodeId);
+       if(!node||node.conversationId!==id)break;
+       nodeId=node.parentNodeId;
       }
      }
-     return {current,key,rows,page};
     }
-    return {current,key,rows:previous&&rows.length===previous.rows.length&&rows.every((m,i)=>m===previous.rows[i])?previous.rows:rows};
+    if(appendOnly&&previous){
+     const seen=new Set(rows.map(m=>m.id));
+     const older=previous.rows.filter(m=>!seen.has(m.id));
+     return {current,key,rows:[...older,...rows],page,appendOnly};
+    }
+    return {current,key,rows,page,appendOnly:false};
    });if(ticket!==refreshTicket.current||!data||!mounted.current||activeConversation.current!==id)return;
-   const {current,key,rows}=data;
+   const {current,key}=data;
+   // An older page may finish while this refresh is reading. Keep that
+   // newer in-memory page instead of overwriting it with the stale snapshot.
+   let rows=data.rows;
+   const latest=appliedSnapshot.current;
+   if('appendOnly' in data&&data.appendOnly&&previous&&latest&&
+      latest.key===previous.key&&latest.rows.length>previous.rows.length){
+    const seen=new Set(rows.map(m=>m.id));
+    rows=[...latest.rows.filter(m=>!seen.has(m.id)),...rows];
+   }
    if('page' in data&&data.page){
     // A head refresh must not rewind the paging cursor after older pages
     // were loaded. Reset only on an actual timeline/epoch change.
-    const samePath=!!previous?.key&&JSON.parse(previous.key)[2]===current.activeTimelineId&&JSON.parse(previous.key)[3]===current.timelineEpoch;
-    if(!samePath||previous?.revision!==revision||!displayCursor.current){
+    const previousScope=previous?.key?JSON.parse(previous.key):null;
+    const samePath=!!previousScope&&previousScope[0]===db.name&&previousScope[1]===id&&previousScope[2]===current.activeTimelineId&&previousScope[3]===current.timelineEpoch;
+    if(!samePath||!data.appendOnly||!displayCursor.current){
      displayCursor.current=data.page.nextCursor;
      displayHasMore.current=data.page.hasMore;
     }
@@ -420,6 +488,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   async function open(id: string) {
     const navigation = ++taskSequence.current;
     setOpeningChat(true);
+    lastHistoryScrollTop.current=null;
     setError("");
     appliedSnapshot.current=null;
     displayFullyLoaded.current=false;
@@ -436,17 +505,19 @@ export function Chat({ worldId }: { worldId?: string }) {
       activeConversation.current = c.id;
       if(c.chatSettings?.proactiveUnreadAt)void db.conversations.update(c.id,{chatSettings:{...c.chatSettings,proactiveUnreadAt:undefined}});
       followBottom.current = true;
-      // Commit the conversation and its first bounded message page together.
-      // loadSnapshot owns setConversation/setMessages after a successful read;
-      // mounting an empty conversation first creates a false empty chat state.
-      await refresh(c.id, true);
-      if(navigation===taskSequence.current)setOpeningChat(false);
-      try {
-        await resolveApi(c);
-      } catch (e) {
-        if (navigation === taskSequence.current)
-          setError(e instanceof Error ? e.message : "无法读取 API。");
-      }
+      // Show the conversation shell immediately. History is a separate,
+      // bounded read and must not block navigation or API configuration.
+      setConversation(c);
+      void refresh(c.id, true).catch(error=>{
+        if(navigation===taskSequence.current)
+          setError(error instanceof Error?error.message:"读取最近聊天记录失败。");
+      }).finally(()=>{
+        if(navigation===taskSequence.current)setOpeningChat(false);
+      });
+      void resolveApi(c).catch(e=>{
+        if(navigation===taskSequence.current)
+          setError(e instanceof Error?e.message:"无法读取 API。");
+      });
     } catch {
       if (navigation === taskSequence.current){
         setOpeningChat(false);
@@ -729,7 +800,16 @@ export function Chat({ worldId }: { worldId?: string }) {
               followBottom.current =
                 el.scrollHeight - el.scrollTop - el.clientHeight < 64;
               historyWindow.onScroll();
-              // Older pages are loaded explicitly from the history capsule.
+              const previousTop=lastHistoryScrollTop.current;
+              const scrollingUp=previousTop!==null && el.scrollTop<previousTop-2;
+              lastHistoryScrollTop.current=el.scrollTop;
+              // Prefetch roughly two screens before the top, but only on real
+              // upward movement: initial mount and scroll anchoring must not
+              // cascade through the entire history.
+              if(scrollingUp && el.scrollTop < Math.max(320, el.clientHeight * 1.75) &&
+                 displayHasMore.current && !displayPaging.current) {
+                void loadOlderDisplayMessages();
+              }
             }}
           >
             {displayHasMore.current&&!displayFullyLoaded.current&&(
@@ -740,7 +820,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               </div>
             )}
             {!messages.length && (
-              <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
+              <p className="hint">{openingChat?"正在读取最近聊天记录…":"这是一个独立会话。说一句话，开始新的交流。"}</p>
             )}
             <div data-history-spacer="" aria-hidden="true" style={{height:historyWindow.top,padding:0,margin:0,border:0,flexShrink:0,pointerEvents:'none'}}/>
             {renderedMessages}
@@ -858,7 +938,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               name={displayName}
               avatar={avatarSrc}
               onPreferences={async patch=>{const next=await saveChatSettings(conversation.id,patch);if(activeConversation.current===next.id)setConversation(next);}}
-              onLocate={id=>{void searchableMessages(conversation.id).then(async rows=>{if(activeConversation.current!==conversation.id)return;if(!rows.some(m=>m.id===id)){setError('该消息已不在当前有效分支。');return;}await revealFullHistory(conversation.id);jumpTo.current=id;setManagement(false);}).catch(()=>setError('无法定位消息，请稍后重试。'));}}
+              onLocate={id=>{void searchableMessages(conversation.id).then(async rows=>{if(activeConversation.current!==conversation.id)return;if(!rows.some(m=>m.id===id)){setError('该消息已不在当前有效分支。');return;}jumpTo.current=id;setManagement(false);if(!messages.some(m=>m.id===id))await loadQuoteHistory(conversation.id,id);}).catch(()=>setError('无法定位消息，请稍后重试。'));}}
               worldName={
                 s.worlds.find((w) => w.id === conversation.worldId)?.name
               }

@@ -21,6 +21,8 @@ export interface ChatSettings {
   background?: ChatBackground;
 }
 export interface Conversation {
+  /** Latest visible bubble, maintained with timeline commits; not a memory summary. */
+  chatPreview?: {timelineId?:string;headNodeId?:string;messageId?:string;content:string;createdAt?:number};
   /** Opt-in WeChat bridge cursor, committed with the daily timeline. */
   wechatSync?: {bindingId:string;nextSeq:number};
   chatEventReceipts?: import('./phasePlay/chatLink').ChatEventReceipt[];

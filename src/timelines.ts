@@ -222,17 +222,35 @@ export async function ensureTimelineInTransaction(id:string) {
   await db.timelines.add(t);await db.conversations.update(id,{activeTimelineId:t.id,timelineEpoch:t.epoch});return t;
 }
 export async function getCurrentTimeline(id:string) {return db.transaction("rw",timelineTables(),async()=>await ensureTimelineInTransaction(id));}
+/** Maintain the contact preview in the same write transaction as the active path.
+ * Only the tip is read; older history is never traversed for a preview. */
+async function updateContactPreview(id:string,t:MemoryTimeline){
+ let nodeId=t.headNodeId,tip:ConversationPathNode|undefined;
+ // Non-chat tool nodes may follow the last visible bubble.
+ for(let steps=0;nodeId&&steps<16;steps++){
+  const n=await db.pathNodes.get(nodeId);
+  if(!n||n.conversationId!==id)throw Error('预览节点不属于当前会话。');
+  if(n.role==='user'||n.role==='assistant'){tip=n;break;}
+  nodeId=n.parentNodeId;
+ }
+ const m=tip?.message;
+ await db.conversations.update(id,{chatPreview:{
+  timelineId:t.id,headNodeId:t.headNodeId,messageId:m?.id,
+  content:m?.content?.replace(/\s+/g,' ').trim()||(m?.attachments?.length?'[图片]':''),
+  createdAt:m?.createdAt
+ }});
+}
 export async function commitTimelineProjection(id:string,reason:MemoryTimeline["reason"],detached=false) {
   const current=await ensureTimelineInTransaction(id),c=(await db.conversations.get(id))!;
-  if(reason==='append'&&!detached){const fast=await tryAppendProjection(c,current);if(fast)return fast;}
+  if(reason==='append'&&!detached){const fast=await tryAppendProjection(c,current);if(fast){await updateContactPreview(id,fast);return fast;}}
   const old=await nodesForHead(id,current.headNodeId,true),messages=await legacyActiveMessages(id),built=await buildNodes(c,messages,old),headNodeId=built.headNodeId;
-  if(headNodeId===current.headNodeId){cacheVerifiedTimeline(id,await immutableChatRows(built.nodes),{timelineId:current.id,head:headNodeId});return current;}
+  if(headNodeId===current.headNodeId){cacheVerifiedTimeline(id,await immutableChatRows(built.nodes),{timelineId:current.id,head:headNodeId});await updateContactPreview(id,current);return current;}
   const fresh=await immutableChatRows(built.nodes);let prefix=0;while(prefix<old.length&&prefix<fresh.length&&old[prefix].id===fresh[prefix].id)prefix++;
-  if(reason==="append"&&prefix===old.length){const next={...current,headNodeId,revision:current.revision+1};await db.timelines.put(next);cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId});return next;}
+  if(reason==="append"&&prefix===old.length){const next={...current,headNodeId,revision:current.revision+1};await db.timelines.put(next);cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId});await updateContactPreview(id,next);return next;}
   const existing=(await db.timelines.where("conversationId").equals(id).toArray()).find(t=>t.status==="live"&&t.epoch===current.epoch&&t.headNodeId===headNodeId&&(!detached||t.reason==="legacy-snapshot"));
   const next:MemoryTimeline=existing??{...current,id:crypto.randomUUID(),headNodeId,parentTimelineId:detached?undefined:current.id,forkNodeId:detached?undefined:old[prefix-1]?.id,parentRevisionAtFork:detached?undefined:current.revision,revision:0,createdAt:Date.now(),reason:detached?"legacy-snapshot":reason};
   if(!existing)await db.timelines.add(next);
-  await db.conversations.update(id,{activeTimelineId:next.id});cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId});return next;
+  await db.conversations.update(id,{activeTimelineId:next.id});cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId});await updateContactPreview(id,next);return next;
 }
 async function projectTimeline(id:string,t:MemoryTimeline) {
   const rows=await resolveTimelinePath(id,t.id);
@@ -243,7 +261,7 @@ async function projectTimeline(id:string,t:MemoryTimeline) {
   }
 }
 export async function switchTimeline(id:string,timelineId:string) {
-  await db.transaction("rw",timelineTables(),async()=>{const c=await db.conversations.get(id),t=await db.timelines.get(timelineId);if(!c||!t)throw Error("会话或时间线不存在。");assertOwner(c,t);await projectTimeline(id,t);cancelGeneration(id);await db.conversations.update(id,{activeTimelineId:t.id,sendingToken:undefined,sendingUntil:undefined,updatedAt:Date.now()});});
+  await db.transaction("rw",timelineTables(),async()=>{const c=await db.conversations.get(id),t=await db.timelines.get(timelineId);if(!c||!t)throw Error("会话或时间线不存在。");assertOwner(c,t);await projectTimeline(id,t);cancelGeneration(id);await db.conversations.update(id,{activeTimelineId:t.id,sendingToken:undefined,sendingUntil:undefined,updatedAt:Date.now()});await updateContactPreview(id,t);});
 }
 export async function getTimelineAncestors(id:string,timelineId?:string) {
   const c=await db.conversations.get(id);if(!c)throw Error("会话不存在。");let t=await db.timelines.get(timelineId??c.activeTimelineId??"");const result:MemoryTimeline[]=[],seen=new Set<string>();if((timelineId||c.activeTimelineId)&&!t)throw Error("时间线不存在。");
