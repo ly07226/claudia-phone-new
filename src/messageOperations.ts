@@ -1,3 +1,4 @@
+import {validateSnapshotReferences} from './snapshotReferences';
 import {messageBubbles,hasVisiblePart,type BubblePart} from './messageBubbles';
 import { ensureTimelineInTransaction, commitTimelineProjection, nodesForHead, messageFingerprint } from "./timelines";
 import { db } from "./store";
@@ -77,9 +78,10 @@ export async function snapshotPath(
 ) {
   const timeline = await ensureTimelineInTransaction(id);
   // New snapshots retain identifiers only. Legacy snapshots remain readable.
-  const nodes = await nodesForHead(id, timeline.headNodeId);
-  const messageIds = nodes.map(n => n.messageId);
-  const variantIds = [...new Set(nodes.map(n => n.variantId).filter((v): v is string => !!v))];
+  if(timeline.headNodeId){
+    const tip=await db.pathNodes.get(timeline.headNodeId);
+    if(!tip||tip.conversationId!==id)throw Error('快照头节点缺失或跨会话。');
+  }
   const snapshot: ConversationSnapshot = {
     id: crypto.randomUUID(),
     conversationId: id,
@@ -87,7 +89,7 @@ export async function snapshotPath(
     timelineId: timeline.id, headNodeId: timeline.headNodeId, timelineEpoch: timeline.epoch,
     createdAt: Date.now(),
     messages: [], variants: [],
-    references: { storageVersion: 2, messageIds, variantIds, timelineId: timeline.id, headNodeId: timeline.headNodeId, timelineEpoch: timeline.epoch },
+    references: { storageVersion: 3, timelineId: timeline.id, headNodeId: timeline.headNodeId, timelineEpoch: timeline.epoch },
   };
   await db.conversationSnapshots.add(snapshot);
   return snapshot;
@@ -249,16 +251,17 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
     // fall back to current live messages when a referenced node is missing.
     let snapshotMessages = s.messages;
     let snapshotVariants = s.variants;
-    if (s.references?.storageVersion === 2) {
+    if (s.references) {
       const nodes = await nodesForHead(id, s.headNodeId);
-      if (nodes.length !== s.references.messageIds.length ||
-          nodes.some((n, i) => n.messageId !== s.references!.messageIds[i]))
-        throw Error("快照引用路径已失效，停止恢复。");
+      validateSnapshotReferences(s,nodes);
       snapshotMessages = nodes.map(n => ({ ...n.message, archived: false }));
-      const variants = await db.messageVariants.bulkGet(s.references.variantIds);
-      if (variants.some((v, i) => !v || v.id !== s.references!.variantIds[i]))
+      const versionNodes=nodes.filter(n=>!!n.variantId);
+      const variants=await db.messageVariants.bulkGet(versionNodes.map(n=>n.variantId!));
+      if(variants.some((v,i)=>!v||v.conversationId!==id||v.messageId!==versionNodes[i].messageId))
         throw Error("快照引用版本缺失，停止恢复。");
-      snapshotVariants = variants as MessageVariant[];
+      // Variant rows are mutable (editing reuses their ID). The verified
+      // immutable path, not the present-day variant value, owns saved text.
+      snapshotVariants=versionNodes.map((n,i)=>({...variants[i]!,content:n.message.content,userEdited:n.message.userEdited,heartVoice:n.message.heartVoice,replyInterruption:n.message.replyInterruption}));
     }
     const ids = new Set(snapshotMessages.map((m) => m.id));
     if (

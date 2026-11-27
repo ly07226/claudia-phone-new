@@ -1,3 +1,4 @@
+import {useChatDraft,ChatDraftInput,ChatDraftSend} from './ChatDraft';
 import {useChatHistoryWindow} from './useChatHistoryWindow';
 import {dataEqual} from './dataEqual';
 import {chatDataRevision} from './chatDataRevision';
@@ -7,7 +8,7 @@ import {ChatHub} from './ChatHub';
 import {takeChatOpen,openChatEvent,markVisibleChat} from './chatNotificationNavigation';
 import {interruptionLabel,validInterruption} from './chatCompletion';
 import {ReplyPending,ReplyFailureNotice} from './ReplyStatus';
-import {prepareQuote,quoteSummary} from './messageReferences';
+import {prepareQuote,quoteSummary,quotedMessage} from './messageReferences';
 import {partKey,type BubblePart} from './messageBubbles';
 import type {MessageSelection} from './MessagePopover';
 import {useGenerationTask, useGenerationFailures, getGenerationTask, retainGenerationFailure, startGenerationTask, stopGenerationTask, runningTask} from "./generationTasks";
@@ -88,7 +89,8 @@ export function Chat({ worldId }: { worldId?: string }) {
     };
   },[conversation?.id]);
 
-  const [text, setText] = useState("");
+  const draft = useChatDraft();
+  const setText = draft.set;
   const [search, setSearch] = useState("");
   const enterGuard = useRef(createEnterSendGuard());
   const [previewState, setPreviews] = useState<{scope: string; rows: Record<string, ChatPreview>}>({scope: "", rows: {}});
@@ -130,7 +132,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     }catch(e){setError(e instanceof Error?e.message:'QQ 记录同步失败');}
     finally{setQqManualSyncBusy(false);}
   };
-  const imageDraft=useImageDraft(conversation,text,setText,setError);
+  const imageDraft=useImageDraft(conversation,draft.get,setText,setError);
   const [replyPresentation,setReplyPresentation]=useState<{sequence:number;conversationId:string;known:Map<string,Message>}|null>(null);
   const [configs, setConfigs] = useState<ApiConfig[]>([]);
   const [variants, setVariants] = useState<Record<string, MessageVariant[]>>(
@@ -193,25 +195,28 @@ export function Chat({ worldId }: { worldId?: string }) {
     }
     else if(savedScroll.current!==null){history.scrollTop=savedScroll.current;savedScroll.current=null;}
   },[management,historyWindow.start,historyWindow.end,messages]);
-  const pendingQuoteJump=useRef<{id:string;part:BubblePart}|null>(null);
-  function locateQuote(id:string,part:BubblePart){
+  const readingAnchor=useRef<string|null>(null);
+  const pendingQuoteJump=useRef<{id:string;part:BubblePart;quote?:MessageQuote}|null>(null);
+  function locateQuote(id:string,part:BubblePart,quote?:MessageQuote){
     if(!messages.some(m=>m.id===id)&&displayHasMore.current){
-     pendingQuoteJump.current={id,part};
+     pendingQuoteJump.current={id,part,quote};
      void loadQuoteHistory(activeConversation.current!,id).catch(()=>{pendingQuoteJump.current=null;setFeedback('无法定位原消息。');});
      return;
     }
     const index=messages.findIndex(m=>m.id===id);
     if(index<0){setFeedback('原消息已删除或不在当前分支。');return;}
     if(index<historyWindow.start||index>=historyWindow.end){
-      pendingQuoteJump.current={id,part};
+      pendingQuoteJump.current={id,part,quote};
       followBottom.current=false;
       historyWindow.reveal(index);
       return;
     }
-    scrollToQuote(id,part);
+    scrollToQuote(id,part,quote);
   }
-  function scrollToQuote(id:string,part:BubblePart){
+  function scrollToQuote(id:string,part:BubblePart,quote?:MessageQuote){
+    if(quote&&conversation&&!quotedMessage(quote,messages,conversation)){setFeedback('原消息已删除、版本变化或不在当前分支。');return;}
     const history=historyRef.current;if(!history)return;
+    readingAnchor.current=id;
     const group=Array.from(history.querySelectorAll<HTMLElement>('[data-message-id]')).find(el=>el.dataset.messageId===id);
     const target=group&&Array.from(group.querySelectorAll<HTMLElement>('[data-bubble-key]')).find(el=>el.dataset.bubbleKey===partKey(part));
     if(!target){setFeedback('无法定位引用消息。');return;}
@@ -230,12 +235,12 @@ export function Chat({ worldId }: { worldId?: string }) {
       return;
     }
     pendingQuoteJump.current=null;
-    scrollToQuote(target.id,target.part);
+    scrollToQuote(target.id,target.part,target.quote);
   },[messages,historyWindow.start,historyWindow.end]);
   const userIdentity = identityFor(s.theme, conversation?.mode === "world" ? `world:${conversation.worldId}` : "daily");
   const userAvatar = s.assets.find(a=>a.id===userIdentity.avatar)?.data;
   const avatarSrc = s.assets.find((a) => a.id === character?.avatar)?.data;
-  useChatViewport(!!conversation, text, inputRef, () => {
+  useChatViewport(!!conversation, inputRef, () => {
     if (followBottom.current && historyRef.current)
       historyRef.current.scrollTop = historyRef.current.scrollHeight;
   });
@@ -291,10 +296,9 @@ export function Chat({ worldId }: { worldId?: string }) {
   const displayCursor=useRef<string|undefined>(undefined);
   const displayHasMore=useRef(false);
   const displayPaging=useRef(false);
-  const displayFullyLoaded=useRef(false);
   async function loadOlderDisplayMessages(){
    const id=activeConversation.current;
-   if(!id||displayPaging.current||!displayHasMore.current||displayFullyLoaded.current)return;
+   if(!id||displayPaging.current||!displayHasMore.current)return;
    displayPaging.current=true;
    const scope=visiblePath.current;
    const cursor=displayCursor.current;
@@ -302,7 +306,7 @@ export function Chat({ worldId }: { worldId?: string }) {
    // Validate the active path and cursor after the await instead.
    try{
     const page=await readTimelineDisplayPage(id,36,cursor,true);
-    if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch||displayFullyLoaded.current||displayCursor.current!==cursor)return;
+    if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch||displayCursor.current!==cursor)return;
     displayCursor.current=page.nextCursor;
     displayHasMore.current=page.hasMore;
     if(!page.rows.length)return;
@@ -319,7 +323,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   }
   // Quote navigation must not materialize the entire chat in one read.
   // Fetch bounded pages and stop as soon as the referenced message is found.
-  async function loadQuoteHistory(id:string,targetId:string){
+  async function loadQuoteHistory(id:string,targetId:string,silent=false){
    if(displayPaging.current)return;
    displayPaging.current=true;
    const scope=visiblePath.current,ticket=refreshTicket.current;
@@ -349,17 +353,21 @@ export function Chat({ worldId }: { worldId?: string }) {
     const seen=new Set(previousRows.map(m=>m.id));
     const combined=[...gathered.filter(m=>!seen.has(m.id)),...previousRows];
     if(gathered.length){
+     if(silent&&combined.some(row=>row.id===targetId)){followBottom.current=false;jumpTo.current=targetId;}
      historyWindow.beforeChange();
      if(appliedSnapshot.current)appliedSnapshot.current={...appliedSnapshot.current,rows:combined};
      setMessages(combined);
     }
     if(!combined.some(m=>m.id===targetId)){
      pendingQuoteJump.current=null;
-     setFeedback('原消息已删除或不在当前分支。');
+     if(!silent)setFeedback('原消息已删除或不在当前分支。');
     }
    }finally{displayPaging.current=false;}
   }
   async function loadSnapshot(id:string,scroll=false){
+   // Keep explicit reference navigation across edits/branch restores. Native
+   // short-history scroll events must not turn that reading intent into tail-follow.
+   const anchorId=readingAnchor.current;
    const ticket=++refreshTicket.current,revision=chatDataRevision();const previous=appliedSnapshot.current;
    const data=await db.transaction('r',[db.conversations,db.messages,db.messageVariants,db.timelines,db.pathNodes],async()=>{const current=await db.conversations.get(id);if(!current)return null;const timeline=current.activeTimelineId?await db.timelines.get(current.activeTimelineId):undefined;
     const key=JSON.stringify([db.name,id,current.activeTimelineId,current.timelineEpoch,timeline?.headNodeId,timeline?.revision]);
@@ -428,6 +436,12 @@ export function Chat({ worldId }: { worldId?: string }) {
    appliedSnapshot.current={key,revision,rows};if(previous?.rows===rows)return;
    historyWindow.beforeChange();preserveTop.current=null;if(scroll&&followBottom.current)scrollRequested.current=true;
    setMessages(rows);
+   const priorScope=previous?.key?JSON.parse(previous.key):null;
+   if(anchorId&&priorScope&&(priorScope[2]!==current.activeTimelineId||priorScope[3]!==current.timelineEpoch)&&
+      !rows.some(row=>row.id===anchorId)&&displayHasMore.current){
+    followBottom.current=false;
+    await loadQuoteHistory(id,anchorId,true);
+   }
   }
   function refresh(id:string,scroll=false):Promise<void> {
     // Coalesce overlapping UI refreshes. Database liveQuery, navigation and
@@ -491,10 +505,10 @@ export function Chat({ worldId }: { worldId?: string }) {
     lastHistoryScrollTop.current=null;
     setError("");
     appliedSnapshot.current=null;
-    displayFullyLoaded.current=false;
     displayHasMore.current=false;
     displayCursor.current=undefined;
     pendingQuoteJump.current=null;
+    readingAnchor.current=null;
     setMessages([]);
     setBusy(false);setSavingMessage(false);pending.current=null;setReplyTo(null);
     setReplyPresentation(null);
@@ -539,7 +553,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     const id = conversation.id;
     const view=visiblePath.current;
     const expectedPath=view?.conversationId===id?{timelineId:view.timelineId,epoch:view.epoch}:{timelineId:conversation.activeTimelineId,epoch:conversation.timelineEpoch??0};
-    if (!retry && !target) followBottom.current = true;
+    if (!retry && !target) {readingAnchor.current=null;followBottom.current = true;}
     const sequence = ++taskSequence.current;
     const ownsView=()=>mounted.current&&activeConversation.current===id&&sequence===taskSequence.current;
     if(retry || target || !conversation.chatSettings?.continuousSend)setReplyPresentation({sequence,conversationId:id,known:new Map(messages.filter(m=>m.role==='assistant').map(m=>[m.id,m]))});
@@ -550,7 +564,8 @@ export function Chat({ worldId }: { worldId?: string }) {
     setFeedback("");
     const controller = new AbortController();
     pending.current = controller;
-    const draft = stickerText ?? text;
+    const text = draft.get();
+    const messageDraft = stickerText ?? text;
     const images=!retry&&!target&&stickerText===undefined?imageDraft.ids:[];
     let stored = retry || !!target;
     if (!retry && !target && stickerText===undefined) setText("");
@@ -566,13 +581,13 @@ export function Chat({ worldId }: { worldId?: string }) {
       }
       if (!retry && !target && conversation.chatSettings?.continuousSend) {
         recordKeyboardDebug('message-save-start',{flow,inputFocused:document.activeElement===inputRef.current});
-        await queueUserMessage(id, draft, expectedPath,images,replyTo??undefined);
+        await queueUserMessage(id, messageDraft, expectedPath,images,replyTo??undefined);
         recordKeyboardDebug('message-save-end',{flow,success:true,inputFocused:document.activeElement===inputRef.current});
         stored = true;
         if(ownsView()){if(stickerText===undefined)imageDraft.clear();setReplyTo(null);await refresh(id, true);}
       } else {
         recordKeyboardDebug('ai-start',{flow,inputFocused:document.activeElement===inputRef.current,disabled:!!inputRef.current?.disabled});
-        const task=startGenerationTask({conversation,expectedPath,text:draft,retry,messageId:target?.id,allowArchive,images,replyTo:!retry&&!target?replyTo??undefined:undefined},()=>{
+        const task=startGenerationTask({conversation,expectedPath,text:messageDraft,retry,messageId:target?.id,allowArchive,images,replyTo:!retry&&!target?replyTo??undefined:undefined},()=>{
           stored = true;
           if(ownsView()){
             if(!target&&stickerText===undefined)imageDraft.clear();
@@ -591,7 +606,7 @@ export function Chat({ worldId }: { worldId?: string }) {
       if(!retry&&!target&&conversation.chatSettings?.continuousSend&&!stored)recordKeyboardDebug('message-save-end',{flow,success:false,inputFocused:document.activeElement===inputRef.current});
       if(retry&&keyboardDebugEnabled())recordKeyboardDebug('reply-returned',{success:false,reason:e instanceof Error&&e.message==='此会话正在回复中，请稍候。'?'service-lock':e instanceof Error&&e.message==='剧情已在其他窗口切换，请确认当前消息后重试。'?'service-path':e instanceof Error&&e.message==='没有可重试的用户消息。'?'service-no-pending':'generation-failed'});
       if (ownsView()) {
-        if (!stored && !retry && !target && stickerText===undefined) setText(draft);
+        if (!stored && !retry && !target && stickerText===undefined) setText(messageDraft);
         if(getGenerationTask(id)?.status!=='failed')await retainGenerationFailure({id:crypto.randomUUID(),conversationId:id,characterId:conversation.characterId,worldId:conversation.worldId,timelineId:expectedPath.timelineId,epoch:expectedPath.epoch,startedAt:Date.now(),status:'failed',saved:stored},e);
 
       }
@@ -614,7 +629,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     if(!retry)recordKeyboardDebug('send-start',{flow,inputFocused:document.activeElement===inputRef.current,idle:!busy,noPending:!pending.current});
     if(retry)recordKeyboardDebug('send-true',{flow,hasConversation:!!conversation,idle:!busy,noPending:!pending.current});
     if(retry)keyboardAutoReply.cancel();
-    if (!retry && ((!text.trim()&&!imageDraft.ids.length) || imageDraft.processing || busy || pending.current)) return Promise.resolve();
+    if (!retry && ((!draft.get().trim()&&!imageDraft.ids.length) || imageDraft.processing || busy || pending.current)) return Promise.resolve();
     if(!retry)keyboardAutoReply.suppressSend();
     return runGeneration(retry,undefined,false,false,flow);
   };
@@ -657,6 +672,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     setOpeningChat(false);
     appliedSnapshot.current=null;
     pendingQuoteJump.current=null;
+    readingAnchor.current=null;
     setSelection(undefined);
     setPreviewVariant(undefined);
     clearTimeout(highlightTimer.current);
@@ -683,10 +699,11 @@ export function Chat({ worldId }: { worldId?: string }) {
   const messageIndex=useMemo(()=>new Map(messages.map(m=>[m.id,m])),[messages]);
   const timeLabels=useMemo(()=>chatTimeLabels(messages.slice(Math.max(0,historyWindow.start-1),historyWindow.end)),[messages,historyWindow.start,historyWindow.end]);
   useEffect(()=>{if(!conversation){setVariants({});return;}let alive=true;const id=conversation.id,ids=visibleMessages.map(m=>m.id);
-   const sub=liveQuery(()=>db.messageVariants.where('messageId').anyOf(ids).filter(v=>v.conversationId===id).toArray()).subscribe({next:rows=>{if(!alive)return;const groups:Record<string,MessageVariant[]>={};for(const v of rows)(groups[v.messageId]??=[]).push(v);for(const list of Object.values(groups))list.sort((a,b)=>a.createdAt-b.createdAt||(a.id<b.id?-1:1));setVariants(old=>dataEqual(old,groups)?old:groups);},error:()=>{if(alive)setError('无法读取回复版本，原消息保留。');}});return()=>{alive=false;sub.unsubscribe();};
+   const sub=liveQuery(()=>db.messageVariants.where('messageId').anyOf(ids).filter(v=>v.conversationId===id).toArray()).subscribe({next:rows=>{if(!alive)return;const groups:Record<string,MessageVariant[]>={};for(const v of rows)(groups[v.messageId]??=[]).push(v);for(const list of Object.values(groups))list.sort((a,b)=>a.createdAt-b.createdAt||(a.id<b.id?-1:1));setVariants(old=>{for(const id of Object.keys(groups))if(dataEqual(old[id],groups[id]))groups[id]=old[id];return dataEqual(old,groups)?old:groups;});},error:()=>{if(alive)setError('无法读取回复版本，原消息保留。');}});return()=>{alive=false;sub.unsubscribe();};
   },[conversation?.id,visibleMessages]);
   // Keep expensive message bubble JSX stable while the composer text changes.
   // Include state read by message actions so menus, versions and continuations stay current.
+  const historyComplete=!displayHasMore.current;
   const renderedMessages=useMemo(()=>{
     if(!conversation||!bubbleScope)return null;
     return visibleMessages.map((m) => (
@@ -703,6 +720,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 userName={userIdentity.name}
                 conversation={bubbleScope}
                 messageIndex={messageIndex}
+                historyComplete={historyComplete}
                 onLocate={locateQuote}
                 onMenu={(selected) => {
                   followBottom.current=false;scrollRequested.current=false;preserveTop.current=historyRef.current?.scrollTop??null;
@@ -726,7 +744,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               </Fragment>
             ));
   },[
-    messages,messageIndex,visibleMessages,timeLabels,replyPresentation,variants,displayName,avatarSrc,userAvatar,
+    messages,messageIndex,historyComplete,visibleMessages,timeLabels,replyPresentation,variants,displayName,avatarSrc,userAvatar,
     userIdentity.name,conversation,bubbleScope,onBubbleReveal,failuresByMessage,busy
   ]);
   if(requests && !worldId && !conversation)return <div className="chat-hub-new-contacts"><button className="message-action" onClick={()=>s.set({activeApp:'角色管理'})}>添加联系人（角色管理）</button><FriendRequests characters={applications} onClose={()=>setRequests(false)}/></div>;
@@ -795,6 +813,8 @@ export function Chat({ worldId }: { worldId?: string }) {
             ref={historyRef}
             className="chat-history"
             aria-label="当前会话消息"
+            onWheel={()=>{readingAnchor.current=null;}}
+            onTouchMove={()=>{readingAnchor.current=null;}}
             onScroll={(e) => {
               const el = e.currentTarget;
               followBottom.current =
@@ -812,7 +832,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               }
             }}
           >
-            {displayHasMore.current&&!displayFullyLoaded.current&&(
+            {displayHasMore.current&&(
               <div className="chat-history-load-more">
                 <button type="button" className="chat-history-load-capsule" onClick={()=>void loadOlderDisplayMessages()}>
                   点击查看历史记录
@@ -853,7 +873,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               </div>
             )}
             {replyTo&&<div className="chat-quote-draft" aria-label="引用预览"><span><strong>{replyTo.role==='user'?userIdentity.name:displayName}</strong><small>{quoteSummary(replyTo)}</small></span><button type="button" aria-label="取消引用" onClick={()=>setReplyTo(null)}><X size={18}/></button></div>}
-            {imageDraft.ids.length>0&&<div className="chat-pending-images" aria-label="待发送图片">{imageDraft.ids.map(id=><div key={id}><StoredImage id={id}/><button type="button" aria-label="移除待发送图片" disabled={busy||imageDraft.processing} onClick={()=>void imageDraft.remove(id,text)}>×</button></div>)}<small>最多3张；大图缩至1600px，单张≤1.5MB，请使用支持视觉输入的模型。{imageDraft.processing?'处理中…':''}{imageDraft.notice}</small></div>}
+            {imageDraft.ids.length>0&&<div className="chat-pending-images" aria-label="待发送图片">{imageDraft.ids.map(id=><div key={id}><StoredImage id={id}/><button type="button" aria-label="移除待发送图片" disabled={busy||imageDraft.processing} onClick={()=>void imageDraft.remove(id,draft.get())}>×</button></div>)}<small>最多3张；大图缩至1600px，单张≤1.5MB，请使用支持视觉输入的模型。{imageDraft.processing?'处理中…':''}{imageDraft.notice}</small></div>}
             <form
               className="chat-compose chat-compose-double"
               onSubmit={(e) => {
@@ -863,17 +883,17 @@ export function Chat({ worldId }: { worldId?: string }) {
             >
 
               <div className="chat-input-wrap">
-              <textarea
-                ref={inputRef}
+              <ChatDraftInput
+                draft={draft}
+                inputRef={inputRef}
                 rows={1}
                 aria-label="聊天消息"
                 placeholder="说点什么…"
                 enterKeyHint={conversation.chatSettings?.continuousSend ? "send" : undefined}
                 maxLength={8000}
-                value={text}
                 disabled={busy && !savingMessage}
                 onFocus={()=>setBottomPanel("none")}
-                onChange={(e) => {const next=e.target.value;setText(next);if(!busy && imageDraft.ids.length>0)imageDraft.caption(next);}}
+                onDraft={next=>{if(!busy && imageDraft.ids.length>0)imageDraft.caption(next);}}
                 onCompositionStart={()=>enterGuard.current.start()}
                 onCompositionEnd={()=>enterGuard.current.end()}
                 onKeyUp={e=>enterGuard.current.up(e.key)}
@@ -882,19 +902,21 @@ export function Chat({ worldId }: { worldId?: string }) {
               />
 
               </div>
-              <button
+              <ChatDraftSend
+                draft={draft}
+                blocked={!busy && imageDraft.processing}
+                hasImages={busy || imageDraft.ids.length>0}
                 className={`primary chat-send ${busy ? "is-cancel" : ""}`}
                 type={busy ? "button" : "submit"}
                 aria-label={busy ? "取消请求" : "发送"}
-                disabled={!busy && ((!text.trim()&&!imageDraft.ids.length)||imageDraft.processing)}
                 onPointerDown={e=>{if(conversation.chatSettings?.continuousSend && document.activeElement===inputRef.current)e.preventDefault();}}
                 onMouseDown={e=>{if(conversation.chatSettings?.continuousSend && document.activeElement===inputRef.current)e.preventDefault();}}
                 onClick={busy ? () => {if(conversation)void stopGenerationTask(conversation.id).catch(()=>setError("停止请求失败，请稍后重试。"));} : undefined}
               >
                 {busy ? <Square size={18} /> : <Send size={20} />}
-              </button>
+              </ChatDraftSend>
               <div className="chat-compose-tools">
-              <AttachmentMenu toolbar onStickerSelect={sticker=>{if(busy||pending.current||imageDraft.processing)return;keyboardAutoReply.suppressSend();void runGeneration(false,undefined,false,false,"ordinary",`[表情包:${sticker.id}:${sticker.label.replace(/[\[\]\r\n]/g," ").slice(0,100)}]`);}} disabled={busy||!imageDraft.ready} processing={imageDraft.processing} scope={imageDraft.scope} onOpenChange={setAttachmentOpen} panel={bottomPanel} onPanelChange={setBottomPanel} onChoose={(files,scope)=>void imageDraft.choose(files,text,scope)} onSyncQq={()=>void manualQqSync()} qqSyncEnabled={!!conversation&&conversation.mode==='daily'&&!conversation.worldId&&!!localStorage.getItem('claudia-qq-stable-sync-id')} qqSyncBusy={qqManualSyncBusy}/>
+              <AttachmentMenu toolbar onStickerSelect={sticker=>{if(busy||pending.current||imageDraft.processing)return;keyboardAutoReply.suppressSend();void runGeneration(false,undefined,false,false,"ordinary",`[表情包:${sticker.id}:${sticker.label.replace(/[\[\]\r\n]/g," ").slice(0,100)}]`);}} disabled={busy||!imageDraft.ready} processing={imageDraft.processing} scope={imageDraft.scope} onOpenChange={setAttachmentOpen} panel={bottomPanel} onPanelChange={setBottomPanel} onChoose={(files,scope)=>void imageDraft.choose(files,draft.get(),scope)} onSyncQq={()=>void manualQqSync()} qqSyncEnabled={!!conversation&&conversation.mode==='daily'&&!conversation.worldId&&!!localStorage.getItem('claudia-qq-stable-sync-id')} qqSyncBusy={qqManualSyncBusy}/>
               {<button className="chat-reply-button" type="button" aria-label="AI 回复" title="让 AI 回复待回复消息" disabled={busy || messages.at(-1)?.role!=="user"} onClick={()=>void send(true)}><span aria-hidden="true">AI 回复</span><svg width={24} height={24} viewBox="0 0 24 24" fill="none" data-icon="double-sparkle" aria-hidden="true"><path d="M9.5 6 11.8 11.7 17.5 14 11.8 16.3 9.5 22 7.2 16.3 1.5 14 7.2 11.7Z" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinejoin="round"/><path d="M19 1l1.2 3.3L23.5 5.5l-3.3 1.2L19 10l-1.2-3.3-3.3-1.2 3.3-1.2Z" fill="currentColor"/></svg></button>}
               </div>
             </form>

@@ -177,9 +177,16 @@ export async function latestTimelineMessage(c:Conversation){
  const t=await db.timelines.get(c.activeTimelineId!);if(!t)throw Error('时间线不存在。');assertOwner(c,t);await getTimelineAncestors(c.id,t.id);
  const seen=new Set<string>();let id=t.headNodeId;while(id){if(seen.has(id))throw Error('时间线路径存在循环。');seen.add(id);const n=await db.pathNodes.get(id);if(!n)throw Error('时间线路径断链或跨会话。');nodeShape(n,c.id);if(n.fingerprint!==await messageFingerprint(n.message))throw Error('不可变节点内容校验失败。');if(n.role==='user'||n.role==='assistant')return {...n.message,archived:false};id=n.parentNodeId;}
 }
+/** IndexedDB can preserve explicit undefined fields while JSON backups omit them.
+ * Compare the same top-level representation used by the fingerprint, without
+ * serializing message bodies on the hot path. */
+function sameStoredMessage(a:Message,b:Message){
+ const normalized=(m:Message)=>Object.fromEntries(Object.entries({...m,archived:false}).filter(([,value])=>value!==undefined));
+ return dataEqual(normalized(a),normalized(b));
+}
 async function buildNodes(c:Conversation,messages:Message[],prior:ConversationPathNode[]=[]){
  const byMessage=new Map(prior.map(n=>[n.messageId,n]));
- const equal=(a:Message,b:Message)=>dataEqual({...a,archived:false},{...b,archived:false});
+ const equal=sameStoredMessage;
  const fingerprints=await batches(messages,async m=>{const old=byMessage.get(m.id);return old&&equal(old.message,m)?old.fingerprint:messageFingerprint(m);});
  const selected=messages.filter(m=>m.activeVariantId);const variants=await db.messageVariants.bulkGet(selected.map(m=>m.activeVariantId!));selected.forEach((m,i)=>{const v=variants[i];if(!v||v.conversationId!==c.id||v.messageId!==m.id)throw Error('消息版本引用缺失或跨会话。');});
  let candidates:Map<string,ConversationPathNode>|undefined,loaded=false;const key=(parent:string,fingerprint:string)=>JSON.stringify([parent,fingerprint]);
@@ -211,7 +218,7 @@ async function tryAppendProjection(c:Conversation,current:MemoryTimeline){
  const created:ConversationPathNode[]=[],fresh:ConversationPathNode[]=[];let parent=current.headNodeId??'';
  for(const original of messages){let m=original;if(m.activeVariantId){const v=await db.messageVariants.get(m.activeVariantId);if(!v||v.messageId!==m.id||v.conversationId!==c.id)throw Error('消息版本引用缺失或跨会话。');m={...m,content:v.content,userEdited:v.userEdited};}
   const fingerprint=await messageFingerprint(m);let node=await db.pathNodes.where('[conversationId+parentNodeId+fingerprint]').equals([c.id,parent,fingerprint]).first();
-  if(node&&!dataEqual(node.message,{...m,archived:false}))throw Error('不可变节点内容校验失败。');
+  if(node&&!sameStoredMessage(node.message,m))throw Error('不可变节点内容校验失败。');
   if(!node){node={id:crypto.randomUUID(),conversationId:c.id,parentNodeId:parent,messageId:m.id,variantId:m.activeVariantId,role:m.role,message:{...m,archived:false},fingerprint,createdAt:Date.now()};created.push(node);}nodeShape(node,c.id);fresh.push(node);parent=node.id;
  }
  if(created.length)await db.pathNodes.bulkAdd(created);const next={...current,headNodeId:parent,revision:current.revision+1};await db.timelines.put(next);

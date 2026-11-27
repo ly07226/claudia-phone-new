@@ -3,7 +3,6 @@ import { useLayoutEffect, useRef, type RefObject } from "react";
 /** Only the conversation shell follows the visual viewport; all inner regions remain in normal flex flow. */
 export function useChatViewport(
   active: boolean,
-  _text: string,
   input: RefObject<HTMLTextAreaElement | null>,
   onLayout: () => void,
 ) {
@@ -90,9 +89,11 @@ export function useChatViewport(
       });
     };
     el.addEventListener('input', schedule);
+    el.addEventListener('chat-draft-change', schedule);
     schedule();
     return () => {
       el.removeEventListener('input', schedule);
+      el.removeEventListener('chat-draft-change', schedule);
       if (frame) window.cancelAnimationFrame(frame);
     };
   }, [active, input]);

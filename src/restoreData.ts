@@ -27,4 +27,19 @@ export async function validate(d:Dexie,signal:AbortSignal){
   await validateReferences(d,{credentials:'encrypted',redactions:[]} as unknown as BackupManifest,signal);
   await validateTimelineDatabase(d);
 }
-export async function openRestoreDatabase(name:string){const d=new Dexie(name);if(!await Dexie.exists(name))d.version(7).stores(backupSchemas);await d.open();exactSchema(d);return d;}
+/** Only verified, isolated restore candidates are upgraded. The live database
+ * is never passed through this helper; unknown stores fail before any upgrade. */
+export async function upgradeRestoreCandidate(d:Dexie){
+ exactSchema(d);
+ if(d.verno>=9)return;
+ const leases=d.tables.some(table=>table.name==='summaryLeases');
+ d.close();d.version(9).stores({...backupSchemas,...(leases?{summaryLeases:'name,expiresAt'}:{})}).upgrade(async tx=>{
+  const legacy=await tx.table('themes').get('sticker-library');
+  if(Array.isArray(legacy?.stickers))for(const {data,...meta} of legacy.stickers){await tx.table('stickerMeta').put(meta);await tx.table('stickerImages').put({id:meta.id,data});}
+ });await d.open();exactSchema(d);
+}
+export async function openRestoreDatabase(name:string){
+ const d=new Dexie(name);
+ if(!await Dexie.exists(name))d.version(9).stores(backupSchemas);
+ try{await d.open();await upgradeRestoreCandidate(d);return d;}catch(error){d.close();throw error;}
+}

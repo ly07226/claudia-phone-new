@@ -109,16 +109,13 @@ export interface MessageRevision {
   content: string;
   createdAt: number;
 }
-/** Reference-only snapshot payload used by the forthcoming storage migration.
- * Existing inline snapshots remain readable until conversion is verified. */
-export interface ConversationSnapshotReferences {
-  storageVersion: 2;
-  messageIds: string[];
-  variantIds: string[];
+/** V2 ID lists and legacy inline snapshots remain readable. V3 refers to one
+ * immutable path head, with no per-snapshot history traversal or ID-array copy. */
+export type ConversationSnapshotReferences = {
   timelineId?: string;
   headNodeId?: string;
   timelineEpoch?: number;
-}
+} & ({storageVersion:2;messageIds:string[];variantIds:string[]}|{storageVersion:3});
 
 export interface ConversationSnapshot {
   timelineId?: string;

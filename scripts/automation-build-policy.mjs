@@ -1,12 +1,12 @@
 import {pathToFileURL} from 'node:url';
-const branch='feature/dual-automation-api';
+const branches=new Set(['feature/dual-automation-api','refactor/reference-only-chat-snapshots-20261127']);
 const normalized=value=>String(value??'').replace(/^refs\/heads\//,'');
 /** Only this draft feature/PR is blocked. A production main build remains normal. */
 export function ignoreAutomationBuild(env){
  if(env.CONTEXT==='production'&&normalized(env.BRANCH)==='main'||env.VERCEL_ENV==='production'&&normalized(env.VERCEL_GIT_COMMIT_REF)==='main')return false;
  // PR #112 is an explicitly requested Netlify test preview; keep other draft previews blocked.
  if(env.CONTEXT==='deploy-preview'&&String(env.REVIEW_ID)==='112')return false;
- return [env.BRANCH,env.HEAD,env.VERCEL_GIT_COMMIT_REF].some(value=>normalized(value)===branch)||env.CONTEXT==='deploy-preview'&&String(env.REVIEW_ID)==='109'||env.VERCEL_ENV==='preview'&&String(env.VERCEL_GIT_PULL_REQUEST_ID)==='109';
+ return [env.BRANCH,env.HEAD,env.VERCEL_GIT_COMMIT_REF].some(value=>branches.has(normalized(value)))||env.CONTEXT==='deploy-preview'&&String(env.REVIEW_ID)==='109'||env.VERCEL_ENV==='preview'&&String(env.VERCEL_GIT_PULL_REQUEST_ID)==='109';
 }
 export function automationBuildExit(mode,env){
  if(mode==='ignore')return ignoreAutomationBuild(env)?0:1;

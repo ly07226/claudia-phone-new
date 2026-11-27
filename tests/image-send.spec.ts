@@ -14,8 +14,8 @@ async function open(page:Page){await page.getByRole('button',{name:'聊天',exac
 
 for(const width of [375,390,430])test(`附件菜单、选择移除、图片草稿刷新、图片加文字发送持久化及大图：${width}`,async({page})=>{
  await page.setViewportSize({width,height:844});const ids=await seed(page);let calls=0;await page.route('https://image-model.test/**',async r=>{calls++;await r.fulfill({json:{choices:[{message:{content:'图片回复'}}]}});});await open(page);
- const plus=page.getByRole('button',{name:'图片附件',exact:true});await expect(plus).toBeEnabled();await plus.click();await expect(plus).toHaveAttribute('aria-expanded','true');await expect(page.getByRole('menuitem')).toHaveText(['相册','拍照','文件']);await plus.click();await expect(page.getByRole('menu',{name:'添加图片'})).toHaveCount(0);
- await plus.click();await page.locator('.chat-history').click();await expect(plus).toHaveAttribute('aria-expanded','false');
+ const plus=page.getByRole('button',{name:'更多功能',exact:true});await expect(plus).toBeEnabled();await plus.click();await expect(plus).toHaveAttribute('aria-expanded','true');for(const name of ['相册','拍照','文件'])await expect(page.getByRole('button',{name,exact:true})).toBeEnabled();await expect(page.getByLabel('更多功能面板',{exact:true})).toBeVisible();await plus.click();await expect(page.getByLabel('更多功能面板',{exact:true})).toHaveCount(0);
+ await plus.click();await page.getByLabel('聊天消息',{exact:true}).focus();await expect(plus).toHaveAttribute('aria-expanded','false');
  await expect(page.getByLabel('拍照图片',{exact:true})).toHaveAttribute('capture','environment');
  const src=await image(page);await page.getByLabel('相册图片',{exact:true}).setInputFiles([1,2,3].map(n=>({name:`photo${n}.png`,mimeType:'image/png',buffer:Buffer.from(src.split(',')[1],'base64')})));
  await expect(page.locator('.chat-pending-images img')).toHaveCount(3);await page.getByRole('button',{name:'移除待发送图片'}).first().click();await expect(page.locator('.chat-pending-images img')).toHaveCount(2);
@@ -26,7 +26,7 @@ for(const width of [375,390,430])test(`附件菜单、选择移除、图片草�
  await page.getByRole('button',{name:'查看聊天图片'}).first().click();await expect(page.getByRole('dialog',{name:'聊天图片大图'})).toBeVisible();await page.getByRole('button',{name:'关闭图片大图'}).click();
  await page.reload();await expect(page.locator('.desktop')).toBeVisible();await open(page);await expect(page.locator('.chat-message-images img')).toHaveCount(2);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
- const r=await page.evaluate(()=>{const p=document.querySelector('.chat-attachment-control')!.getBoundingClientRect(),t=document.querySelector('.chat-compose textarea')!.getBoundingClientRect();return {inside:p.left>=t.left&&p.right<=t.right,padding:parseFloat(getComputedStyle(document.querySelector('.chat-compose textarea')!).paddingRight)};});expect(r.inside).toBe(true);expect(r.padding).toBeGreaterThanOrEqual(44);
+ const r=await page.evaluate(()=>{const controls=Array.from(document.querySelectorAll('.chat-attachment-control > button')).map(el=>el.getBoundingClientRect()),t=document.querySelector('.chat-compose textarea')!.getBoundingClientRect();const phone=document.querySelector('.phone')!.getBoundingClientRect();return {inside:controls.length===5&&controls.every(p=>p.left>=phone.left&&p.right<=phone.right),below:controls.every(p=>p.top>=t.bottom-1)};});expect(r.inside).toBe(true);expect(r.below).toBe(true);
  await page.screenshot({path:`/tmp/claudia-images-${width}.png`,animations:'disabled'});
 });
 
@@ -106,7 +106,7 @@ test('发送前存储失败保留原始输入，取消选择无影响，附件�
  const src=await image(page);await page.evaluate(()=>{const attach=async()=>{const {db}=await import('/src/store.ts');const original=db.assets.add.bind(db.assets);(window as any).__restoreAssetAdd=()=>{db.assets.add=original;};db.assets.add=()=>Promise.reject(new DOMException('synthetic-quota','QuotaExceededError')) as any;};return attach();});
  await page.getByLabel('相册图片',{exact:true}).setInputFiles({name:'x.png',mimeType:'image/png',buffer:Buffer.from(src.split(',')[1],'base64')});await expect(page.getByRole('alert')).toContainText('存储空间不足');await expect(input).toHaveValue('保留我输入的文字');await expect(page.locator('.chat-pending-images img')).toHaveCount(0);await page.evaluate(()=>(window as any).__restoreAssetAdd());
  await page.getByLabel('相册图片',{exact:true}).setInputFiles([1,2,3,4].map(i=>({name:`${i}.png`,mimeType:'image/png',buffer:Buffer.from(src.split(',')[1],'base64')})));await expect(page.getByRole('alert')).toContainText('最多3张');
- await page.setViewportSize({width:375,height:360});await page.getByRole('button',{name:'图片附件',exact:true}).click();const menu=page.getByRole('menu',{name:'添加图片'});await expect(menu).toBeVisible();expect(await menu.evaluate(el=>{const r=el.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;})).toBe(true);
+ await page.setViewportSize({width:375,height:360});await page.getByRole('button',{name:'更多功能',exact:true}).click();const menu=page.getByLabel('更多功能面板',{exact:true});await expect(menu).toBeVisible();await expect.poll(()=>menu.evaluate(el=>{const r=el.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;})).toBe(true);
 });
 
 test('待发送草稿按分支恢复，切换角色不串图；图片发送后不进入另一分支或世界',async({page})=>{

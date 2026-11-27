@@ -1,6 +1,7 @@
+import {readSnapshotPreview} from './snapshotPreview';
 import {MessagePopover,type MessageSelection} from './MessagePopover';
 import {messageBubbles,partKey,visibleContent,type BubblePart} from './messageBubbles';
-import {quotedMessage,quoteSummary} from './messageReferences';
+import {quotedMessage,quoteShape,quoteSummary} from './messageReferences';
 import {Reply,RefreshCw,Pencil,Copy,Trash2} from 'lucide-react';
 import {StickerBubble} from "./StickerBubble";
 import {parseSticker} from "./stickerLibrary";
@@ -94,6 +95,7 @@ function ChatMessageView({
   conversation,
   messages=noQuoteRows,
   messageIndex,
+  historyComplete=true,
   onLocate,
 }: {
   message: Message;
@@ -109,7 +111,8 @@ function ChatMessageView({
   conversation: Pick<import("./chatTypes").Conversation,"id"|"mode"|"timelineEpoch">;
   messages?: Message[];
   messageIndex?:ReadonlyMap<string,Message>;
-  onLocate: (id:string,part:BubblePart)=>void;
+  historyComplete?:boolean;
+  onLocate: (id:string,part:BubblePart,quote?:import('./chatTypes').MessageQuote)=>void;
 }) {
   const root=useRef<HTMLDivElement>(null);
   const [heartOpen,setHeartOpen]=useState(false);
@@ -125,6 +128,9 @@ function ChatMessageView({
   };
   const handlers = useMessagePress(openMenu);
   const quoteAvailable=m.replyTo&&quotedMessage(m.replyTo,messages,conversation,messageIndex);
+  // A bounded display page cannot classify an unloaded source as deleted.
+  // Navigation loads and validates its exact version before highlighting it.
+  const quotePending=m.replyTo&&!historyComplete&&quoteShape(m.replyTo)&&m.replyTo.conversationId===conversation.id&&m.replyTo.epoch===(conversation.timelineEpoch??0)&&!(messageIndex?messageIndex.has(m.replyTo.messageId):messages.some(row=>row.id===m.replyTo!.messageId));
   const index = Math.max(
     0,
     variants.findIndex((v) => v.id === m.activeVariantId),
@@ -160,7 +166,7 @@ function ChatMessageView({
           >
             消息操作
           </button>
-          {m.replyTo&&<button type="button" className="message-quote" aria-label="定位引用消息" disabled={!quoteAvailable} onClick={()=>onLocate(m.replyTo!.messageId,m.replyTo!.part)}><strong>{m.replyTo.role==='user'?userName:characterName}</strong><span>{quoteAvailable?quoteSummary(m.replyTo):'原消息已删除或不在当前分支'}</span></button>}
+          {m.replyTo&&<button type="button" className="message-quote" aria-label="定位引用消息" disabled={!quoteAvailable&&!quotePending} onClick={()=>onLocate(m.replyTo!.messageId,m.replyTo!.part,m.replyTo)}><strong>{m.replyTo.role==='user'?userName:characterName}</strong><span>{quoteAvailable||quotePending?quoteSummary(m.replyTo):'原消息已删除或不在当前分支'}</span></button>}
           {bubbles.some(p=>p.kind==='image')&&<MessageImages ids={bubbles.flatMap(p=>p.kind==='image'?[p.assetId]:[])}/>}
           {fragments.slice(0,visibleCount).map((fragment,fragmentIndex) => {const sticker=parseSticker(fragment.text);return (
             <div className={`${m.role==="assistant"?"chat-heart-bubble-unit":"chat-heart-bubble-unit chat-heart-user-unit"}${/^[?？.!！。]+$/.test(fragment.text.trim())?" chat-punctuation-bubble-unit":""}`} key={partKey(fragment)}>
@@ -208,9 +214,9 @@ export function ChatMessage(props:Parameters<typeof ChatMessageView>[0]){
  const latest=useRef(props);useLayoutEffect(()=>{latest.current=props;});
  const menu=useCallback((selection:MessageSelection)=>latest.current.onMenu(selection),[]);
  const version=useCallback((variant:MessageVariant)=>latest.current.onVersion(variant),[]);
- const locate=useCallback((id:string,part:BubblePart)=>latest.current.onLocate(id,part),[]);
+ const locate=useCallback((id:string,part:BubblePart,quote?:import('./chatTypes').MessageQuote)=>latest.current.onLocate(id,part,quote),[]);
  const conversation=useMemo(()=>({id:props.conversation.id,mode:props.conversation.mode,timelineEpoch:props.conversation.timelineEpoch}),[props.conversation.id,props.conversation.mode,props.conversation.timelineEpoch]);
- return <MemoChatMessage {...props} conversation={conversation} onMenu={menu} onVersion={version} onLocate={locate}/>;
+ return <MemoChatMessage {...props} messages={props.message.replyTo?props.messages:undefined} messageIndex={props.message.replyTo?props.messageIndex:undefined} historyComplete={props.message.replyTo?props.historyComplete:undefined} conversation={conversation} onMenu={menu} onVersion={version} onLocate={locate}/>;
 }
 export function MessageSheet({
   title,
@@ -568,6 +574,13 @@ export function SnapshotTools({
   const [limit, setLimit] = useState(30);
   const [view, setView] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const [preview,setPreview]=useState<{id:string;rows:Message[];error?:string}|null>(null);
+  useEffect(()=>{
+    let active=true;setPreview(null);
+    const selected=rows.find(row=>row.id===view);
+    if(selected)void readSnapshotPreview(selected).then(messages=>{if(active)setPreview({id:selected.id,rows:messages});}).catch(()=>{if(active)setPreview({id:selected.id,rows:[],error:'无法读取快照来源，未修改当前聊天。'});});
+    return()=>{active=false;};
+  },[view,rows]);
   const reason = {
     edit: "编辑前",
     switch: "历史版本切换前",
@@ -599,7 +612,7 @@ export function SnapshotTools({
       {rows.slice(0, limit).map((s) => (
         <div className="card" key={s.id}>
           <h4>
-            {reason[s.reason]} · {s.messages.length} 条消息
+            {reason[s.reason]} · {s.references?.storageVersion===3?'完整历史':`${s.references?.messageIds.length??s.messages.length} 条消息`}
           </h4>
           <small>{new Date(s.createdAt).toLocaleString("zh-CN")}</small>
           <div className="api-actions">
@@ -629,7 +642,8 @@ export function SnapshotTools({
           {view === s.id && (
             <div className="snapshot-preview">
               <p className="hint">仅预览最近 30 条，恢复操作将恢复完整快照。</p>
-              {s.messages.slice(-30).map((m) => (
+              {preview?.id!==s.id?<p role="status">正在读取快照…</p>:preview.error?<p role="alert">{preview.error}</p>:null}
+              {(preview?.id===s.id?preview.rows:[]).map((m) => (
                 <p key={m.id}>
                   <strong>{m.role === "user" ? "你" : "角色"}：</strong>
                   {m.content}

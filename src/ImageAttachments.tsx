@@ -6,14 +6,15 @@ import type {Conversation} from './chatTypes';
 import {attachmentError,prepareImage,imageLimits} from './imageAttachments';
 import {createPortal} from 'react-dom';
 import './imageAttachments.css';
-export function useImageDraft(c:Conversation|null,text:string,setText:(text:string)=>void,onError:(error:string)=>void){
+export function useImageDraft(c:Conversation|null,text:string|(()=>string),setText:(text:string)=>void,onError:(error:string)=>void){
  const [notice,setNotice]=useState('');
  const [ids,setIds]=useState<string[]>([]),[ready,setReady]=useState(false),[processing,setProcessing]=useState(false);
  const scope=JSON.stringify([c?.id,c?.activeTimelineId,c?.timelineEpoch]),latest=useRef(scope);latest.current=scope;
  const current=useRef(c);current.current=c;
  const caption=useRef(text);caption.current=text;
+ const currentCaption=()=>typeof caption.current==='function'?caption.current():caption.current;
  const prior=useRef<Conversation|null>(null);
- useEffect(()=>{let alive=true;const rootInit=prior.current?.id===c?.id&&!prior.current?.activeTimelineId&&!!c?.activeTimelineId&&(prior.current?.timelineEpoch??0)===(c?.timelineEpoch??0);prior.current=c;setReady(false);if(ids.length&&!rootInit)setText('');setIds([]);if(c)void db.conversations.get(c.id).then(row=>{if(!alive)return;const draft=row?.imageDrafts?.[c.activeTimelineId||''];if(draft&&draft.epoch===(c.timelineEpoch??0)){setIds(draft.assetIds);if(!caption.current||(ids.length&&!rootInit))setText(draft.text);}setReady(true);}).catch(e=>{if(alive)onError(attachmentError(e));});return()=>{alive=false;};},[scope]);
+ useEffect(()=>{let alive=true;const rootInit=prior.current?.id===c?.id&&!prior.current?.activeTimelineId&&!!c?.activeTimelineId&&(prior.current?.timelineEpoch??0)===(c?.timelineEpoch??0);prior.current=c;setReady(false);if(ids.length&&!rootInit)setText('');setIds([]);if(c)void db.conversations.get(c.id).then(row=>{if(!alive)return;const draft=row?.imageDrafts?.[c.activeTimelineId||''];if(draft&&draft.epoch===(c.timelineEpoch??0)){setIds(draft.assetIds);if(!currentCaption()||(ids.length&&!rootInit))setText(draft.text);}setReady(true);}).catch(e=>{if(alive)onError(attachmentError(e));});return()=>{alive=false;};},[scope]);
  const persist=async(assetIds:string[],text:string,assets:Awaited<ReturnType<typeof prepareImage>>[]=[])=>{
   const original=current.current;if(!original)return;
   await db.transaction('rw',[db.conversations,db.assets],async()=>{
@@ -27,7 +28,7 @@ export function useImageDraft(c:Conversation|null,text:string,setText:(text:stri
  return {ids,ready,processing,notice,caption:(text:string)=>{if(ready&&ids.length)void persist(ids,text).catch(e=>onError(attachmentError(e)));},remove:async(id:string,text:string)=>{const originalScope=latest.current;const next=ids.filter(x=>x!==id);setIds(next);try{await persist(next,text);}catch(e){if(originalScope===latest.current)setIds(ids);onError(attachmentError(e));}},clear:()=>{if(scope===latest.current)setIds([])},choose:async(files:FileList|null,text:string,selectionScope:string)=>{
   if(!files?.length)return;if(processing||!ready)return;if(selectionScope!==latest.current){onError('聊天已切换，请在当前聊天重新选择图片。');return;}
   if(files.length+ids.length>imageLimits.count){onError('每条消息最多3张图片，请移除后重试。');return;}
-  setProcessing(true);try{const prepared=[];for(const file of Array.from(files))prepared.push(await prepareImage(file));if(selectionScope!==latest.current)throw Error('聊天或分支已切换，未添加图片。');const next=[...ids,...prepared.map(a=>a.id)];const selectedCaption=caption.current;await persist(next,selectedCaption,prepared);if(selectionScope!==latest.current)return;setIds(next);if(caption.current!==selectedCaption)await persist(next,caption.current);const notes=prepared.map(a=>a.notice).filter(Boolean);setNotice(notes.join(' '));}catch(e){onError(attachmentError(e));}finally{setProcessing(false);}
+  setProcessing(true);try{const prepared=[];for(const file of Array.from(files))prepared.push(await prepareImage(file));if(selectionScope!==latest.current)throw Error('聊天或分支已切换，未添加图片。');const next=[...ids,...prepared.map(a=>a.id)];const selectedCaption=currentCaption();await persist(next,selectedCaption,prepared);if(selectionScope!==latest.current)return;setIds(next);if(currentCaption()!==selectedCaption)await persist(next,currentCaption());const notes=prepared.map(a=>a.notice).filter(Boolean);setNotice(notes.join(' '));}catch(e){onError(attachmentError(e));}finally{setProcessing(false);}
  },scope};
 }
 export function StoredImage({id,onOpen}:{id:string;onOpen?:(src:string)=>void}){
