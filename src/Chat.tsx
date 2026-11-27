@@ -323,7 +323,8 @@ export function Chat({ worldId }: { worldId?: string }) {
    if(displayPaging.current)return;
    displayPaging.current=true;
    const scope=visiblePath.current,ticket=refreshTicket.current;
-   let cursor=displayCursor.current,hasMore=displayHasMore.current;
+   const originalCursor=displayCursor.current;
+   let cursor=originalCursor,hasMore=displayHasMore.current;
    const previousKey=appliedSnapshot.current?.key;
    const gathered:Message[]=[];
    try{
@@ -333,7 +334,7 @@ export function Chat({ worldId }: { worldId?: string }) {
         visiblePath.current?.timelineId!==scope?.timelineId||
         visiblePath.current?.epoch!==scope?.epoch||
         appliedSnapshot.current?.key!==previousKey||
-        displayCursor.current!==cursor) return;
+        displayCursor.current!==originalCursor) return;
      gathered.unshift(...page.rows);
      cursor=page.nextCursor;hasMore=page.hasMore;
      if(page.rows.some(m=>m.id===targetId)||!hasMore)break;
