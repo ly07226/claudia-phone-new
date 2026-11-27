@@ -236,7 +236,7 @@ async function updateContactPreview(id:string,t:MemoryTimeline){
  const m=tip?.message;
  await db.conversations.update(id,{chatPreview:{
   timelineId:t.id,headNodeId:t.headNodeId,messageId:m?.id,
-  content:m?.content?.replace(/\\s+/g,' ').trim()||(m?.attachments?.length?'[图片]':''),
+  content:m?.content?.replace(/\s+/g,' ').trim()||(m?.attachments?.length?'[图片]':''),
   createdAt:m?.createdAt
  }});
 }
