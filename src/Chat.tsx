@@ -298,11 +298,11 @@ export function Chat({ worldId }: { worldId?: string }) {
    displayPaging.current=true;
    const scope=visiblePath.current;
    const cursor=displayCursor.current;
-   const ticket=refreshTicket.current;
-   const previousKey=appliedSnapshot.current?.key;
+   // A refresh of the same branch must not invalidate an older-page read.
+   // Validate the active path and cursor after the await instead.
    try{
     const page=await readTimelineDisplayPage(id,36,cursor,true);
-    if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch||displayFullyLoaded.current||displayCursor.current!==cursor||refreshTicket.current!==ticket||appliedSnapshot.current?.key!==previousKey)return;
+    if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch||displayFullyLoaded.current||displayCursor.current!==cursor)return;
     displayCursor.current=page.nextCursor;
     displayHasMore.current=page.hasMore;
     if(!page.rows.length)return;
