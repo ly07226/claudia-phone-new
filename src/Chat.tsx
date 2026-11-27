@@ -46,7 +46,7 @@ import {
 import { MessageAvatar, ChatMessage, MessageTools, SnapshotTools } from "./MessageUI";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { db, usePhone } from "./store";
-import type { Conversation, Message, MessageVariant, MessageQuote } from "./chatTypes";
+import type { Conversation, ConversationPathNode, Message, MessageVariant, MessageQuote } from "./chatTypes";
 import type { ApiConfig } from "./api";
 import {
   getConversation,
@@ -389,7 +389,7 @@ export function Chat({ worldId }: { worldId?: string }) {
        if(nodeId===oldKey[4]){appendOnly=true;break;}
        if(visited.has(nodeId))break;
        visited.add(nodeId);
-       const node: Awaited<ReturnType<typeof db.pathNodes.get>> = await db.pathNodes.get(nodeId);
+       const node: ConversationPathNode | undefined = await db.pathNodes.get(nodeId);
        if(!node||node.conversationId!==id)break;
        nodeId=node.parentNodeId;
       }
