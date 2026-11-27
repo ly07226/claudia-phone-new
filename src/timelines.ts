@@ -125,7 +125,10 @@ export async function readTimelineDisplayPage(
   const t=await db.timelines.get(c.activeTimelineId);
   if(!t)throw Error('时间线不存在。');
   assertOwner(c,t);
-  await getTimelineAncestors(c.id,t.id);
+  // The display page only needs the active timeline and its bounded parent
+  // chain. Walking every timeline ancestor here makes opening an old chat
+  // proportional to its edit/regenerate history, even for a 36-row page.
+  // Full ancestry validation remains available on timeline mutation paths.
   const rows:ConversationPathNode[]=[];
   const seen=new Set<string>();
   let id=t.headNodeId;
