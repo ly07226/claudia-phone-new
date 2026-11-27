@@ -109,6 +109,17 @@ export interface MessageRevision {
   content: string;
   createdAt: number;
 }
+/** Reference-only snapshot payload used by the forthcoming storage migration.
+ * Existing inline snapshots remain readable until conversion is verified. */
+export interface ConversationSnapshotReferences {
+  storageVersion: 2;
+  messageIds: string[];
+  variantIds: string[];
+  timelineId?: string;
+  headNodeId?: string;
+  timelineEpoch?: number;
+}
+
 export interface ConversationSnapshot {
   timelineId?: string;
   headNodeId?: string;
@@ -117,8 +128,10 @@ export interface ConversationSnapshot {
   conversationId: string;
   reason: "edit" | "switch" | "withdraw" | "delete" | "regenerate" | "restore";
   createdAt: number;
+  /** Legacy inline payload. Do not delete until all existing snapshots are migrated. */
   messages: Message[];
   variants: MessageVariant[];
+  references?: ConversationSnapshotReferences;
 }
 
 export interface MemoryTimeline {
