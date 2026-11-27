@@ -150,6 +150,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   useEffect(()=>{if(menuId&&!messages.some(m=>m.id===menuId)){setMenuId(null);setSelection(undefined);setPreviewVariant(undefined);}},[menuId,messages]);
   const activeConversation = useRef<string | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
+  const lastHistoryScrollTop = useRef<number | null>(null);
   const refreshTicket = useRef(0);
   const refreshFlight=useRef<{id:string;promise:Promise<void>;dirty:boolean;scroll:boolean}|null>(null);
   const visiblePath = useRef<{conversationId:string;timelineId?:string;epoch:number}|null>(null);
@@ -420,6 +421,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   async function open(id: string) {
     const navigation = ++taskSequence.current;
     setOpeningChat(true);
+    lastHistoryScrollTop.current=null;
     setError("");
     appliedSnapshot.current=null;
     displayFullyLoaded.current=false;
@@ -729,9 +731,13 @@ export function Chat({ worldId }: { worldId?: string }) {
               followBottom.current =
                 el.scrollHeight - el.scrollTop - el.clientHeight < 64;
               historyWindow.onScroll();
-              // Load only when the reader scrolls toward the beginning.
-              // The manual history capsule remains an accessible fallback.
-              if(el.scrollTop < Math.max(160, el.clientHeight * 0.6) && displayHasMore.current && !displayPaging.current) {
+              const previousTop=lastHistoryScrollTop.current;
+              const scrollingUp=previousTop!==null && el.scrollTop<previousTop-2;
+              lastHistoryScrollTop.current=el.scrollTop;
+              // Never cascade through all older pages on initial mount or
+              // when a short conversation does not fill the viewport.
+              if(scrollingUp && el.scrollTop < Math.max(160, el.clientHeight * 0.6) &&
+                 displayHasMore.current && !displayPaging.current) {
                 void loadOlderDisplayMessages();
               }
             }}
