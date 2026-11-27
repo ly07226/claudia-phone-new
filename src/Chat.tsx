@@ -729,7 +729,11 @@ export function Chat({ worldId }: { worldId?: string }) {
               followBottom.current =
                 el.scrollHeight - el.scrollTop - el.clientHeight < 64;
               historyWindow.onScroll();
-              // Read older messages only when the reader approaches the top.\n              // Keep the capsule as an accessible manual fallback.\n              if(el.scrollTop < Math.max(160, el.clientHeight * 0.6) && displayHasMore.current && !displayPaging.current) {\n                void loadOlderDisplayMessages();\n              }
+              // Load only when the reader scrolls toward the beginning.
+              // The manual history capsule remains an accessible fallback.
+              if(el.scrollTop < Math.max(160, el.clientHeight * 0.6) && displayHasMore.current && !displayPaging.current) {
+                void loadOlderDisplayMessages();
+              }
             }}
           >
             {displayHasMore.current&&!displayFullyLoaded.current&&(
