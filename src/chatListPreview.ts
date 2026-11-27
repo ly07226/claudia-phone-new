@@ -18,8 +18,18 @@ export async function chatListPreviews(characterIds: string[], worldId?: string,
   const readOne=async(c:typeof selected[number])=>{
     try{
       let last:ReturnType<typeof visibleMessage>|undefined;
+      const projection=c.chatPreview;
+      if(projection && projection.timelineId===c.activeTimelineId){
+        return {characterId:c.characterId,preview:{conversationId:c.id,remark:c.chatSettings?.remark,pinned:c.chatSettings?.pinned,pinnedAt:c.chatSettings?.pinnedAt,unread:!!c.chatSettings?.proactiveUnreadAt,content:projection.content,createdAt:projection.createdAt} as ChatPreview};
+      }
+      // One-time migration for existing conversations without a projection.
+      // Subsequent list reads use the persisted preview, never the timeline.
       if(c.activeTimelineId){const m=await latestTimelineMessage(c);if(m)last=visibleMessage(m);}
       else {const m=await db.messages.where('[conversationId+createdAt]').between([c.id,-Infinity],[c.id,Infinity]).reverse().filter(m=>!m.archived&&(m.role==='user'||m.role==='assistant')).first();if(m){const v=m.role==='assistant'&&m.activeVariantId?await db.messageVariants.get(m.activeVariantId):undefined;last=visibleMessage(v&&v.conversationId===c.id&&v.messageId===m.id?{...m,content:v.content,userEdited:v.userEdited}:m);}}
+      const text=last?.content.replace(/\\s+/g," ").trim()||(last?.attachments?.length?"[图片]":"");
+      const current=await db.conversations.get(c.id);
+      if(current && current.activeTimelineId===c.activeTimelineId && !current.chatPreview)
+        await db.conversations.update(c.id,{chatPreview:{timelineId:c.activeTimelineId,messageId:last?.id,content:text,createdAt:last?.createdAt}});
       return {characterId:c.characterId,preview:{conversationId:c.id,remark:c.chatSettings?.remark,pinned:c.chatSettings?.pinned,pinnedAt:c.chatSettings?.pinnedAt,unread:!!c.chatSettings?.proactiveUnreadAt,content:last?.content.replace(/\s+/g," ").trim()||(last?.attachments?.length?"[图片]":""),createdAt:last?.createdAt} as ChatPreview};
     }catch(error){
       // Preserve the contact row even when its latest path is corrupt.
