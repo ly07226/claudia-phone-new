@@ -873,7 +873,7 @@ export function Chat({ worldId }: { worldId?: string }) {
                 value={text}
                 disabled={busy && !savingMessage}
                 onFocus={()=>setBottomPanel("none")}
-                onChange={(e) => {setText(e.target.value);if(!busy)imageDraft.caption(e.target.value);}}
+                onChange={(e) => {const next=e.target.value;setText(next);if(!busy && imageDraft.ids.length>0)imageDraft.caption(next);}}
                 onCompositionStart={()=>enterGuard.current.start()}
                 onCompositionEnd={()=>enterGuard.current.end()}
                 onKeyUp={e=>enterGuard.current.up(e.key)}
