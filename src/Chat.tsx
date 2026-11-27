@@ -197,7 +197,7 @@ export function Chat({ worldId }: { worldId?: string }) {
   function locateQuote(id:string,part:BubblePart){
     if(!messages.some(m=>m.id===id)&&displayHasMore.current){
      pendingQuoteJump.current={id,part};
-     void revealFullHistory(activeConversation.current!).catch(()=>{pendingQuoteJump.current=null;setFeedback('无法定位原消息。');});
+     void loadQuoteHistory(activeConversation.current!,id).catch(()=>{pendingQuoteJump.current=null;setFeedback('无法定位原消息。');});
      return;
     }
     const index=messages.findIndex(m=>m.id===id);
@@ -317,16 +317,46 @@ export function Chat({ worldId }: { worldId?: string }) {
    }catch{if(activeConversation.current===id)setError('读取更早消息失败，请重试。');}
    finally{displayPaging.current=false;}
   }
-  async function revealFullHistory(id:string){
-   if(displayFullyLoaded.current)return;
-   const scope=visiblePath.current;
-   const rows=await activeMessages(id,undefined,true);
-   if(activeConversation.current!==id||visiblePath.current?.timelineId!==scope?.timelineId||visiblePath.current?.epoch!==scope?.epoch)return;
-   displayFullyLoaded.current=true;
-   displayHasMore.current=false;
-   displayCursor.current=undefined;
-   historyWindow.beforeChange();
-   setMessages(rows);
+  // Quote navigation must not materialize the entire chat in one read.
+  // Fetch bounded pages and stop as soon as the referenced message is found.
+  async function loadQuoteHistory(id:string,targetId:string){
+   if(displayPaging.current)return;
+   displayPaging.current=true;
+   const scope=visiblePath.current,ticket=refreshTicket.current;
+   let cursor=displayCursor.current,hasMore=displayHasMore.current;
+   const previousKey=appliedSnapshot.current?.key;
+   const gathered:Message[]=[];
+   try{
+    while(hasMore){
+     const page=await readTimelineDisplayPage(id,36,cursor,true);
+     if(activeConversation.current!==id||refreshTicket.current!==ticket||
+        visiblePath.current?.timelineId!==scope?.timelineId||
+        visiblePath.current?.epoch!==scope?.epoch||
+        appliedSnapshot.current?.key!==previousKey||
+        displayCursor.current!==cursor) return;
+     gathered.unshift(...page.rows);
+     cursor=page.nextCursor;hasMore=page.hasMore;
+     if(page.rows.some(m=>m.id===targetId)||!hasMore)break;
+     // Allow scrolling, typing and paint between database pages.
+     await new Promise<void>(resolve=>setTimeout(resolve,0));
+    }
+    if(activeConversation.current!==id||refreshTicket.current!==ticket||
+       appliedSnapshot.current?.key!==previousKey)return;
+    displayCursor.current=cursor;
+    displayHasMore.current=hasMore;
+    const previousRows=appliedSnapshot.current?.rows??[];
+    const seen=new Set(previousRows.map(m=>m.id));
+    const combined=[...gathered.filter(m=>!seen.has(m.id)),...previousRows];
+    if(gathered.length){
+     historyWindow.beforeChange();
+     if(appliedSnapshot.current)appliedSnapshot.current={...appliedSnapshot.current,rows:combined};
+     setMessages(combined);
+    }
+    if(!combined.some(m=>m.id===targetId)){
+     pendingQuoteJump.current=null;
+     setFeedback('原消息已删除或不在当前分支。');
+    }
+   }finally{displayPaging.current=false;}
   }
   async function loadSnapshot(id:string,scroll=false){
    const ticket=++refreshTicket.current,revision=chatDataRevision();const previous=appliedSnapshot.current;
