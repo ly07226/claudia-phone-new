@@ -389,7 +389,7 @@ export function Chat({ worldId }: { worldId?: string }) {
        if(nodeId===oldKey[4]){appendOnly=true;break;}
        if(visited.has(nodeId))break;
        visited.add(nodeId);
-       const node=await db.pathNodes.get(nodeId);
+       const node: Awaited<ReturnType<typeof db.pathNodes.get>> = await db.pathNodes.get(nodeId);
        if(!node||node.conversationId!==id)break;
        nodeId=node.parentNodeId;
       }
