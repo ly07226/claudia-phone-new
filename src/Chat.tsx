@@ -376,7 +376,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     // ancestor of the new head. Appends preserve immutable history; edits,
     // deletes and branch changes do not.
     const oldKey=previous?.key?JSON.parse(previous.key):null;
-    const samePath=!!oldKey&&oldKey[2]===current.activeTimelineId&&oldKey[3]===current.timelineEpoch;
+    const samePath=!!oldKey&&oldKey[0]===db.name&&oldKey[1]===id&&oldKey[2]===current.activeTimelineId&&oldKey[3]===current.timelineEpoch;
     let appendOnly=false;
     if(samePath&&previous?.rows.length&&timeline?.headNodeId&&oldKey[4]){
      if(timeline.headNodeId===oldKey[4])appendOnly=true;
@@ -406,7 +406,8 @@ export function Chat({ worldId }: { worldId?: string }) {
    if('page' in data&&data.page){
     // A head refresh must not rewind the paging cursor after older pages
     // were loaded. Reset only on an actual timeline/epoch change.
-    const samePath=!!previous?.key&&JSON.parse(previous.key)[2]===current.activeTimelineId&&JSON.parse(previous.key)[3]===current.timelineEpoch;
+    const previousScope=previous?.key?JSON.parse(previous.key):null;
+    const samePath=!!previousScope&&previousScope[0]===db.name&&previousScope[1]===id&&previousScope[2]===current.activeTimelineId&&previousScope[3]===current.timelineEpoch;
     if(!samePath||!data.appendOnly||!displayCursor.current){
      displayCursor.current=data.page.nextCursor;
      displayHasMore.current=data.page.hasMore;
