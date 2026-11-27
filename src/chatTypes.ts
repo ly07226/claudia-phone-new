@@ -129,8 +129,8 @@ export interface ConversationSnapshot {
   reason: "edit" | "switch" | "withdraw" | "delete" | "regenerate" | "restore";
   createdAt: number;
   /** Legacy inline payload. Do not delete until all existing snapshots are migrated. */
-  messages?: Message[];
-  variants?: MessageVariant[];
+  messages: Message[];
+  variants: MessageVariant[];
   references?: ConversationSnapshotReferences;
 }
 
