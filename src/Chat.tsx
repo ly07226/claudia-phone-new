@@ -447,17 +447,19 @@ export function Chat({ worldId }: { worldId?: string }) {
       activeConversation.current = c.id;
       if(c.chatSettings?.proactiveUnreadAt)void db.conversations.update(c.id,{chatSettings:{...c.chatSettings,proactiveUnreadAt:undefined}});
       followBottom.current = true;
-      // Commit the conversation and its first bounded message page together.
-      // loadSnapshot owns setConversation/setMessages after a successful read;
-      // mounting an empty conversation first creates a false empty chat state.
-      await refresh(c.id, true);
-      if(navigation===taskSequence.current)setOpeningChat(false);
-      try {
-        await resolveApi(c);
-      } catch (e) {
-        if (navigation === taskSequence.current)
-          setError(e instanceof Error ? e.message : "无法读取 API。");
-      }
+      // Show the conversation shell immediately. History is a separate,
+      // bounded read and must not block navigation or API configuration.
+      setConversation(c);
+      void refresh(c.id, true).catch(error=>{
+        if(navigation===taskSequence.current)
+          setError(error instanceof Error?error.message:"读取最近聊天记录失败。");
+      }).finally(()=>{
+        if(navigation===taskSequence.current)setOpeningChat(false);
+      });
+      void resolveApi(c).catch(e=>{
+        if(navigation===taskSequence.current)
+          setError(e instanceof Error?e.message:"无法读取 API。");
+      });
     } catch {
       if (navigation === taskSequence.current){
         setOpeningChat(false);
@@ -760,7 +762,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               </div>
             )}
             {!messages.length && (
-              <p className="hint">这是一个独立会话。说一句话，开始新的交流。</p>
+              <p className="hint">{openingChat?"正在读取最近聊天记录…":"这是一个独立会话。说一句话，开始新的交流。"}</p>
             )}
             <div data-history-spacer="" aria-hidden="true" style={{height:historyWindow.top,padding:0,margin:0,border:0,flexShrink:0,pointerEvents:'none'}}/>
             {renderedMessages}
