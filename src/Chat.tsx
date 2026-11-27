@@ -911,7 +911,7 @@ export function Chat({ worldId }: { worldId?: string }) {
               name={displayName}
               avatar={avatarSrc}
               onPreferences={async patch=>{const next=await saveChatSettings(conversation.id,patch);if(activeConversation.current===next.id)setConversation(next);}}
-              onLocate={id=>{void searchableMessages(conversation.id).then(async rows=>{if(activeConversation.current!==conversation.id)return;if(!rows.some(m=>m.id===id)){setError('该消息已不在当前有效分支。');return;}await revealFullHistory(conversation.id);jumpTo.current=id;setManagement(false);}).catch(()=>setError('无法定位消息，请稍后重试。'));}}
+              onLocate={id=>{void searchableMessages(conversation.id).then(async rows=>{if(activeConversation.current!==conversation.id)return;if(!rows.some(m=>m.id===id)){setError('该消息已不在当前有效分支。');return;}jumpTo.current=id;setManagement(false);if(!messages.some(m=>m.id===id))await loadQuoteHistory(conversation.id,id);}).catch(()=>setError('无法定位消息，请稍后重试。'));}}
               worldName={
                 s.worlds.find((w) => w.id === conversation.worldId)?.name
               }
