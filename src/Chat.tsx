@@ -402,7 +402,16 @@ export function Chat({ worldId }: { worldId?: string }) {
     }
     return {current,key,rows,page,appendOnly:false};
    });if(ticket!==refreshTicket.current||!data||!mounted.current||activeConversation.current!==id)return;
-   const {current,key,rows}=data;
+   const {current,key}=data;
+   // An older page may finish while this refresh is reading. Keep that
+   // newer in-memory page instead of overwriting it with the stale snapshot.
+   let rows=data.rows;
+   const latest=appliedSnapshot.current;
+   if('appendOnly' in data&&data.appendOnly&&previous&&latest&&
+      latest.key===previous.key&&latest.rows.length>previous.rows.length){
+    const seen=new Set(rows.map(m=>m.id));
+    rows=[...latest.rows.filter(m=>!seen.has(m.id)),...rows];
+   }
    if('page' in data&&data.page){
     // A head refresh must not rewind the paging cursor after older pages
     // were loaded. Reset only on an actual timeline/epoch change.
