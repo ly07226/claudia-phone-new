@@ -734,9 +734,10 @@ export function Chat({ worldId }: { worldId?: string }) {
               const previousTop=lastHistoryScrollTop.current;
               const scrollingUp=previousTop!==null && el.scrollTop<previousTop-2;
               lastHistoryScrollTop.current=el.scrollTop;
-              // Never cascade through all older pages on initial mount or
-              // when a short conversation does not fill the viewport.
-              if(scrollingUp && el.scrollTop < Math.max(160, el.clientHeight * 0.6) &&
+              // Prefetch roughly two screens before the top, but only on real
+              // upward movement: initial mount and scroll anchoring must not
+              // cascade through the entire history.
+              if(scrollingUp && el.scrollTop < Math.max(320, el.clientHeight * 1.75) &&
                  displayHasMore.current && !displayPaging.current) {
                 void loadOlderDisplayMessages();
               }
