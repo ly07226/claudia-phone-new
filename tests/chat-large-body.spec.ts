@@ -24,9 +24,15 @@ for(const count of [1000,5000,10000])test(`长正文与真实版本行的聊天�
  const priorError=(await page.getByRole('alert').allTextContents()).join(' ');let sendError='';
  console.log('LARGE_STEP',count,'send');now=Date.now();await page.getByRole('button',{name:'发送',exact:true}).click();
  await expect.poll(async()=>{if((await page.locator('.chat-bubble').last().innerText()).includes(text))return 'saved';const error=(await page.getByRole('alert').allTextContents()).join(' ');if(error&&error!==priorError){sendError=error;return 'failed';}return 'pending';},{timeout:90000}).not.toBe('pending');const sendMs=sendError?null:Date.now()-now;
+ const sendSequenceMs:(number|null)[]=[sendMs],pathGetsSequence:number[]=[];
+ let previousGets=await page.evaluate(()=>(window as any).__pathGets);pathGetsSequence.push(previousGets);
+ if(!sendError)for(let index=2;index<=3;index++){
+  const value=text+' '+index;await input.fill(value);const start=Date.now();await page.getByRole('button',{name:'发送',exact:true}).click();await expect(page.locator('.chat-bubble').last()).toContainText(value,{timeout:90000});
+  sendSequenceMs.push(Date.now()-start);const gets=await page.evaluate(()=>(window as any).__pathGets);pathGetsSequence.push(gets-previousGets);previousGets=gets;
+ }
  const data=await page.evaluate(async id=>{const {db}=await import('/src/store.ts');return {messages:await db.messages.where('conversationId').equals(id).count(),variants:await db.messageVariants.where('conversationId').equals(id).count()};},id);
  const pathGets=await page.evaluate(()=>{(window as any).__restorePathGet();return (window as any).__pathGets;});
  const maxTimerGapMs=await page.evaluate(()=>{const state=(window as any).__chatPerfLag;clearInterval(state.timer);return state.max;});
- const metrics={count,bodyChars,openMs,typingMs,sendMs,sendError,pathGets,maxTimerGapMs,mounted:await page.locator('.chat-message-row').count(),...data};console.log('LARGE_BODY_PERFORMANCE',JSON.stringify(metrics));await info.attach('long-body-metrics',{body:JSON.stringify(metrics),contentType:'application/json'});
- expect(pathGets).toBeLessThan(200);expect(data.messages).toBe(count+1);expect(data.variants).toBe(count/2);await expect(input).toHaveValue('');expect(metrics.mounted).toBeLessThanOrEqual(60);
+ const metrics={count,bodyChars,openMs,typingMs,sendMs,sendSequenceMs,sendError,pathGets,pathGetsSequence,firstPathGets:pathGetsSequence[0],maxTimerGapMs,mounted:await page.locator('.chat-message-row').count(),...data};console.log('LARGE_BODY_PERFORMANCE',JSON.stringify(metrics));await info.attach('long-body-metrics',{body:JSON.stringify(metrics),contentType:'application/json'});
+ expect(Math.max(...pathGetsSequence)).toBeLessThan(200);expect(data.messages).toBe(count+3);expect(data.variants).toBe(count/2);await expect(input).toHaveValue('');expect(metrics.mounted).toBeLessThanOrEqual(60);
 });
