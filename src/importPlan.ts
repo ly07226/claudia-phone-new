@@ -7,7 +7,7 @@ import Dexie from 'dexie';
 import {db,defaultTheme,defaultItems} from './store';
 import {backupTables,ensure,checkAbort,rowBytes,sha,utf8,type BackupTable} from './backupFormat';
 import {readBackup,verifiedCandidate,eachBackupRow,sanitizeConfig,type IntegrityReport} from './backupService';
-import {bound,keep,digest,same,validate,openRestoreDatabase,exactSchema,type DatabaseDigest} from './restoreData';
+import {bound,keep,digest,same,validate,openRestoreDatabase,upgradeRestoreCandidate,exactSchema,type DatabaseDigest} from './restoreData';
 import {usableApi} from './apiSelection';
 import {messageFingerprint} from './timelines';
 import {openStreamingBackupZip,validateBackupZipIdentity} from './backupZip';
@@ -35,6 +35,7 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
   const checked=cleanup=await readBackup(files,{mode:'rehearse',password,signal:c.signal,loadPart,partNames});const source=verifiedCandidate(checked)!;
   if(source.verno===5){source.close();source.version(6).stores({timelines:'id,conversationId,parentTimelineId',pathNodes:'id,conversationId,[conversationId+parentNodeId+fingerprint]'});await source.open();}
   if(source.verno<7){source.close();source.version(7).stores(storySchemas);await source.open();}
+  await upgradeRestoreCandidate(source);
 
     ensure(options.story||options.desktop||options.identities||options.api,'请至少选择一项导入范围。');
     ensure(options.keys==='none'||(options.api&&checked.report.credentials!=='excluded'),'导入密钥必须选择 API 范围且备份确实包含加密凭据。');
@@ -162,7 +163,7 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
       if(table==='lorebooks'){if(options.mode==='merge'&&a.global&&a.enabled)warnings.push('包含已启用全局世界书：按原作用范围可影响所有聊天，请在世界书管理中核对。');r.worldIds=await Promise.all(a.worldIds.map((id:string)=>map('worlds',id)));}
       if(table==='timelines')r.spaceId=r.worldId?`world:${r.worldId}`:'daily';
       if(table==='pathNodes'){r.message=await message(a.message);r.fingerprint=await messageFingerprint(r.message);}
-      if(table==='conversationSnapshots'){r.messages=await Promise.all(a.messages.map(message));r.variants=await Promise.all(a.variants.map((v:any)=>transform('messageVariants',v)));}
+      if(table==='conversationSnapshots'){r.messages=await Promise.all(a.messages.map(message));r.variants=await Promise.all(a.variants.map((v:any)=>transform('messageVariants',v)));if(a.references)r.references={...a.references,timelineId:r.timelineId,headNodeId:r.headNodeId,timelineEpoch:r.timelineEpoch,...(a.references.storageVersion===2?{messageIds:await Promise.all(a.references.messageIds.map((id:string)=>map('messages',id))),variantIds:await Promise.all(a.references.variantIds.map((id:string)=>map('messageVariants',id)))}:{})};}
       return r;
     }
     async function put(table:BackupTable,row:any){checkAbort(c.signal);const id=row[table==='apiCredentials'?'configId':'id'],existing=await result.table(table).get(id);if(table==='assets'&&existing?.data===row.data){duplicates++;return;}if(await equal(table,row,existing)){duplicates++;return;}
@@ -186,6 +187,15 @@ export async function prepareImport(files:File[],options:ImportOptions,{database
     }
     // If API data was deliberately excluded, no imported binding may become dangling.
     for(const t of ['characters','conversations'] as const)await eachBackupRow(result,t,async a=>{if(a.apiConfigId)ensure(await result.table('apiConfigs').get(a.apiConfigId),'角色或会话依赖未选择导入的 API 配置，请选择 API 范围或保留完整关联。');},c.signal);
+    // Sticker resources are part of persistent v9 backups. Keep both stores;
+    // refusing an ambiguous same-ID image is safer than changing old messages.
+    if(options.story||options.desktop){
+      for(const table of ['stickerImages','stickerMeta'] as const)await eachBackupRow(source,table,async row=>{
+        const old=await result.table(table).get(row.id);
+        if(table==='stickerImages')ensure(!old||old.data===row.data,'表情包图片 ID 冲突，未覆盖当前资源或聊天；请使用隔离恢复。');
+        if(!old||options.mode==='overwrite')await put(table,row);
+      },c.signal);
+    }
     const sourceTheme=await source.table('themes').get('global'),localTheme=await result.table('themes').get('global');
     let theme={...(localTheme??defaultTheme)};
     if(options.desktop&&options.mode==='overwrite'){

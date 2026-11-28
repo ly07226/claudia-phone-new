@@ -212,19 +212,19 @@ async function unchanged(page: Page) {
           JSON.stringify((window as any).__sourceBefore, (_k, v) =>
             typeof v === "bigint" ? String(v) : v,
           ) &&
-        db.verno === 8 &&
-        db.backendDB().version === 80
+        db.verno === 9 &&
+        db.backendDB().version === 90
       );
     }),
   ).toBe(true);
 }
 
-test("20表完整分卷、默认无Key，版本/快照/图片及特殊元数据候选无损，主库不变", async ({
+test("22表完整分卷、默认无Key，版本/快照/图片及特殊元数据候选无损，主库不变", async ({
   page,
 }) => {
   await seed(page);
   const { manifest, leaked } = await exportFiles(page);
-  expect(Object.keys(manifest.tables)).toHaveLength(20);
+  expect(Object.keys(manifest.tables)).toHaveLength(22);
   expect(manifest.tables.apiCredentials).toMatchObject({
     sourceCount: 1,
     count: 0,
@@ -240,18 +240,6 @@ test("20表完整分卷、默认无Key，版本/快照/图片及特殊元数据�
     });
     const D = Object.getPrototypeOf(db.constructor);
     const candidate = new D(value.report.candidateName!);
-    candidate
-      .version(7)
-      .stores(
-        Object.fromEntries(
-          db.tables.map((t) => [
-            t.name,
-            [t.schema.primKey.src, ...t.schema.indexes.map((i) => i.src)].join(
-              ",",
-            ),
-          ]),
-        ),
-      );
     await candidate.open();
     const meta = (await candidate.table("loreEntries").get("backup-entry"))
       .rawMetadata;
@@ -292,7 +280,7 @@ test("20表完整分卷、默认无Key，版本/快照/图片及特殊元数据�
     recordDigestsMatch: true,
     referencesValid: true,
     sourceDatabaseWritten: false,
-    schemaVersion: 7,
+    schemaVersion: 9,
   });
   expect(result.report.candidateName).not.toBe("claudia-phone");
   expect(result.variants.map((v) => v.content)).toEqual(["旧回复", "新回复"]);
@@ -476,7 +464,7 @@ test("引用缺失与取消不会成功，原库和密钥保留；后台中断�
     failed: true,
     background: true,
     unlocked: true,
-    version: 8,
+    version: 9,
   });
   await unchanged(page);
   await page.evaluate(async () => {

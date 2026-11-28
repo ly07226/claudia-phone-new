@@ -1,3 +1,4 @@
+import {validateSnapshotReferences} from './snapshotReferences';
 import {validateBubbleDeletion} from './messageBubbles';
 import {validateQuoteReference} from './messageReferences';
 import { attachmentImages } from "./imageAttachments";
@@ -13,7 +14,7 @@ async function each(d:Dexie,table:string,visit:(row:any)=>Promise<void>) {
 export async function validateTimelineDatabase(d:Dexie) {
   const conversations=new Map<string,Conversation>((await d.table("conversations").toArray()).map(c=>[c.id,c]));
   const timelines=new Map<string,MemoryTimeline>((await d.table("timelines").toArray()).map(t=>[t.id,t]));
-  type Meta=Pick<ConversationPathNode,"id"|"conversationId"|"parentNodeId"|"messageId"|"fingerprint">;
+  type Meta=Pick<ConversationPathNode,"id"|"conversationId"|"parentNodeId"|"messageId"|"variantId"|"fingerprint">;
   const nodes=new Map<string,Meta>();
   const fail=()=>{throw new TimelineValidationError();};
   await each(d,"pathNodes",async(n:ConversationPathNode)=>{
@@ -22,7 +23,7 @@ export async function validateTimelineDatabase(d:Dexie) {
     await attachmentImages(d,n.message);
     const original=await d.table("messages").get(n.messageId);if(original&&original.conversationId!==n.conversationId)fail();
     if(n.variantId){const v=await d.table("messageVariants").get(n.variantId);if(v&&(v.conversationId!==n.conversationId||v.messageId!==n.messageId))fail();}
-    nodes.set(n.id,{id:n.id,conversationId:n.conversationId,parentNodeId:n.parentNodeId,messageId:n.messageId,fingerprint:n.fingerprint});
+    nodes.set(n.id,{id:n.id,conversationId:n.conversationId,parentNodeId:n.parentNodeId,messageId:n.messageId,variantId:n.variantId,fingerprint:n.fingerprint});
   });
   for(const n of nodes.values())if(n.parentNodeId&&nodes.get(n.parentNodeId)?.conversationId!==n.conversationId)fail();
   const path=(head:string|undefined,cid:string)=>{const seen=new Set<string>(),messages=new Set<string>(),ordered:Meta[]=[];let id=head;
@@ -60,5 +61,11 @@ export async function validateTimelineDatabase(d:Dexie) {
       }
     }
   }
-  await each(d,"conversationSnapshots",async s=>{if(!s.timelineId)return;const t=timelines.get(s.timelineId);if(!t||t.conversationId!==s.conversationId||s.timelineEpoch!==t.epoch)fail();if(s.headNodeId&&!path(t!.headNodeId,s.conversationId).some(n=>n.id===s.headNodeId))fail();const saved=path(s.headNodeId,s.conversationId);if(saved.length!==s.messages.length)fail();for(let i=0;i<saved.length;i++)if(saved[i].fingerprint!==await messageFingerprint(s.messages[i]))fail();});
+  await each(d,"conversationSnapshots",async s=>{if(!s.timelineId){if(s.references)fail();return;}const t=timelines.get(s.timelineId);if(!t||t.conversationId!==s.conversationId||s.timelineEpoch!==t.epoch)fail();if(s.headNodeId&&!path(t!.headNodeId,s.conversationId).some(n=>n.id===s.headNodeId))fail();const saved=path(s.headNodeId,s.conversationId);
+    if(s.references){
+      // Only the bounded reference metadata is materialized here; node bodies
+      // were already verified above, including their immutable fingerprints.
+      try{validateSnapshotReferences(s,saved);}catch{fail();}
+      for(const node of saved)if(node.variantId){const v=await d.table("messageVariants").get(node.variantId);if(!v||v.conversationId!==s.conversationId||v.messageId!==node.messageId)fail();}
+    }else{if(saved.length!==s.messages.length)fail();for(let i=0;i<saved.length;i++)if(saved[i].fingerprint!==await messageFingerprint(s.messages[i]))fail();}});
 }

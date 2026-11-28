@@ -30,13 +30,37 @@ async function verifyNodes(rows:ConversationPathNode[]){
 function assertOwner(c:Conversation,t:MemoryTimeline) {
   if((c.mode!=="daily"&&c.mode!=="world")||(c.mode==="daily"&&!!c.worldId)||(c.mode==="world"&&!c.worldId)||t.conversationId!==c.id || t.characterId!==c.characterId || t.spaceId!==timelineSpace(c) || t.worldId!==c.worldId || t.epoch!==(c.timelineEpoch??0) || t.status!=="live")throw Error("时间线作用域或有效期不匹配。");
 }
-// Scope-bounded bulk reads avoid one IndexedDB round trip per parent. Very large
-// branched archives fall back to the original walk rather than loading every branch.
+// The existing compound index exposes parent/fingerprint metadata without
+// deserializing bodies from every branch. Fetch only the selected path's bodies
+// in bounded batches, including when its text exceeds the private cache limit.
 const graphLimit=50000;
-async function scopedGraph(id:string){
- const query=db.pathNodes.where('conversationId').equals(id);if(await query.count()>graphLimit)return;
- const rows:ConversationPathNode[]=[];let chars=0;
- for(let offset=0;;offset+=512){const page=await query.clone().offset(offset).limit(512).toArray();for(const n of page){chars+=n.message?.content?.length??0;if(chars>8*1024*1024)return;rows.push(n);}if(page.length<512)return rows;}
+async function scopedLinks(id:string){
+ if(await db.pathNodes.where('conversationId').equals(id).count()>graphLimit)return;
+ const links=new Map<string,{parent:string;fingerprint:string}>();
+ await db.pathNodes.where('[conversationId+parentNodeId+fingerprint]')
+  .between([id,Dexie.minKey,Dexie.minKey],[id,Dexie.maxKey,Dexie.maxKey],true,true)
+  .eachKey((key,cursor)=>{
+   const [owner,parent,hash]=Array.isArray(key)?key as unknown[]:[],nodeId:unknown=cursor.primaryKey;
+   if(owner!==id||typeof parent!=='string'||typeof hash!=='string'||typeof nodeId!=='string')throw Error('时间线路径元数据无效。');
+   links.set(nodeId,{parent,fingerprint:hash});
+  });
+ return links;
+}
+async function scopedPath(id:string,head:string){
+ const links=await scopedLinks(id);if(!links)return;
+ const ids:string[]=[],seen=new Set<string>();let current=head;
+ while(current){if(seen.has(current))throw Error('时间线路径存在循环。');seen.add(current);const link=links.get(current);if(!link)throw Error('时间线路径断链或跨会话。');ids.push(current);current=link.parent;}
+ const rows:ConversationPathNode[]=[];let deadline=performance.now()+6;
+ for(let start=0;start<ids.length;start+=128){
+  const batch=await db.pathNodes.bulkGet(ids.slice(start,start+128));
+  for(let n=0;n<batch.length;n++){
+   const row=batch[n],key=ids[start+n],link=links.get(key)!;
+   if(!row||row.id!==key||row.parentNodeId!==link.parent||row.fingerprint!==link.fingerprint)throw Error('时间线路径断链或内容发生变化。');
+   nodeShape(row,id);rows.push(row);
+  }
+  if(performance.now()>=deadline){await chatYield();deadline=performance.now()+6;}
+ }
+ return rows;
 }
 function nodeShape(n:ConversationPathNode,id:string){
  if(n.conversationId!==id||typeof n.message?.content!=="string"||!Number.isFinite(n.message.createdAt)||!["user","assistant","system","tool"].includes(n.role)||n.messageId!==n.message.id||n.variantId!==n.message.activeVariantId||n.role!==n.message.role||n.message.conversationId!==id)throw Error("不可变节点内容校验失败。");
@@ -58,9 +82,12 @@ async function verifiedNodes(conversationId:string,head?:string):Promise<Convers
   const seenMessages=new Set<string>();for(const n of tip){const at=committed.messages.get(n.messageId);if(at!==undefined&&at<=prefix||seenMessages.has(n.messageId))throw Error("时间线路径重复消息。");seenMessages.add(n.messageId);}
   rows=prefix===committed.nodes.length-1&&!tip.length?committed.nodes:await immutableChatRows([...committed.nodes.slice(0,prefix+1),...tip.reverse()]);
  }else{
-  const graph=head?await scopedGraph(conversationId):[],index=graph?new Map(graph.map(n=>[n.id,n])):undefined;
-  rows=[];const seen=new Set<string>();let id=head;
-  while(id){if(seen.has(id))throw Error("时间线路径存在循环。");seen.add(id);const n=index?index.get(id):await db.pathNodes.get(id);if(!n||n.conversationId!==conversationId)throw Error("时间线路径断链或跨会话。");nodeShape(n,conversationId);rows.push(n);id=n.parentNodeId;}
+  const scoped=head?await scopedPath(conversationId,head):[];
+  rows=[];
+  if(scoped)rows=scoped;
+  else {const seen=new Set<string>();let id=head;
+   while(id){if(seen.has(id))throw Error("时间线路径存在循环。");seen.add(id);const n=await db.pathNodes.get(id);if(!n||n.conversationId!==conversationId)throw Error("时间线路径断链或跨会话。");nodeShape(n,conversationId);rows.push(n);id=n.parentNodeId;}
+  }
   await verifyNodes(rows);rows.reverse();if(new Set(rows.map(n=>n.messageId)).size!==rows.length)throw Error("时间线路径重复消息。");await immutableChatRows(rows);
  }
  if(tx&&rows.length<=graphLimit&&chatRowChars(rows)<=8*1024*1024)transactionPaths.set(tx,{id:conversationId,head,nodes:rows});
@@ -125,7 +152,10 @@ export async function readTimelineDisplayPage(
   const t=await db.timelines.get(c.activeTimelineId);
   if(!t)throw Error('时间线不存在。');
   assertOwner(c,t);
-  await getTimelineAncestors(c.id,t.id);
+  // The display page only needs the active timeline and its bounded parent
+  // chain. Walking every timeline ancestor here makes opening an old chat
+  // proportional to its edit/regenerate history, even for a 36-row page.
+  // Full ancestry validation remains available on timeline mutation paths.
   const rows:ConversationPathNode[]=[];
   const seen=new Set<string>();
   let id=t.headNodeId;
@@ -154,6 +184,22 @@ export async function readTimelineDisplayPage(
    id=boundary.parentNodeId;
   }
   while(id&&rows.length<size){
+   // Cached IDs are only a batch-query hint, never cached source truth. Every
+   // returned body and parent link is re-read and verified in this transaction,
+   // including when several tabs make content-cache reuse unsafe.
+   const hint=cachedTimelinePrefix(c.id),at=hint?.positions.get(id);
+   if(at!==undefined){
+    const ids=hint!.nodes.slice(Math.max(0,at-(size-rows.length)+1),at+1).map(n=>n.id).reverse();
+    if(ids.length>1){
+     const batch=await db.pathNodes.bulkGet(ids);
+     if(batch.every((n,i)=>!!n&&n.id===ids[i]&&(i===ids.length-1||n.parentNodeId===ids[i+1]))){
+      const verified=batch as ConversationPathNode[];
+      for(const n of verified){if(seen.has(n.id))throw Error('时间线路径存在循环。');nodeShape(n,c.id);seen.add(n.id);}
+      await Dexie.waitFor(Promise.all(verified.map(async n=>{if(n.fingerprint!==await fingerprint(n.message))throw Error('不可变节点内容校验失败。');})));
+      rows.push(...verified);id=verified.at(-1)!.parentNodeId;continue;
+     }
+    }
+   }
    if(seen.has(id))throw Error('时间线路径存在循环。');
    seen.add(id);
    const node=await db.pathNodes.get(id);
@@ -174,18 +220,29 @@ export async function latestTimelineMessage(c:Conversation){
  const t=await db.timelines.get(c.activeTimelineId!);if(!t)throw Error('时间线不存在。');assertOwner(c,t);await getTimelineAncestors(c.id,t.id);
  const seen=new Set<string>();let id=t.headNodeId;while(id){if(seen.has(id))throw Error('时间线路径存在循环。');seen.add(id);const n=await db.pathNodes.get(id);if(!n)throw Error('时间线路径断链或跨会话。');nodeShape(n,c.id);if(n.fingerprint!==await messageFingerprint(n.message))throw Error('不可变节点内容校验失败。');if(n.role==='user'||n.role==='assistant')return {...n.message,archived:false};id=n.parentNodeId;}
 }
+/** IndexedDB can preserve explicit undefined fields while JSON backups omit them.
+ * Compare the same top-level representation used by the fingerprint, without
+ * serializing message bodies on the hot path. */
+function sameStoredMessage(a:Message,b:Message){
+ const normalized=(m:Message)=>Object.fromEntries(Object.entries({...m,archived:false}).filter(([,value])=>value!==undefined));
+ return dataEqual(normalized(a),normalized(b));
+}
 async function buildNodes(c:Conversation,messages:Message[],prior:ConversationPathNode[]=[]){
  const byMessage=new Map(prior.map(n=>[n.messageId,n]));
- const equal=(a:Message,b:Message)=>dataEqual({...a,archived:false},{...b,archived:false});
+ const equal=sameStoredMessage;
  const fingerprints=await batches(messages,async m=>{const old=byMessage.get(m.id);return old&&equal(old.message,m)?old.fingerprint:messageFingerprint(m);});
  const selected=messages.filter(m=>m.activeVariantId);const variants=await db.messageVariants.bulkGet(selected.map(m=>m.activeVariantId!));selected.forEach((m,i)=>{const v=variants[i];if(!v||v.conversationId!==c.id||v.messageId!==m.id)throw Error('消息版本引用缺失或跨会话。');});
- let candidates:Map<string,ConversationPathNode>|undefined,loaded=false;const key=(parent:string,fingerprint:string)=>JSON.stringify([parent,fingerprint]);
+ let candidates:Map<string,ConversationPathNode|string>|undefined,loaded=false,lookups=0;const key=(parent:string,fingerprint:string)=>JSON.stringify([parent,fingerprint]);
  const fresh:ConversationPathNode[]=[],created:ConversationPathNode[]=[];let parent='';
  let deadline=performance.now()+6;for(let i=0;i<messages.length;i++){if(i%128===0&&performance.now()>=deadline){await chatYield();deadline=performance.now()+6;}
   const m=messages[i],fingerprint=fingerprints[i],old=byMessage.get(m.id);if(m.conversationId!==c.id)throw Error('消息作用域不匹配。');
   let node=old&&old.parentNodeId===parent&&equal(old.message,m)?old:undefined;
-  if(!node){if(!loaded){const graph=await scopedGraph(c.id);if(graph)candidates=new Map(graph.map(n=>[key(n.parentNodeId,n.fingerprint),n]));loaded=true;}
-   node=candidates?candidates.get(key(parent,fingerprint)):await db.pathNodes.where('[conversationId+parentNodeId+fingerprint]').equals([c.id,parent,fingerprint]).first();
+  if(!node){
+   // A normal append needs one indexed miss, not a scan of every branch.
+   // Large rewrites switch to a metadata-only candidate map after 16 lookups.
+   if(!loaded&&++lookups>16){const links=await scopedLinks(c.id);if(links)candidates=new Map([...links].map(([id,n])=>[key(n.parent,n.fingerprint),id]));loaded=true;}
+   const candidate=candidates?.get(key(parent,fingerprint));
+   node=candidates?(typeof candidate==='string'?await db.pathNodes.get(candidate):candidate):await db.pathNodes.where('[conversationId+parentNodeId+fingerprint]').equals([c.id,parent,fingerprint]).first();
    if(node&&!equal(node.message,m))throw Error('不可变节点内容校验失败。');
    if(!node){node={id:crypto.randomUUID(),conversationId:c.id,parentNodeId:parent,messageId:m.id,variantId:m.activeVariantId,role:m.role,message:{...m,archived:false},fingerprint,createdAt:Date.now()};created.push(node);candidates?.set(key(parent,fingerprint),node);}
   }
@@ -201,18 +258,22 @@ async function tryAppendProjection(c:Conversation,current:MemoryTimeline){
  if(!await canReuseSourceCache())return;
  const cached=cachedTimelinePrefix(c.id),ids=appendedMessageIds(c.id);
  if(!cached?.valid||!ids?.size||cached.projection?.timelineId!==current.id||cached.projection.head!==current.headNodeId||cached.nodes.at(-1)?.id!==current.headNodeId)return;
- if(await db.messages.where('conversationId').equals(c.id).count()!==cached.nodes.length+ids.size)return;
+ const storedCount=cached.projection.storedCount;
+ if(storedCount===undefined||!Number.isSafeInteger(storedCount)||storedCount<cached.nodes.length)return;
+ // Archived branches are retained history, not unexplained active messages.
+ // Compare to the proved total, not the active path's smaller length.
+ if(await db.messages.where('conversationId').equals(c.id).count()!==storedCount+ids.size)return;
  const rows=await db.messages.bulkGet([...ids]);if(rows.some(m=>!m||m.conversationId!==c.id||m.archived||!['user','assistant'].includes(m.role)))return;
  const messages=(rows as Message[]).sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));let time=cached.nodes.at(-1)?.message.createdAt??-Infinity;
  for(const m of messages){if(!Number.isFinite(m.createdAt)||m.createdAt<=time)return;time=m.createdAt;}
  const created:ConversationPathNode[]=[],fresh:ConversationPathNode[]=[];let parent=current.headNodeId??'';
  for(const original of messages){let m=original;if(m.activeVariantId){const v=await db.messageVariants.get(m.activeVariantId);if(!v||v.messageId!==m.id||v.conversationId!==c.id)throw Error('消息版本引用缺失或跨会话。');m={...m,content:v.content,userEdited:v.userEdited};}
   const fingerprint=await messageFingerprint(m);let node=await db.pathNodes.where('[conversationId+parentNodeId+fingerprint]').equals([c.id,parent,fingerprint]).first();
-  if(node&&!dataEqual(node.message,{...m,archived:false}))throw Error('不可变节点内容校验失败。');
+  if(node&&!sameStoredMessage(node.message,m))throw Error('不可变节点内容校验失败。');
   if(!node){node={id:crypto.randomUUID(),conversationId:c.id,parentNodeId:parent,messageId:m.id,variantId:m.activeVariantId,role:m.role,message:{...m,archived:false},fingerprint,createdAt:Date.now()};created.push(node);}nodeShape(node,c.id);fresh.push(node);parent=node.id;
  }
  if(created.length)await db.pathNodes.bulkAdd(created);const next={...current,headNodeId:parent,revision:current.revision+1};await db.timelines.put(next);
- cacheVerifiedTimeline(c.id,await immutableChatRows([...cached.nodes,...fresh],cached.nodes.length,chatRowChars(cached.nodes)),{timelineId:next.id,head:next.headNodeId});return next;
+ cacheVerifiedTimeline(c.id,await immutableChatRows([...cached.nodes,...fresh],cached.nodes.length,chatRowChars(cached.nodes)),{timelineId:next.id,head:next.headNodeId,storedCount:storedCount+ids.size});return next;
 }
 /** Must be called inside the same write transaction as the legacy projection mutation. */
 export async function ensureTimelineInTransaction(id:string) {
@@ -244,13 +305,13 @@ export async function commitTimelineProjection(id:string,reason:MemoryTimeline["
   const current=await ensureTimelineInTransaction(id),c=(await db.conversations.get(id))!;
   if(reason==='append'&&!detached){const fast=await tryAppendProjection(c,current);if(fast){await updateContactPreview(id,fast);return fast;}}
   const old=await nodesForHead(id,current.headNodeId,true),messages=await legacyActiveMessages(id),built=await buildNodes(c,messages,old),headNodeId=built.headNodeId;
-  if(headNodeId===current.headNodeId){cacheVerifiedTimeline(id,await immutableChatRows(built.nodes),{timelineId:current.id,head:headNodeId});await updateContactPreview(id,current);return current;}
+  if(headNodeId===current.headNodeId){cacheVerifiedTimeline(id,await immutableChatRows(built.nodes),{timelineId:current.id,head:headNodeId,storedCount:await db.messages.where('conversationId').equals(id).count()});await updateContactPreview(id,current);return current;}
   const fresh=await immutableChatRows(built.nodes);let prefix=0;while(prefix<old.length&&prefix<fresh.length&&old[prefix].id===fresh[prefix].id)prefix++;
-  if(reason==="append"&&prefix===old.length){const next={...current,headNodeId,revision:current.revision+1};await db.timelines.put(next);cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId});await updateContactPreview(id,next);return next;}
+  if(reason==="append"&&prefix===old.length){const next={...current,headNodeId,revision:current.revision+1};await db.timelines.put(next);cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId,storedCount:await db.messages.where('conversationId').equals(id).count()});await updateContactPreview(id,next);return next;}
   const existing=(await db.timelines.where("conversationId").equals(id).toArray()).find(t=>t.status==="live"&&t.epoch===current.epoch&&t.headNodeId===headNodeId&&(!detached||t.reason==="legacy-snapshot"));
   const next:MemoryTimeline=existing??{...current,id:crypto.randomUUID(),headNodeId,parentTimelineId:detached?undefined:current.id,forkNodeId:detached?undefined:old[prefix-1]?.id,parentRevisionAtFork:detached?undefined:current.revision,revision:0,createdAt:Date.now(),reason:detached?"legacy-snapshot":reason};
   if(!existing)await db.timelines.add(next);
-  await db.conversations.update(id,{activeTimelineId:next.id});cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId});await updateContactPreview(id,next);return next;
+  await db.conversations.update(id,{activeTimelineId:next.id});cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId,storedCount:await db.messages.where('conversationId').equals(id).count()});await updateContactPreview(id,next);return next;
 }
 async function projectTimeline(id:string,t:MemoryTimeline) {
   const rows=await resolveTimelinePath(id,t.id);

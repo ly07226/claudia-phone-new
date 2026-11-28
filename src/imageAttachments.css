@@ -31,3 +31,9 @@
 .chat-action-tile{display:grid;place-items:center;width:100%;max-width:74px;aspect-ratio:1;border-radius:16px;background:var(--theme-input,#fffdf4de);font-size:23px}
 .chat-action-placeholder{opacity:.55}
 .phone.chat-open .chat-footer:has(.chat-bottom-panel){padding-bottom:0}
+/* In a short keyboard viewport the expandable panel gives up height before
+   the input/actions. Keep its own scroll surface, rather than pushing the
+   footer beyond the measured chat shell. Full-size panel geometry is unchanged. */
+.chat-footer:has(.chat-bottom-panel){display:flex;flex-direction:column;flex-shrink:1;min-height:0}
+.chat-footer:has(.chat-bottom-panel)>:not(.chat-bottom-panel){flex-shrink:0}
+.chat-footer>.chat-bottom-panel{flex-shrink:1}

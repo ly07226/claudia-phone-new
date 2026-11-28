@@ -21,7 +21,8 @@
       "feature/private-notes-glass": false,
       "feature/diary-independent-inner-life": false,
       "feature/dual-automation-api": false,
-      "fix/qq-memory-context-continuity": false
+      "fix/qq-memory-context-continuity": false,
+      "refactor/reference-only-chat-snapshots-20261127": false
     }
   }
 }

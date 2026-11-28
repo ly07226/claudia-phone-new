@@ -2,7 +2,7 @@ import {chatRowChars} from './chatCooperative';
 import Dexie,{RangeSet,rangesOverlap} from 'dexie';
 import {db} from './store';
 import type {ConversationPathNode} from './chatTypes';
-interface Entry {nodes:ConversationPathNode[];positions:Map<string,number>;messages:Map<string,number>;keys:InstanceType<typeof RangeSet>;messageKeys:InstanceType<typeof RangeSet>;projection?:{timelineId:string;head?:string};valid:boolean}
+interface Entry {nodes:ConversationPathNode[];positions:Map<string,number>;messages:Map<string,number>;keys:InstanceType<typeof RangeSet>;messageKeys:InstanceType<typeof RangeSet>;projection?:{timelineId:string;head?:string;storedCount?:number;creationOwner?:object};valid:boolean}
 const cache=new Map<string,Entry>();let installed=false,version=0;
 const root=(tx:any):any=>tx?.parent?root(tx.parent):tx;
 const additions=new WeakMap<object,Map<string,Set<string>>>();
@@ -11,7 +11,13 @@ export function installTimelineReadCache(){
  if(installed)return;installed=true;
  const invalidate=(id:string)=>{const e=cache.get(id);if(e){e.valid=false;cache.delete(id);}version++;};
  db.pathNodes.hook('creating',()=>{version++;});
- db.messages.hook('creating',(_key,row,tx)=>{const owner=root(tx);let groups=additions.get(owner);if(!groups)additions.set(owner,groups=new Map());let ids=groups.get(row.conversationId);if(!ids)groups.set(row.conversationId,ids=new Set());ids.add(row.id);});
+ db.messages.hook('creating',(_key,row,tx)=>{const owner=root(tx);
+  // A creation outside a reconciled append transaction must not be hidden by
+  // a later equal total count (for example deleting an archived row and adding
+  // an active QQ/import row). Normal appends publish a fresh owner-free proof.
+  const entry=cache.get(row.conversationId),projection=entry?.projection;
+  if(projection){if(projection.creationOwner&&projection.creationOwner!==owner)entry!.projection=undefined;else projection.creationOwner=owner;}
+ let groups=additions.get(owner);if(!groups)additions.set(owner,groups=new Map());let ids=groups.get(row.conversationId);if(!ids)groups.set(row.conversationId,ids=new Set());ids.add(row.id);});
  for(const table of [db.messages,db.messageVariants]){
   const touch=(row:any,key:unknown)=>{version++;const e=cache.get(row.conversationId);if(e?.messages.has(table===db.messages?String(key):row.messageId))e.projection=undefined;};
   table.hook('updating',(_m,key,row)=>touch(row,key));table.hook('deleting',(key,row)=>touch(row,key));
@@ -26,7 +32,7 @@ export function installTimelineReadCache(){
 }
 export function cachedTimelinePrefix(id:string){installTimelineReadCache();const e=cache.get(id);if(e?.valid){cache.delete(id);cache.set(id,e);return e;}}
 /** Cache only after the source transaction commits. Aborts never publish trust. */
-export function cacheVerifiedTimeline(id:string,nodes:ConversationPathNode[],projection?:{timelineId:string;head?:string}){
+export function cacheVerifiedTimeline(id:string,nodes:ConversationPathNode[],projection?:{timelineId:string;head?:string;storedCount?:number;creationOwner?:object}){
  if(nodes.length>50000||chatRowChars(nodes)>8*1024*1024)return;
  const stamp=version,tx=root(Dexie.currentTransaction);
  const publish=()=>{if(stamp!==version)return;const previous=cache.get(id);if(previous?.valid&&nodes.length>=previous.nodes.length&&nodes[previous.nodes.length-1]?.id===previous.nodes.at(-1)?.id){const extra=nodes.slice(previous.nodes.length);for(const n of extra){const i=previous.positions.size;previous.positions.set(n.id,i);previous.messages.set(n.messageId,i);previous.keys.addKey(n.id);previous.messageKeys.addKey(n.messageId);}previous.nodes=nodes;if(projection)previous.projection=projection;return;}if(previous)previous.valid=false;const copy=nodes;const entry:Entry={nodes:copy,positions:new Map(copy.map((n,i)=>[n.id,i])),messages:new Map(copy.map((n,i)=>[n.messageId,i])),keys:new RangeSet().addKeys(copy.map(n=>n.id)),messageKeys:new RangeSet().addKeys(copy.map(n=>n.messageId)),projection,valid:true};cache.delete(id);cache.set(id,entry);while(cache.size>2){const key=cache.keys().next().value!;cache.get(key)!.valid=false;cache.delete(key);}};

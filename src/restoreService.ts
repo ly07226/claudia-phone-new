@@ -4,9 +4,9 @@ import Dexie from 'dexie';
 import {db} from './store';
 import {acquireBackupGuard,watchBackupArrivals} from './backupGate';
 import {acquireRestoreLease} from './restoreLease';
-import {backupTables,tableSeed,ensure,checkAbort,BackupError} from './backupFormat';
+import {backupTables,ensure,checkAbort,BackupError} from './backupFormat';
 import {eachBackupRow,type IntegrityReport,type BackupProgress} from './backupService';
-import {exactSchema,bound,keep,digest,same,validate,type DatabaseDigest,openRestoreDatabase as open} from './restoreData';
+import {exactSchema,extendRollbackDigest,bound,keep,digest,same,validate,type DatabaseDigest,openRestoreDatabase as open} from './restoreData';
 const journalKey='claudia.restore.rollback.v1';
 interface Snapshot {name:string;targetName:string;createdAt:string;tables:Record<string,{count:number;digest:string}>}
 export interface RestoreReceipt {rollbackName:string;restored:true;credentials:'preserved'|'imported'|'rollback-copy'}
@@ -84,12 +84,7 @@ export async function restoreToCurrent(files:File[],options:{confirmed:boolean;p
     let source:Dexie;
     if(options.rollback){const saved=previousRestore(target.name);ensure(saved,'没有可用的恢复前副本。');ensure(await Dexie.exists(saved.name),'恢复前副本缺失，当前数据未修改。');source=await open(saved.name);writer=source;
       const actual=await digest(source,controller.signal),expected={...saved.tables};
-      // A pre-v7 rollback has no story stores. Only verified empty new stores
-      // may extend its digest; never waive checks for existing or unknown data.
-      for(const table of ['storySessions','storyNodes'])if(!expected[table]){
-        ensure(actual[table]?.count===0&&actual[table].digest===await tableSeed(table),'旧回退副本包含无法确认的主线数据，停止回退。');
-        expected[table]={count:0,digest:await tableSeed(table)};
-      }
+      await extendRollbackDigest(source,expected,actual);
       ensure(same(actual,expected),'恢复前副本已损坏，当前数据未修改。');
     }else{ownedPlan=options.plan?undefined:await prepareImport(files,options.importOptions??defaultImportOptions,{database:target,password:options.password,signal:controller.signal});
       const prepared=getImportPlan(options.plan??ownedPlan!,target);source=prepared.database;

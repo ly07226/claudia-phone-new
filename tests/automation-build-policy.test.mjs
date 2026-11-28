@@ -18,3 +18,5 @@ for(const [name,env,expected]of [
  ['Vercel unrelated',{VERCEL:'1',VERCEL_ENV:'preview',VERCEL_GIT_COMMIT_REF:'feature/other',VERCEL_GIT_PULL_REQUEST_ID:'110'},0],
  ['Vercel main',{VERCEL:'1',VERCEL_ENV:'production',VERCEL_GIT_COMMIT_REF:'main',VERCEL_GIT_PULL_REQUEST_ID:'109'},0]
 ])test(name,()=>assert.equal(automationBuildExit('prebuild',env),expected));
+
+for(const env of [{NETLIFY:'true',BRANCH:'refactor/reference-only-chat-snapshots-20261127'},{NETLIFY:'true',CONTEXT:'deploy-preview',BRANCH:'main',HEAD:'refactor/reference-only-chat-snapshots-20261127'},{VERCEL:'1',VERCEL_ENV:'preview',VERCEL_GIT_COMMIT_REF:'refactor/reference-only-chat-snapshots-20261127'}])test('reference refactor preview is blocked '+JSON.stringify(env),()=>{assert.equal(ignoreAutomationBuild(env),true);assert.equal(automationBuildExit('prebuild',env),2);});

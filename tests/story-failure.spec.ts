@@ -26,7 +26,7 @@ for(const c of cases)test(`完整生成链路分类：${c.name}，失败不推�
  await storySeed(page);let calls=0;const logs:string[]=[];page.on('console',m=>logs.push(m.text()));
  await page.route('https://story.test/**',r=>{calls++;if(c.network)return r.abort();return r.fulfill({status:c.status??200,json:c.error?{error:c.error}:c.envelope??{choices:[{finish_reason:c.finish??'stop',message:{content:c.text??JSON.stringify(c.value)}}]}});});
  const r=await page.evaluate(async()=>{const {db}=await import('/src/store.ts');let message='';try{await(await import('/src/storyGeneration.ts')).generateStory('story');}catch(e){message=(e as Error).message;}const s=(await db.storySessions.toArray())[0];await(await import('/src/storyValidation.ts')).validateStorySession(s);return {message,s,nodes:await db.storyNodes.count(),version:db.verno};});
- expect(r.s.status).toBe('failed');expect(r.s.revision).toBe(0);expect(r.nodes).toBe(0);expect(r.version).toBe(8);expect(r.s.failureDetails).toMatchObject({code:c.code,stage:c.stage,attempted:true});if(c.status)expect(r.s.failureDetails!.httpStatus).toBe(c.status);expect(r.message).toContain(['choice-count','json-incomplete'].includes(c.code)?'原进度已保留':'原进度未改变');expect(calls).toBe(1);
+ expect(r.s.status).toBe('failed');expect(r.s.revision).toBe(0);expect(r.nodes).toBe(0);expect(r.version).toBe(9);expect(r.s.failureDetails).toMatchObject({code:c.code,stage:c.stage,attempted:true});if(c.status)expect(r.s.failureDetails!.httpStatus).toBe(c.status);expect(r.message).toContain(['choice-count','json-incomplete'].includes(c.code)?'原进度已保留':'原进度未改变');expect(calls).toBe(1);
  expect(JSON.stringify(r.s.failureDetails)+r.message+logs.join('\n')).not.toMatch(/PRIVATE_|synthetic-story-fixture|Authorization|Bearer/);if(c.code==='http-error')expect(r.message).toContain('暂时无法确定');if(c.code==='choice-count')expect(r.s.failureDetails!.choiceCount).toBe(3);if(c.code==='json-incomplete')expect(r.message).not.toContain('输出被截断');await page.reload();expect(calls).toBe(1);
 });
 
@@ -86,5 +86,5 @@ for(const mode of ['overwrite','merge'] as const)test(`安全诊断随ZIP${mode}
   const plan=await prepareImport(files,{...defaultImportOptions,mode},{database:target});
   try{const candidate=getImportPlan(plan,target).database;const restored=(await candidate.table('storySessions').toArray())[0];validateStorySession(restored);return {original:s.failureDetails,restored:restored.failureDetails,rejected,version:db.verno};}finally{await plan.dispose();if(target!==db)await target.delete();}
  },mode);
- expect(result.restored).toEqual(result.original);expect(result.rejected).toBe(4);expect(result.version).toBe(8);
+ expect(result.restored).toEqual(result.original);expect(result.rejected).toBe(4);expect(result.version).toBe(9);
 });

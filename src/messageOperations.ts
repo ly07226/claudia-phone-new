@@ -1,3 +1,4 @@
+import {validateSnapshotReferences} from './snapshotReferences';
 import {messageBubbles,hasVisiblePart,type BubblePart} from './messageBubbles';
 import { ensureTimelineInTransaction, commitTimelineProjection, nodesForHead, messageFingerprint } from "./timelines";
 import { db } from "./store";
@@ -76,21 +77,19 @@ export async function snapshotPath(
   reason: ConversationSnapshot["reason"],
 ) {
   const timeline = await ensureTimelineInTransaction(id);
-  const messages = await activeMessages(id);
-  const ids = new Set(messages.map((m) => m.id));
-  const variants = await db.messageVariants
-    .where("conversationId")
-    .equals(id)
-    .filter((v) => ids.has(v.messageId))
-    .toArray();
+  // New snapshots retain identifiers only. Legacy snapshots remain readable.
+  if(timeline.headNodeId){
+    const tip=await db.pathNodes.get(timeline.headNodeId);
+    if(!tip||tip.conversationId!==id)throw Error('快照头节点缺失或跨会话。');
+  }
   const snapshot: ConversationSnapshot = {
     id: crypto.randomUUID(),
     conversationId: id,
     reason,
     timelineId: timeline.id, headNodeId: timeline.headNodeId, timelineEpoch: timeline.epoch,
     createdAt: Date.now(),
-    messages,
-    variants,
+    messages: [], variants: [],
+    references: { storageVersion: 3, timelineId: timeline.id, headNodeId: timeline.headNodeId, timelineEpoch: timeline.epoch },
   };
   await db.conversationSnapshots.add(snapshot);
   return snapshot;
@@ -248,18 +247,34 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
     const s = await db.conversationSnapshots.get(snapshotId);
     if (!s || s.conversationId !== id)
       throw Error("快照不属于此会话或已不存在。");
-    const ids = new Set(s.messages.map((m) => m.id));
+    // Rehydrate reference snapshots from the immutable path. Never silently
+    // fall back to current live messages when a referenced node is missing.
+    let snapshotMessages = s.messages;
+    let snapshotVariants = s.variants;
+    if (s.references) {
+      const nodes = await nodesForHead(id, s.headNodeId);
+      validateSnapshotReferences(s,nodes);
+      snapshotMessages = nodes.map(n => ({ ...n.message, archived: false }));
+      const versionNodes=nodes.filter(n=>!!n.variantId);
+      const variants=await db.messageVariants.bulkGet(versionNodes.map(n=>n.variantId!));
+      if(variants.some((v,i)=>!v||v.conversationId!==id||v.messageId!==versionNodes[i].messageId))
+        throw Error("快照引用版本缺失，停止恢复。");
+      // Variant rows are mutable (editing reuses their ID). The verified
+      // immutable path, not the present-day variant value, owns saved text.
+      snapshotVariants=versionNodes.map((n,i)=>({...variants[i]!,content:n.message.content,userEdited:n.message.userEdited,heartVoice:n.message.heartVoice,replyInterruption:n.message.replyInterruption}));
+    }
+    const ids = new Set(snapshotMessages.map((m) => m.id));
     if (
-      s.messages.some((m) => m.conversationId !== id) ||
-      s.variants.some((v) => v.conversationId !== id || !ids.has(v.messageId))
+      snapshotMessages.some((m) => m.conversationId !== id) ||
+      snapshotVariants.some((v) => v.conversationId !== id || !ids.has(v.messageId))
     )
       throw Error("快照关联不合法。");
-    for (const m of s.messages) {
+    for (const m of snapshotMessages) {
       const existing = await db.messages.get(m.id);
       if (existing && existing.conversationId !== id)
         throw Error("快照消息关联不合法。");
     }
-    for (const v of s.variants) {
+    for (const v of snapshotVariants) {
       const existing = await db.messageVariants.get(v.id);
       if (
         existing &&
@@ -272,8 +287,8 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
       if(!source||source.conversationId!==id||source.epoch!==c?.timelineEpoch||s.timelineEpoch!==source.epoch)throw Error("快照时间线关联已失效。");
       if(s.headNodeId&&!(await nodesForHead(id,source.headNodeId)).some(n=>n.id===s.headNodeId))throw Error("快照不属于声明的时间线路径。");
       const saved=await nodesForHead(id,s.headNodeId);
-      if(saved.length!==s.messages.length)throw Error("快照路径不匹配。");
-      for(let i=0;i<saved.length;i++)if(saved[i].fingerprint!==await messageFingerprint(s.messages[i]))throw Error("快照内容与不可变路径不匹配。");
+      if(saved.length!==snapshotMessages.length)throw Error("快照路径不匹配。");
+      for(let i=0;i<saved.length;i++)if(saved[i].fingerprint!==await messageFingerprint(snapshotMessages[i]))throw Error("快照内容与不可变路径不匹配。");
     }
     await invalidateGeneration(id);
     await snapshotPath(id, "restore");
@@ -281,9 +296,9 @@ export async function restoreSnapshot(id: string, snapshotId: string) {
       .where("conversationId")
       .equals(id)
       .modify({ archived: true });
-    await db.messageVariants.bulkPut(s.variants);
+    await db.messageVariants.bulkPut(snapshotVariants);
     await db.messages.bulkPut(
-      s.messages.map((m) => ({ ...m, archived: false })),
+      snapshotMessages.map((m) => ({ ...m, archived: false })),
     );
     if(s.timelineId)await db.conversations.update(id,{activeTimelineId:s.timelineId});
     await commitTimelineProjection(id,"restore",!s.timelineId);

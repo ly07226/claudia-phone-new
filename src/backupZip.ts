@@ -58,7 +58,8 @@ function zipError(e:unknown,signal?:AbortSignal):BackupError {
 /** Lazily extracts one ZIP member at a time. Compatible with historical ZIP versions 1–3.
  * Call close() in finally; no extracted members are retained by this reader. */
 export async function openStreamingBackupZip(file:File,signal?:AbortSignal) {
-  const opened=await open(file,signal);
+  let opened:Awaited<ReturnType<typeof open>>;
+  try{opened=await open(file,signal);}catch(e){throw zipError(e,signal);}
   const entries=new Map(opened.entries.map(e=>[e.filename,e]));
   let closed=false;
   return {
@@ -68,7 +69,7 @@ export async function openStreamingBackupZip(file:File,signal?:AbortSignal) {
       ensure(!closed,'ZIP 读取器已关闭。');
       const entry=entries.get(name);
       ensure(!!entry,'ZIP 内缺少请求的数据文件。');
-      return extract(entry,password,signal);
+      try{return await extract(entry,password,signal);}catch(e){throw zipError(e,signal);}
     },
     async close(){if(!closed){closed=true;await opened.reader.close();}}
   };

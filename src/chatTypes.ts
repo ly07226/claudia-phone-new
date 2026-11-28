@@ -109,6 +109,14 @@ export interface MessageRevision {
   content: string;
   createdAt: number;
 }
+/** V2 ID lists and legacy inline snapshots remain readable. V3 refers to one
+ * immutable path head, with no per-snapshot history traversal or ID-array copy. */
+export type ConversationSnapshotReferences = {
+  timelineId?: string;
+  headNodeId?: string;
+  timelineEpoch?: number;
+} & ({storageVersion:2;messageIds:string[];variantIds:string[]}|{storageVersion:3});
+
 export interface ConversationSnapshot {
   timelineId?: string;
   headNodeId?: string;
@@ -117,8 +125,10 @@ export interface ConversationSnapshot {
   conversationId: string;
   reason: "edit" | "switch" | "withdraw" | "delete" | "regenerate" | "restore";
   createdAt: number;
+  /** Legacy inline payload. Do not delete until all existing snapshots are migrated. */
   messages: Message[];
   variants: MessageVariant[];
+  references?: ConversationSnapshotReferences;
 }
 
 export interface MemoryTimeline {

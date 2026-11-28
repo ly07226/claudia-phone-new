@@ -3,7 +3,6 @@ import { useLayoutEffect, useRef, type RefObject } from "react";
 /** Only the conversation shell follows the visual viewport; all inner regions remain in normal flex flow. */
 export function useChatViewport(
   active: boolean,
-  text: string,
   input: RefObject<HTMLTextAreaElement | null>,
   onLayout: () => void,
 ) {
@@ -73,15 +72,29 @@ export function useChatViewport(
   }, [active]);
   useLayoutEffect(() => {
     if (!active) return;
-    // Keep typing responsive: measuring scrollHeight forces layout. Schedule it
-    // after the current React commit instead of blocking every keypress.
-    const frame = window.requestAnimationFrame(() => {
-      const height = fit();
-      if (height !== undefined && lastInputHeight.current !== height) {
-        lastInputHeight.current = height;
-        callback.current();
-      }
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [active, text]);
+    // Observe the native input directly: React draft updates no longer tear down
+    // and recreate a layout effect on every keystroke.
+    const el = input.current;
+    if (!el) return;
+    let frame = 0;
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const height = fit();
+        if (height !== undefined && lastInputHeight.current !== height) {
+          lastInputHeight.current = height;
+          callback.current();
+        }
+      });
+    };
+    el.addEventListener('input', schedule);
+    el.addEventListener('chat-draft-change', schedule);
+    schedule();
+    return () => {
+      el.removeEventListener('input', schedule);
+      el.removeEventListener('chat-draft-change', schedule);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [active, input]);
 }
