@@ -37,6 +37,7 @@ test('new backup screen exports one ZIP without a password setup step',async({pa
   await expect(page.getByRole('button',{name:'导出备份'})).toBeVisible();
   await expect(page.getByLabel('备份加密密码')).toHaveCount(0);
   await expect(page.getByLabel('加密保护')).toHaveCount(0);
+  await page.getByText('高级选项',{exact:true}).click();
   await expect(page.getByText('单个 ZIP 上限 1024 MiB',{exact:false})).toBeVisible();
 });
 

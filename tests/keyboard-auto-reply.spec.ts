@@ -9,7 +9,7 @@ async function setup(page:Page){
   const ids=await page.evaluate(async()=>{const {db,usePhone}=await import('/src/store.ts');await db.characters.bulkAdd([{id:'a',name:'自动角色',persona:''},{id:'b',name:'另一角色',persona:''}]);await db.apiConfigs.add({id:'api',name:'模拟',provider:'openai-compatible',baseUrl:'https://keyboard.test/v1',model:'mock',enabled:true,isDefault:true,temperature:.7,maxTokens:100,createdAt:1,updatedAt:1});await db.apiCredentials.add({configId:'api',apiKey:'synthetic-fixture-only'});await usePhone.getState().reload();const {getConversation}=await import('/src/chatService.ts');const a=await getConversation('a'),b=await getConversation('b');await(await import('/src/chatPreferences.ts')).saveChatSettings(a.id,{continuousSend:true,keyboardAutoReply:true});return {a:a.id,b:b.id};});
   const requests:any[]=[];await page.route('https://keyboard.test/**',async r=>{requests.push(r.request().postDataJSON());await r.fulfill({json:{choices:[{message:{content:'自动回复完成。'}}]}});});
   await page.getByRole('button',{name:'聊天',exact:true}).click();await page.getByRole('button',{name:'自动角色 开始 / 继续聊天'}).click();
-  await page.clock.install();await page.clock.pauseAt(new Date(Date.now()+1000));
+  await page.clock.install();await page.clock.pauseAt(await page.evaluate(()=>Date.now()+1000));
   return {ids,requests};
 }
 async function viewport(page:Page,height:number,extra:Record<string,number>={}){await page.evaluate(({height,extra})=>{Object.assign(visualViewport!,{height,...extra});visualViewport!.dispatchEvent(new Event('resize'));},{height,extra});}
@@ -192,7 +192,7 @@ for(const auto of [true,false])test(`发送全流程监测：保存延迟、三�
     await page.getByRole('switch',{name:'收起键盘自动回复',exact:true}).click();
     await expect(page.getByRole('switch',{name:'收起键盘自动回复',exact:true})).not.toBeChecked();
     await returnToChat(page);
-    await page.clock.pauseAt(new Date(Date.now()+1000));
+    await page.clock.pauseAt(await page.evaluate(()=>Date.now()+1000));
   }
   await openKeyboard(page);
   const input=page.getByLabel('聊天消息',{exact:true});

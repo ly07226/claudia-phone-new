@@ -148,7 +148,7 @@ test("旧消息分组显示、用户不拆、单版本隐藏，多版本整组�
   expect(state.variants.find((v) => v.id === "bubble-v1")?.content).toBe(
     original,
   );
-  expect(state.version).toBe(8);
+  expect(state.version).toBe(9);
 });
 
 test("长按任意片段复制和编辑完整消息，删除仅作用于所选气泡并保留历史原文", async ({
@@ -219,9 +219,12 @@ test("长按任意片段复制和编辑完整消息，删除仅作用于所选�
     await page.evaluate(async (edited) => {
       const { db } = await import("/src/store.ts");
       const snapshots = await db.conversationSnapshots.toArray();
-      return snapshots.some((s) =>
-        s.messages.some((m) => m.id === "bubble-ai" && m.content === edited),
-      );
+      const {nodesForHead}=await import('/src/timelines.ts');
+      for(const snapshot of snapshots){
+        const rows=snapshot.references?(await nodesForHead(snapshot.conversationId,snapshot.headNodeId)).map(n=>n.message):snapshot.messages;
+        if(rows.some(m=>m.id==='bubble-ai'&&m.content===edited))return true;
+      }
+      return false;
     }, edited),
   ).toBe(true);
 });

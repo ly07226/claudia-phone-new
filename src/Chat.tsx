@@ -330,16 +330,16 @@ export function Chat({ worldId }: { worldId?: string }) {
    const originalCursor=displayCursor.current;
    let cursor=originalCursor,hasMore=displayHasMore.current;
    const previousKey=appliedSnapshot.current?.key;
-   const gathered:Message[]=[];
+   const chunks:Message[][]=[];
    try{
     while(hasMore){
-     const page=await readTimelineDisplayPage(id,36,cursor,true);
+     const page=await readTimelineDisplayPage(id,120,cursor,true);
      if(activeConversation.current!==id||refreshTicket.current!==ticket||
         visiblePath.current?.timelineId!==scope?.timelineId||
         visiblePath.current?.epoch!==scope?.epoch||
         appliedSnapshot.current?.key!==previousKey||
         displayCursor.current!==originalCursor) return;
-     gathered.unshift(...page.rows);
+     chunks.push(page.rows);
      cursor=page.nextCursor;hasMore=page.hasMore;
      if(page.rows.some(m=>m.id===targetId)||!hasMore)break;
      // Allow scrolling, typing and paint between database pages.
@@ -351,6 +351,7 @@ export function Chat({ worldId }: { worldId?: string }) {
     displayHasMore.current=hasMore;
     const previousRows=appliedSnapshot.current?.rows??[];
     const seen=new Set(previousRows.map(m=>m.id));
+    const gathered=chunks.reverse().flat();
     const combined=[...gathered.filter(m=>!seen.has(m.id)),...previousRows];
     if(gathered.length){
      if(silent&&combined.some(row=>row.id===targetId)){followBottom.current=false;jumpTo.current=targetId;}

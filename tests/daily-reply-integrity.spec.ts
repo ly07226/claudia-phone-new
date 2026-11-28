@@ -102,7 +102,7 @@ test('中断标记及原文完整 ZIP 往返，不改变数据库版本或用户
   const {createZipBackup,readBackupZip}=await import('/src/backupZip.ts');const {readBackup}=await import('/src/backupService.ts');const blob=await createZipBackup({closedOtherClients:true});const files=await readBackupZip(new File([blob],'fixture.zip'));const result=await readBackup(files,{mode:'verify'});
   return {before,after:await(await import('/src/messagePath.ts')).activeMessages(id),valid:result.report.status==='verified',version:db.verno};
  },daily);
- expect(check.valid).toBe(true);expect(check.version).toBe(8);expect(check.before).toEqual(check.after);expect(check.after.at(-1)?.replyInterruption).toBe('length');
+ expect(check.valid).toBe(true);expect(check.version).toBe(9);expect(check.before).toEqual(check.after);expect(check.after.at(-1)?.replyInterruption).toBe('length');
 });
 test('续接精确去重与无新内容拒绝；不擅自补括号或改写前文',async({page})=>{
  await setup(page);const result=await page.evaluate(async()=>{const {appendContinuation}=await import('/src/chatCompletion.ts');const original='这是原文，必须逐字保留的尾段';let error='';try{appendContinuation(original,original);}catch(e){error=(e as Error).message;}return {value:appendContinuation(original,'必须逐字保留的尾段，接着说完。'),open:appendContinuation('（未闭合','继续'),error};});
@@ -148,7 +148,7 @@ test('手动续接保留未发送的图片与文字，图片不误入续接请�
  const {daily}=await setup(page);let count=0;const bodies:any[]=[];
  await page.route('https://daily.test/**',route=>{count++;bodies.push(route.request().postDataJSON());return route.fulfill({json:{choices:[{message:{content:count===1?'这条消息还没':'说完。'},finish_reason:count===1?'length':'stop'}]}});});
  await send(page,daily);await page.getByRole('button',{name:'聊天',exact:true}).click();await page.getByRole('button',{name:'离线角色 开始 / 继续聊天',exact:true}).click();
- const data=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=c.height=8;return c.toDataURL().split(',')[1];});await page.getByRole('button',{name:'图片附件',exact:true}).click();const chooser=page.waitForEvent('filechooser');await page.getByRole('menuitem',{name:'相册',exact:true}).click();await(await chooser).setFiles({name:'unsent.png',mimeType:'image/png',buffer:Buffer.from(data,'base64')});
+ const data=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=c.height=8;return c.toDataURL().split(',')[1];});const chooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'相册',exact:true}).click();await(await chooser).setFiles({name:'unsent.png',mimeType:'image/png',buffer:Buffer.from(data,'base64')});
  await expect(page.locator('.chat-pending-images img')).toHaveCount(1);await page.getByLabel('聊天消息',{exact:true}).fill('我的未发送图片说明');await page.getByRole('button',{name:'继续生成',exact:true}).click();
  await expect.poll(async()=>(await rows(page,daily)).at(-1)?.content).toBe('这条消息还没说完。');await expect(page.locator('.chat-pending-images img')).toHaveCount(1);await expect(page.getByLabel('聊天消息',{exact:true})).toHaveValue('我的未发送图片说明');expect(JSON.stringify(bodies[1])).not.toContain('image_url');expect(JSON.stringify(bodies[1])).not.toContain('我的未发送图片说明');expect(count).toBe(2);
 });

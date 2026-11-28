@@ -157,6 +157,22 @@ export async function readTimelineDisplayPage(
    id=boundary.parentNodeId;
   }
   while(id&&rows.length<size){
+   // Cached IDs are only a batch-query hint, never cached source truth. Every
+   // returned body and parent link is re-read and verified in this transaction,
+   // including when several tabs make content-cache reuse unsafe.
+   const hint=cachedTimelinePrefix(c.id),at=hint?.positions.get(id);
+   if(at!==undefined){
+    const ids=hint!.nodes.slice(Math.max(0,at-(size-rows.length)+1),at+1).map(n=>n.id).reverse();
+    if(ids.length>1){
+     const batch=await db.pathNodes.bulkGet(ids);
+     if(batch.every((n,i)=>!!n&&n.id===ids[i]&&(i===ids.length-1||n.parentNodeId===ids[i+1]))){
+      const verified=batch as ConversationPathNode[];
+      for(const n of verified){if(seen.has(n.id))throw Error('时间线路径存在循环。');nodeShape(n,c.id);seen.add(n.id);}
+      await Dexie.waitFor(Promise.all(verified.map(async n=>{if(n.fingerprint!==await fingerprint(n.message))throw Error('不可变节点内容校验失败。');})));
+      rows.push(...verified);id=verified.at(-1)!.parentNodeId;continue;
+     }
+    }
+   }
    if(seen.has(id))throw Error('时间线路径存在循环。');
    seen.add(id);
    const node=await db.pathNodes.get(id);
@@ -211,7 +227,11 @@ async function tryAppendProjection(c:Conversation,current:MemoryTimeline){
  if(!await canReuseSourceCache())return;
  const cached=cachedTimelinePrefix(c.id),ids=appendedMessageIds(c.id);
  if(!cached?.valid||!ids?.size||cached.projection?.timelineId!==current.id||cached.projection.head!==current.headNodeId||cached.nodes.at(-1)?.id!==current.headNodeId)return;
- if(await db.messages.where('conversationId').equals(c.id).count()!==cached.nodes.length+ids.size)return;
+ const storedCount=cached.projection.storedCount;
+ if(storedCount===undefined||!Number.isSafeInteger(storedCount)||storedCount<cached.nodes.length)return;
+ // Archived branches are retained history, not unexplained active messages.
+ // Compare to the proved total, not the active path's smaller length.
+ if(await db.messages.where('conversationId').equals(c.id).count()!==storedCount+ids.size)return;
  const rows=await db.messages.bulkGet([...ids]);if(rows.some(m=>!m||m.conversationId!==c.id||m.archived||!['user','assistant'].includes(m.role)))return;
  const messages=(rows as Message[]).sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));let time=cached.nodes.at(-1)?.message.createdAt??-Infinity;
  for(const m of messages){if(!Number.isFinite(m.createdAt)||m.createdAt<=time)return;time=m.createdAt;}
@@ -222,7 +242,7 @@ async function tryAppendProjection(c:Conversation,current:MemoryTimeline){
   if(!node){node={id:crypto.randomUUID(),conversationId:c.id,parentNodeId:parent,messageId:m.id,variantId:m.activeVariantId,role:m.role,message:{...m,archived:false},fingerprint,createdAt:Date.now()};created.push(node);}nodeShape(node,c.id);fresh.push(node);parent=node.id;
  }
  if(created.length)await db.pathNodes.bulkAdd(created);const next={...current,headNodeId:parent,revision:current.revision+1};await db.timelines.put(next);
- cacheVerifiedTimeline(c.id,await immutableChatRows([...cached.nodes,...fresh],cached.nodes.length,chatRowChars(cached.nodes)),{timelineId:next.id,head:next.headNodeId});return next;
+ cacheVerifiedTimeline(c.id,await immutableChatRows([...cached.nodes,...fresh],cached.nodes.length,chatRowChars(cached.nodes)),{timelineId:next.id,head:next.headNodeId,storedCount:storedCount+ids.size});return next;
 }
 /** Must be called inside the same write transaction as the legacy projection mutation. */
 export async function ensureTimelineInTransaction(id:string) {
@@ -254,13 +274,13 @@ export async function commitTimelineProjection(id:string,reason:MemoryTimeline["
   const current=await ensureTimelineInTransaction(id),c=(await db.conversations.get(id))!;
   if(reason==='append'&&!detached){const fast=await tryAppendProjection(c,current);if(fast){await updateContactPreview(id,fast);return fast;}}
   const old=await nodesForHead(id,current.headNodeId,true),messages=await legacyActiveMessages(id),built=await buildNodes(c,messages,old),headNodeId=built.headNodeId;
-  if(headNodeId===current.headNodeId){cacheVerifiedTimeline(id,await immutableChatRows(built.nodes),{timelineId:current.id,head:headNodeId});await updateContactPreview(id,current);return current;}
+  if(headNodeId===current.headNodeId){cacheVerifiedTimeline(id,await immutableChatRows(built.nodes),{timelineId:current.id,head:headNodeId,storedCount:await db.messages.where('conversationId').equals(id).count()});await updateContactPreview(id,current);return current;}
   const fresh=await immutableChatRows(built.nodes);let prefix=0;while(prefix<old.length&&prefix<fresh.length&&old[prefix].id===fresh[prefix].id)prefix++;
-  if(reason==="append"&&prefix===old.length){const next={...current,headNodeId,revision:current.revision+1};await db.timelines.put(next);cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId});await updateContactPreview(id,next);return next;}
+  if(reason==="append"&&prefix===old.length){const next={...current,headNodeId,revision:current.revision+1};await db.timelines.put(next);cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId,storedCount:await db.messages.where('conversationId').equals(id).count()});await updateContactPreview(id,next);return next;}
   const existing=(await db.timelines.where("conversationId").equals(id).toArray()).find(t=>t.status==="live"&&t.epoch===current.epoch&&t.headNodeId===headNodeId&&(!detached||t.reason==="legacy-snapshot"));
   const next:MemoryTimeline=existing??{...current,id:crypto.randomUUID(),headNodeId,parentTimelineId:detached?undefined:current.id,forkNodeId:detached?undefined:old[prefix-1]?.id,parentRevisionAtFork:detached?undefined:current.revision,revision:0,createdAt:Date.now(),reason:detached?"legacy-snapshot":reason};
   if(!existing)await db.timelines.add(next);
-  await db.conversations.update(id,{activeTimelineId:next.id});cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId});await updateContactPreview(id,next);return next;
+  await db.conversations.update(id,{activeTimelineId:next.id});cacheVerifiedTimeline(id,fresh,{timelineId:next.id,head:headNodeId,storedCount:await db.messages.where('conversationId').equals(id).count()});await updateContactPreview(id,next);return next;
 }
 async function projectTimeline(id:string,t:MemoryTimeline) {
   const rows=await resolveTimelinePath(id,t.id);

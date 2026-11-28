@@ -169,7 +169,7 @@ test("无世界创建基础角色、无 API 引导、失败保留消息和重试
   await page.getByLabel("聊天消息").fill("失败时不要丢失我");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "重试最后一条消息" }),
+    page.getByRole("button", { name: "AI 回复" }),
   ).toBeVisible();
   await expect(page.locator(".chat-bubble")).toHaveCount(1);
   const firstFailure = await page.evaluate(async () => {
@@ -181,7 +181,7 @@ test("无世界创建基础角色、无 API 引导、失败保留消息和重试
   await expect.poll(() => page.evaluate(async id =>
     (await import("/src/generationTasks.ts")).getGenerationTask(id)?.status,
     firstFailure.conversationId)).toBe("failed");
-  await expect(page.getByRole("button", { name: "重试最后一条消息" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "AI 回复" })).toBeEnabled();
   await page.evaluate(async () => {
     const { db } = await import("/src/store.ts");
     await db.apiConfigs.put({
@@ -213,7 +213,7 @@ test("无世界创建基础角色、无 API 引导、失败保留消息和重试
       json: { error: { message: "synthetic-test-key" } },
     });
   });
-  await page.getByRole("button", { name: "重试最后一条消息" }).click();
+  await page.getByRole("button", { name: "AI 回复" }).click();
   await expect.poll(() => authRequests).toBe(1);
   // This is deliberately still the previous attempt's failure while the retry is pending.
   await page.getByRole("button", {name:"回复失败，查看详情"}).click();
@@ -225,7 +225,7 @@ test("无世界创建基础角色、无 API 引导、失败保留消息和重试
     return { newAttempt: task?.id !== taskId, status: task?.status, kind: task?.failure?.kind, httpStatus: task?.failure?.httpStatus };
   }, firstFailure)).toEqual({ newAttempt: true, status: "failed", kind: "auth", httpStatus: 403 });
   // The owner completes its error bookkeeping before the retry control is re-enabled.
-  await expect(page.getByRole("button", { name: "重试最后一条消息" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "AI 回复" })).toBeEnabled();
   await expect(page.getByRole("alert")).toContainText("回复失败");
   await expect(page.getByRole("button", {name:"回复失败，查看详情"})).toHaveCount(1);
   await page.getByRole("button", {name:"回复失败，查看详情"}).click();
@@ -242,7 +242,7 @@ test("无世界创建基础角色、无 API 引导、失败保留消息和重试
       json: { candidates: [{ content: { parts: [{ text: "已经回复" }] } }] },
     }),
   );
-  await page.getByRole("button", { name: "重试最后一条消息" }).click();
+  await page.getByRole("button", { name: "AI 回复" }).click();
   await expect(page.locator(".chat-assistant")).toContainText("已经回复");
   expect(body.systemInstruction.parts[0].text).toContain("基础人格");
   expect(body.contents).toHaveLength(1);
@@ -535,7 +535,7 @@ test("并发发送受保护，取消与删除会话不产生孤立回复", async
   expect(result.orphan).toBe(0);
   expect(result.conversation).toBeUndefined();
 });
-test("v7桥接不降级原库，v8桥接完整读取且聊天与旧数据不变", async ({
+test("旧版本桥接不降级原库，v9桥接完整读取且聊天与旧数据不变", async ({
   page,
 }) => {
   const conversations = await seed(page);
@@ -582,16 +582,17 @@ test("v7桥接不降级原库，v8桥接完整读取且聊天与旧数据不变"
       });
     compatibility.version(6).stores({timelines:"id,conversationId,parentTimelineId",pathNodes:"id,conversationId,[conversationId+parentNodeId+fingerprint]"});
     compatibility.version(7).stores((await import('/src/storyTypes.ts')).storySchemas);
-    await compatibility.open();
-    const oldNativeVersion=compatibility.backendDB().version,oldDeclaredLeases=compatibility.tables.some(t=>t.name==='summaryLeases');
+    let oldNativeVersion:number|undefined,legacyRejected=false;
+    try{await compatibility.open();oldNativeVersion=compatibility.backendDB().version;}catch(error){if((error as Error).name!=='VersionError')throw error;legacyRejected=true;}
     compatibility.close();
     compatibility.version(8).stores({summaryLeases:'name,expiresAt'});
+    compatibility.version(9).stores({stickerMeta:'id,group,lastUsed',stickerImages:'id'});
     await compatibility.open();
     const after: any = {};
     for (const name of names)
       after[name] = await compatibility.table(name).toArray();
     compatibility.close();
-    return { before, after,oldNativeVersion,oldDeclaredLeases };
+    return { before, after,oldNativeVersion,legacyRejected };
   }, conversations);
-  expect(result.oldNativeVersion).toBe(80);expect(result.oldDeclaredLeases).toBe(false);expect(result.after).toEqual(result.before);
+  expect(result.legacyRejected||result.oldNativeVersion===90).toBe(true);expect(result.after).toEqual(result.before);
 });

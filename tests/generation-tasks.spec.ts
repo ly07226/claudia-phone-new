@@ -50,7 +50,7 @@ test('切换剧本世界不取消日常生成，不向当前世界串写；返�
 test('重进后主动停止取消原任务，迟到响应不保存；无自动重试',async({page})=>{
  const {ids,calls}=await setup(page);await send(page,'停止后仍保留我');await expect.poll(()=>calls.length).toBe(1);await page.getByRole('button',{name:'返回角色列表',exact:true}).click();await open(page,'任务甲');await page.getByRole('button',{name:'取消请求',exact:true}).click();
  await expect(page.getByRole('button',{name:'取消请求',exact:true})).toHaveCount(0);calls[0].release('不应保存');await expect.poll(async()=>await page.evaluate(async id=>(await import('/src/generationTasks.ts')).getGenerationTask(id)?.status,ids.a)).toBe('stopped');
- expect((await messages(page,ids.a)).map(m=>m.content)).toEqual(['停止后仍保留我']);await expect(page.getByRole('button',{name:'重试最后一条消息',exact:true})).toBeVisible();expect(calls.length).toBe(1);
+ expect((await messages(page,ids.a)).map(m=>m.content)).toEqual(['停止后仍保留我']);await expect(page.getByRole('button',{name:'AI 回复',exact:true})).toBeVisible();expect(calls.length).toBe(1);
 });
 
 test('分支切换取消旧路径任务，迟到回复不能进入新路径或伪报成功',async({page})=>{
@@ -64,12 +64,12 @@ test('分支切换取消旧路径任务，迟到回复不能进入新路径或�
 test('离开页面时网络失败保留已存消息，返回显示失败并仅手动重试',async({page})=>{
  const {ids,calls}=await setup(page);await send(page,'网络失败仍保留');await expect.poll(()=>calls.length).toBe(1);await page.getByRole('button',{name:'返回角色列表',exact:true}).click();calls[0].release('',true);
  await expect.poll(async()=>page.evaluate(async id=>(await import('/src/generationTasks.ts')).getGenerationTask(id)?.status,ids.a)).toBe('failed');await open(page,'任务甲');await page.getByRole('button',{name:'回复失败，查看详情',exact:true}).click();await expect(page.getByRole('dialog',{name:'回复失败详情'})).toContainText('网络连接失败');await page.getByRole('button',{name:'关闭消息面板',exact:true}).click();expect((await messages(page,ids.a)).map(m=>m.content)).toEqual(['网络失败仍保留']);expect(calls.length).toBe(1);
- await page.getByRole('button',{name:'重试最后一条消息',exact:true}).click();await expect.poll(()=>calls.length).toBe(2);calls[1].release('用户确认重试后完成。');await expect(page.locator('.chat-history')).toContainText('用户确认重试后完成。');expect((await messages(page,ids.a)).filter(m=>m.role==='user')).toHaveLength(1);
+ await page.getByRole('button',{name:'AI 回复',exact:true}).click();await expect.poll(()=>calls.length).toBe(2);calls[1].release('用户确认重试后完成。');await expect(page.locator('.chat-history')).toContainText('用户确认重试后完成。');expect((await messages(page,ids.a)).filter(m=>m.role==='user')).toHaveLength(1);
 });
 
 test('刷新丢失运行进程时显示未确认状态，不重发；明确停止后才能手动恢复',async({page})=>{
  const {ids,calls}=await setup(page);await send(page,'刷新前消息');await expect.poll(()=>calls.length).toBe(1);await page.reload();calls[0].release('旧进程结果');await expect(page.locator('.desktop')).toBeVisible();await page.getByRole('button',{name:'聊天',exact:true}).click();await open(page,'任务甲');await expect(page.locator('.chat-history')).toContainText('请求状态待确认');expect(calls.length).toBe(1);
- await page.getByRole('button',{name:'取消请求',exact:true}).click();await expect(page.getByRole('button',{name:'重试最后一条消息',exact:true})).toBeVisible();expect((await messages(page,ids.a)).map(m=>m.content)).toEqual(['刷新前消息']);expect(calls.length).toBe(1);
+ await page.getByRole('button',{name:'取消请求',exact:true}).click();await expect(page.getByRole('button',{name:'AI 回复',exact:true})).toBeVisible();expect((await messages(page,ids.a)).map(m=>m.content)).toEqual(['刷新前消息']);expect(calls.length).toBe(1);
 });
 
 test('应用级重复启动守卫及历史重新生成仍只保存一个新版本，预览不重复调用',async({page})=>{
@@ -95,7 +95,7 @@ test('保存事务交出的路径身份稳定；后台超时保留用户消息�
 
 test('聊天UI重新生成使用共享任务，停止后仍保留未发送的图片与文字草稿',async({page})=>{
  const {calls}=await setup(page);await send(page,'原消息');await expect.poll(()=>calls.length).toBe(1);calls[0].release('原回复。');await expect(page.locator('.chat-history')).toContainText('原回复。');
- const data=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=c.height=8;return c.toDataURL().split(',')[1];});await page.getByRole('button',{name:'图片附件',exact:true}).click();const chooser=page.waitForEvent('filechooser');await page.getByRole('menuitem',{name:'相册',exact:true}).click();await(await chooser).setFiles({name:'pending.png',mimeType:'image/png',buffer:Buffer.from(data,'base64')});await expect(page.locator('.chat-pending-images img')).toHaveCount(1);await page.getByLabel('聊天消息',{exact:true}).fill('下一条图片草稿');
+ const data=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=c.height=8;return c.toDataURL().split(',')[1];});const chooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'相册',exact:true}).click();await(await chooser).setFiles({name:'pending.png',mimeType:'image/png',buffer:Buffer.from(data,'base64')});await expect(page.locator('.chat-pending-images img')).toHaveCount(1);await page.getByLabel('聊天消息',{exact:true}).fill('下一条图片草稿');
  await page.getByRole('button',{name:'AI 消息操作',exact:true}).press('Enter');await page.getByRole('button',{name:'重新生成',exact:true}).click();await expect.poll(()=>calls.length).toBe(2);await expect(page.locator('.chat-pending-images img')).toHaveCount(1);await page.getByRole('button',{name:'取消请求',exact:true}).click();await expect(page.getByRole('button',{name:'取消请求',exact:true})).toHaveCount(0);calls[1].release('不应保存');await expect(page.locator('.chat-pending-images img')).toHaveCount(1);await expect(page.getByLabel('聊天消息',{exact:true})).toHaveValue('下一条图片草稿');await expect(page.locator('.chat-history')).toContainText('原回复。');expect(calls.length).toBe(2);
 });
 
