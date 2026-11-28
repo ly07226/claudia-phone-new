@@ -30,13 +30,37 @@ async function verifyNodes(rows:ConversationPathNode[]){
 function assertOwner(c:Conversation,t:MemoryTimeline) {
   if((c.mode!=="daily"&&c.mode!=="world")||(c.mode==="daily"&&!!c.worldId)||(c.mode==="world"&&!c.worldId)||t.conversationId!==c.id || t.characterId!==c.characterId || t.spaceId!==timelineSpace(c) || t.worldId!==c.worldId || t.epoch!==(c.timelineEpoch??0) || t.status!=="live")throw Error("时间线作用域或有效期不匹配。");
 }
-// Scope-bounded bulk reads avoid one IndexedDB round trip per parent. Very large
-// branched archives fall back to the original walk rather than loading every branch.
+// The existing compound index exposes parent/fingerprint metadata without
+// deserializing bodies from every branch. Fetch only the selected path's bodies
+// in bounded batches, including when its text exceeds the private cache limit.
 const graphLimit=50000;
-async function scopedGraph(id:string){
- const query=db.pathNodes.where('conversationId').equals(id);if(await query.count()>graphLimit)return;
- const rows:ConversationPathNode[]=[];let chars=0;
- for(let offset=0;;offset+=512){const page=await query.clone().offset(offset).limit(512).toArray();for(const n of page){chars+=n.message?.content?.length??0;if(chars>8*1024*1024)return;rows.push(n);}if(page.length<512)return rows;}
+async function scopedLinks(id:string){
+ if(await db.pathNodes.where('conversationId').equals(id).count()>graphLimit)return;
+ const links=new Map<string,{parent:string;fingerprint:string}>();
+ await db.pathNodes.where('[conversationId+parentNodeId+fingerprint]')
+  .between([id,Dexie.minKey,Dexie.minKey],[id,Dexie.maxKey,Dexie.maxKey],true,true)
+  .eachKey((key,cursor)=>{
+   const [owner,parent,hash]=Array.isArray(key)?key as unknown[]:[],nodeId:unknown=cursor.primaryKey;
+   if(owner!==id||typeof parent!=='string'||typeof hash!=='string'||typeof nodeId!=='string')throw Error('时间线路径元数据无效。');
+   links.set(nodeId,{parent,fingerprint:hash});
+  });
+ return links;
+}
+async function scopedPath(id:string,head:string){
+ const links=await scopedLinks(id);if(!links)return;
+ const ids:string[]=[],seen=new Set<string>();let current=head;
+ while(current){if(seen.has(current))throw Error('时间线路径存在循环。');seen.add(current);const link=links.get(current);if(!link)throw Error('时间线路径断链或跨会话。');ids.push(current);current=link.parent;}
+ const rows:ConversationPathNode[]=[];let deadline=performance.now()+6;
+ for(let start=0;start<ids.length;start+=128){
+  const batch=await db.pathNodes.bulkGet(ids.slice(start,start+128));
+  for(let n=0;n<batch.length;n++){
+   const row=batch[n],key=ids[start+n],link=links.get(key)!;
+   if(!row||row.id!==key||row.parentNodeId!==link.parent||row.fingerprint!==link.fingerprint)throw Error('时间线路径断链或内容发生变化。');
+   nodeShape(row,id);rows.push(row);
+  }
+  if(performance.now()>=deadline){await chatYield();deadline=performance.now()+6;}
+ }
+ return rows;
 }
 function nodeShape(n:ConversationPathNode,id:string){
  if(n.conversationId!==id||typeof n.message?.content!=="string"||!Number.isFinite(n.message.createdAt)||!["user","assistant","system","tool"].includes(n.role)||n.messageId!==n.message.id||n.variantId!==n.message.activeVariantId||n.role!==n.message.role||n.message.conversationId!==id)throw Error("不可变节点内容校验失败。");
@@ -58,9 +82,12 @@ async function verifiedNodes(conversationId:string,head?:string):Promise<Convers
   const seenMessages=new Set<string>();for(const n of tip){const at=committed.messages.get(n.messageId);if(at!==undefined&&at<=prefix||seenMessages.has(n.messageId))throw Error("时间线路径重复消息。");seenMessages.add(n.messageId);}
   rows=prefix===committed.nodes.length-1&&!tip.length?committed.nodes:await immutableChatRows([...committed.nodes.slice(0,prefix+1),...tip.reverse()]);
  }else{
-  const graph=head?await scopedGraph(conversationId):[],index=graph?new Map(graph.map(n=>[n.id,n])):undefined;
-  rows=[];const seen=new Set<string>();let id=head;
-  while(id){if(seen.has(id))throw Error("时间线路径存在循环。");seen.add(id);const n=index?index.get(id):await db.pathNodes.get(id);if(!n||n.conversationId!==conversationId)throw Error("时间线路径断链或跨会话。");nodeShape(n,conversationId);rows.push(n);id=n.parentNodeId;}
+  const scoped=head?await scopedPath(conversationId,head):[];
+  rows=[];
+  if(scoped)rows=scoped;
+  else {const seen=new Set<string>();let id=head;
+   while(id){if(seen.has(id))throw Error("时间线路径存在循环。");seen.add(id);const n=await db.pathNodes.get(id);if(!n||n.conversationId!==conversationId)throw Error("时间线路径断链或跨会话。");nodeShape(n,conversationId);rows.push(n);id=n.parentNodeId;}
+  }
   await verifyNodes(rows);rows.reverse();if(new Set(rows.map(n=>n.messageId)).size!==rows.length)throw Error("时间线路径重复消息。");await immutableChatRows(rows);
  }
  if(tx&&rows.length<=graphLimit&&chatRowChars(rows)<=8*1024*1024)transactionPaths.set(tx,{id:conversationId,head,nodes:rows});
@@ -205,13 +232,17 @@ async function buildNodes(c:Conversation,messages:Message[],prior:ConversationPa
  const equal=sameStoredMessage;
  const fingerprints=await batches(messages,async m=>{const old=byMessage.get(m.id);return old&&equal(old.message,m)?old.fingerprint:messageFingerprint(m);});
  const selected=messages.filter(m=>m.activeVariantId);const variants=await db.messageVariants.bulkGet(selected.map(m=>m.activeVariantId!));selected.forEach((m,i)=>{const v=variants[i];if(!v||v.conversationId!==c.id||v.messageId!==m.id)throw Error('消息版本引用缺失或跨会话。');});
- let candidates:Map<string,ConversationPathNode>|undefined,loaded=false;const key=(parent:string,fingerprint:string)=>JSON.stringify([parent,fingerprint]);
+ let candidates:Map<string,ConversationPathNode|string>|undefined,loaded=false,lookups=0;const key=(parent:string,fingerprint:string)=>JSON.stringify([parent,fingerprint]);
  const fresh:ConversationPathNode[]=[],created:ConversationPathNode[]=[];let parent='';
  let deadline=performance.now()+6;for(let i=0;i<messages.length;i++){if(i%128===0&&performance.now()>=deadline){await chatYield();deadline=performance.now()+6;}
   const m=messages[i],fingerprint=fingerprints[i],old=byMessage.get(m.id);if(m.conversationId!==c.id)throw Error('消息作用域不匹配。');
   let node=old&&old.parentNodeId===parent&&equal(old.message,m)?old:undefined;
-  if(!node){if(!loaded){const graph=await scopedGraph(c.id);if(graph)candidates=new Map(graph.map(n=>[key(n.parentNodeId,n.fingerprint),n]));loaded=true;}
-   node=candidates?candidates.get(key(parent,fingerprint)):await db.pathNodes.where('[conversationId+parentNodeId+fingerprint]').equals([c.id,parent,fingerprint]).first();
+  if(!node){
+   // A normal append needs one indexed miss, not a scan of every branch.
+   // Large rewrites switch to a metadata-only candidate map after 16 lookups.
+   if(!loaded&&++lookups>16){const links=await scopedLinks(c.id);if(links)candidates=new Map([...links].map(([id,n])=>[key(n.parent,n.fingerprint),id]));loaded=true;}
+   const candidate=candidates?.get(key(parent,fingerprint));
+   node=candidates?(typeof candidate==='string'?await db.pathNodes.get(candidate):candidate):await db.pathNodes.where('[conversationId+parentNodeId+fingerprint]').equals([c.id,parent,fingerprint]).first();
    if(node&&!equal(node.message,m))throw Error('不可变节点内容校验失败。');
    if(!node){node={id:crypto.randomUUID(),conversationId:c.id,parentNodeId:parent,messageId:m.id,variantId:m.activeVariantId,role:m.role,message:{...m,archived:false},fingerprint,createdAt:Date.now()};created.push(node);candidates?.set(key(parent,fingerprint),node);}
   }
